@@ -9237,8 +9237,43 @@ def render_sidebar_info():
             try:
                 if "portfolio_snapshot_debug" in st.session_state:
                     debug_info = st.session_state.portfolio_snapshot_debug
-                    import json
-                    st.json(debug_info)
+                    
+                    # Enhanced display with structured sections
+                    if debug_info.get('reason_if_failure'):
+                        st.error(f"**Failure Reason:** {debug_info['reason_if_failure']}")
+                    
+                    # Show exception details if available
+                    if debug_info.get('exception_message'):
+                        with st.expander("🔍 Exception Details", expanded=True):
+                            st.markdown("**Error Message:**")
+                            st.code(debug_info['exception_message'])
+                            
+                            if debug_info.get('exception_traceback'):
+                                st.markdown("**Traceback:**")
+                                st.code(debug_info['exception_traceback'], language='python')
+                    
+                    # Show input summaries
+                    with st.expander("📊 Input Summary", expanded=False):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Price Book Shape", debug_info.get('price_book_shape', 'N/A'))
+                            st.metric("Active Waves", debug_info.get('active_waves_count', 'N/A'))
+                            st.metric("Tickers Requested", debug_info.get('tickers_requested_count', 'N/A'))
+                        with col2:
+                            st.metric("Date Min", debug_info.get('price_book_index_min', 'N/A'))
+                            st.metric("Date Max", debug_info.get('price_book_index_max', 'N/A'))
+                            st.metric("Tickers Found", debug_info.get('tickers_intersection_count', 'N/A'))
+                        
+                        # Show missing tickers if any
+                        missing = debug_info.get('tickers_missing_sample', [])
+                        if missing:
+                            st.markdown("**Missing Tickers (sample):**")
+                            st.caption(', '.join(missing))
+                    
+                    # Show full JSON for power users
+                    with st.expander("🔧 Full Debug JSON", expanded=False):
+                        import json
+                        st.json(debug_info)
                 else:
                     st.text("No portfolio snapshot debug info available yet")
                     st.caption("Navigate to Portfolio View to generate debug data")
@@ -10208,6 +10243,36 @@ def render_executive_brief_tab():
                     # Display warning with failure reason
                     failure_reason = ledger.get('failure_reason', 'Unknown error')
                     st.warning(f"⚠️ Portfolio Snapshot empty because: {failure_reason}")
+                
+                    # Enhanced diagnostics with collapsible details
+                    debug = ledger.get('debug', {})
+                    if debug:
+                        with st.expander("🔍 Show Diagnostic Details", expanded=False):
+                            st.markdown("**Error Details:**")
+                            st.code(failure_reason)
+                            
+                            # Show exception traceback if available
+                            if debug.get('exception_traceback'):
+                                st.markdown("**Exception Traceback:**")
+                                st.code(debug['exception_traceback'], language='python')
+                            
+                            # Show key input summaries
+                            st.markdown("**Input Summary:**")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Price Book Shape", debug.get('price_book_shape', 'N/A'))
+                                st.metric("SPY Present", "✓" if debug.get('spy_present') else "✗")
+                                st.metric("Active Waves", debug.get('active_waves_count', 'N/A'))
+                            with col2:
+                                st.metric("Date Range", f"{debug.get('price_book_index_min', 'N/A')} to {debug.get('price_book_index_max', 'N/A')}")
+                                st.metric("Tickers Requested", debug.get('tickers_requested_count', 'N/A'))
+                                st.metric("Tickers Found", debug.get('tickers_intersection_count', 'N/A'))
+                            
+                            # Show missing tickers sample if available
+                            missing_tickers = debug.get('tickers_missing_sample', [])
+                            if missing_tickers:
+                                st.markdown("**Missing Tickers (sample):**")
+                                st.caption(', '.join(missing_tickers))
                 
                     # Check for specific error conditions
                     if n_dates < 2:
