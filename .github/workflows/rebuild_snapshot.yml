@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [ main ]
-  push:
-    branches: [ main ]
 
 permissions:
   contents: write
@@ -17,7 +15,6 @@ concurrency:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,19 +32,23 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run snapshot
+      - name: Run snapshot (Option A)
         run: |
           python scripts/rebuild_snapshot.py
 
-      # 🚫 Never commit from PRs (detached HEAD)
+      # IMPORTANT:
+      # PR runs should NOT try to commit/push (they are checks only).
       - name: Commit snapshot if changed
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # Add files if they exist; never fail if optional paths are missing
           git add -A data || true
-          git add -A output 2>/dev/null || true
+          if [ -d output ]; then git add -A output || true; fi
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
@@ -55,4 +56,8 @@ jobs:
           fi
 
           git commit -m "Rebuild live snapshot"
-          git push origin HEAD:main
+
+          # Authenticated remote + explicit branch push (avoids detached HEAD failures)
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          BRANCH="${GITHUB_REF_NAME}"
+          git push origin "HEAD:${BRANCH}"
