@@ -23,8 +23,8 @@ import pandas as pd
 
 
 DEFAULT_CACHE_CANDIDATES = [
-    "data/cache/prices_cache_v2.parquet",
-    "data/cache/prices_cache.parquet",
+    "data/cache/prices_cache.parquet",  # Canonical path (first priority)
+    "data/cache/prices_cache_v2.parquet",  # Legacy v2 path (fallback for compatibility)
 ]
 
 

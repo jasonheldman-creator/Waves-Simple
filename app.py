@@ -180,7 +180,7 @@ except ImportError:
     PRICE_CACHE_DEGRADED_DAYS = 30
     STALE_DAYS_THRESHOLD = 30
     DEGRADED_DAYS_THRESHOLD = 14
-    CANONICAL_CACHE_PATH = "data/cache/prices_cache_v2.parquet"
+    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"  # Canonical path
     compute_system_health = None
     get_price_book = None
 
