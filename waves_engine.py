@@ -1643,11 +1643,11 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
     
     # Log diagnostics for Phase 1B.3 filtering (once per run)
     if stablecoins_to_synthesize or macro_indices_to_exclude:
-        logger.info(f"Phase 1B.3 filtering for {wave_name or 'unknown wave'}:")
+        print(f"Phase 1B.3 filtering for ...")
         if stablecoins_to_synthesize:
-            logger.info(f"  Stablecoins (synthetic): {len(stablecoins_to_synthesize)} - {stablecoins_to_synthesize}")
+            print(f"  Stablecoins (synthesized): ...")
         if macro_indices_to_exclude:
-            logger.info(f"  Macro indices (excluded): {len(macro_indices_to_exclude)} - {macro_indices_to_exclude}")
+            print(f"  Macro indices (excluded): ...")
     
     if yf is None:
         print("Error: yfinance is not available in this environment.")
