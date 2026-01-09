@@ -51,12 +51,6 @@ def normalize_ticker(ticker: str) -> Optional[str]:
 # QUICK FIX: Normalize + block bad tickers (prevents yfinance spam / slowdowns)
 # ----------------------------------------------------------------------------
 
-# Permanently ignore these (user request: delete forever)
-BLOCKLIST_TICKERS: Set[str] = {
-    "ALT-USD",
-    "APT-USD",
-}
-
 def normalize_ticker(raw: Any) -> Optional[str]:
     """
     Normalize tickers coming from CSVs / universe sources.
