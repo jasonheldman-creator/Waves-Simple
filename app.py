@@ -16,12 +16,12 @@ FULL MULTI-TAB CONSOLE UI - Post PR #336
 Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
 Includes all analytics, monitoring, and governance features.
 """
-
+import logging
+logger = logging.getLogger(__name__)
 import streamlit as st
 import subprocess
 import os
 import traceback
-import logging
 import time
 import itertools
 import html
