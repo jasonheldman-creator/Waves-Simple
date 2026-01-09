@@ -22,7 +22,10 @@ import streamlit as st
 if "__render_lock__" not in st.session_state:
     st.session_state["__render_lock__"] = True   
 import logging
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
 import subprocess
 import os
 import traceback
