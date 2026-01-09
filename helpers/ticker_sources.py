@@ -377,6 +377,9 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
 
 @conditional_cache(ttl=600)  # Increased TTL to 10 minutes to reduce API stress
 def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
+        ticker = normalize_ticker(ticker)
+    if ticker is None:
+        return {'price': None, 'change_pct': None, 'success': False}
     """
     Get current price and daily % change for a ticker using yfinance.
     Enhanced with circuit breaker and persistent cache for resilience.
