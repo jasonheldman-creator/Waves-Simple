@@ -22,7 +22,9 @@ import time
 import json
 import os
 import logging
-
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
 import numpy as np
 import pandas as pd
 
