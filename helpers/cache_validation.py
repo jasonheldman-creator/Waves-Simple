@@ -216,12 +216,20 @@ def validate_trading_day_freshness(
     # Normalize trading_days to date objects for comparison
     trading_dates = [pd.Timestamp(dt).date() for dt in trading_days]
     
-    # Check if cache_max_date is exactly the last trading day
-    if cache_date_only == trading_date_only:
-        result['valid'] = True
-        logger.info("✓ PASS: Cache is fresh and up-to-date with latest trading day")
-        logger.info("=" * 70)
-        return result
+    # Allow tolerance: cache may be 1 trading day behind last trading day
+prev_trading_date_only = trading_dates[-2] if len(trading_dates) >= 2 else trading_date_only
+
+# PASS if cache matches last trading day OR previous trading day
+if cache_date_only == trading_date_only or cache_date_only == prev_trading_date_only:
+    result['valid'] = True
+
+    if cache_date_only == prev_trading_date_only and cache_date_only != trading_date_only:
+        logger.warning("⚠ PASS: Cache is 1 trading day behind (allowed tolerance).")
+    else:
+        logger.info("✓ PASS: Cache is fresh and matches last trading day.")
+
+    logger.info("=" * 70)
+    return result
     
     # Check if cache_max_date is within the trading days list
     if cache_date_only not in trading_dates:
