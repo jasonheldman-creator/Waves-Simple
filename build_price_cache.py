@@ -6,7 +6,7 @@ or fetches fresh data from yfinance if needed.
 
 It performs the following steps:
 1. Collect all unique tickers from all waves
-2. Load existing price data (if available)
+2. Load existing price data (if available and not force mode)
 3. Identify missing/stale tickers
 4. Fetch missing data from yfinance
 5. Save consolidated cache
@@ -14,8 +14,17 @@ It performs the following steps:
 Usage:
     python build_price_cache.py [--force] [--years 5]
     
-    --force: Force rebuild cache even if it exists
+    --force: Force complete rebuild of cache, disregarding existing contents
+             When used with --years N, fetches full historical data for N years
     --years: Number of years of history to keep (default: 5)
+    
+Build Modes:
+    - INCREMENTAL UPDATE (default): Updates existing cache with missing/stale data
+    - FORCE REBUILD (--force): Complete historical cache rebuild from scratch
+      - Disregards existing cache contents completely
+      - Fetches full historical data for all tickers
+      - Writes completely new cache file
+      - Useful for cache corruption or major data refresh
 """
 
 import os
@@ -394,6 +403,19 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     logger.info("BUILD PRICE CACHE")
     logger.info("=" * 70)
     
+    # Log build mode for auditability
+    if force_rebuild:
+        logger.info("BUILD MODE: FORCE REBUILD - Complete historical cache rebuild")
+        logger.info(f"HISTORICAL RANGE: {years} years from today")
+    else:
+        logger.info("BUILD MODE: INCREMENTAL UPDATE - Updating existing cache")
+    
+    # Calculate date range upfront for logging
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=365 * years)
+    logger.info(f"TARGET DATE RANGE: {start_date.date()} to {end_date.date()}")
+    logger.info("=" * 70)
+    
     # Check if cache exists
     if not force_rebuild and os.path.exists(CACHE_PATH):
         info = get_cache_info()
@@ -413,39 +435,51 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     all_tickers, wave_tickers, benchmark_tickers = collect_all_tickers()
     total_requested = len(all_tickers)
     
-    # Step 2: Load existing price data
-    existing_prices = load_existing_price_files()
-    
-    # Step 3: Load current cache (if exists)
-    current_cache = load_cache()
-    
-    # Merge existing data with current cache
-    if current_cache is not None and not current_cache.empty:
-        logger.info("Merging existing cache...")
-        cache_df = merge_cache_and_new_data(existing_prices, current_cache)
-    else:
-        cache_df = existing_prices
-    
-    # Step 4: Identify missing tickers
-    if cache_df is not None and not cache_df.empty:
-        available_tickers = set(cache_df.columns)
-        missing_tickers = [t for t in all_tickers if t not in available_tickers or cache_df[t].isna().all()]
-    else:
-        missing_tickers = all_tickers
+    # Step 2 & 3: Handle force rebuild vs incremental update differently
+    if force_rebuild:
+        # FORCE REBUILD: Completely disregard existing cache contents
+        logger.info("=" * 70)
+        logger.info("FORCE REBUILD: Disregarding existing cache contents")
+        logger.info("=" * 70)
         cache_df = pd.DataFrame()
-    
-    logger.info(f"Missing tickers: {len(missing_tickers)}/{len(all_tickers)}")
+        missing_tickers = all_tickers  # Fetch all tickers from scratch
+        logger.info(f"Will fetch ALL {len(all_tickers)} tickers for complete rebuild")
+    else:
+        # INCREMENTAL UPDATE: Use existing cache as base
+        logger.info("=" * 70)
+        logger.info("INCREMENTAL UPDATE: Loading existing cache")
+        logger.info("=" * 70)
+        
+        # Step 2: Load existing price data
+        existing_prices = load_existing_price_files()
+        
+        # Step 3: Load current cache (if exists)
+        current_cache = load_cache()
+        
+        # Merge existing data with current cache
+        if current_cache is not None and not current_cache.empty:
+            logger.info("Merging existing cache...")
+            cache_df = merge_cache_and_new_data(existing_prices, current_cache)
+        else:
+            cache_df = existing_prices
+        
+        # Step 4: Identify missing tickers
+        if cache_df is not None and not cache_df.empty:
+            available_tickers = set(cache_df.columns)
+            missing_tickers = [t for t in all_tickers if t not in available_tickers or cache_df[t].isna().all()]
+        else:
+            missing_tickers = all_tickers
+            cache_df = pd.DataFrame()
+        
+        logger.info(f"Missing tickers: {len(missing_tickers)}/{len(all_tickers)}")
     
     # Step 5: Fetch missing data (if network is available)
     all_failures = {}
     if missing_tickers:
-        logger.info("Attempting to fetch missing tickers from yfinance...")
-        
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365 * years)
-        
-        logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
+        logger.info("=" * 70)
+        logger.info(f"FETCHING DATA FOR {len(missing_tickers)} TICKERS")
+        logger.info(f"Date range for fetch: {start_date.date()} to {end_date.date()}")
+        logger.info("=" * 70)
         
         # Fetch in batches
         all_new_data = []
@@ -540,6 +574,10 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info("=" * 70)
         logger.info("CACHE BUILD SUMMARY")
         logger.info("=" * 70)
+        logger.info(f"  Build mode: {'FORCE REBUILD' if force_rebuild else 'INCREMENTAL UPDATE'}")
+        logger.info(f"  Target date range: {start_date.date()} to {end_date.date()}")
+        logger.info(f"  Years of history: {years}")
+        logger.info("")
         logger.info(f"  Path: {info['path']}")
         logger.info(f"  Size: {info['size_mb']:.2f} MB")
         logger.info(f"  Tickers: {info['num_tickers']}")
