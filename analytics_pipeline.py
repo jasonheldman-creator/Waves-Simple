@@ -1196,10 +1196,10 @@ def compute_data_ready_status_from_cache(wave_id: str) -> Dict[str, Any]:
             MAX_STALE_DAYS
         )
         PRICE_LOADER_AVAILABLE = True
-    except ImportError:
+    except ImportError as e:
         PRICE_LOADER_AVAILABLE = False
-        logger.warning("Price loader not available, falling back to old method")
-        return compute_data_ready_status(wave_id)
+        logger.exception("Price loader import failed - full exception details below:")
+        raise
     
     # Initialize response
     result = {
