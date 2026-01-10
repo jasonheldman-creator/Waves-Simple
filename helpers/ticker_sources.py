@@ -1,57 +1,65 @@
 """
-V3/V4 COMPAT: Bottom Ticker (Institutional Rail) - Data Sources
+ticker_sources.py (helpers)
+
+Data sources for the bottom ticker / quick spot quotes.
 
 Goals:
-- Keep ONE canonical BLOCKLIST_TICKERS (no duplicates)
-- Provide normalize_ticker() used across the app
-- Provide compatibility functions that other modules likely import:
-  - filter_and_normalize_tickers
-  - get_wave_holdings_tickers
-  - get_ticker_price_data
-  - get_earnings_date
-  - get_fed_indicators
-  - get_waves_status
-  - load_events_cache / save_events_cache / update_cache_with_current_data
-  - get_ticker_health_status / test_ticker_fetch
-- Use Streamlit cache if available, otherwise no-op.
-- Use resilience helpers (circuit_breaker/persistent_cache) if available, otherwise degrade gracefully.
-
-NOTE: This module can work without Streamlit, but will use Streamlit caching if available.
+- NEVER break the app if Yahoo/yfinance fails
+- Normalize tickers (strip whitespace, remove leading '$', uppercase)
+- Avoid known-bad Yahoo symbols that cause repeated 404 / quoteSummary errors
+- Keep logic self-contained and safe if Streamlit or resilience modules are missing
 """
+
+from __future__ import annotations
 
 import os
 import json
 import logging
-import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Optional, Set, Any
+from typing import Any, Dict, List, Optional, Set
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# --------------------------------------------------------------------
-# Optional Streamlit support
-# --------------------------------------------------------------------
+# -----------------------------
+# Optional Streamlit caching
+# -----------------------------
 try:
-    import streamlit as st
+    import streamlit as st  # type: ignore
     STREAMLIT_AVAILABLE = True
-except ImportError:
+except Exception:
     STREAMLIT_AVAILABLE = False
 
-# --------------------------------------------------------------------
-# Optional resilience infrastructure
-# --------------------------------------------------------------------
+def conditional_cache(ttl: int = 300):
+    """Use st.cache_data if available; otherwise no-op decorator."""
+    def decorator(func):
+        if STREAMLIT_AVAILABLE:
+            try:
+                return st.cache_data(ttl=ttl)(func)  # type: ignore
+            except Exception:
+                return func
+        return func
+    return decorator
+
+# -----------------------------
+# Optional resilience helpers
+# -----------------------------
 try:
-    from .circuit_breaker import get_circuit_breaker
-    from .persistent_cache import get_persistent_cache
+    from .circuit_breaker import get_circuit_breaker  # type: ignore
+    from .persistent_cache import get_persistent_cache  # type: ignore
     RESILIENCE_AVAILABLE = True
-except ImportError:
+except Exception:
     RESILIENCE_AVAILABLE = False
 
 
-# ====================================================================
-# BLOCKLIST — SINGLE SOURCE OF TRUTH (KEEP THIS ONE ONLY)
-# ====================================================================
+# ============================================================================
+# QUICK FIX: Normalize + block known-bad tickers
+# ============================================================================
 
+# These symbols are frequently invalid on Yahoo/yfinance in this app context and
+# cause repeated HTTP 404 / quoteSummary errors. We do NOT want them spamming logs
+# or triggering retry/circuit behavior.
 BLOCKLIST_TICKERS: Set[str] = {
     "COMP-USD",
     "ALT-USD",
@@ -61,28 +69,18 @@ BLOCKLIST_TICKERS: Set[str] = {
     "APT-USD",
 }
 
-
-# ====================================================================
-# TICKER NORMALIZATION
-# ====================================================================
-
 def normalize_ticker(raw: Any) -> Optional[str]:
     """
     Normalize tickers coming from CSVs / universes / inputs.
-
     - Strips whitespace
-    - Removes leading '$'
-    - Uppercases
-    - Drops blocklisted or invalid tickers (returns None)
+    - Removes leading '$' (e.g., '$APT-USD' -> 'APT-USD')
+    - Uppercases result
+    - Returns None if empty/invalid or blocklisted
     """
     if raw is None:
         return None
 
-    try:
-        t = str(raw).strip().upper()
-    except Exception:
-        return None
-
+    t = str(raw).strip().upper()
     if not t:
         return None
 
@@ -98,14 +96,16 @@ def normalize_ticker(raw: Any) -> Optional[str]:
 
     return t
 
+def _is_probably_crypto_pair(t: str) -> bool:
+    # Most of your problematic ones are like APT-USD, COMP-USD etc.
+    # We treat any *-USD as crypto pair in the bottom ticker context.
+    return t.endswith("-USD")
 
 def filter_and_normalize_tickers(tickers: List[Any]) -> List[str]:
-    """
-    Compatibility helper: normalize a list of tickers and drop blocklisted/invalid/dupes.
-    """
+    """Normalize tickers and drop duplicates / invalid / blocklisted."""
     seen: Set[str] = set()
     out: List[str] = []
-    for raw in tickers or []:
+    for raw in tickers:
         t = normalize_ticker(raw)
         if not t:
             continue
@@ -116,78 +116,78 @@ def filter_and_normalize_tickers(tickers: List[Any]) -> List[str]:
     return out
 
 
-# ====================================================================
-# CONDITIONAL CACHE DECORATOR
-# ====================================================================
-
-def conditional_cache(ttl=300):
-    def decorator(func):
-        if STREAMLIT_AVAILABLE:
-            return st.cache_data(ttl=ttl)(func)
-        return func
-    return decorator
-
-
-# ====================================================================
-# SECTION 1: HOLDINGS / UNIVERSE TICKERS
-# ====================================================================
-
-def _default_tickers() -> List[str]:
-    return ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "TSLA", "JPM", "V", "WMT", "JNJ"]
-
+# ============================================================================
+# SECTION 1: Holdings Data Extraction (for bottom ticker list)
+# ============================================================================
 
 @conditional_cache(ttl=300)
 def get_wave_holdings_tickers(
     max_tickers: int = 60,
-    top_n_per_wave: int = 5,   # kept for compat, not strictly used here
-    active_waves_only: bool = True
+    active_only: bool = True,
 ) -> List[str]:
     """
-    Extract tickers from universal_universe.csv (preferred).
-    Falls back to defaults if file missing/unreadable.
+    Pull a safe ticker list for the bottom tape.
+
+    IMPORTANT: This does NOT drive your canonical price cache.
+    This is just the bottom ticker / spot-quote ribbon.
     """
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))
-        universe_path = os.path.join(base_dir, "universal_universe.csv")
 
+        # Canonical universe (as used by your repo)
+        universe_path = os.path.join(base_dir, "universal_universe.csv")
         if not os.path.exists(universe_path):
-            logger.warning(f"universal_universe.csv not found at {universe_path}")
+            logger.warning(f"universal_universe.csv not found: {universe_path}")
             return _default_tickers()
 
         df = pd.read_csv(universe_path)
 
-        if "status" in df.columns:
-            df = df[df["status"] == "active"]
+        # Keep active only if the column exists
+        if active_only and "status" in df.columns:
+            df = df[df["status"].astype(str).str.lower() == "active"]
 
         if "ticker" not in df.columns:
             logger.warning("universal_universe.csv missing 'ticker' column")
             return _default_tickers()
 
-        tickers = df["ticker"].dropna().tolist()
+        tickers = df["ticker"].dropna().astype(str).tolist()
         tickers = filter_and_normalize_tickers(tickers)
+
+        # Bottom ticker should NOT include crypto pairs (they are causing 404 spam)
+        tickers = [t for t in tickers if not _is_probably_crypto_pair(t)]
+        tickers = tickers[:max_tickers] if max_tickers else tickers
 
         if not tickers:
             return _default_tickers()
 
-        return tickers[:max_tickers] if max_tickers else tickers
+        logger.info(f"Loaded {len(tickers)} bottom-ticker symbols from universal_universe.csv")
+        return tickers
 
     except Exception as e:
-        logger.error(f"get_wave_holdings_tickers failed: {e}")
+        logger.warning(f"get_wave_holdings_tickers failed: {e}")
         return _default_tickers()
 
+def _default_tickers() -> List[str]:
+    return ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "TSLA"]
 
-# ====================================================================
-# SECTION 2: PRICE DATA
-# ====================================================================
+
+# ============================================================================
+# SECTION 2: PRICE DATA (spot quote)
+# ============================================================================
 
 def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]:
     """
     One-shot yfinance fetch (no retries in here).
     """
-    import yfinance as yf
+    import yfinance as yf  # type: ignore
 
     t = normalize_ticker(ticker)
     if t is None:
+        return {"price": None, "change_pct": None, "success": False}
+
+    # Hard stop on crypto pairs to prevent endless 404 spam in logs
+    if _is_probably_crypto_pair(t):
+        logger.warning(f"[TICKER BLOCKED - CRYPTO PAIR] {t}")
         return {"price": None, "change_pct": None, "success": False}
 
     try:
@@ -199,10 +199,12 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
 
         current = float(hist["Close"].iloc[-1])
         prev = float(hist["Close"].iloc[-2])
-        change = ((current - prev) / prev) * 100 if prev else 0.0
+        change_pct = ((current - prev) / prev) * 100.0 if prev else 0.0
 
-        return {"price": current, "change_pct": change, "success": True}
-    except Exception:
+        return {"price": current, "change_pct": change_pct, "success": True}
+
+    except Exception as e:
+        # Do NOT raise; just fail quietly
         logger.debug(f"yfinance fetch failed for {t}: {e}")
         return {"price": None, "change_pct": None, "success": False}
 
@@ -210,15 +212,18 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
 @conditional_cache(ttl=600)
 def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
     """
-    Cached price lookup with optional persistent cache + circuit breaker.
+    Spot quote with optional circuit breaker + persistent cache.
+    Never throw; never loop.
     """
     t = normalize_ticker(ticker)
     if t is None:
         return {"price": None, "change_pct": None, "success": False}
 
-    failure = {"price": None, "change_pct": None, "success": False}
+    if _is_probably_crypto_pair(t):
+        logger.warning(f"[TICKER BLOCKED - CRYPTO PAIR] {t}")
+        return {"price": None, "change_pct": None, "success": False}
 
-    # Persistent cache first
+    # Try persistent cache if available
     if RESILIENCE_AVAILABLE:
         try:
             cache = get_persistent_cache()
@@ -229,114 +234,29 @@ def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
         except Exception:
             pass
 
-        # Circuit breaker guarded call
         try:
             cb = get_circuit_breaker("yfinance_ticker", failure_threshold=5, recovery_timeout=60)
             success, result, _err = cb.call(_fetch_ticker_price_data_internal, t)
-
-            if success and result:
+            if success and isinstance(result, dict):
                 try:
                     cache = get_persistent_cache()
                     cache.set(f"ticker_price:{t}", result, ttl=600)
                 except Exception:
                     pass
                 return result
-
-            return failure
+            return {"price": None, "change_pct": None, "success": False}
         except Exception:
-            return failure
+            return {"price": None, "change_pct": None, "success": False}
 
-    # No resilience available
+    # Non-resilient fallback
     return _fetch_ticker_price_data_internal(t)
 
 
-# ====================================================================
-# SECTION 3: EARNINGS
-# ====================================================================
+# ============================================================================
+# SECTION 3: EVENTS CACHE (optional)
+# ============================================================================
 
-@conditional_cache(ttl=3600)
-def get_earnings_date(ticker: str) -> Optional[str]:
-    """
-    Best-effort earnings date via yfinance.calendar
-    """
-    import yfinance as yf
-
-    t = normalize_ticker(ticker)
-    if t is None:
-        return None
-
-    try:
-        cal = yf.Ticker(t).calendar
-        if cal is not None and not cal.empty and "Earnings Date" in cal.index:
-            d = cal.loc["Earnings Date"]
-            if hasattr(d, "strftime"):
-                return d.strftime("%Y-%m-%d")
-            if isinstance(d, str):
-                return d
-        return None
-    except Exception:
-        return None
-
-
-# ====================================================================
-# SECTION 4: FED / MACRO
-# ====================================================================
-
-@conditional_cache(ttl=86400)
-def get_fed_indicators() -> Dict[str, Optional[str]]:
-    """
-    Hardcoded (safe) macro placeholders — avoids paid APIs.
-    """
-    try:
-        now = datetime.now()
-
-        fomc_dates = [
-            datetime(2025, 1, 29),
-            datetime(2025, 3, 19),
-            datetime(2025, 5, 7),
-            datetime(2025, 6, 18),
-            datetime(2025, 7, 30),
-            datetime(2025, 9, 17),
-            datetime(2025, 10, 29),
-            datetime(2025, 12, 10),
-        ]
-
-        next_fomc = next((d for d in fomc_dates if d > now), None)
-
-        return {
-            "fed_funds_rate": "4.25–4.50%",
-            "next_fomc_date": next_fomc.strftime("%Y-%m-%d") if next_fomc else None,
-            "cpi_latest": "Dec 2024",
-            "jobs_latest": "Dec 2024",
-        }
-    except Exception:
-        return {"fed_funds_rate": "N/A", "next_fomc_date": None, "cpi_latest": "N/A", "jobs_latest": "N/A"}
-
-
-# ====================================================================
-# SECTION 5: WAVES INTERNAL STATUS
-# ====================================================================
-
-def get_waves_status() -> Dict[str, str]:
-    """
-    Minimal internal status for UI.
-    """
-    try:
-        current_time = datetime.now().strftime("%H:%M:%S")
-        if STREAMLIT_AVAILABLE:
-            waves_loaded = "ACTIVE" if st.session_state.get("wave_universe") else "LOADING"
-        else:
-            waves_loaded = "N/A"
-        return {"system_status": "ONLINE", "last_update": current_time, "waves_status": waves_loaded}
-    except Exception:
-        return {"system_status": "ONLINE", "last_update": "N/A", "waves_status": "N/A"}
-
-
-# ====================================================================
-# SECTION 6: CACHE MANAGEMENT (events_cache.json)
-# ====================================================================
-
-def load_events_cache() -> Dict:
+def load_events_cache() -> Dict[str, Any]:
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))
         cache_path = os.path.join(base_dir, "data", "events_cache.json")
@@ -347,8 +267,7 @@ def load_events_cache() -> Dict:
     except Exception:
         return {}
 
-
-def save_events_cache(cache_data: Dict) -> bool:
+def save_events_cache(cache_data: Dict[str, Any]) -> bool:
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))
         cache_path = os.path.join(base_dir, "data", "events_cache.json")
@@ -360,88 +279,19 @@ def save_events_cache(cache_data: Dict) -> bool:
         return False
 
 
-def update_cache_with_current_data() -> None:
-    try:
-        fed_data = get_fed_indicators()
-        waves_status = get_waves_status()
-        cache_data = {
-            "last_updated": datetime.now().isoformat(),
-            "fed_indicators": fed_data,
-            "waves_status": waves_status,
-        }
-        save_events_cache(cache_data)
-    except Exception:
-        pass
-
-
-# ====================================================================
-# SECTION 7: DATA HEALTH TRACKING
-# ====================================================================
-
-def get_ticker_health_status() -> Dict[str, Any]:
-    """
-    Compatibility health function used by some diagnostics panels.
-    """
-    health: Dict[str, Any] = {
-        "timestamp": datetime.now().isoformat(),
-        "resilience_available": RESILIENCE_AVAILABLE,
-        "circuit_breakers": {},
-        "cache_stats": {},
-        "overall_status": "unknown",
-    }
-
-    if not RESILIENCE_AVAILABLE:
-        health["overall_status"] = "healthy"
-        return health
-
-    # Circuit breaker states (best effort)
-    try:
-        from .circuit_breaker import get_all_circuit_states
-        states = get_all_circuit_states()
-        health["circuit_breakers"] = states
-
-        open_count = 0
-        for _name, state in (states or {}).items():
-            if isinstance(state, dict) and state.get("state") == "open":
-                open_count += 1
-
-        health["overall_status"] = "degraded" if open_count > 0 else "healthy"
-    except Exception as e:
-        health["circuit_breakers"] = {"error": str(e)}
-        health["overall_status"] = "unknown"
-
-    # Persistent cache stats (best effort)
-    try:
-        cache = get_persistent_cache()
-        if hasattr(cache, "get_stats"):
-            health["cache_stats"] = cache.get_stats()
-    except Exception as e:
-        health["cache_stats"] = {"error": str(e)}
-
-    return health
-
+# ============================================================================
+# SECTION 4: HEALTH / TEST
+# ============================================================================
 
 def test_ticker_fetch(ticker: str = "AAPL") -> Dict[str, Any]:
     import time
-
-    result = {
+    start = time.time()
+    data = get_ticker_price_data(ticker)
+    latency = (time.time() - start) * 1000.0
+    return {
         "ticker": ticker,
         "timestamp": datetime.now().isoformat(),
-        "success": False,
-        "latency_ms": 0,
-        "data": None,
-        "error": None,
+        "latency_ms": round(latency, 2),
+        "success": bool(data.get("success", False)),
+        "data": data,
     }
-
-    try:
-        start = time.time()
-        data = get_ticker_price_data(ticker)
-        latency = (time.time() - start) * 1000
-        result["latency_ms"] = round(latency, 2)
-        result["data"] = data
-        result["success"] = bool(data.get("success", False))
-    except Exception as e:
-        result["error"] = str(e)
-        result["success"] = False
-
-    return result
