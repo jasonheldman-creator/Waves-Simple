@@ -1,0 +1,262 @@
+{
+  "timestamp": "2026-01-10T11:38:48.975505",
+  "total_waves": 23,
+  "waves_meeting_threshold": 23,
+  "waves_below_threshold": 0,
+  "min_coverage_threshold": 0.9,
+  "waves": [
+    {
+      "wave": "AI & Cloud MegaCap Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 0.78,
+      "available_weight": 0.78,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Clean Transit-Infrastructure Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Crypto AI Growth Wave",
+      "total_tickers": 6,
+      "available_tickers": 6,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Crypto Broad Growth Wave",
+      "total_tickers": 8,
+      "available_tickers": 8,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Crypto DeFi Growth Wave",
+      "total_tickers": 8,
+      "available_tickers": 8,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Crypto Income Wave",
+      "total_tickers": 8,
+      "available_tickers": 8,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Crypto L1 Growth Wave",
+      "total_tickers": 8,
+      "available_tickers": 8,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Crypto L2 Growth Wave",
+      "total_tickers": 6,
+      "available_tickers": 6,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Demas Fund Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "EV & Infrastructure Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Future Energy & EV Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 0.8999999999999999,
+      "available_weight": 0.8999999999999999,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Future Power & Energy Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Gold Wave",
+      "total_tickers": 2,
+      "available_tickers": 2,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Infinity Multi-Asset Growth Wave",
+      "total_tickers": 9,
+      "available_tickers": 9,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0000000000000002,
+      "available_weight": 1.0000000000000002,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Next-Gen Compute & Semis Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 0.8400000000000001,
+      "available_weight": 0.8400000000000001,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Quantum Computing Wave",
+      "total_tickers": 8,
+      "available_tickers": 8,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "S&P 500 Wave",
+      "total_tickers": 1,
+      "available_tickers": 1,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Small Cap Growth Wave",
+      "total_tickers": 4,
+      "available_tickers": 4,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Small to Mid Cap Growth Wave",
+      "total_tickers": 5,
+      "available_tickers": 5,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "US MegaCap Core Wave",
+      "total_tickers": 10,
+      "available_tickers": 10,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 0.45000000000000007,
+      "available_weight": 0.45000000000000007,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "US Mid/Small Growth & Semis Wave",
+      "total_tickers": 4,
+      "available_tickers": 4,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "US Small-Cap Disruptors Wave",
+      "total_tickers": 6,
+      "available_tickers": 6,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 0.9999999999999999,
+      "available_weight": 0.9999999999999999,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    },
+    {
+      "wave": "Vector Muni Ladder Wave",
+      "total_tickers": 5,
+      "available_tickers": 5,
+      "missing_tickers": 0,
+      "missing_ticker_list": [],
+      "total_weight": 1.0,
+      "available_weight": 1.0,
+      "coverage_pct": 1.0,
+      "meets_threshold": true
+    }
+  ]
+}
