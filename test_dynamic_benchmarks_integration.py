@@ -11,6 +11,7 @@ Tests that:
 
 import os
 import sys
+import json
 import pytest
 import pandas as pd
 import numpy as np
@@ -66,12 +67,38 @@ def benchmark_specs():
     return load_dynamic_benchmark_specs()
 
 
-def test_benchmark_specs_loaded(benchmark_specs):
-    """Test that benchmark specs file loads successfully."""
+@pytest.fixture(scope="module")
+def wave_registry():
+    """Fixture to load wave registry once for all tests."""
+    registry_path = os.path.join(
+        os.path.dirname(__file__),
+        "config", "wave_registry.json"
+    )
+    with open(registry_path, 'r') as f:
+        return json.load(f)
+
+
+def test_benchmark_specs_loaded(benchmark_specs, wave_registry):
+    """Test that benchmark specs file loads successfully and matches registry."""
     assert benchmark_specs is not None, "Benchmark specs should load"
     assert "benchmarks" in benchmark_specs, "Specs should have benchmarks key"
     assert "version" in benchmark_specs, "Specs should have version"
-    assert len(benchmark_specs["benchmarks"]) == 10, "Should have 10 equity wave benchmarks"
+    
+    # Build a set of valid wave_ids from the registry
+    registry_wave_ids = {wave["wave_id"] for wave in wave_registry["waves"]}
+    
+    # Validate that all wave_ids in benchmarks exist in the registry
+    benchmark_wave_ids = set(benchmark_specs["benchmarks"].keys())
+    invalid_wave_ids = benchmark_wave_ids - registry_wave_ids
+    assert len(invalid_wave_ids) == 0, \
+        f"Benchmark wave_ids not in registry: {invalid_wave_ids}"
+    
+    # Dynamically derive expected count from equity_benchmarks.json
+    expected_count = len(benchmark_specs["benchmarks"])
+    actual_count = len(benchmark_wave_ids)
+    
+    assert actual_count == expected_count, \
+        f"Benchmark count mismatch: expected {expected_count}, got {actual_count}"
 
 
 def test_sp500_excluded_from_dynamic_benchmarks(benchmark_specs):
