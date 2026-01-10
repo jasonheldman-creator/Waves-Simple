@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
+    inputs:
+      years:
+        description: 'How many years of history to include in the price cache'
+        required: false
+        default: '10'
+        type: string
 
 permissions:
   contents: write
@@ -75,7 +81,7 @@ jobs:
           MIN_SUCCESS_RATE: ${{ env.MIN_SUCCESS_RATE }}
         run: |
           echo "=== Building Price Cache ==="
-          python build_price_cache.py --force --skip-validation
+          python build_price_cache.py --force --skip-validation --years ${{ github.event.inputs.years || '10' }}
 
       - name: Validate cache file and contents
         run: |
