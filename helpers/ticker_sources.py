@@ -203,6 +203,7 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
 
         return {"price": current, "change_pct": change, "success": True}
     except Exception:
+        logger.debug(f"yfinance fetch failed for {t}: {e}")
         return {"price": None, "change_pct": None, "success": False}
 
 
