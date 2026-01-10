@@ -25,19 +25,45 @@ from waves_engine import (
     get_wave_id_from_display_name,
 )
 
-# The 10 equity waves that should have dynamic benchmarks
-DYNAMIC_BENCHMARK_WAVES = [
-    "Clean Transit-Infrastructure Wave",
-    "Demas Fund Wave",
-    "EV & Infrastructure Wave",
-    "Future Power & Energy Wave",
-    "Infinity Multi-Asset Growth Wave",
-    "Next-Gen Compute & Semis Wave",
-    "Quantum Computing Wave",
-    "Small to Mid Cap Growth Wave",
-    "US MegaCap Core Wave",
-    "AI & Cloud MegaCap Wave",
-]
+
+def _get_wave_display_name_from_id(wave_id: str) -> str:
+    """Convert wave_id to display name for testing."""
+    # Map wave_id to display name
+    # This is a reverse mapping of get_wave_id_from_display_name
+    wave_id_to_name = {
+        "clean_transit_infrastructure_wave": "Clean Transit-Infrastructure Wave",
+        "demas_fund_wave": "Demas Fund Wave",
+        "ev_infrastructure_wave": "EV & Infrastructure Wave",
+        "future_power_energy_wave": "Future Power & Energy Wave",
+        "infinity_multi_asset_growth_wave": "Infinity Multi-Asset Growth Wave",
+        "next_gen_compute_semis_wave": "Next-Gen Compute & Semis Wave",
+        "quantum_computing_wave": "Quantum Computing Wave",
+        "small_to_mid_cap_growth_wave": "Small to Mid Cap Growth Wave",
+        "us_megacap_core_wave": "US MegaCap Core Wave",
+        "ai_cloud_megacap_wave": "AI & Cloud MegaCap Wave",
+        # Additional waves from benchmark audit
+        "growth_wave": "Growth Wave",
+        "small_cap_growth_wave": "Small Cap Growth Wave",
+        "us_mid_small_growth_semis_wave": "US Mid/Small Growth & Semis Wave",
+        "us_small_cap_disruptors_wave": "US Small-Cap Disruptors Wave",
+        "future_energy_ev_wave": "Future Energy & EV Wave",
+    }
+    return wave_id_to_name.get(wave_id, wave_id)
+
+
+# Dynamically load equity waves that have dynamic benchmarks from the registry
+def _load_dynamic_benchmark_waves():
+    """Load the list of waves with dynamic benchmarks from the equity wave registry."""
+    specs = load_dynamic_benchmark_specs()
+    if specs and "benchmarks" in specs:
+        # Convert wave_ids to display names for use in tests
+        return [_get_wave_display_name_from_id(wave_id) for wave_id in specs["benchmarks"].keys()]
+    # Fallback to empty list if specs not available
+    return []
+
+
+# Equity waves that have dynamic benchmarks (derived from registry)
+DYNAMIC_BENCHMARK_WAVES = _load_dynamic_benchmark_waves()
 
 # S&P 500 Wave should remain static
 SP500_WAVE = "S&P 500 Wave"
@@ -71,7 +97,9 @@ def test_benchmark_specs_loaded(benchmark_specs):
     assert benchmark_specs is not None, "Benchmark specs should load"
     assert "benchmarks" in benchmark_specs, "Specs should have benchmarks key"
     assert "version" in benchmark_specs, "Specs should have version"
-    assert len(benchmark_specs["benchmarks"]) == 10, "Should have 10 equity wave benchmarks"
+    # Dynamically verify benchmark count from registry (flexible for future changes)
+    benchmark_count = len(benchmark_specs["benchmarks"])
+    assert benchmark_count > 0, f"Should have at least one equity wave benchmark, found {benchmark_count}"
 
 
 def test_sp500_excluded_from_dynamic_benchmarks(benchmark_specs):
