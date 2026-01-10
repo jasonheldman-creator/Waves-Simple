@@ -154,7 +154,7 @@ except ImportError:
 try:
     from helpers.operator_toolbox import (
         get_data_health_metadata,
-        rebuild_price_cache,
+        rebuild_price_cache as rebuild_price_cache_toolbox,
         rebuild_wave_history,
         run_self_test,
         force_ledger_recompute
@@ -8077,7 +8077,7 @@ def render_sidebar_info():
             if st.button("🔨 Rebuild Price Cache (price_book)", key="toolbox_rebuild_price_cache", use_container_width=True):
                 try:
                     with st.spinner("Rebuilding price cache... (this may take a few minutes)"):
-                        success, message = rebuild_price_cache()
+                        success, message = rebuild_price_cache_toolbox()
                     
                     if success:
                         st.success(message)

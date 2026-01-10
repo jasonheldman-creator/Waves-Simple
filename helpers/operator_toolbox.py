@@ -275,14 +275,16 @@ def rebuild_wave_history() -> Tuple[bool, str]:
             # prices.csv format: date, ticker, close
             
             # Use pd.melt for efficient reshaping
+            # Reset index and explicitly rename the index column to 'date'
             price_data_reset = price_data.reset_index()
+            price_data_reset = price_data_reset.rename(columns={price_data_reset.columns[0]: 'date'})
+            
             prices_long_df = pd.melt(
                 price_data_reset,
-                id_vars=['index'],
+                id_vars=['date'],
                 var_name='ticker',
                 value_name='close'
             )
-            prices_long_df = prices_long_df.rename(columns={'index': 'date'})
             
             # Remove NaN values
             prices_long_df = prices_long_df.dropna(subset=['close'])
@@ -418,14 +420,16 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             prices_csv_path = os.path.join(os.getcwd(), 'data', 'prices.csv')
             
             # Convert price_book (wide format) to prices.csv (long format: date,ticker,close)
+            # Reset index and explicitly rename the index column to 'date'
             price_data_reset = price_data.reset_index()
+            price_data_reset = price_data_reset.rename(columns={price_data_reset.columns[0]: 'date'})
+            
             prices_long_df = pd.melt(
                 price_data_reset,
-                id_vars=['index'],
+                id_vars=['date'],
                 var_name='ticker',
                 value_name='close'
             )
-            prices_long_df = prices_long_df.rename(columns={'index': 'date'})
             
             # Remove NaN values
             prices_long_df = prices_long_df.dropna(subset=['close'])
