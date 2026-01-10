@@ -70,6 +70,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Build mode constants
+BUILD_MODE_FORCE_REBUILD = "FORCE REBUILD"
+BUILD_MODE_INCREMENTAL_UPDATE = "INCREMENTAL UPDATE"
+
 # Metadata file path
 METADATA_PATH = os.path.join(CACHE_DIR, "prices_cache_meta.json")
 
@@ -403,12 +407,15 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     logger.info("BUILD PRICE CACHE")
     logger.info("=" * 70)
     
+    # Determine build mode
+    build_mode = BUILD_MODE_FORCE_REBUILD if force_rebuild else BUILD_MODE_INCREMENTAL_UPDATE
+    
     # Log build mode for auditability
     if force_rebuild:
-        logger.info("BUILD MODE: FORCE REBUILD - Complete historical cache rebuild")
+        logger.info(f"BUILD MODE: {build_mode} - Complete historical cache rebuild")
         logger.info(f"HISTORICAL RANGE: {years} years from today")
     else:
-        logger.info("BUILD MODE: INCREMENTAL UPDATE - Updating existing cache")
+        logger.info(f"BUILD MODE: {build_mode} - Updating existing cache")
     
     # Calculate date range upfront for logging
     end_date = datetime.now()
@@ -416,7 +423,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     logger.info(f"TARGET DATE RANGE: {start_date.date()} to {end_date.date()}")
     logger.info("=" * 70)
     
-    # Check if cache exists
+    # Check if cache exists (only prompt in non-force mode)
     if not force_rebuild and os.path.exists(CACHE_PATH):
         info = get_cache_info()
         logger.info(f"Cache already exists:")
@@ -435,28 +442,23 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     all_tickers, wave_tickers, benchmark_tickers = collect_all_tickers()
     total_requested = len(all_tickers)
     
-    # Step 2 & 3: Handle force rebuild vs incremental update differently
+    # Step 2 & 3: Load existing data (shared function for both modes)
+    logger.info("=" * 70)
+    logger.info(f"{build_mode}: {'Disregarding' if force_rebuild else 'Loading'} existing cache")
+    logger.info("=" * 70)
+    
+    # Load existing price data and cache (even in force mode for potential reuse)
+    existing_prices = load_existing_price_files()
+    current_cache = load_cache()
+    
+    # Determine starting point based on mode
     if force_rebuild:
-        # FORCE REBUILD: Completely disregard existing cache contents
-        logger.info("=" * 70)
-        logger.info("FORCE REBUILD: Disregarding existing cache contents")
-        logger.info("=" * 70)
+        # FORCE REBUILD: Start with empty cache, fetch all tickers
         cache_df = pd.DataFrame()
         missing_tickers = all_tickers  # Fetch all tickers from scratch
         logger.info(f"Will fetch ALL {len(all_tickers)} tickers for complete rebuild")
     else:
         # INCREMENTAL UPDATE: Use existing cache as base
-        logger.info("=" * 70)
-        logger.info("INCREMENTAL UPDATE: Loading existing cache")
-        logger.info("=" * 70)
-        
-        # Step 2: Load existing price data
-        existing_prices = load_existing_price_files()
-        
-        # Step 3: Load current cache (if exists)
-        current_cache = load_cache()
-        
-        # Merge existing data with current cache
         if current_cache is not None and not current_cache.empty:
             logger.info("Merging existing cache...")
             cache_df = merge_cache_and_new_data(existing_prices, current_cache)
@@ -574,7 +576,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info("=" * 70)
         logger.info("CACHE BUILD SUMMARY")
         logger.info("=" * 70)
-        logger.info(f"  Build mode: {'FORCE REBUILD' if force_rebuild else 'INCREMENTAL UPDATE'}")
+        logger.info(f"  Build mode: {build_mode}")
         logger.info(f"  Target date range: {start_date.date()} to {end_date.date()}")
         logger.info(f"  Years of history: {years}")
         logger.info("")
