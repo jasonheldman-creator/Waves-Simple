@@ -442,23 +442,24 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     all_tickers, wave_tickers, benchmark_tickers = collect_all_tickers()
     total_requested = len(all_tickers)
     
-    # Step 2 & 3: Load existing data (shared function for both modes)
+    # Step 2 & 3: Load existing data (skip in force mode for performance)
     logger.info("=" * 70)
     logger.info(f"{build_mode}: {'Disregarding' if force_rebuild else 'Loading'} existing cache")
     logger.info("=" * 70)
     
-    # Load existing price data and cache (even in force mode for potential reuse)
-    existing_prices = load_existing_price_files()
-    current_cache = load_cache()
-    
     # Determine starting point based on mode
     if force_rebuild:
         # FORCE REBUILD: Start with empty cache, fetch all tickers
+        # Skip loading existing data for performance (will be discarded anyway)
         cache_df = pd.DataFrame()
         missing_tickers = all_tickers  # Fetch all tickers from scratch
         logger.info(f"Will fetch ALL {len(all_tickers)} tickers for complete rebuild")
     else:
         # INCREMENTAL UPDATE: Use existing cache as base
+        # Load existing price data and cache
+        existing_prices = load_existing_price_files()
+        current_cache = load_cache()
+        
         if current_cache is not None and not current_cache.empty:
             logger.info("Merging existing cache...")
             cache_df = merge_cache_and_new_data(existing_prices, current_cache)

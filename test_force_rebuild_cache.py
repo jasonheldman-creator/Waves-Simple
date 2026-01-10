@@ -26,7 +26,7 @@ def create_mock_cache(tmpdir, num_tickers=10, num_days=100):
     dates = pd.date_range(end=datetime.now(), periods=num_days, freq='D')
     tickers = [f'TICK{i}' for i in range(num_tickers)]
     
-    # Create random price data
+    # Create constant price data for testing
     data = pd.DataFrame(
         index=dates,
         columns=tickers,
