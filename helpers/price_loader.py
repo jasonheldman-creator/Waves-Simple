@@ -468,11 +468,29 @@ def load_cache() -> Optional[pd.DataFrame]:
                 """
                 df = pd.read_parquet(path)
                 
-                # Ensure index is datetime
-                if not isinstance(df.index, pd.DatetimeIndex):
-                    df.index = pd.to_datetime(df.index)
+                # Handle MultiIndex (date, ticker) vs single DatetimeIndex
+                if isinstance(df.index, pd.MultiIndex):
+                    # MultiIndex detected - convert only the date level to DatetimeIndex
+                    logger.info(f"PRICE_BOOK: MultiIndex detected with levels: {df.index.names}")
+                    
+                    # Get the date level (assumed to be level 0)
+                    date_level = df.index.get_level_values(0)
+                    
+                    # Convert date level to DatetimeIndex if not already
+                    if not isinstance(date_level, pd.DatetimeIndex):
+                        logger.info("PRICE_BOOK: Converting date level to DatetimeIndex")
+                        # Create new MultiIndex with datetime-converted date level
+                        new_levels = [pd.to_datetime(date_level)] + [df.index.get_level_values(i) for i in range(1, df.index.nlevels)]
+                        df.index = pd.MultiIndex.from_arrays(new_levels, names=df.index.names)
+                    else:
+                        logger.info("PRICE_BOOK: Date level is already DatetimeIndex")
+                else:
+                    # Single-level index - convert to datetime if needed
+                    if not isinstance(df.index, pd.DatetimeIndex):
+                        logger.info("PRICE_BOOK: Converting single-level index to DatetimeIndex")
+                        df.index = pd.to_datetime(df.index)
                 
-                # Sort by date
+                # Sort by date (works for both single-level and MultiIndex)
                 df = df.sort_index()
                 
                 return df
@@ -482,11 +500,29 @@ def load_cache() -> Optional[pd.DataFrame]:
             # Load without Streamlit caching
             cache_df = pd.read_parquet(cache_file_to_use)
             
-            # Ensure index is datetime
-            if not isinstance(cache_df.index, pd.DatetimeIndex):
-                cache_df.index = pd.to_datetime(cache_df.index)
+            # Handle MultiIndex (date, ticker) vs single DatetimeIndex
+            if isinstance(cache_df.index, pd.MultiIndex):
+                # MultiIndex detected - convert only the date level to DatetimeIndex
+                logger.info(f"PRICE_BOOK: MultiIndex detected with levels: {cache_df.index.names}")
+                
+                # Get the date level (assumed to be level 0)
+                date_level = cache_df.index.get_level_values(0)
+                
+                # Convert date level to DatetimeIndex if not already
+                if not isinstance(date_level, pd.DatetimeIndex):
+                    logger.info("PRICE_BOOK: Converting date level to DatetimeIndex")
+                    # Create new MultiIndex with datetime-converted date level
+                    new_levels = [pd.to_datetime(date_level)] + [cache_df.index.get_level_values(i) for i in range(1, cache_df.index.nlevels)]
+                    cache_df.index = pd.MultiIndex.from_arrays(new_levels, names=cache_df.index.names)
+                else:
+                    logger.info("PRICE_BOOK: Date level is already DatetimeIndex")
+            else:
+                # Single-level index - convert to datetime if needed
+                if not isinstance(cache_df.index, pd.DatetimeIndex):
+                    logger.info("PRICE_BOOK: Converting single-level index to DatetimeIndex")
+                    cache_df.index = pd.to_datetime(cache_df.index)
             
-            # Sort by date
+            # Sort by date (works for both single-level and MultiIndex)
             cache_df = cache_df.sort_index()
         
         # Log detailed PRICE_BOOK shape and date range
