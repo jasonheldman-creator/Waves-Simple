@@ -89,7 +89,11 @@ jobs:
             exit 1
           fi
           
-          YEARS_INT=$(printf "%.0f" "$YEARS_INPUT" 2>/dev/null)
+          # Convert to integer, with explicit error handling
+          if ! YEARS_INT=$(printf "%.0f" "$YEARS_INPUT" 2>&1); then
+            echo "Error: Failed to convert years input to integer: $YEARS_INPUT"
+            exit 1
+          fi
           
           # Validate the conversion succeeded and result is a positive integer
           if ! [[ "$YEARS_INT" =~ ^[0-9]+$ ]] || [ "$YEARS_INT" -lt 1 ]; then
