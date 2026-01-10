@@ -420,11 +420,24 @@ def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
     For MultiIndex, only converts the date level (level 0) to DatetimeIndex while
     preserving other levels intact.
     
+    This is an internal helper function used by load_cache() to normalize index types
+    when loading from parquet files. It's designed to handle the common case where
+    parquet files may have either structure.
+    
     Args:
         df: DataFrame with either DatetimeIndex or MultiIndex
         
     Returns:
         DataFrame with properly typed index (sorted by date)
+        
+    Raises:
+        May raise pandas conversion errors if the date level cannot be converted
+        to datetime. This is expected to fail for malformed data and will propagate
+        to the caller (load_cache) which handles it gracefully.
+        
+    Note:
+        While this is a private function (leading underscore), it is directly tested
+        to ensure correctness of the index conversion logic.
     """
     # Handle MultiIndex (date, ticker) vs single DatetimeIndex
     if isinstance(df.index, pd.MultiIndex):

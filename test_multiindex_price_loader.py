@@ -3,6 +3,13 @@ Test suite for MultiIndex handling in price_loader.
 
 This test validates that the _ensure_datetime_index function correctly handles
 both single-level DatetimeIndex and MultiIndex (date, ticker) structures.
+
+Note on testing private functions:
+    We directly test _ensure_datetime_index (a private function) because it contains
+    critical index conversion logic that must work correctly for both MultiIndex and
+    single DatetimeIndex structures. While normally we'd test through public APIs,
+    this function's correctness is essential to prevent index corruption, warranting
+    direct unit testing.
 """
 
 import os
