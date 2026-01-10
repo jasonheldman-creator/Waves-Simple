@@ -11,6 +11,7 @@ Tests that:
 
 import os
 import sys
+import json
 import pytest
 import pandas as pd
 import numpy as np
@@ -92,8 +93,19 @@ def benchmark_specs():
     return load_dynamic_benchmark_specs()
 
 
-def test_benchmark_specs_loaded(benchmark_specs):
-    """Test that benchmark specs file loads successfully."""
+@pytest.fixture(scope="module")
+def wave_registry():
+    """Fixture to load wave registry once for all tests."""
+    registry_path = os.path.join(
+        os.path.dirname(__file__),
+        "config", "wave_registry.json"
+    )
+    with open(registry_path, 'r') as f:
+        return json.load(f)
+
+
+def test_benchmark_specs_loaded(benchmark_specs, wave_registry):
+    """Test that benchmark specs file loads successfully and matches registry."""
     assert benchmark_specs is not None, "Benchmark specs should load"
     assert "benchmarks" in benchmark_specs, "Specs should have benchmarks key"
     assert "version" in benchmark_specs, "Specs should have version"
