@@ -94,18 +94,9 @@ try:
         CACHE_PATH
     )
 except ImportError as e:
-    logger.warning(f"Could not import from price_loader: {e}")
-    # Set all to None for proper error handling
-    load_cache = None
-    save_cache = None
-    collect_required_tickers = None
-    normalize_ticker = None
-    deduplicate_tickers = None
-    load_or_fetch_prices = None
-    get_cache_info = None
-    check_cache_readiness = None
-    CACHE_PATH = CANONICAL_CACHE_PATH  # Use our own constant as fallback
-
+    import traceback
+    logger.error("FAILED importing helpers.price_loader", exc_info=True)
+    raise
 
 def _load_cache_fallback() -> pd.DataFrame:
     """
