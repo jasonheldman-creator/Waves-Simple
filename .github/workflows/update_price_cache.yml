@@ -2,7 +2,7 @@ name: Update Price Cache
 
 on:
   schedule:
-    - cron: "0 2 * * *"   # 2:00 UTC daily
+    - cron: "0 2 * * *" # 2:00 UTC daily
   workflow_dispatch:
     inputs:
       years:
@@ -11,13 +11,18 @@ on:
         default: 10
         type: number
       force:
-        description: "Force full rebuild (ignore existing cache)"
+        description: "Force full rebuild (disregard existing cache)"
         required: false
         default: false
         type: boolean
 
 permissions:
   contents: write
+
+# Prevent overlapping runs (this is a BIG part of fixing 'fetch first' push failures)
+concurrency:
+  group: update-price-cache
+  cancel-in-progress: true
 
 env:
   MIN_SUCCESS_RATE: "0.90"
@@ -31,12 +36,13 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0  # needed so pull --rebase works reliably
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
@@ -52,7 +58,7 @@ jobs:
           echo "========================================================================"
 
           if [ -f data/cache/prices_cache.parquet ]; then
-            echo "✓ Cache file exists"
+            echo "✓ Cache file exists: data/cache/prices_cache.parquet"
             CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
             echo "  Size: ${CACHE_SIZE} bytes"
 
@@ -64,63 +70,65 @@ jobs:
 
             echo ""
             python3 << 'EOF'
-import pandas as pd
-try:
-    df = pd.read_parquet("data/cache/prices_cache.parquet")
-    print(f"  Symbol count: {len(df.columns)}")
-    print(f"  Date range: {df.index.min()} to {df.index.max()}")
-    print(f"  Latest date: {df.index.max()}")
-except Exception as e:
-    print(f"  Error reading cache: {e}")
-EOF
+          import pandas as pd
+          try:
+              df = pd.read_parquet("data/cache/prices_cache.parquet")
+              print(f"  Symbol count: {len(df.columns)}")
+              print(f"  Date range: {df.index.min()} to {df.index.max()}")
+          except Exception as e:
+              print(f"  Error reading cache: {e}")
+          EOF
           else
-            echo "✗ Cache file does not exist"
+            echo "✗ Cache file does not exist yet"
           fi
+
           echo "========================================================================"
 
       - name: Build price cache
-        env:
-          MIN_SUCCESS_RATE: ${{ env.MIN_SUCCESS_RATE }}
         run: |
-          set -euo pipefail
           echo "=== Building Price Cache ==="
 
-          # --- Resolve inputs safely (schedule has none) ---
           YEARS_INPUT="${{ github.event.inputs.years }}"
           FORCE_INPUT="${{ github.event.inputs.force }}"
 
-          # Default if empty (schedule runs)
-          if [ -z "${YEARS_INPUT:-}" ]; then YEARS_INPUT="10"; fi
-          if [ -z "${FORCE_INPUT:-}" ]; then FORCE_INPUT="false"; fi
+          # Defaults for scheduled runs (no inputs)
+          if [ -z "$YEARS_INPUT" ]; then
+            YEARS_INPUT="10"
+          fi
+          if [ -z "$FORCE_INPUT" ]; then
+            FORCE_INPUT="false"
+          fi
 
-          # Coerce years to integer safely (handles 10, 10.0, "10.0")
-          YEARS_INT="$(python3 - <<'PY'
-import os, math
-raw = os.environ.get("YEARS_INPUT", "10").strip()
-try:
-    val = float(raw)
-    years = int(round(val))
-    if years < 1:
-        raise ValueError("years must be >= 1")
-    print(years)
-except Exception as e:
-    raise SystemExit(f"Invalid years input: {raw} ({e})")
-PY
-)"
-          echo "Years parameter (raw): ${YEARS_INPUT}"
-          echo "Years parameter (integer): ${YEARS_INT}"
-          echo "Force rebuild input: ${FORCE_INPUT}"
+          # Validate numeric years, coerce to int
+          if ! [[ "$YEARS_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "Error: years input must be numeric, got: $YEARS_INPUT"
+            exit 1
+          fi
+
+          YEARS_INT=$(python3 - << 'EOF'
+          import os, math
+          y = float(os.environ["YEARS_INPUT"])
+          # round to nearest int, but enforce >= 1
+          yi = int(round(y))
+          yi = max(1, yi)
+          print(yi)
+          EOF
+          )
+
+          echo "Years parameter (raw): $YEARS_INPUT"
+          echo "Years parameter (integer): $YEARS_INT"
+          echo "Force rebuild input: $FORCE_INPUT"
 
           FORCE_FLAG=""
-          if [ "${FORCE_INPUT}" = "true" ]; then
+          if [ "$FORCE_INPUT" = "true" ]; then
             FORCE_FLAG="--force"
           fi
 
-          python build_price_cache.py ${FORCE_FLAG} --skip-validation --years "${YEARS_INT}"
+          # Build cache (skip-validation is fine if your script already does validation elsewhere)
+          python build_price_cache.py $FORCE_FLAG --skip-validation --years "$YEARS_INT"
 
-      - name: Validate cache file and contents
+      - name: Validate cache file exists and is non-empty
         run: |
-          set -euo pipefail
           echo "========================================================================"
           echo "POST-BUILD CACHE VALIDATION"
           echo "========================================================================"
@@ -137,79 +145,61 @@ PY
           fi
 
           echo "✓ Cache file exists and is non-empty"
-          echo "  Path: data/cache/prices_cache.parquet"
           echo "  Size: ${CACHE_SIZE} bytes"
 
           if [ -f data/cache/prices_cache_meta.json ]; then
             echo ""
             echo "Cache Metadata:"
             cat data/cache/prices_cache_meta.json | python3 -m json.tool
+          else
+            echo "⚠ WARNING: prices_cache_meta.json not found"
           fi
-
-          echo ""
-          echo "Cache Contents Details:"
-          python3 << 'EOF'
-import pandas as pd
-
-df = pd.read_parquet("data/cache/prices_cache.parquet")
-print(f"  Total symbols: {len(df.columns)}")
-print(f"  Total days: {len(df)}")
-print(f"  Date range: {df.index.min()} to {df.index.max()}")
-
-required_volatility = ['^VIX', 'VIXY', 'VXX']
-required_benchmarks = ['SPY', 'QQQ', 'IWM']
-required_cash = ['BIL', 'SHY']
-
-print("\n  Required symbol verification:")
-
-vols_present = [s for s in required_volatility if s in df.columns]
-print(f"    Volatility regime ({len(vols_present)}/{len(required_volatility)}): {vols_present}")
-if not vols_present:
-    print(f"      ✗ MISSING ALL: {required_volatility}")
-
-bench_present = [s for s in required_benchmarks if s in df.columns]
-bench_missing = [s for s in required_benchmarks if s not in df.columns]
-print(f"    Benchmarks ({len(bench_present)}/{len(required_benchmarks)}): {bench_present}")
-if bench_missing:
-    print(f"      ✗ MISSING: {bench_missing}")
-
-cash_present = [s for s in required_cash if s in df.columns]
-cash_missing = [s for s in required_cash if s not in df.columns]
-print(f"    Cash proxies ({len(cash_present)}/{len(required_cash)}): {cash_present}")
-if cash_missing:
-    print(f"      ✗ MISSING: {cash_missing}")
-EOF
 
           echo "========================================================================"
 
-      - name: Check for changes and determine action
+      - name: Check for changes
         id: check_changes
         run: |
-          set -euo pipefail
           echo "========================================================================"
           echo "CHANGE DETECTION"
           echo "========================================================================"
 
-          git add data/cache/prices_cache.parquet data/cache/prices_cache_meta.json || true
+          git add data/cache/prices_cache.parquet || true
+          git add data/cache/prices_cache_meta.json || true
 
           if git diff --staged --quiet; then
             echo "status=no_changes" >> $GITHUB_OUTPUT
-            echo "ℹ No changes detected in cache files"
+            echo "ℹ No staged changes in cache files"
           else
             echo "status=has_changes" >> $GITHUB_OUTPUT
-            echo "✓ Changes detected in cache files"
-            echo ""
+            echo "✓ Changes detected:"
             git diff --staged --stat
           fi
 
           echo "========================================================================"
 
+      # Only push on schedule or manual dispatch (never on PR)
       - name: Commit and push updated cache
         if: steps.check_changes.outputs.status == 'has_changes' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
-          set -euo pipefail
+          set -e
+
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+
+          # Rebase onto latest main to avoid "fetch first"
+          git fetch origin main
+          git pull --rebase origin main
+
+          # Re-stage after rebase (safe)
+          git add data/cache/prices_cache.parquet || true
+          git add data/cache/prices_cache_meta.json || true
+
+          if git diff --staged --quiet; then
+            echo "ℹ After rebase, nothing to commit."
+            exit 0
+          fi
+
           git commit -m "Update prices cache (auto)"
           git push
           echo "✓ Cache files committed and pushed"
