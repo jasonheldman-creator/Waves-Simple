@@ -33,8 +33,22 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import sys
+import os
 
 logger = logging.getLogger(__name__)
+
+# Import canonical period return helper
+helpers_dir = os.path.dirname(os.path.abspath(__file__))
+if helpers_dir not in sys.path:
+    sys.path.insert(0, helpers_dir)
+
+try:
+    from period_returns import compute_period_return, TRADING_DAYS_MAP
+    PERIOD_RETURNS_AVAILABLE = True
+except ImportError:
+    PERIOD_RETURNS_AVAILABLE = False
+    logger.warning("period_returns module not available - using legacy calculation")
 
 # Configuration constants
 DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
@@ -217,28 +231,47 @@ def compute_wave_returns(
         result['failure_reason'] = f'Error computing portfolio values: {str(e)}'
         return result
     
-    # Compute returns for each period
+    # Compute returns for each period using canonical helper
     returns = {}
     max_available_days = len(portfolio_values)
     
     for period in periods:
         try:
-            if period >= max_available_days:
-                # Not enough history for this period
-                returns[f'{period}D'] = None
-                continue
+            # Map period to trading days using standard conventions
+            # period is the input (e.g., 1, 30, 60, 365)
+            # We need to map 365 -> 252 trading days
+            if period == 365:
+                trading_days = TRADING_DAYS_MAP['365D']  # 252 trading days
+            elif period == 60:
+                trading_days = TRADING_DAYS_MAP['60D']   # 60 trading days
+            elif period == 30:
+                trading_days = TRADING_DAYS_MAP['30D']   # 30 trading days
+            elif period == 1:
+                trading_days = TRADING_DAYS_MAP['1D']    # 1 trading day
+            else:
+                # For any other period, use it as-is (assuming trading days)
+                trading_days = period
             
-            # Get value from 'period' days ago and current value
-            current_value = portfolio_values.iloc[-1]
-            past_value = portfolio_values.iloc[-(period + 1)]
+            # Use canonical helper if available
+            if PERIOD_RETURNS_AVAILABLE:
+                ret = compute_period_return(
+                    portfolio_values, 
+                    trading_days,
+                    return_none_on_insufficient_data=True
+                )
+            else:
+                # Fallback to legacy calculation (should not happen)
+                if trading_days >= max_available_days:
+                    ret = None
+                else:
+                    current_value = portfolio_values.iloc[-1]
+                    past_value = portfolio_values.iloc[-(trading_days + 1)]
+                    
+                    if pd.isna(current_value) or pd.isna(past_value) or past_value == 0:
+                        ret = None
+                    else:
+                        ret = (current_value - past_value) / past_value
             
-            # Handle NaN values
-            if pd.isna(current_value) or pd.isna(past_value) or past_value == 0:
-                returns[f'{period}D'] = None
-                continue
-            
-            # Calculate return
-            ret = (current_value - past_value) / past_value
             returns[f'{period}D'] = ret
             
         except (IndexError, ValueError) as e:
