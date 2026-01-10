@@ -6,10 +6,15 @@ on:
   workflow_dispatch:
     inputs:
       years:
-        description: 'How many years of history to include in the price cache'
+        description: "How many years of history to include in the price cache"
         required: false
         default: 10
         type: number
+      force:
+        description: "Force full cache rebuild (disregard existing cache)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -33,7 +38,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -44,25 +49,24 @@ jobs:
           echo "========================================================================"
           echo "PRE-BUILD CACHE INSPECTION"
           echo "========================================================================"
-          
+
           # Check if cache exists (canonical path)
           if [ -f data/cache/prices_cache.parquet ]; then
             echo "✓ Cache file exists"
             CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
             echo "  Size: ${CACHE_SIZE} bytes"
-            
+
             # Display existing metadata
             if [ -f data/cache/prices_cache_meta.json ]; then
               echo ""
               echo "Existing Cache Metadata:"
               cat data/cache/prices_cache_meta.json | python3 -m json.tool
             fi
-            
+
             # Extract key info using Python
             echo ""
             python3 << 'EOF'
           import pandas as pd
-          import os
           try:
               df = pd.read_parquet('data/cache/prices_cache.parquet')
               print(f"  Symbol count: {len(df.columns)}")
@@ -81,59 +85,71 @@ jobs:
           MIN_SUCCESS_RATE: ${{ env.MIN_SUCCESS_RATE }}
         run: |
           echo "=== Building Price Cache ==="
+
           YEARS_INPUT="${{ github.event.inputs.years || 10 }}"
-          
+          FORCE_INPUT="${{ github.event.inputs.force || 'false' }}"
+
           # Validate input is numeric and coerce to integer
           if ! [[ "$YEARS_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
             echo "Error: years input must be numeric, got: $YEARS_INPUT"
             exit 1
           fi
-          
+
           # Convert to integer, with explicit error handling
           if ! YEARS_INT=$(printf "%.0f" "$YEARS_INPUT" 2>&1); then
             echo "Error: Failed to convert years input to integer: $YEARS_INPUT"
             exit 1
           fi
-          
+
           # Validate the conversion succeeded and result is a positive integer
           if ! [[ "$YEARS_INT" =~ ^[0-9]+$ ]] || [ "$YEARS_INT" -lt 1 ]; then
             echo "Error: Invalid years value after conversion: $YEARS_INT"
             exit 1
           fi
-          
+
           echo "Years parameter (raw): $YEARS_INPUT"
           echo "Years parameter (integer): $YEARS_INT"
-          python build_price_cache.py --force --skip-validation --years "$YEARS_INT"
+          echo "Force rebuild input: $FORCE_INPUT"
+
+          FORCE_FLAG=""
+          if [ "$FORCE_INPUT" = "true" ]; then
+            FORCE_FLAG="--force"
+            echo "FORCE REBUILD ENABLED"
+          else
+            echo "INCREMENTAL UPDATE MODE (default)"
+          fi
+
+          python build_price_cache.py $FORCE_FLAG --skip-validation --years "$YEARS_INT"
 
       - name: Validate cache file and contents
         run: |
           echo "========================================================================"
           echo "POST-BUILD CACHE VALIDATION"
           echo "========================================================================"
-          
+
           # Check cache file existence (canonical path)
           if [ ! -f data/cache/prices_cache.parquet ]; then
             echo "✗ ERROR: Cache file does not exist"
             exit 1
           fi
-          
+
           # Check cache file size
           CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
           if [ "$CACHE_SIZE" -eq 0 ]; then
             echo "✗ ERROR: Cache file is empty"
             exit 1
           fi
-          
+
           echo "✓ Cache file exists and is non-empty"
           echo "  Path: data/cache/prices_cache.parquet"
           echo "  Size: ${CACHE_SIZE} bytes"
-          
+
           # Display metadata
           if [ -f data/cache/prices_cache_meta.json ]; then
             echo ""
             echo "Cache Metadata:"
             cat data/cache/prices_cache_meta.json | python3 -m json.tool
-            
+
             # Check for missing required symbols
             if grep -q "missing_required_symbols" data/cache/prices_cache_meta.json; then
               echo ""
@@ -149,50 +165,49 @@ jobs:
           EOF
             fi
           fi
-          
+
           # Detailed cache contents inspection
           echo ""
           echo "Cache Contents Details:"
           python3 << 'EOF'
           import pandas as pd
-          import json
-          
+
           try:
               df = pd.read_parquet('data/cache/prices_cache.parquet')
-              
+
               print(f"  Total symbols: {len(df.columns)}")
               print(f"  Total days: {len(df)}")
               print(f"  Date range: {df.index.min()} to {df.index.max()}")
-              
+
               # Check required symbols
               required_volatility = ['^VIX', 'VIXY', 'VXX']
               required_benchmarks = ['SPY', 'QQQ', 'IWM']
               required_cash = ['BIL', 'SHY']
-              
+
               print("")
               print("  Required symbol verification:")
-              
+
               vols_present = [s for s in required_volatility if s in df.columns]
               print(f"    Volatility regime ({len(vols_present)}/{len(required_volatility)}): {vols_present}")
               if not vols_present:
                   print(f"      ✗ MISSING ALL: {required_volatility}")
-              
+
               bench_present = [s for s in required_benchmarks if s in df.columns]
               bench_missing = [s for s in required_benchmarks if s not in df.columns]
               print(f"    Benchmarks ({len(bench_present)}/{len(required_benchmarks)}): {bench_present}")
               if bench_missing:
                   print(f"      ✗ MISSING: {bench_missing}")
-              
+
               cash_present = [s for s in required_cash if s in df.columns]
               cash_missing = [s for s in required_cash if s not in df.columns]
               print(f"    Cash proxies ({len(cash_present)}/{len(required_cash)}): {cash_present}")
               if cash_missing:
                   print(f"      ✗ MISSING: {cash_missing}")
-                  
+
           except Exception as e:
               print(f"  Error inspecting cache: {e}")
           EOF
-          
+
           echo "========================================================================"
 
       - name: Compute and print diagnostics
@@ -203,29 +218,27 @@ jobs:
           echo "NOTE: This is a simplified diagnostic display. For authoritative"
           echo "pass/fail decisions, see build_price_cache.py validation output."
           echo "========================================================================"
-          
+
           python3 << 'EOF'
           import pandas as pd
-          import json
           import os
           from datetime import datetime
-          
+
           try:
-              # Import yfinance for SPY trading day calculation
               import yfinance as yf
-              
+
               # 1. Get SPY last trading day
               print("\n[1] Fetching SPY last trading day...")
               spy = yf.Ticker("SPY")
               spy_hist = spy.history(period="10d")
-              
+
               if not spy_hist.empty:
                   spy_last_trading_day = spy_hist.index[-1].strftime('%Y-%m-%d')
                   print(f"  SPY_last_trading_day: {spy_last_trading_day}")
               else:
                   spy_last_trading_day = "N/A (SPY data unavailable)"
                   print(f"  SPY_last_trading_day: {spy_last_trading_day}")
-              
+
               # 2. Get cache max date
               print("\n[2] Reading cache max date...")
               if os.path.exists('data/cache/prices_cache.parquet'):
@@ -245,26 +258,23 @@ jobs:
                   symbol_count = 0
                   print(f"  cache_max_date: {cache_max_date}")
                   print(f"  symbol_count: {symbol_count}")
-              
+
               # 3. Calculate sessions_behind
               print("\n[3] Calculating sessions behind...")
               if spy_last_trading_day != "N/A (SPY data unavailable)" and cache_max_date not in ["N/A (cache empty)", "N/A (cache file missing)"]:
-                  # Get all SPY trading days in the period
                   spy_dates = [d.strftime('%Y-%m-%d') for d in spy_hist.index]
-                  
                   try:
                       spy_idx = spy_dates.index(spy_last_trading_day)
                       cache_idx = spy_dates.index(cache_max_date)
                       sessions_behind = spy_idx - cache_idx
                       print(f"  sessions_behind: {sessions_behind}")
                   except ValueError:
-                      # cache_max_date not in SPY trading days (older than 10 days)
                       print(f"  sessions_behind: N/A (cache_max_date not in recent SPY trading days)")
                       sessions_behind = "N/A"
               else:
                   sessions_behind = "N/A"
                   print(f"  sessions_behind: {sessions_behind}")
-              
+
               # 4. Get file size
               print("\n[4] Getting cache file size...")
               if os.path.exists('data/cache/prices_cache.parquet'):
@@ -272,8 +282,10 @@ jobs:
                   file_size_mb = file_size_bytes / (1024 * 1024)
                   print(f"  file_size: {file_size_bytes} bytes ({file_size_mb:.2f} MB)")
               else:
+                  file_size_bytes = None
+                  file_size_mb = None
                   print(f"  file_size: N/A (cache file missing)")
-              
+
               # Summary
               print("\n" + "=" * 70)
               print("DIAGNOSTICS SUMMARY")
@@ -282,18 +294,18 @@ jobs:
               print(f"cache_max_date:       {cache_max_date}")
               print(f"sessions_behind:      {sessions_behind}")
               print(f"symbol_count:         {symbol_count}")
-              if os.path.exists('data/cache/prices_cache.parquet'):
+              if file_size_bytes is not None:
                   print(f"file_size:            {file_size_bytes} bytes ({file_size_mb:.2f} MB)")
               else:
                   print(f"file_size:            N/A")
               print("=" * 70)
-              
+
           except Exception as e:
               print(f"\n✗ Error computing diagnostics: {e}")
               import traceback
               traceback.print_exc()
           EOF
-          
+
           echo "========================================================================"
 
       - name: Check for changes and determine action
@@ -302,33 +314,33 @@ jobs:
           echo "========================================================================"
           echo "CHANGE DETECTION AND FRESHNESS CHECK"
           echo "========================================================================"
-          
+
           # Check if there are changes to commit (canonical path)
           git add data/cache/prices_cache.parquet data/cache/prices_cache_meta.json
-          
+
           if git diff --staged --quiet; then
             echo "status=no_changes" >> $GITHUB_OUTPUT
             echo "ℹ No changes detected in cache files"
-            
+
             # Check if cache is fresh or stale
             python3 << 'EOF'
           import json
           import sys
           from datetime import datetime
-          
+
           try:
               with open('data/cache/prices_cache_meta.json', 'r') as f:
                   meta = json.load(f)
-              
+
               max_date_str = meta.get('max_price_date')
               if max_date_str:
                   max_date = datetime.strptime(max_date_str, '%Y-%m-%d')
                   today = datetime.now()
                   days_old = (today - max_date).days
-                  
+
                   print(f"Cache max_date: {max_date_str}")
                   print(f"Days old: {days_old}")
-                  
+
                   if days_old <= 5:
                       print("✓ Cache is fresh (no changes needed)")
                       sys.exit(0)
@@ -346,13 +358,13 @@ jobs:
           else
             echo "status=has_changes" >> $GITHUB_OUTPUT
             echo "✓ Changes detected in cache files"
-            
+
             # Show git diff summary
             echo ""
             echo "Git diff summary:"
             git diff --staged --stat
           fi
-          
+
           echo "========================================================================"
 
       - name: Commit and push updated cache
@@ -360,7 +372,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
+
           git commit -m "Update prices cache (auto)"
           git push
           echo "✓ Cache files committed and pushed"
