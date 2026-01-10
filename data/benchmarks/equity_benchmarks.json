@@ -1,8 +1,8 @@
 {
-  "version": "v1.0",
+  "version": "v1.1",
   "description": "Phase 1B: Dynamic Benchmark Definitions for Equity Waves",
   "rebalance_rule": "static_config",
-  "last_updated": "2026-01-08",
+  "last_updated": "2026-01-10",
   "benchmarks": {
     "clean_transit_infrastructure_wave": {
       "wave_id": "clean_transit_infrastructure_wave",
@@ -178,6 +178,74 @@
         }
       ],
       "notes": "Tech-heavy benchmark for AI and cloud exposure"
+    },
+    "future_energy_ev_wave": {
+      "wave_id": "future_energy_ev_wave",
+      "benchmark_name": "Energy & Clean Energy Composite",
+      "components": [
+        {
+          "ticker": "XLE",
+          "weight": 0.5,
+          "name": "Energy Select Sector SPDR"
+        },
+        {
+          "ticker": "ICLN",
+          "weight": 0.5,
+          "name": "iShares Global Clean Energy ETF"
+        }
+      ],
+      "notes": "Traditional and clean energy blend"
+    },
+    "small_cap_growth_wave": {
+      "wave_id": "small_cap_growth_wave",
+      "benchmark_name": "Small Cap Growth Composite",
+      "components": [
+        {
+          "ticker": "IWO",
+          "weight": 0.5,
+          "name": "iShares Russell 2000 Growth ETF"
+        },
+        {
+          "ticker": "VBK",
+          "weight": 0.5,
+          "name": "Vanguard Small-Cap Growth ETF"
+        }
+      ],
+      "notes": "Small cap growth benchmark"
+    },
+    "us_mid_small_growth_semis_wave": {
+      "wave_id": "us_mid_small_growth_semis_wave",
+      "benchmark_name": "Mid/Small Cap Growth Composite",
+      "components": [
+        {
+          "ticker": "IWP",
+          "weight": 0.5,
+          "name": "iShares Russell Mid-Cap Growth ETF"
+        },
+        {
+          "ticker": "IWO",
+          "weight": 0.5,
+          "name": "iShares Russell 2000 Growth ETF"
+        }
+      ],
+      "notes": "Mid and small cap growth blend"
+    },
+    "us_small_cap_disruptors_wave": {
+      "wave_id": "us_small_cap_disruptors_wave",
+      "benchmark_name": "Small Cap Disruptors Composite",
+      "components": [
+        {
+          "ticker": "IWO",
+          "weight": 0.5,
+          "name": "iShares Russell 2000 Growth ETF"
+        },
+        {
+          "ticker": "VBK",
+          "weight": 0.5,
+          "name": "Vanguard Small-Cap Growth ETF"
+        }
+      ],
+      "notes": "Small cap growth with disruptive innovation focus"
     }
   }
 }
