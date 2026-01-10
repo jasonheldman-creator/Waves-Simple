@@ -526,10 +526,21 @@ def load_cache() -> Optional[pd.DataFrame]:
             cache_df = cache_df.sort_index()
         
         # Log detailed PRICE_BOOK shape and date range
-        logger.info(
-            f"PRICE_BOOK Loaded: shape=({len(cache_df)} rows, {len(cache_df.columns)} cols), "
-            f"date_range={cache_df.index[0].date()} to {cache_df.index[-1].date()}"
-        )
+        # Handle MultiIndex differently than single DatetimeIndex
+        if isinstance(cache_df.index, pd.MultiIndex):
+            # For MultiIndex, get the date level (level 0)
+            date_level = cache_df.index.get_level_values(0)
+            logger.info(
+                f"PRICE_BOOK Loaded: shape=({len(cache_df)} rows, {len(cache_df.columns)} cols), "
+                f"date_range={date_level[0].date()} to {date_level[-1].date()}, "
+                f"index_type=MultiIndex{cache_df.index.names}"
+            )
+        else:
+            # Single DatetimeIndex
+            logger.info(
+                f"PRICE_BOOK Loaded: shape=({len(cache_df)} rows, {len(cache_df.columns)} cols), "
+                f"date_range={cache_df.index[0].date()} to {cache_df.index[-1].date()}"
+            )
         
         return cache_df
         
