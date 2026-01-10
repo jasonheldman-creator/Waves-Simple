@@ -81,7 +81,11 @@ jobs:
           MIN_SUCCESS_RATE: ${{ env.MIN_SUCCESS_RATE }}
         run: |
           echo "=== Building Price Cache ==="
-          python build_price_cache.py --force --skip-validation --years ${{ github.event.inputs.years || 10 }}
+          YEARS_INPUT="${{ github.event.inputs.years || 10 }}"
+          YEARS_INT=$(printf "%.0f" "$YEARS_INPUT")
+          echo "Years parameter (raw): $YEARS_INPUT"
+          echo "Years parameter (integer): $YEARS_INT"
+          python build_price_cache.py --force --skip-validation --years "$YEARS_INT"
 
       - name: Validate cache file and contents
         run: |
