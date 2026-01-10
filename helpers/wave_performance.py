@@ -33,8 +33,22 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import sys
+import os
 
 logger = logging.getLogger(__name__)
+
+# Import canonical period return helper
+helpers_dir = os.path.dirname(os.path.abspath(__file__))
+if helpers_dir not in sys.path:
+    sys.path.insert(0, helpers_dir)
+
+try:
+    from period_returns import compute_period_return, TRADING_DAYS_MAP
+    PERIOD_RETURNS_AVAILABLE = True
+except ImportError:
+    PERIOD_RETURNS_AVAILABLE = False
+    logger.warning("period_returns module not available - using legacy calculation")
 
 # Configuration constants
 DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
@@ -217,28 +231,47 @@ def compute_wave_returns(
         result['failure_reason'] = f'Error computing portfolio values: {str(e)}'
         return result
     
-    # Compute returns for each period
+    # Compute returns for each period using canonical helper
     returns = {}
     max_available_days = len(portfolio_values)
     
     for period in periods:
         try:
-            if period >= max_available_days:
-                # Not enough history for this period
-                returns[f'{period}D'] = None
-                continue
+            # Map period to trading days using standard conventions
+            # period is the input (e.g., 1, 30, 60, 365)
+            # We need to map 365 -> 252 trading days
+            if period == 365:
+                trading_days = TRADING_DAYS_MAP['365D']  # 252 trading days
+            elif period == 60:
+                trading_days = TRADING_DAYS_MAP['60D']   # 60 trading days
+            elif period == 30:
+                trading_days = TRADING_DAYS_MAP['30D']   # 30 trading days
+            elif period == 1:
+                trading_days = TRADING_DAYS_MAP['1D']    # 1 trading day
+            else:
+                # For any other period, use it as-is (assuming trading days)
+                trading_days = period
             
-            # Get value from 'period' days ago and current value
-            current_value = portfolio_values.iloc[-1]
-            past_value = portfolio_values.iloc[-(period + 1)]
+            # Use canonical helper if available
+            if PERIOD_RETURNS_AVAILABLE:
+                ret = compute_period_return(
+                    portfolio_values, 
+                    trading_days,
+                    return_none_on_insufficient_data=True
+                )
+            else:
+                # Fallback to legacy calculation (should not happen)
+                if trading_days >= max_available_days:
+                    ret = None
+                else:
+                    current_value = portfolio_values.iloc[-1]
+                    past_value = portfolio_values.iloc[-(trading_days + 1)]
+                    
+                    if pd.isna(current_value) or pd.isna(past_value) or past_value == 0:
+                        ret = None
+                    else:
+                        ret = (current_value - past_value) / past_value
             
-            # Handle NaN values
-            if pd.isna(current_value) or pd.isna(past_value) or past_value == 0:
-                returns[f'{period}D'] = None
-                continue
-            
-            # Calculate return
-            ret = (current_value - past_value) / past_value
             returns[f'{period}D'] = ret
             
         except (IndexError, ValueError) as e:
@@ -1411,18 +1444,33 @@ def compute_portfolio_snapshot(
         
         for period in periods:
             try:
-                if period >= max_available_days:
+                # Map period to trading days using standard conventions
+                # period is the input (e.g., 1, 30, 60, 365)
+                # We need to map 365 -> 252 trading days
+                if period == 365:
+                    trading_days = TRADING_DAYS_MAP['365D']  # 252 trading days
+                elif period == 60:
+                    trading_days = TRADING_DAYS_MAP['60D']   # 60 trading days
+                elif period == 30:
+                    trading_days = TRADING_DAYS_MAP['30D']   # 30 trading days
+                elif period == 1:
+                    trading_days = TRADING_DAYS_MAP['1D']    # 1 trading day
+                else:
+                    # For any other period, use it as-is (assuming trading days)
+                    trading_days = period
+                
+                if trading_days >= max_available_days:
                     # Not enough history for this period
                     result['portfolio_returns'][f'{period}D'] = None
                     result['benchmark_returns'][f'{period}D'] = None
                     result['alphas'][f'{period}D'] = None
                     continue
                 
-                # Get cumulative values from 'period' days ago and current value
+                # Get cumulative values from 'trading_days' ago and current value
                 current_portfolio = portfolio_cumulative.iloc[-1]
-                past_portfolio = portfolio_cumulative.iloc[-(period + 1)]
+                past_portfolio = portfolio_cumulative.iloc[-(trading_days + 1)]
                 current_benchmark = benchmark_cumulative.iloc[-1]
-                past_benchmark = benchmark_cumulative.iloc[-(period + 1)]
+                past_benchmark = benchmark_cumulative.iloc[-(trading_days + 1)]
                 
                 # Handle NaN values
                 if (pd.isna(current_portfolio) or pd.isna(past_portfolio) or 
@@ -1794,17 +1842,31 @@ def compute_portfolio_alpha_attribution(
         
         # Compute for each period with strict windowing and diagnostics
         for period in periods:
+            # Map period to trading days using standard conventions
+            if period == 365:
+                trading_days = TRADING_DAYS_MAP['365D']  # 252 trading days
+            elif period == 60:
+                trading_days = TRADING_DAYS_MAP['60D']   # 60 trading days
+            elif period == 30:
+                trading_days = TRADING_DAYS_MAP['30D']   # 30 trading days
+            elif period == 1:
+                trading_days = TRADING_DAYS_MAP['1D']    # 1 trading day
+            else:
+                # For any other period, use it as-is (assuming trading days)
+                trading_days = period
+            
             # Get actual rows available
             rows_available = len(daily_realized_return)
             
-            # Strict windowing: compute only if we have exactly the requested period rows
-            if rows_available < period:
+            # Strict windowing: compute only if we have exactly the requested trading days
+            if rows_available < trading_days:
                 # Insufficient rows - return explicit diagnostic summary with None values
                 result['period_summaries'][f'{period}D'] = {
                     'period': period,
                     'available': False,
                     'reason': 'insufficient_aligned_rows',
                     'requested_period_days': period,
+                    'trading_days': trading_days,
                     'rows_used': rows_available,
                     'cum_real': None,
                     'cum_sel': None,
@@ -1816,12 +1878,12 @@ def compute_portfolio_alpha_attribution(
                 }
                 continue
             
-            # We have sufficient rows - compute using strict last N rows
-            cum_real = compute_cumulative_return(daily_realized_return, period)
-            cum_sel = compute_cumulative_return(daily_unoverlay_return, period)
-            cum_bm = compute_cumulative_return(daily_benchmark_return, period)
+            # We have sufficient rows - compute using strict last N trading days
+            cum_real = compute_cumulative_return(daily_realized_return, trading_days)
+            cum_sel = compute_cumulative_return(daily_unoverlay_return, trading_days)
+            cum_bm = compute_cumulative_return(daily_benchmark_return, trading_days)
             
-            # These should not be None since we checked rows_available >= period
+            # These should not be None since we checked rows_available >= trading_days
             # However, None can still occur due to data quality issues (e.g., all NaN values,
             # calculation errors from extreme values, or numerical instability)
             if cum_real is None or cum_sel is None or cum_bm is None:
@@ -1831,7 +1893,8 @@ def compute_portfolio_alpha_attribution(
                     'available': False,
                     'reason': 'computation_error',
                     'requested_period_days': period,
-                    'rows_used': period,  # Report the period that was attempted (not total available)
+                    'trading_days': trading_days,
+                    'rows_used': trading_days,  # Report the trading days that was attempted
                     'cum_real': None,
                     'cum_sel': None,
                     'cum_bm': None,
@@ -1852,7 +1915,8 @@ def compute_portfolio_alpha_attribution(
                 'available': True,
                 'reason': None,
                 'requested_period_days': period,
-                'rows_used': period,  # Exact rows used for this period
+                'trading_days': trading_days,
+                'rows_used': trading_days,  # Exact trading days used for this period
                 'cum_real': cum_real,
                 'cum_sel': cum_sel,
                 'cum_bm': cum_bm,
@@ -2719,13 +2783,27 @@ def compute_portfolio_alpha_ledger(
         rows_available = len(daily_realized_return)
         
         for period in periods:
-            # Strict windowing: compute only if we have exactly the requested period rows
-            if rows_available < period:
+            # Map period to trading days using standard conventions
+            if period == 365:
+                trading_days = TRADING_DAYS_MAP['365D']  # 252 trading days
+            elif period == 60:
+                trading_days = TRADING_DAYS_MAP['60D']   # 60 trading days
+            elif period == 30:
+                trading_days = TRADING_DAYS_MAP['30D']   # 30 trading days
+            elif period == 1:
+                trading_days = TRADING_DAYS_MAP['1D']    # 1 trading day
+            else:
+                # For any other period, use it as-is (assuming trading days)
+                trading_days = period
+            
+            # Strict windowing: compute only if we have exactly the requested trading days
+            if rows_available < trading_days:
                 # Insufficient rows
                 result['period_results'][f'{period}D'] = {
                     'period': period,
                     'available': False,
                     'reason': 'insufficient_aligned_rows',
+                    'trading_days': trading_days,
                     'rows_used': rows_available,
                     'start_date': None,
                     'end_date': None,
@@ -2740,13 +2818,13 @@ def compute_portfolio_alpha_ledger(
                 }
                 continue
             
-            # We have sufficient rows - compute using strict last N rows
-            cum_realized = compute_cumulative_return(daily_realized_return, period)
-            cum_unoverlay = compute_cumulative_return(result['daily_unoverlay_return'], period)
-            cum_benchmark = compute_cumulative_return(daily_benchmark_return, period)
+            # We have sufficient rows - compute using strict last N trading days
+            cum_realized = compute_cumulative_return(daily_realized_return, trading_days)
+            cum_unoverlay = compute_cumulative_return(result['daily_unoverlay_return'], trading_days)
+            cum_benchmark = compute_cumulative_return(daily_benchmark_return, trading_days)
             
-            # Get date range for this period
-            period_series = daily_realized_return.iloc[-period:]
+            # Get date range for this period (using trading days)
+            period_series = daily_realized_return.iloc[-trading_days:]
             start_date = period_series.index[0].strftime('%Y-%m-%d')
             end_date = period_series.index[-1].strftime('%Y-%m-%d')
             
@@ -2756,7 +2834,8 @@ def compute_portfolio_alpha_ledger(
                     'period': period,
                     'available': False,
                     'reason': 'computation_error',
-                    'rows_used': period,
+                    'trading_days': trading_days,
+                    'rows_used': trading_days,
                     'start_date': start_date,
                     'end_date': end_date,
                     'cum_realized': None,
@@ -2790,7 +2869,8 @@ def compute_portfolio_alpha_ledger(
                     'period': period,
                     'available': False,
                     'reason': f'reconciliation_1_failed: |({cum_realized:.6f} - {cum_benchmark:.6f}) - {total_alpha:.6f}| = {reconciliation_1_diff:.6f} > {RESIDUAL_TOLERANCE:.6f}',
-                    'rows_used': period,
+                    'trading_days': trading_days,
+                    'rows_used': trading_days,
                     'start_date': start_date,
                     'end_date': end_date,
                     'cum_realized': None,
@@ -2810,7 +2890,8 @@ def compute_portfolio_alpha_ledger(
                     'period': period,
                     'available': False,
                     'reason': f'reconciliation_2_failed: |({selection_alpha:.6f} + {overlay_alpha:.6f} + {residual:.6f}) - {total_alpha:.6f}| = {reconciliation_2_diff:.6f} > {RESIDUAL_TOLERANCE:.6f}',
-                    'rows_used': period,
+                    'trading_days': trading_days,
+                    'rows_used': trading_days,
                     'start_date': start_date,
                     'end_date': end_date,
                     'cum_realized': None,
@@ -2827,14 +2908,15 @@ def compute_portfolio_alpha_ledger(
             # Compute alpha captured (if overlay available)
             alpha_captured = None
             if result['overlay_available']:
-                alpha_captured = compute_alpha_captured(daily_alpha, daily_exposure, period)
+                alpha_captured = compute_alpha_captured(daily_alpha, daily_exposure, trading_days)
             
             # All reconciliations passed - period is available
             result['period_results'][f'{period}D'] = {
                 'period': period,
                 'available': True,
                 'reason': None,
-                'rows_used': period,
+                'trading_days': trading_days,
+                'rows_used': trading_days,
                 'start_date': start_date,
                 'end_date': end_date,
                 'cum_realized': cum_realized,
