@@ -70,7 +70,7 @@ try:
     PRICE_BOOK_AVAILABLE = True
 except ImportError:
     PRICE_BOOK_AVAILABLE = False
-    logger.warning("price_book module not available - falling back to legacy price loading")
+    logger.warning("helpers.price_book module not available - falling back to legacy price loading")
 
 # ------------------------------------------------------------
 # Global config
@@ -1660,8 +1660,9 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
             tickers_to_fetch.append(ticker)
     
     # Log diagnostics for Phase 1B.3 filtering (once per run)
+    # Phase 1B.3: Enhanced crypto support with stablecoin synthesis and macro index filtering
     if stablecoins_to_synthesize or macro_indices_to_exclude:
-        logger.debug(f"Phase 1B.3 filtering for {wave_name or 'wave'}")
+        logger.debug(f"Crypto asset filtering for {wave_name or 'wave'}")
         if stablecoins_to_synthesize:
             logger.debug(f"  Stablecoins (synthesized): {len(stablecoins_to_synthesize)}")
         if macro_indices_to_exclude:
@@ -1716,7 +1717,7 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
         available_tickers = set(price_df.columns)
         for ticker in unique_normalized:
             if ticker not in available_tickers:
-                failures[ticker] = "Not in PRICE_BOOK (cache needs refresh)"
+                failures[ticker] = "Not in PRICE_BOOK - rebuild cache or verify ticker exists"
                 logger.debug(f"Ticker {ticker} not found in PRICE_BOOK")
         
         # Log diagnostics if there are failures
@@ -1736,7 +1737,7 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
                         failure_type=failure_type,
                         error_message=error_msg,
                         is_fatal=False,
-                        suggested_fix="Refresh price cache via GitHub Actions or manual rebuild"
+                        suggested_fix="Rebuild price cache or verify ticker exists in market data"
                     )
                     tracker.record_failure(report)
         

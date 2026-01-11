@@ -16,6 +16,12 @@ from unittest.mock import patch, MagicMock
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Test configuration constants
+TEST_WAVE_PRIMARY = 'US MegaCap Core Wave'  # Primary test wave (should always exist)
+TEST_WAVE_SECONDARY = 'S&P 500 Wave'  # Secondary test wave (should always exist)
+TEST_TICKER_REAL = 'SPY'  # Real ticker that should be in cache
+TEST_TICKER_FAKE = 'FAKE_TICKER_XYZ_123'  # Fake ticker for testing error handling
+
 
 def test_no_yfinance_calls_in_wave_computation():
     """Test that wave computation doesn't call yfinance when PRICE_BOOK is available."""
@@ -40,7 +46,7 @@ def test_no_yfinance_calls_in_wave_computation():
         print("\n1. Computing wave NAV with mocked yfinance.download...")
         
         try:
-            nav = compute_history_nav('US MegaCap Core Wave', mode='Standard', days=30)
+            nav = compute_history_nav(TEST_WAVE_PRIMARY, mode='Standard', days=30)
             
             if call_count[0] == 0:
                 print(f"  ✓ No yfinance calls detected - using PRICE_BOOK")
@@ -67,7 +73,7 @@ def test_price_book_source_in_metadata():
     from waves_engine import compute_history_nav
     
     print("\n1. Computing wave NAV...")
-    nav = compute_history_nav('S&P 500 Wave', mode='Standard', days=30)
+    nav = compute_history_nav(TEST_WAVE_SECONDARY, mode='Standard', days=30)
     
     if not nav.empty:
         print(f"  ✓ Computed {len(nav)} days of NAV")
@@ -100,7 +106,7 @@ def test_deterministic_results():
     from waves_engine import compute_history_nav
     import pandas as pd
     
-    wave = 'US MegaCap Core Wave'
+    wave = TEST_WAVE_PRIMARY
     days = 30
     
     print(f"\n1. Computing wave NAV twice with same parameters...")
@@ -144,7 +150,7 @@ def test_missing_ticker_handling():
     print("\n1. Requesting tickers including a fake one...")
     
     # Request a mix of real and fake tickers
-    tickers = ['SPY', 'FAKE_TICKER_XYZ_123']
+    tickers = [TEST_TICKER_REAL, TEST_TICKER_FAKE]
     prices, failures = _download_history(tickers, days=30, wave_name='Test Wave')
     
     print(f"\n2. Checking results...")
@@ -152,11 +158,11 @@ def test_missing_ticker_handling():
     print(f"  Failed tickers: {len(failures)}")
     
     # Check if fake ticker is in failures OR if it has NaN column
-    if 'FAKE_TICKER_XYZ_123' in failures:
+    if TEST_TICKER_FAKE in failures:
         print(f"  ✓ Fake ticker properly reported as missing in failures")
-        print(f"  ✓ Reason: {failures['FAKE_TICKER_XYZ_123']}")
+        print(f"  ✓ Reason: {failures[TEST_TICKER_FAKE]}")
         result = True
-    elif 'FAKE_TICKER_XYZ_123' in prices.columns and prices['FAKE_TICKER_XYZ_123'].isna().all():
+    elif TEST_TICKER_FAKE in prices.columns and prices[TEST_TICKER_FAKE].isna().all():
         print(f"  ✓ Fake ticker has NaN column (acceptable behavior from PRICE_BOOK)")
         result = True
     else:
@@ -164,10 +170,10 @@ def test_missing_ticker_handling():
         result = False
     
     # Check if SPY is loaded (should be in cache)
-    if not prices.empty and 'SPY' in prices.columns:
-        print(f"  ✓ SPY successfully loaded from PRICE_BOOK")
+    if not prices.empty and TEST_TICKER_REAL in prices.columns:
+        print(f"  ✓ {TEST_TICKER_REAL} successfully loaded from PRICE_BOOK")
     else:
-        print(f"  ⚠️  SPY not loaded (may not be in cache)")
+        print(f"  ⚠️  {TEST_TICKER_REAL} not loaded (may not be in cache)")
     
     print(f"\n{'✓ Test PASSED' if result else '✗ Test FAILED'}")
     return result
