@@ -1,5 +1,12 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.1)
-# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
+# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.2)
+# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
+#
+# NEW in v17.2:
+#   • UNIFIED PRICE SOURCE: All price data loaded from canonical PRICE_BOOK
+#     - Single source of truth: data/cache/prices_cache.parquet
+#     - No implicit network fetching during wave computations
+#     - Deterministic and reproducible results across all waves
+#     - Eliminates "two truths" problems from fragmented loaders
 #
 # NEW in v17.1:
 #   • Adds a "shadow" simulator: simulate_history_nav(... overrides ...)
@@ -11,6 +18,7 @@
 # NOTE:
 #   This engine is "mobile-friendly" and does not require CSVs (flexible onboarding).
 #   It uses internal holdings and an auto-constructed composite benchmark system (governance-native architecture).
+#   All market data is sourced from the canonical PRICE_BOOK for consistency and determinism.
 
 from __future__ import annotations
 
