@@ -1,5 +1,12 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.1)
-# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
+# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.2)
+# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
+#
+# NEW in v17.2:
+#   • UNIFIED PRICE SOURCE: All price data loaded from canonical PRICE_BOOK
+#     - Single source of truth: data/cache/prices_cache.parquet
+#     - No implicit network fetching during wave computations
+#     - Deterministic and reproducible results across all waves
+#     - Eliminates "two truths" problems from fragmented loaders
 #
 # NEW in v17.1:
 #   • Adds a "shadow" simulator: simulate_history_nav(... overrides ...)
@@ -11,6 +18,7 @@
 # NOTE:
 #   This engine is "mobile-friendly" and does not require CSVs (flexible onboarding).
 #   It uses internal holdings and an auto-constructed composite benchmark system (governance-native architecture).
+#   All market data is sourced from the canonical PRICE_BOOK for consistency and determinism.
 
 from __future__ import annotations
 
@@ -55,6 +63,14 @@ try:
     VIX_CONFIG_AVAILABLE = True
 except ImportError:
     VIX_CONFIG_AVAILABLE = False
+
+# Import canonical PRICE_BOOK (single source of truth for all market data)
+try:
+    from helpers.price_book import get_price_book, get_price_book_meta
+    PRICE_BOOK_AVAILABLE = True
+except ImportError:
+    PRICE_BOOK_AVAILABLE = False
+    logger.warning("helpers.price_book module not available - falling back to legacy price loading")
 
 # ------------------------------------------------------------
 # Global config
@@ -1597,25 +1613,27 @@ def _log_diagnostics_to_json(failures: Dict[str, str], wave_id: Optional[str] = 
 
 def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
-    Download historical price data with per-ticker isolation and graceful error handling.
+    Load historical price data from canonical PRICE_BOOK (prices_cache.parquet).
+    
+    This function has been unified to use the single authoritative data source,
+    eliminating fragmented loaders and ensuring deterministic behavior across
+    the entire platform.
+    
+    CANONICAL SOURCE: data/cache/prices_cache.parquet
+    - Updated daily by GitHub Actions
+    - Single source of truth for all market data
+    - No implicit network fetching
+    - Deterministic and reproducible
     
     Enhanced Features (Phase 1B.3):
     - Stablecoin synthetic price generation (constant 1.0)
     - Macro index filtering for crypto waves
-    - Proxy fallback strategy (BTC-USD → ETH-USD) for missing crypto tickers
-    - Retry logic with exponential backoff for transient failures
-    - Ticker normalization (e.g., BRK.B → BRK-B) to handle common issues
+    - Graceful degradation for missing tickers
     - Diagnostics tracking with categorized failure types
-    - Explicit handling for delisted tickers (permanent failures)
-    - API throttling/rate limiting protection
-    - JSON-based logging of failed tickers with timestamps
-    - LRU cache with 15-minute TTL to prevent redundant API calls
-    - Per-ticker error isolation - partial success is acceptable
-    - Falls back to individual ticker fetching if batch fails
     - Returns partial data instead of failing completely
     
     Args:
-        tickers: List of ticker symbols to download
+        tickers: List of ticker symbols to load
         days: Number of days of historical data to fetch
         wave_id: Optional wave identifier for diagnostics tracking
         wave_name: Optional wave display name for diagnostics tracking
@@ -1642,38 +1660,21 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
             tickers_to_fetch.append(ticker)
     
     # Log diagnostics for Phase 1B.3 filtering (once per run)
+    # Phase 1B.3: Enhanced crypto support with stablecoin synthesis and macro index filtering
     if stablecoins_to_synthesize or macro_indices_to_exclude:
-        print(f"Phase 1B.3 filtering for ...")
+        logger.debug(f"Crypto asset filtering for {wave_name or 'wave'}")
         if stablecoins_to_synthesize:
-            print(f"  Stablecoins (synthesized): ...")
+            logger.debug(f"  Stablecoins (synthesized): {len(stablecoins_to_synthesize)}")
         if macro_indices_to_exclude:
-            print(f"  Macro indices (excluded): ...")
+            logger.debug(f"  Macro indices (excluded): {len(macro_indices_to_exclude)}")
     
-    if yf is None:
-        print("Error: yfinance is not available in this environment.")
-        failures = {ticker: "yfinance not available" for ticker in tickers_to_fetch}
-        # Log diagnostics
-        _log_diagnostics_to_json(failures, wave_id, wave_name)
-        # Track in diagnostics if available
-        if DIAGNOSTICS_AVAILABLE:
-            tracker = get_diagnostics_tracker()
-            for ticker in tickers_to_fetch:
-                failure_type, suggested_fix = categorize_error(failures[ticker], ticker)
-                report = FailedTickerReport(
-                    ticker_original=ticker,
-                    ticker_normalized=_normalize_ticker(ticker),
-                    wave_id=wave_id,
-                    wave_name=wave_name,
-                    source="yfinance",
-                    failure_type=failure_type,
-                    error_message=failures[ticker],
-                    is_fatal=True,
-                    suggested_fix=suggested_fix
-                )
-                tracker.record_failure(report)
-        return pd.DataFrame(), failures
+    # Check if PRICE_BOOK is available
+    if not PRICE_BOOK_AVAILABLE:
+        # Fallback to legacy yfinance loading if PRICE_BOOK not available
+        logger.warning("PRICE_BOOK not available - using legacy price loading")
+        return _download_history_legacy_yfinance(tickers, days, wave_id, wave_name)
     
-    # Normalize tickers_to_fetch before fetching (already filtered)
+    # Normalize tickers_to_fetch
     normalized_tickers = []
     for ticker in tickers_to_fetch:
         normalized = _normalize_ticker(ticker)
@@ -1687,54 +1688,37 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
             seen.add(ticker)
             unique_normalized.append(ticker)
     
-    lookback_days = days + 260
-    end = datetime.utcnow().date()
-    start = end - timedelta(days=lookback_days)
+    # Calculate date range
+    lookback_days = days + 260  # Extra lookback for momentum calculations
+    end_date = datetime.utcnow().date()
+    start_date = end_date - timedelta(days=lookback_days)
     
-    # Try batch download first with retry logic
+    # Load from canonical PRICE_BOOK
     try:
-        def _batch_download():
-            return yf.download(
-                tickers=unique_normalized,
-                start=start.isoformat(),
-                end=end.isoformat(),
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                group_by="column",
-            )
+        logger.info(f"Loading {len(unique_normalized)} tickers from canonical PRICE_BOOK for {wave_name or 'wave'}")
         
-        # Use retry with backoff for batch download
-        data = _retry_with_backoff(_batch_download, max_retries=3, initial_delay=1.0)
+        # Get prices from canonical cache
+        price_df = get_price_book(
+            active_tickers=unique_normalized,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat()
+        )
         
-        if data is None or len(data) == 0:
-            # Fall back to individual ticker fetching
-            print(f"Warning: Batch download returned no data, trying individual tickers")
-            return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
+        if price_df.empty:
+            logger.warning(f"PRICE_BOOK returned empty DataFrame for {wave_name or 'wave'}")
+            # Return empty DataFrame with expected structure
+            return pd.DataFrame(), {ticker: "Not in PRICE_BOOK" for ticker in unique_normalized}
         
-        if isinstance(data.columns, pd.MultiIndex):
-            if "Adj Close" in data.columns.get_level_values(0):
-                data = data["Adj Close"]
-            elif "Close" in data.columns.get_level_values(0):
-                data = data["Close"]
-            else:
-                data = data[data.columns.levels[0][0]]
-        if isinstance(data.columns, pd.MultiIndex):
-            data = data.droplevel(0, axis=1)
-        if isinstance(data, pd.Series):
-            data = data.to_frame()
-        data = data.sort_index().ffill().bfill()
+        # Ensure index is DatetimeIndex
+        if not isinstance(price_df.index, pd.DatetimeIndex):
+            price_df.index = pd.to_datetime(price_df.index)
         
-        # Check if we got at least some data
-        if data.empty:
-            print(f"Warning: No price data after normalization, trying individual tickers")
-            return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
-        
-        # Track which tickers failed in batch download
-        available_tickers = set(data.columns)
+        # Track which tickers are missing from PRICE_BOOK
+        available_tickers = set(price_df.columns)
         for ticker in unique_normalized:
             if ticker not in available_tickers:
-                failures[ticker] = "Not in batch result"
+                failures[ticker] = "Not in PRICE_BOOK - rebuild cache or verify ticker exists"
+                logger.debug(f"Ticker {ticker} not found in PRICE_BOOK")
         
         # Log diagnostics if there are failures
         if failures:
@@ -1746,56 +1730,110 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
                     failure_type, suggested_fix = categorize_error(error_msg, ticker)
                     report = FailedTickerReport(
                         ticker_original=ticker,
-                        ticker_normalized=ticker,  # Already normalized
+                        ticker_normalized=ticker,
                         wave_id=wave_id,
                         wave_name=wave_name,
-                        source="yfinance",
+                        source="prices_cache.parquet",
                         failure_type=failure_type,
                         error_message=error_msg,
-                        is_fatal=False,  # Might succeed in individual download
-                        suggested_fix=suggested_fix
+                        is_fatal=False,
+                        suggested_fix="Rebuild price cache or verify ticker exists in market data"
                     )
                     tracker.record_failure(report)
         
         # Phase 1B.3: Add synthetic stablecoin prices
-        # Generate stablecoin prices even if other tickers failed
         if stablecoins_to_synthesize:
-            if not data.empty:
-                stablecoin_prices = _generate_stablecoin_prices(data.index, stablecoins_to_synthesize)
-                data = pd.concat([data, stablecoin_prices], axis=1)
+            if not price_df.empty:
+                stablecoin_prices = _generate_stablecoin_prices(price_df.index, stablecoins_to_synthesize)
+                price_df = pd.concat([price_df, stablecoin_prices], axis=1)
             else:
-                # No other data - create date range from lookback period
-                date_range = pd.date_range(start=start, end=end, freq='D')
-                data = _generate_stablecoin_prices(date_range, stablecoins_to_synthesize)
+                # Create date range if no other data available
+                date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+                price_df = _generate_stablecoin_prices(date_range, stablecoins_to_synthesize)
+        
+        logger.info(f"Loaded {len(price_df.columns)} tickers from PRICE_BOOK ({len(failures)} missing)")
+        
+        return price_df, failures
+        
+    except Exception as e:
+        # Graceful degradation if PRICE_BOOK loading fails
+        logger.error(f"Error loading from PRICE_BOOK for {wave_name or 'wave'}: {str(e)}")
+        error_msg = f"PRICE_BOOK load failed: {str(e)}"
+        failures = {ticker: error_msg for ticker in unique_normalized}
+        _log_diagnostics_to_json(failures, wave_id, wave_name)
+        
+        # Return empty DataFrame
+        return pd.DataFrame(), failures
+
+
+def _download_history_legacy_yfinance(tickers: list[str], days: int, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    """
+    Legacy fallback function using yfinance for backward compatibility.
+    
+    This function should only be used when PRICE_BOOK is not available.
+    In production, all price loading should use the canonical PRICE_BOOK.
+    
+    Args:
+        tickers: List of ticker symbols to download
+        days: Number of days of historical data to fetch
+        wave_id: Optional wave identifier for diagnostics tracking
+        wave_name: Optional wave display name for diagnostics tracking
+    
+    Returns:
+        Tuple of (prices_df, failures_dict)
+    """
+    logger.warning(f"Using legacy yfinance loading for {wave_name or 'wave'} - PRICE_BOOK should be used instead")
+    
+    if yf is None:
+        logger.error("yfinance is not available in this environment")
+        failures = {ticker: "yfinance not available" for ticker in tickers}
+        return pd.DataFrame(), failures
+    
+    failures = {}
+    lookback_days = days + 260
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=lookback_days)
+    
+    # Normalize tickers
+    normalized_tickers = [_normalize_ticker(t) for t in tickers]
+    unique_tickers = sorted(set(normalized_tickers))
+    
+    try:
+        # Simple batch download without complex retry logic
+        data = yf.download(
+            tickers=unique_tickers,
+            start=start.isoformat(),
+            end=end.isoformat(),
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            group_by="column",
+        )
+        
+        # Handle MultiIndex columns
+        if isinstance(data.columns, pd.MultiIndex):
+            if "Adj Close" in data.columns.get_level_values(0):
+                data = data["Adj Close"]
+            elif "Close" in data.columns.get_level_values(0):
+                data = data["Close"]
+        
+        if isinstance(data, pd.Series):
+            data = data.to_frame()
+        
+        data = data.sort_index().ffill().bfill()
+        
+        # Track failures
+        available_tickers = set(data.columns)
+        for ticker in unique_tickers:
+            if ticker not in available_tickers:
+                failures[ticker] = "Not in yfinance result"
         
         return data, failures
         
     except Exception as e:
-        # Graceful degradation on rate limits or other errors
-        # Try individual ticker fetching as fallback
-        error_msg = f"Batch download failed: {str(e)}"
-        print(f"Warning: yfinance batch download failed, trying individual tickers: {str(e)}")
-        
-        # Check if this is a rate limit error
-        if _is_rate_limit_error(e):
-            # Add a delay before trying individual downloads
-            time.sleep(5.0)
-        
-        # Download individually and then add stablecoins
-        data, failures = _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
-        
-        # Phase 1B.3: Add synthetic stablecoin prices
-        # Generate stablecoin prices even if other tickers failed
-        if stablecoins_to_synthesize:
-            if not data.empty:
-                stablecoin_prices = _generate_stablecoin_prices(data.index, stablecoins_to_synthesize)
-                data = pd.concat([data, stablecoin_prices], axis=1)
-            else:
-                # No other data - create date range from lookback period
-                date_range = pd.date_range(start=start, end=end, freq='D')
-                data = _generate_stablecoin_prices(date_range, stablecoins_to_synthesize)
-        
-        return data, failures
+        logger.error(f"Legacy yfinance download failed: {str(e)}")
+        failures = {ticker: f"yfinance error: {str(e)}" for ticker in unique_tickers}
+        return pd.DataFrame(), failures
 
 
 def _download_history_individually(tickers: list[str], start, end, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
