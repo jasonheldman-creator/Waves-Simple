@@ -3,6 +3,9 @@
   "description": "Phase 1B: Dynamic Benchmark Definitions for Equity Waves",
   "rebalance_rule": "static_config",
   "last_updated": "2026-01-12",
+  "changelog": {
+    "v1.2": "Added S&P 500 Wave to dynamic benchmarks to enable full strategy-aware computation with VIX overlay, exposure scaling, and tactical logic while maintaining SPY as benchmark reference"
+  },
   "benchmarks": {
     "sp500_wave": {
       "wave_id": "sp500_wave",
@@ -14,7 +17,7 @@
           "name": "SPDR S&P 500 ETF"
         }
       ],
-      "notes": "Pure SPY benchmark for S&P 500 Wave with full strategy pipeline"
+      "notes": "Pure SPY benchmark for S&P 500 Wave with full strategy pipeline (promoted from benchmark-only in v1.2)"
     },
     "clean_transit_infrastructure_wave": {
       "wave_id": "clean_transit_infrastructure_wave",

@@ -30,7 +30,8 @@ EXPECTED_EQUITY_WAVES = {
     "ai_cloud_megacap_wave",
 }
 
-# S&P 500 Wave should now be included
+# No waves are excluded from dynamic benchmarks
+# This set is kept for future extensibility in case exclusions are needed
 EXCLUDED_WAVES = set()
 
 WEIGHT_TOLERANCE = 0.01
