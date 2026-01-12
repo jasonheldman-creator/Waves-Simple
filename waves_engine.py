@@ -1,7 +1,15 @@
 from __future__ import annotations
 
-# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.4)
+# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.5)
 # Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
+#
+# NEW in v17.5:
+#   • PER-WAVE ATTRIBUTION: Decompose alpha into selection and overlay components
+#     - Raw wave return: Holdings without strategy overlay (pure stock selection)
+#     - Strategy wave return: Holdings with full strategy overlay applied
+#     - Selection alpha: raw_wave_return - benchmark_return
+#     - Overlay alpha: strategy_wave_return - raw_wave_return
+#     - Total alpha reconciliation: total_alpha = selection_alpha + overlay_alpha
 #
 # NEW in v17.4:
 #   • STRATEGY SIGNAL ADJUSTMENT: Minimal tactical decision boundary refinement
@@ -36,7 +44,7 @@ from __future__ import annotations
 #   All market data is sourced from the canonical PRICE_BOOK for consistency and determinism.
 
 # Engine version - increment when logic changes to invalidate cached snapshots
-ENGINE_VERSION = "17.4"
+ENGINE_VERSION = "17.5"
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -4828,6 +4836,238 @@ def _format_strategy_reason(
             reasons.append(f"{strategy_name}: +{safe_impact*100:.0f}% safe")
     
     return "; ".join(reasons)
+
+
+# ------------------------------------------------------------
+# Per-Wave Attribution API (v17.5)
+# ------------------------------------------------------------
+
+def compute_raw_wave_return(
+    wave_name: str,
+    days: int = 365,
+    price_df: Optional[pd.DataFrame] = None
+) -> pd.Series:
+    """
+    Compute raw wave return series WITHOUT strategy overlay.
+    
+    This represents pure stock selection alpha - the return of the wave's holdings
+    with no exposure adjustments, no safe asset allocation, no VIX overlay, etc.
+    Just the weighted return of the basket itself.
+    
+    Args:
+        wave_name: Name of the wave
+        days: Lookback period
+        price_df: Optional pre-loaded price DataFrame
+        
+    Returns:
+        pd.Series indexed by date with daily returns (raw wave return)
+        Returns empty series if wave not found or insufficient data
+    """
+    # Load price data if not provided
+    if price_df is None:
+        if not PRICE_BOOK_AVAILABLE:
+            logger.warning("PRICE_BOOK not available - cannot compute raw wave return")
+            return pd.Series(dtype=float)
+        price_df = get_price_book()
+        if price_df is None or price_df.empty:
+            logger.warning("PRICE_BOOK is empty - cannot compute raw wave return")
+            return pd.Series(dtype=float)
+    
+    # Get wave holdings
+    holdings = WAVE_WEIGHTS.get(wave_name)
+    if not holdings:
+        logger.warning(f"Wave '{wave_name}' not found in WAVE_WEIGHTS")
+        return pd.Series(dtype=float)
+    
+    # Normalize weights
+    weights = _normalize_weights(holdings)
+    
+    # Get tickers and weights
+    tickers = [h.ticker for h in holdings]
+    
+    # Filter to available tickers
+    available_tickers = [t for t in tickers if t in price_df.columns]
+    if not available_tickers:
+        logger.warning(f"No tickers available in PRICE_BOOK for wave '{wave_name}'")
+        return pd.Series(dtype=float)
+    
+    # Calculate coverage
+    coverage = len(available_tickers) / len(tickers) if tickers else 0.0
+    if coverage < 0.5:
+        logger.warning(f"Low ticker coverage ({coverage:.1%}) for wave '{wave_name}'")
+    
+    # Slice to requested period
+    end_date = price_df.index[-1]
+    start_date = end_date - pd.Timedelta(days=days)
+    price_slice = price_df.loc[price_df.index >= start_date].copy()
+    
+    if price_slice.empty:
+        return pd.Series(dtype=float)
+    
+    # Compute daily returns for each ticker
+    returns_df = price_slice[available_tickers].pct_change(fill_method=None)
+    
+    # Get normalized weights for available tickers
+    weight_dict = {}
+    total_weight = 0.0
+    for ticker in available_tickers:
+        if ticker in weights.index:
+            weight_dict[ticker] = float(weights[ticker])
+            total_weight += weight_dict[ticker]
+    
+    # Renormalize to sum to 1.0
+    if total_weight > 0:
+        for ticker in weight_dict:
+            weight_dict[ticker] /= total_weight
+    
+    # Calculate weighted portfolio return (raw, no overlay)
+    raw_returns = pd.Series(0.0, index=returns_df.index)
+    for ticker, weight in weight_dict.items():
+        raw_returns += returns_df[ticker].fillna(0.0) * weight
+    
+    return raw_returns
+
+
+def get_attribution(
+    wave_name: str,
+    periods: Optional[List[int]] = None,
+    price_df: Optional[pd.DataFrame] = None
+) -> Dict[str, Any]:
+    """
+    Compute per-wave attribution decomposing alpha into selection and overlay components.
+    
+    For each return window (e.g., 1D, 30D, 60D, 365D), computes:
+    1. benchmark_return: Return of wave's composite benchmark
+    2. raw_wave_return: Return of wave's holdings without strategy overlay (pure selection)
+    3. strategy_wave_return: Return of wave's holdings with strategy overlay applied
+    
+    Derived alpha metrics:
+    - total_alpha = strategy_wave_return - benchmark_return
+    - selection_alpha = raw_wave_return - benchmark_return
+    - overlay_alpha = strategy_wave_return - raw_wave_return
+    - reconciliation_error = total_alpha - (selection_alpha + overlay_alpha)
+    
+    Args:
+        wave_name: Name of the wave
+        periods: List of lookback periods in days (default: [1, 30, 60, 365])
+        price_df: Optional pre-loaded price DataFrame
+        
+    Returns:
+        Dictionary with:
+        - success: bool - whether computation succeeded
+        - wave_name: str - name of the wave
+        - attribution: Dict[int, Dict] - attribution metrics per period
+        - error: Optional[str] - error message if failed
+        
+    Example:
+        >>> attr = get_attribution("S&P 500 Wave", periods=[30, 365])
+        >>> if attr["success"]:
+        ...     metrics_30d = attr["attribution"][30]
+        ...     print(f"30D Total Alpha: {metrics_30d['total_alpha']:.2%}")
+        ...     print(f"30D Selection Alpha: {metrics_30d['selection_alpha']:.2%}")
+        ...     print(f"30D Overlay Alpha: {metrics_30d['overlay_alpha']:.2%}")
+    """
+    if periods is None:
+        periods = [1, 30, 60, 365]
+    
+    result = {
+        "success": False,
+        "wave_name": wave_name,
+        "attribution": {},
+        "error": None
+    }
+    
+    try:
+        # Load price data if not provided
+        if price_df is None:
+            if not PRICE_BOOK_AVAILABLE:
+                result["error"] = "PRICE_BOOK not available"
+                return result
+            price_df = get_price_book()
+            if price_df is None or price_df.empty:
+                result["error"] = "PRICE_BOOK is empty"
+                return result
+        
+        # Compute attribution for each period
+        for period_days in periods:
+            # 1. Get benchmark return
+            benchmark_result = compute_history_nav(wave_name, mode="Standard", days=period_days, price_df=price_df)
+            if benchmark_result.empty:
+                result["attribution"][period_days] = {
+                    "error": "Failed to compute benchmark return"
+                }
+                continue
+            
+            bm_nav = benchmark_result["bm_nav"]
+            if len(bm_nav) < 2:
+                result["attribution"][period_days] = {
+                    "error": "Insufficient benchmark data"
+                }
+                continue
+            
+            benchmark_return = float(bm_nav.iloc[-1] / bm_nav.iloc[0] - 1.0)
+            
+            # 2. Get strategy wave return (with overlay)
+            wave_nav = benchmark_result["wave_nav"]
+            if len(wave_nav) < 2:
+                result["attribution"][period_days] = {
+                    "error": "Insufficient wave data"
+                }
+                continue
+            
+            strategy_wave_return = float(wave_nav.iloc[-1] / wave_nav.iloc[0] - 1.0)
+            
+            # 3. Get raw wave return (without overlay)
+            raw_returns_series = compute_raw_wave_return(wave_name, days=period_days, price_df=price_df)
+            if raw_returns_series.empty:
+                result["attribution"][period_days] = {
+                    "error": "Failed to compute raw wave return"
+                }
+                continue
+            
+            # Calculate cumulative return for the period
+            raw_nav = (1.0 + raw_returns_series).cumprod()
+            if len(raw_nav) < 2:
+                result["attribution"][period_days] = {
+                    "error": "Insufficient raw return data"
+                }
+                continue
+            
+            raw_wave_return = float(raw_nav.iloc[-1] / raw_nav.iloc[0] - 1.0)
+            
+            # 4. Calculate alpha components
+            total_alpha = strategy_wave_return - benchmark_return
+            selection_alpha = raw_wave_return - benchmark_return
+            overlay_alpha = strategy_wave_return - raw_wave_return
+            
+            # 5. Calculate reconciliation error
+            # Should be near zero: total_alpha = selection_alpha + overlay_alpha
+            reconciliation_error = total_alpha - (selection_alpha + overlay_alpha)
+            
+            # Store results for this period
+            result["attribution"][period_days] = {
+                "period_days": period_days,
+                "benchmark_return": benchmark_return,
+                "raw_wave_return": raw_wave_return,
+                "strategy_wave_return": strategy_wave_return,
+                "total_alpha": total_alpha,
+                "selection_alpha": selection_alpha,
+                "overlay_alpha": overlay_alpha,
+                "reconciliation_error": reconciliation_error,
+                "data_points": len(raw_returns_series)
+            }
+        
+        # Mark as successful if we got at least one period
+        if any("error" not in v for v in result["attribution"].values()):
+            result["success"] = True
+        else:
+            result["error"] = "Failed to compute attribution for all periods"
+        
+    except Exception as e:
+        result["error"] = f"Exception during attribution computation: {str(e)}"
+        logger.exception(f"Error in get_attribution for {wave_name}")
+    
+    return result
 
 
 # ------------------------------------------------------------
