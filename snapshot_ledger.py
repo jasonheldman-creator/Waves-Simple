@@ -557,6 +557,48 @@ def _build_smartsafe_cash_wave_row(
     return row
 
 
+def _get_wave_strategy_stack_info(wave_id: str, wave_name: str) -> tuple[str, str, bool]:
+    """
+    Get strategy stack information for a wave.
+    
+    Args:
+        wave_id: Wave identifier
+        wave_name: Wave display name
+        
+    Returns:
+        Tuple of (category, strategy_stack, strategy_stack_applied)
+    """
+    category = "Unknown"
+    strategy_stack = ""
+    strategy_stack_applied = False
+    
+    try:
+        from helpers.wave_registry import get_wave_by_id
+        wave_info = get_wave_by_id(wave_id)
+        if wave_info:
+            category = wave_info.get("category", "Unknown")
+            strategy_stack = wave_info.get("strategy_stack", "")
+            # Strategy stack is applied if it's non-empty
+            strategy_stack_applied = bool(strategy_stack and strategy_stack.strip())
+            return category, strategy_stack, strategy_stack_applied
+    except Exception:
+        pass
+    
+    # Fallback to old method
+    try:
+        from helpers.wave_registry_validator import load_wave_registry
+        registry = load_wave_registry()
+        if registry and "waves" in registry:
+            for wave_entry in registry["waves"]:
+                if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
+                    category = wave_entry.get("category", "Unknown")
+                    break
+    except Exception:
+        pass
+    
+    return category, strategy_stack, strategy_stack_applied
+
+
 def _generate_na_reason(
     returns: Dict[str, float],
     bm_returns: Dict[str, float],
@@ -767,29 +809,7 @@ def _build_snapshot_row_tier_a(
         flags_str = "; ".join(flags) if flags else "OK"
         
         # Get category and strategy_stack from registry
-        category = "Unknown"
-        strategy_stack = ""
-        strategy_stack_applied = False
-        try:
-            from helpers.wave_registry import get_wave_by_id
-            wave_info = get_wave_by_id(wave_id)
-            if wave_info:
-                category = wave_info.get("category", "Unknown")
-                strategy_stack = wave_info.get("strategy_stack", "")
-                # Strategy stack is applied if it's non-empty
-                strategy_stack_applied = bool(strategy_stack and strategy_stack.strip())
-        except:
-            # Fallback to old method
-            try:
-                from helpers.wave_registry_validator import load_wave_registry
-                registry = load_wave_registry()
-                if registry and "waves" in registry:
-                    for wave_entry in registry["waves"]:
-                        if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
-                            category = wave_entry.get("category", "Unknown")
-                            break
-            except:
-                pass
+        category, strategy_stack, strategy_stack_applied = _get_wave_strategy_stack_info(wave_id, wave_name)
         
         # Get strategy state (v17.4 feature)
         strategy_state = {}
@@ -966,29 +986,7 @@ def _build_snapshot_row_tier_b(
         flags_str = "; ".join(flags)
         
         # Get category and strategy_stack from registry
-        category = "Unknown"
-        strategy_stack = ""
-        strategy_stack_applied = False
-        try:
-            from helpers.wave_registry import get_wave_by_id
-            wave_info = get_wave_by_id(wave_id)
-            if wave_info:
-                category = wave_info.get("category", "Unknown")
-                strategy_stack = wave_info.get("strategy_stack", "")
-                # Strategy stack is applied if it's non-empty
-                strategy_stack_applied = bool(strategy_stack and strategy_stack.strip())
-        except:
-            # Fallback to old method
-            try:
-                from helpers.wave_registry_validator import load_wave_registry
-                registry = load_wave_registry()
-                if registry and "waves" in registry:
-                    for wave_entry in registry["waves"]:
-                        if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
-                            category = wave_entry.get("category", "Unknown")
-                            break
-            except:
-                pass
+        category, strategy_stack, strategy_stack_applied = _get_wave_strategy_stack_info(wave_id, wave_name)
         
         # Get strategy state (v17.4 feature) - limited for Tier B
         strategy_state = {}
@@ -1131,29 +1129,7 @@ def _build_snapshot_row_tier_d(
     na_reason = _generate_na_reason(returns, bm_returns, missing_tickers, hist_df=None, tier="D")
     
     # Get category and strategy_stack from registry
-    category = "Unknown"
-    strategy_stack = ""
-    strategy_stack_applied = False
-    try:
-        from helpers.wave_registry import get_wave_by_id
-        wave_info = get_wave_by_id(wave_id)
-        if wave_info:
-            category = wave_info.get("category", "Unknown")
-            strategy_stack = wave_info.get("strategy_stack", "")
-            # Strategy stack is applied if it's non-empty
-            strategy_stack_applied = bool(strategy_stack and strategy_stack.strip())
-    except:
-        # Fallback to old method
-        try:
-            from helpers.wave_registry_validator import load_wave_registry
-            registry = load_wave_registry()
-            if registry and "waves" in registry:
-                for wave_entry in registry["waves"]:
-                    if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
-                        category = wave_entry.get("category", "Unknown")
-                        break
-        except:
-            pass
+    category, strategy_stack, strategy_stack_applied = _get_wave_strategy_stack_info(wave_id, wave_name)
     
     # Strategy state empty for Tier D (no data available)
     strategy_state = {}

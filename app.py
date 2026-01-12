@@ -14890,9 +14890,13 @@ def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
                         else:
                             st.markdown(f"- **Strategy-Aware Pipeline:** ⚪ Not Applied")
                             st.markdown("  - This wave uses basic return calculation without strategy overlays")
-            except Exception as e:
-                # Silently skip if strategy_stack not available
+            except (ImportError, KeyError, AttributeError) as e:
+                # Expected errors if modules not available or wave not found
                 pass
+            except Exception as e:
+                # Log unexpected errors for debugging
+                import logging
+                logging.getLogger(__name__).warning(f"Error loading strategy_stack info: {e}")
         
     except Exception as e:
         st.error(f"⚠️ Error rendering strategy state panel: {str(e)}")

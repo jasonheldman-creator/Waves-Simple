@@ -43,7 +43,9 @@ def test_wave_registry_has_strategy_stack():
         assert len(equity_waves) > 0, "Should have equity_growth waves"
         
         # At least some equity waves should have non-empty strategy_stack
-        waves_with_strategy = equity_waves[equity_waves['strategy_stack'].str.len() > 0]
+        waves_with_strategy = equity_waves[
+            equity_waves['strategy_stack'].fillna('').str.len() > 0
+        ]
         assert len(waves_with_strategy) > 0, "Some equity waves should have strategy_stack defined"
         
         print(f"✓ Registry loaded: {len(registry)} waves")
