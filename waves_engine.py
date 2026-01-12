@@ -54,6 +54,7 @@ import time
 import json
 import os
 import logging
+import hashlib  # For benchmark hash computation
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
@@ -2438,8 +2439,6 @@ def _compute_benchmark_hash(components: List[Dict[str, Any]]) -> str:
         >>> hash_val = _compute_benchmark_hash(components)
         >>> # Returns consistent hash like "a1b2c3d4e5f6g7h8"
     """
-    import hashlib
-    
     if not components:
         return "none"
     
@@ -2570,10 +2569,8 @@ def _compute_365d_window_integrity(
     # Find intersection (dates where both wave and benchmark have data)
     common_dates = wave_ret_365d.index.intersection(bm_ret_365d.index)
     
-    # Filter out NaN values for more accurate count
-    wave_valid = wave_ret_365d.loc[common_dates].notna()
-    bm_valid = bm_ret_365d.loc[common_dates].notna()
-    both_valid = wave_valid & bm_valid
+    # Filter out NaN values for more accurate count (combined boolean operation for efficiency)
+    both_valid = wave_ret_365d.loc[common_dates].notna() & bm_ret_365d.loc[common_dates].notna()
     
     result['intersection_days_used'] = both_valid.sum()
     
@@ -2582,8 +2579,8 @@ def _compute_365d_window_integrity(
     
     # Generate warning if history is limited
     if not result['sufficient_history']:
-        if result['intersection_days_used'] < 200:
-            result['warning_message'] = f"LIMITED HISTORY: Only {result['intersection_days_used']} days of overlap (minimum 200 recommended)"
+        if result['intersection_days_used'] < result['min_required_days']:
+            result['warning_message'] = f"LIMITED HISTORY: Only {result['intersection_days_used']} days of overlap (minimum {result['min_required_days']} recommended)"
         elif result['intersection_days_used'] < 252:
             result['warning_message'] = f"PARTIAL HISTORY: {result['intersection_days_used']} days of overlap (less than full 252 trading days)"
     
@@ -4397,15 +4394,15 @@ def _compute_core(
         out.attrs["coverage"]["benchmark_hash"] = _compute_benchmark_hash(static_components)
     
     # Add 365D window integrity fields
-    window_365d_integrity = _compute_365d_window_integrity(wave_ret_series, bm_ret_series, trading_days_365d=252)
+    min_trading_days_365d = 252  # Expected trading days for 365D window
+    window_365d_integrity = _compute_365d_window_integrity(wave_ret_series, bm_ret_series, trading_days_365d=min_trading_days_365d)
     out.attrs["coverage"]["window_365d_integrity"] = window_365d_integrity
     
     # Compute 365D alpha reconciliation
     # Calculate 365D cumulative returns (last 252 trading days or available data)
-    trading_days_365d = 252
-    if len(wave_ret_series) >= trading_days_365d and len(bm_ret_series) >= trading_days_365d:
-        wave_ret_365d = wave_ret_series.tail(trading_days_365d)
-        bm_ret_365d = bm_ret_series.tail(trading_days_365d)
+    if len(wave_ret_series) >= min_trading_days_365d and len(bm_ret_series) >= min_trading_days_365d:
+        wave_ret_365d = wave_ret_series.tail(min_trading_days_365d)
+        bm_ret_365d = bm_ret_series.tail(min_trading_days_365d)
         
         # Compute cumulative returns
         wave_365d_return = (1 + wave_ret_365d).prod() - 1
@@ -4433,7 +4430,7 @@ def _compute_core(
             "mismatch": None,
             "mismatch_bps": None,
             "tolerance": 0.001,
-            "warning_message": f"Insufficient history: {len(wave_ret_series)} days available (need 252)"
+            "warning_message": f"Insufficient history: {len(wave_ret_series)} days available (need {min_trading_days_365d})"
         }
         out.attrs["coverage"]["wave_365d_return"] = None
         out.attrs["coverage"]["bench_365d_return"] = None
