@@ -121,9 +121,18 @@ def validate_cache_invalidation():
     print("4. CACHE INVALIDATION VALIDATION")
     print("=" * 70)
     
+    current_version = get_engine_version()
+    # Parse version to infer previous version (major.minor format)
+    try:
+        major, minor = current_version.split('.')
+        prev_minor = str(int(minor) - 1)
+        expected_previous_version = f"{major}.{prev_minor}"
+    except (ValueError, IndexError):
+        expected_previous_version = "17.3"  # Fallback for non-standard versions
+    
     print("\nCache invalidation mechanism:")
-    print(f"  - Previous engine version: 17.3")
-    print(f"  - Current engine version: {get_engine_version()}")
+    print(f"  - Expected previous engine version: {expected_previous_version}")
+    print(f"  - Current engine version: {current_version}")
     print(f"  - Version mismatch will trigger cache invalidation")
     print(f"  - Next snapshot generation will recompute all waves")
     print(f"  - Historical decisions will reflect new 5.5% threshold")

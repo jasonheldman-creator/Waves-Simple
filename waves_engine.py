@@ -1381,11 +1381,11 @@ def get_engine_version() -> str:
     Get the current engine version.
     
     This version is used for snapshot cache invalidation. When the engine
-    logic changes (e.g., S&P 500 Wave promotion to full strategy pipeline),
+    logic changes (e.g., strategy signal adjustments, regime threshold updates),
     incrementing this version will force recalculation of cached snapshots.
     
     Returns:
-        Engine version string (e.g., "17.3")
+        Engine version string (e.g., "17.4")
     """
     return ENGINE_VERSION
 
