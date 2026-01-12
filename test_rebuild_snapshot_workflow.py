@@ -37,8 +37,8 @@ def test_rebuild_snapshot_has_required_fields():
     # Load snapshot
     df = pd.read_csv(snapshot_file)
     
-    # Normalize column names to handle case variations
-    df.columns = [col.lower().replace('_', '').replace(' ', '') for col in df.columns]
+    # Create normalized column map for lookup
+    col_map = {col.lower().replace('_', '').replace(' ', ''): col for col in df.columns}
     
     # Required fields (normalized)
     required_fields = {
@@ -51,18 +51,27 @@ def test_rebuild_snapshot_has_required_fields():
     # Check each category
     all_fields_present = True
     for category, fields in required_fields.items():
-        missing = [f for f in fields if f not in df.columns]
+        missing = [f for f in fields if f not in col_map]
         if missing:
             print(f"✗ Missing {category} fields: {', '.join(missing)}")
             all_fields_present = False
         else:
-            print(f"✓ All {category} fields present: {', '.join(fields)}")
+            # Show original column names
+            original_names = [col_map[f] for f in fields if f in col_map]
+            print(f"✓ All {category} fields present: {', '.join(original_names)}")
     
     assert all_fields_present, "Some required fields are missing from snapshot"
     
     # Check for clean_transit_infrastructure_wave
-    wave_id_col = 'waveid' if 'waveid' in df.columns else 'wave'
-    if wave_id_col in df.columns:
+    # Try multiple possible column names for wave identifier
+    possible_wave_cols = ['Wave_ID', 'wave_id', 'waveid', 'Wave', 'wave', 'wave_name', 'Wave_Name']
+    wave_id_col = None
+    for col in possible_wave_cols:
+        if col in df.columns:
+            wave_id_col = col
+            break
+    
+    if wave_id_col:
         transit_rows = df[df[wave_id_col].str.contains('transit', case=False, na=False)]
         assert len(transit_rows) > 0, "clean_transit_infrastructure_wave not found"
         print(f"✓ clean_transit_infrastructure_wave found")
@@ -70,28 +79,32 @@ def test_rebuild_snapshot_has_required_fields():
         # Check it has numeric values for required fields
         transit_row = transit_rows.iloc[0]
         
-        # Check returns are numeric
+        # Check returns are numeric (using original column names)
         for field in required_fields['returns']:
-            value = transit_row.get(field)
-            if pd.notna(value):
-                print(f"  {field}: {value}")
-            else:
-                print(f"  {field}: N/A")
+            if field in col_map:
+                original_col = col_map[field]
+                value = transit_row.get(original_col)
+                if pd.notna(value):
+                    print(f"  {original_col}: {value}")
+                else:
+                    print(f"  {original_col}: N/A")
         
         # Check alpha fields exist (may be NaN)
-        alpha_present = any(field in df.columns for field in required_fields['alpha'])
+        alpha_present = any(field in col_map for field in required_fields['alpha'])
         assert alpha_present, "Alpha fields missing"
         print(f"✓ Alpha fields present")
         
-        # Check VIX regime
-        if 'vixregime' in df.columns:
-            vix_regime = transit_row.get('vixregime')
-            print(f"  VIX Regime: {vix_regime}")
+        # Check VIX regime (using original column name)
+        if 'vixregime' in col_map:
+            vix_col = col_map['vixregime']
+            vix_regime = transit_row.get(vix_col)
+            print(f"  {vix_col}: {vix_regime}")
         
-        # Check exposure
-        if 'exposure' in df.columns:
-            exposure = transit_row.get('exposure')
-            print(f"  Exposure: {exposure}")
+        # Check exposure (using original column name)
+        if 'exposure' in col_map:
+            exposure_col = col_map['exposure']
+            exposure = transit_row.get(exposure_col)
+            print(f"  {exposure_col}: {exposure}")
     
     print("\n" + "=" * 80)
     print("✓ TEST PASSED: All required fields present")
@@ -114,9 +127,15 @@ def test_equity_waves_have_strategy_data():
     equity_indicators = ['sp500', 'ai', 'megacap', 'growth', 'disruptor']
     
     # Find equity wave rows
-    wave_col = 'Wave' if 'Wave' in df.columns else 'wave'
+    # Try multiple possible column names for wave identifier
+    possible_wave_cols = ['Wave_ID', 'wave_id', 'waveid', 'Wave', 'wave', 'wave_name', 'Wave_Name']
+    wave_col = None
+    for col in possible_wave_cols:
+        if col in df.columns:
+            wave_col = col
+            break
     
-    if wave_col in df.columns:
+    if wave_col:
         equity_rows = df[df[wave_col].str.contains('|'.join(equity_indicators), case=False, na=False)]
         
         if len(equity_rows) > 0:
