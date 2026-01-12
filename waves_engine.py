@@ -54,6 +54,7 @@ import time
 import json
 import os
 import logging
+import hashlib  # For benchmark hash computation
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
@@ -2420,6 +2421,245 @@ def build_portfolio_composite_benchmark_returns(
     return composite_returns
 
 
+def _compute_benchmark_hash(components: List[Dict[str, Any]]) -> str:
+    """
+    Compute a stable hash of benchmark tickers and weights (sorted).
+    
+    This provides an auditable proof field to verify benchmark composition.
+    The hash is deterministic and changes only when components or weights change.
+    
+    Args:
+        components: List of dicts with 'ticker' and 'weight' keys
+        
+    Returns:
+        Hexadecimal hash string (first 16 characters of SHA256)
+        
+    Example:
+        >>> components = [{"ticker": "SPY", "weight": 0.6}, {"ticker": "QQQ", "weight": 0.4}]
+        >>> hash_val = _compute_benchmark_hash(components)
+        >>> # Returns consistent hash like "a1b2c3d4e5f6g7h8"
+    """
+    if not components:
+        return "none"
+    
+    # Sort components by ticker for deterministic ordering
+    sorted_components = sorted(components, key=lambda x: x["ticker"])
+    
+    # Create stable string representation: ticker1:weight1,ticker2:weight2,...
+    hash_str = ",".join([f"{c['ticker']}:{c['weight']:.6f}" for c in sorted_components])
+    
+    # Compute SHA256 hash and return first 16 hex characters
+    hash_obj = hashlib.sha256(hash_str.encode('utf-8'))
+    return hash_obj.hexdigest()[:16]
+
+
+def _format_benchmark_components_preview(components: List[Dict[str, Any]], max_display: int = 5) -> str:
+    """
+    Format benchmark components as a preview string showing top N tickers with weights.
+    
+    Args:
+        components: List of dicts with 'ticker' and 'weight' keys
+        max_display: Maximum number of components to display (default: 5)
+        
+    Returns:
+        Formatted string like "SPY:60%, QQQ:40%" or "SPY:60%, QQQ:40% +3 more"
+        
+    Example:
+        >>> components = [
+        ...     {"ticker": "SPY", "weight": 0.6},
+        ...     {"ticker": "QQQ", "weight": 0.4}
+        ... ]
+        >>> preview = _format_benchmark_components_preview(components)
+        >>> # Returns "SPY:60.0%, QQQ:40.0%"
+    """
+    if not components:
+        return "none"
+    
+    # Sort by weight descending to show top components first
+    sorted_components = sorted(components, key=lambda x: x["weight"], reverse=True)
+    
+    # Take top N components
+    top_components = sorted_components[:max_display]
+    remaining_count = len(sorted_components) - len(top_components)
+    
+    # Format each component as "TICKER:XX.X%"
+    formatted = [f"{c['ticker']}:{c['weight']*100:.1f}%" for c in top_components]
+    
+    # Join with commas
+    preview = ", ".join(formatted)
+    
+    # Add remaining count if applicable
+    if remaining_count > 0:
+        preview += f" +{remaining_count} more"
+    
+    return preview
+
+
+def _compute_365d_window_integrity(
+    wave_ret_series: pd.Series,
+    bm_ret_series: pd.Series,
+    trading_days_365d: int = 252
+) -> Dict[str, Any]:
+    """
+    Compute 365D window integrity metrics for auditable proof of alpha calculations.
+    
+    This function provides diagnostic information about the actual data overlap
+    and date ranges used in 365D alpha calculations. It helps validate that
+    alpha metrics are computed with sufficient history.
+    
+    Args:
+        wave_ret_series: Wave return series (index=dates, values=returns)
+        bm_ret_series: Benchmark return series (index=dates, values=returns)
+        trading_days_365d: Expected trading days for 365D window (default: 252)
+        
+    Returns:
+        Dictionary with:
+        - wave_365d_days: Actual trading days available for wave
+        - bench_365d_days: Actual trading days available for benchmark
+        - intersection_days_used: Days with data for both wave and benchmark
+        - wave_365d_start: Start date for wave data (YYYY-MM-DD)
+        - wave_365d_end: End date for wave data (YYYY-MM-DD)
+        - bench_365d_start: Start date for benchmark data (YYYY-MM-DD)
+        - bench_365d_end: End date for benchmark data (YYYY-MM-DD)
+        - last_date_wave: Latest date with wave data (YYYY-MM-DD)
+        - last_date_bench: Latest date with benchmark data (YYYY-MM-DD)
+        - sufficient_history: Boolean - whether we have minimum required history
+        - min_required_days: Minimum days required (configurable threshold)
+        - warning_message: Optional warning if history is limited
+    """
+    result = {
+        'wave_365d_days': 0,
+        'bench_365d_days': 0,
+        'intersection_days_used': 0,
+        'wave_365d_start': None,
+        'wave_365d_end': None,
+        'bench_365d_start': None,
+        'bench_365d_end': None,
+        'last_date_wave': None,
+        'last_date_bench': None,
+        'sufficient_history': False,
+        'min_required_days': 200,  # Minimum 200 days for reliable 365D metrics
+        'warning_message': None
+    }
+    
+    # Check if series are empty
+    if wave_ret_series.empty or bm_ret_series.empty:
+        result['warning_message'] = "Empty return series"
+        return result
+    
+    # Get last N trading days for each series (up to trading_days_365d)
+    wave_ret_365d = wave_ret_series.tail(trading_days_365d)
+    bm_ret_365d = bm_ret_series.tail(trading_days_365d)
+    
+    # Count days
+    result['wave_365d_days'] = len(wave_ret_365d)
+    result['bench_365d_days'] = len(bm_ret_365d)
+    
+    # Get date ranges
+    if not wave_ret_365d.empty:
+        result['wave_365d_start'] = wave_ret_365d.index[0].strftime('%Y-%m-%d')
+        result['wave_365d_end'] = wave_ret_365d.index[-1].strftime('%Y-%m-%d')
+        result['last_date_wave'] = wave_ret_365d.index[-1].strftime('%Y-%m-%d')
+    
+    if not bm_ret_365d.empty:
+        result['bench_365d_start'] = bm_ret_365d.index[0].strftime('%Y-%m-%d')
+        result['bench_365d_end'] = bm_ret_365d.index[-1].strftime('%Y-%m-%d')
+        result['last_date_bench'] = bm_ret_365d.index[-1].strftime('%Y-%m-%d')
+    
+    # Find intersection (dates where both wave and benchmark have data)
+    common_dates = wave_ret_365d.index.intersection(bm_ret_365d.index)
+    
+    # Filter out NaN values for more accurate count (combined boolean operation for efficiency)
+    both_valid = wave_ret_365d.loc[common_dates].notna() & bm_ret_365d.loc[common_dates].notna()
+    
+    result['intersection_days_used'] = both_valid.sum()
+    
+    # Check if we have sufficient history
+    result['sufficient_history'] = result['intersection_days_used'] >= result['min_required_days']
+    
+    # Generate warning if history is limited
+    if not result['sufficient_history']:
+        if result['intersection_days_used'] < result['min_required_days']:
+            result['warning_message'] = f"LIMITED HISTORY: Only {result['intersection_days_used']} days of overlap (minimum {result['min_required_days']} recommended)"
+        elif result['intersection_days_used'] < 252:
+            result['warning_message'] = f"PARTIAL HISTORY: {result['intersection_days_used']} days of overlap (less than full 252 trading days)"
+    
+    return result
+
+
+def _compute_alpha_reconciliation(
+    wave_365d_return: float,
+    bench_365d_return: float,
+    alpha_365d: float,
+    tolerance: float = 0.001  # 0.1% = 10 basis points
+) -> Dict[str, Any]:
+    """
+    Compute alpha reconciliation check for 365D metrics.
+    
+    This verifies that alpha_365d closely matches wave_365d_return - bench_365d_return
+    within tolerable levels, providing an auditable proof of calculation accuracy.
+    
+    Args:
+        wave_365d_return: 365-day cumulative wave return
+        bench_365d_return: 365-day cumulative benchmark return
+        alpha_365d: Computed 365-day alpha
+        tolerance: Maximum acceptable mismatch (default: 0.001 = 0.1% = 10 basis points)
+        
+    Returns:
+        Dictionary with:
+        - reconciliation_passed: Boolean - whether reconciliation check passed
+        - expected_alpha: Expected alpha (wave_365d_return - bench_365d_return)
+        - computed_alpha: Actual alpha value provided
+        - mismatch: Absolute difference between expected and computed
+        - mismatch_bps: Mismatch in basis points
+        - tolerance: Tolerance threshold used
+        - warning_message: Optional warning message if reconciliation failed
+    """
+    result = {
+        'reconciliation_passed': False,
+        'expected_alpha': None,
+        'computed_alpha': None,
+        'mismatch': None,
+        'mismatch_bps': None,
+        'tolerance': tolerance,
+        'warning_message': None
+    }
+    
+    # Check for None or NaN values
+    if wave_365d_return is None or bench_365d_return is None or alpha_365d is None:
+        result['warning_message'] = "Missing data for reconciliation"
+        return result
+    
+    if np.isnan(wave_365d_return) or np.isnan(bench_365d_return) or np.isnan(alpha_365d):
+        result['warning_message'] = "NaN values in reconciliation inputs"
+        return result
+    
+    # Compute expected alpha
+    expected_alpha = wave_365d_return - bench_365d_return
+    
+    # Compute mismatch
+    mismatch = abs(alpha_365d - expected_alpha)
+    mismatch_bps = mismatch * 10000  # Convert to basis points
+    
+    # Store values
+    result['expected_alpha'] = expected_alpha
+    result['computed_alpha'] = alpha_365d
+    result['mismatch'] = mismatch
+    result['mismatch_bps'] = mismatch_bps
+    
+    # Check if reconciliation passed
+    result['reconciliation_passed'] = mismatch <= tolerance
+    
+    # Generate warning if reconciliation failed
+    if not result['reconciliation_passed']:
+        result['warning_message'] = (
+            f"RECONCILIATION FAILED: Alpha mismatch of {mismatch_bps:.1f} bps "
+            f"(expected {expected_alpha:.4f}, got {alpha_365d:.4f})"
+        )
+    
+    return result
+
+
 def _regime_from_return(ret_60d: float) -> str:
     """
     Determine regime from 60-day return.
@@ -4117,6 +4357,8 @@ def _compute_core(
     
     # Add dynamic benchmark diagnostics if applicable
     if use_dynamic_benchmark and dynamic_benchmark_info:
+        benchmark_components = dynamic_benchmark_info.get("components", [])
+        
         out.attrs["coverage"]["dynamic_benchmark"] = {
             "enabled": True,
             "benchmark_name": dynamic_benchmark_info.get("benchmark_name", "Unknown"),
@@ -4127,14 +4369,72 @@ def _compute_core(
                     "weight": c["weight"],
                     "available": c["ticker"] in price_df.columns
                 }
-                for c in dynamic_benchmark_info.get("components", [])
+                for c in benchmark_components
             ],
         }
+        
+        # Add new diagnostic fields for auditable proof
+        out.attrs["coverage"]["benchmark_mode"] = "DYNAMIC"
+        out.attrs["coverage"]["benchmark_components_preview"] = _format_benchmark_components_preview(benchmark_components)
+        out.attrs["coverage"]["benchmark_hash"] = _compute_benchmark_hash(benchmark_components)
     else:
+        # Static benchmark case
+        static_components = [
+            {"ticker": ticker, "weight": float(weight)}
+            for ticker, weight in bm_weights.items()
+        ]
+        
         out.attrs["coverage"]["dynamic_benchmark"] = {
             "enabled": False,
             "reason": "no_dynamic_spec_found"
         }
+        
+        out.attrs["coverage"]["benchmark_mode"] = "STATIC"
+        out.attrs["coverage"]["benchmark_components_preview"] = _format_benchmark_components_preview(static_components)
+        out.attrs["coverage"]["benchmark_hash"] = _compute_benchmark_hash(static_components)
+    
+    # Add 365D window integrity fields
+    min_trading_days_365d = 252  # Expected trading days for 365D window
+    window_365d_integrity = _compute_365d_window_integrity(wave_ret_series, bm_ret_series, trading_days_365d=min_trading_days_365d)
+    out.attrs["coverage"]["window_365d_integrity"] = window_365d_integrity
+    
+    # Compute 365D alpha reconciliation
+    # Calculate 365D cumulative returns (last 252 trading days or available data)
+    if len(wave_ret_series) >= min_trading_days_365d and len(bm_ret_series) >= min_trading_days_365d:
+        wave_ret_365d = wave_ret_series.tail(min_trading_days_365d)
+        bm_ret_365d = bm_ret_series.tail(min_trading_days_365d)
+        
+        # Compute cumulative returns
+        wave_365d_return = (1 + wave_ret_365d).prod() - 1
+        bench_365d_return = (1 + bm_ret_365d).prod() - 1
+        alpha_365d = wave_365d_return - bench_365d_return
+        
+        # Compute reconciliation
+        reconciliation = _compute_alpha_reconciliation(
+            wave_365d_return=wave_365d_return,
+            bench_365d_return=bench_365d_return,
+            alpha_365d=alpha_365d,
+            tolerance=0.001  # 0.1% = 10 basis points
+        )
+        
+        out.attrs["coverage"]["alpha_365d_reconciliation"] = reconciliation
+        out.attrs["coverage"]["wave_365d_return"] = float(wave_365d_return)
+        out.attrs["coverage"]["bench_365d_return"] = float(bench_365d_return)
+        out.attrs["coverage"]["alpha_365d"] = float(alpha_365d)
+    else:
+        # Insufficient data for 365D calculations
+        out.attrs["coverage"]["alpha_365d_reconciliation"] = {
+            "reconciliation_passed": False,
+            "expected_alpha": None,
+            "computed_alpha": None,
+            "mismatch": None,
+            "mismatch_bps": None,
+            "tolerance": 0.001,
+            "warning_message": f"Insufficient history: {len(wave_ret_series)} days available (need {min_trading_days_365d})"
+        }
+        out.attrs["coverage"]["wave_365d_return"] = None
+        out.attrs["coverage"]["bench_365d_return"] = None
+        out.attrs["coverage"]["alpha_365d"] = None
 
     if shadow and diag_rows:
         diag_df = pd.DataFrame(diag_rows).set_index("Date")
