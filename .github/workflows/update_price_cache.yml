@@ -8,7 +8,7 @@ on:
       years:
         description: "How many years of history to include in the price cache"
         required: false
-        default: 10
+        default: 3
         type: number
       force:
         description: "Force full rebuild (disregard existing cache)"
@@ -85,16 +85,14 @@ jobs:
           echo "========================================================================"
 
       - name: Build price cache
+        env:
+          YEARS_INPUT: ${{ inputs.years || '3' }}
         run: |
           echo "=== Building Price Cache ==="
 
-          YEARS_INPUT="${{ github.event.inputs.years }}"
           FORCE_INPUT="${{ github.event.inputs.force }}"
 
           # Defaults for scheduled runs (no inputs)
-          if [ -z "$YEARS_INPUT" ]; then
-            YEARS_INPUT="10"
-          fi
           if [ -z "$FORCE_INPUT" ]; then
             FORCE_INPUT="false"
           fi
