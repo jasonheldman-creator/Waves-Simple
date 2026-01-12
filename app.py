@@ -14698,6 +14698,167 @@ def render_all_waves_system_view(all_metrics):
             st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
 
 
+def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
+    """
+    Render the Strategy State panel showing current strategy positioning.
+    
+    v17.4 Feature: Displays regime, exposure, safe allocation, and trigger reasons.
+    
+    Args:
+        wave_name: Name of the wave
+        mode: Operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+    """
+    # Display thresholds for visual indicators
+    EXPOSURE_HIGH_THRESHOLD = 1.05  # Above this shows aggressive icon
+    EXPOSURE_LOW_THRESHOLD = 0.95   # Below this shows defensive icon
+    SAFE_HIGH_THRESHOLD = 0.30      # Above this shows heavy defense icon
+    SAFE_MEDIUM_THRESHOLD = 0.10    # Above this shows moderate defense icon
+    
+    try:
+        st.markdown("#### 🎯 Strategy State")
+        st.caption("Current strategy positioning and trigger reasons")
+        
+        # Get strategy state from waves_engine
+        strategy_state_result = None
+        if WAVES_ENGINE_AVAILABLE:
+            try:
+                from waves_engine import get_latest_strategy_state
+                strategy_state_result = get_latest_strategy_state(wave_name, mode, days=30)
+            except Exception as e:
+                st.warning(f"⚠️ Unable to load strategy state: {str(e)}")
+                return
+        else:
+            st.warning("⚠️ Waves engine not available - strategy state cannot be displayed")
+            return
+        
+        if not strategy_state_result or not strategy_state_result.get("ok"):
+            st.info("📊 Strategy state data not available for this wave")
+            return
+        
+        strategy_state = strategy_state_result.get("strategy_state", {})
+        
+        if not strategy_state:
+            st.info("📊 No strategy state data available")
+            return
+        
+        # Display key metrics in columns
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            regime = strategy_state.get("regime", "n/a")
+            regime_icon = {
+                "uptrend": "📈",
+                "neutral": "➡️",
+                "downtrend": "📉",
+                "panic": "⚠️",
+                "cash": "💵"
+            }.get(regime.lower(), "❓")
+            
+            st.metric(
+                label="Regime",
+                value=f"{regime_icon} {regime.title()}",
+                help="Current market regime"
+            )
+        
+        with col2:
+            vix_regime = strategy_state.get("vix_regime", "n/a")
+            vix_level = strategy_state.get("vix_level")
+            
+            vix_icon = {
+                "low": "😌",
+                "normal": "😐",
+                "elevated": "😟",
+                "high": "😨"
+            }.get(vix_regime.lower(), "❓")
+            
+            if vix_level is not None:
+                vix_display = f"{vix_icon} {vix_regime.title()} ({vix_level:.1f})"
+            else:
+                vix_display = f"{vix_icon} {vix_regime.title()}"
+            
+            st.metric(
+                label="VIX Regime",
+                value=vix_display,
+                help="Volatility regime (VIX level if available)"
+            )
+        
+        with col3:
+            exposure = strategy_state.get("exposure", 0.0)
+            exposure_pct = exposure * 100
+            
+            # Color code exposure using defined thresholds
+            if exposure > EXPOSURE_HIGH_THRESHOLD:
+                exposure_delta = f"+{(exposure - 1.0) * 100:.1f}%"
+                exposure_icon = "🚀"
+            elif exposure < EXPOSURE_LOW_THRESHOLD:
+                exposure_delta = f"{(exposure - 1.0) * 100:.1f}%"
+                exposure_icon = "🛡️"
+            else:
+                exposure_delta = None
+                exposure_icon = "⚖️"
+            
+            st.metric(
+                label="Exposure",
+                value=f"{exposure_icon} {exposure_pct:.1f}%",
+                delta=exposure_delta,
+                help="Current market exposure multiplier"
+            )
+        
+        with col4:
+            safe_allocation = strategy_state.get("safe_allocation", 0.0)
+            safe_pct = safe_allocation * 100
+            
+            # Icon selection using defined thresholds
+            if safe_allocation > SAFE_HIGH_THRESHOLD:
+                safe_icon = "🛡️"
+            elif safe_allocation > SAFE_MEDIUM_THRESHOLD:
+                safe_icon = "🔒"
+            else:
+                safe_icon = "💼"
+            
+            st.metric(
+                label="Safe Allocation",
+                value=f"{safe_icon} {safe_pct:.1f}%",
+                help="Percentage allocated to safe assets (cash, treasuries)"
+            )
+        
+        # Display trigger reasons
+        trigger_reasons = strategy_state.get("trigger_reasons", [])
+        
+        if trigger_reasons:
+            st.markdown("**🔔 Active Triggers:**")
+            
+            # Display reasons in a clean, bulleted format
+            for reason in trigger_reasons:
+                st.markdown(f"- {reason}")
+        else:
+            st.markdown("**🔔 Active Triggers:** None (standard positioning)")
+        
+        # Additional metadata in expander
+        with st.expander("📋 Strategy Details"):
+            st.markdown("**Metadata:**")
+            
+            strategy_family = strategy_state.get("strategy_family", "unknown")
+            risk_state = strategy_state.get("aggregated_risk_state", "neutral")
+            active_strategies = strategy_state.get("active_strategies", 0)
+            timestamp = strategy_state.get("timestamp", "unknown")
+            
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown(f"- **Strategy Family:** {strategy_family}")
+                st.markdown(f"- **Risk State:** {risk_state}")
+            
+            with col_b:
+                st.markdown(f"- **Active Strategies:** {active_strategies}")
+                st.markdown(f"- **Timestamp:** {timestamp}")
+        
+    except Exception as e:
+        st.error(f"⚠️ Error rendering strategy state panel: {str(e)}")
+        with st.expander("🔍 Technical Details"):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+
+
 def render_individual_wave_view(selected_wave, all_metrics):
     """
     Render the Individual Wave View - Wave-specific intelligence.
@@ -14761,6 +14922,13 @@ def render_individual_wave_view(selected_wave, all_metrics):
                 )
         else:
             st.info(f"📊 No performance data available for {selected_wave}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION A1.5: Strategy State Panel (v17.4)
+        # ========================================================================
+        render_strategy_state_panel(selected_wave, mode=st.session_state.get("mode", "Standard"))
         
         st.divider()
         

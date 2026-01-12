@@ -4589,6 +4589,247 @@ def get_strategy_attribution(wave_name: str, mode: str = "Standard", days: int =
     }
 
 
+def get_latest_strategy_state(wave_name: str, mode: str = "Standard", days: int = 30) -> Dict[str, Any]:
+    """
+    Get the latest strategy state for a wave with human-readable trigger reasons.
+    
+    This provides a snapshot of current strategy configuration including:
+    - Regime (Uptrend/Neutral/Downtrend)
+    - Exposure and Safe allocation percentages
+    - VIX regime (if applicable)
+    - Trigger reasons (human-readable explanations)
+    
+    Args:
+        wave_name: name of the Wave
+        mode: operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+        days: history window for computing state (default 30 for recent state)
+        
+    Returns:
+        Dictionary with strategy_state:
+        - regime: Current market regime
+        - vix_regime: Current VIX regime (for equity waves)
+        - exposure: Current exposure percentage (0.0-1.5)
+        - safe_allocation: Current safe allocation percentage (0.0-0.95)
+        - trigger_reasons: List of human-readable reasons for current positioning
+        - strategy_family: Type of wave (equity_growth, equity_income, crypto_growth, etc.)
+        - timestamp: When this state was computed
+    """
+    # Run shadow simulation to get latest attribution
+    result = simulate_history_nav(wave_name=wave_name, mode=mode, days=days, overrides={})
+    
+    if result.empty:
+        return {
+            "ok": False,
+            "message": "No data available for strategy state",
+            "strategy_state": {}
+        }
+    
+    # Extract attribution from attrs
+    attribution_rows = result.attrs.get("strategy_attribution", [])
+    diagnostics = result.attrs.get("diagnostics")
+    
+    if not attribution_rows:
+        return {
+            "ok": False,
+            "message": "Strategy attribution not available",
+            "strategy_state": {}
+        }
+    
+    # Get the latest attribution row
+    latest_row = attribution_rows[-1]
+    latest_date = latest_row["Date"]
+    latest_attr = latest_row["strategy_attribution"]
+    latest_summary = latest_attr.get("_summary", {})
+    
+    # Get diagnostics for latest date
+    latest_diag = {}
+    if diagnostics is not None and not diagnostics.empty:
+        latest_diag_row = diagnostics.loc[diagnostics.index == latest_date]
+        if not latest_diag_row.empty:
+            latest_diag = latest_diag_row.iloc[0].to_dict()
+    
+    # Determine wave type
+    is_crypto = _is_crypto_wave(wave_name)
+    is_income = _is_income_wave(wave_name)
+    strategy_family = get_strategy_family(wave_name)
+    
+    # Extract regime information
+    regime = "n/a"
+    vix_regime = "n/a"
+    vix_level = None
+    
+    if not is_crypto and not is_income:
+        # Equity growth wave - use equity regime and VIX
+        regime_contrib = latest_attr.get("regime_detection", {})
+        regime = regime_contrib.get("metadata", {}).get("regime", "n/a")
+        
+        vix_contrib = latest_attr.get("vix_overlay", {})
+        vix_level = vix_contrib.get("metadata", {}).get("vix_level")
+        if vix_level is not None and not np.isnan(vix_level):
+            if vix_level < 15:
+                vix_regime = "low"
+            elif vix_level < 20:
+                vix_regime = "normal"
+            elif vix_level < 30:
+                vix_regime = "elevated"
+            else:
+                vix_regime = "high"
+    elif is_crypto and not is_income:
+        # Crypto growth wave - use crypto regime
+        crypto_trend_contrib = latest_attr.get("crypto_trend_momentum", {})
+        regime = crypto_trend_contrib.get("metadata", {}).get("crypto_regime", "n/a")
+        vix_regime = "n/a (crypto)"
+    elif is_income and not is_crypto:
+        # Income wave - use income regime
+        income_rates_contrib = latest_attr.get("income_rates_regime", {})
+        regime = income_rates_contrib.get("metadata", {}).get("rates_regime", "n/a")
+        vix_regime = "n/a (income)"
+    elif is_crypto and is_income:
+        # Crypto income wave
+        crypto_income_contrib = latest_attr.get("crypto_income_stability", {})
+        regime = "crypto_income"
+        vix_regime = "n/a (crypto_income)"
+    
+    # Extract exposure and safe allocation
+    exposure = latest_summary.get("combined_exposure_multiplier", 1.0)
+    safe_allocation = latest_summary.get("combined_safe_fraction", 0.0)
+    
+    # Build trigger reasons (human-readable explanations)
+    trigger_reasons = []
+    
+    # Analyze each active strategy contribution
+    for strat_name, strat_data in latest_attr.items():
+        if strat_name == "_summary":
+            continue
+        
+        exp_impact = strat_data.get("exposure_impact", 1.0)
+        safe_impact = strat_data.get("safe_impact", 0.0)
+        risk_state = strat_data.get("risk_state", "neutral")
+        metadata = strat_data.get("metadata", {})
+        
+        # Only add reason if strategy had meaningful impact
+        if abs(exp_impact - 1.0) > 0.01 or abs(safe_impact) > 0.01:
+            reason = _format_strategy_reason(strat_name, exp_impact, safe_impact, risk_state, metadata)
+            if reason:
+                trigger_reasons.append(reason)
+    
+    # Build strategy state dictionary
+    strategy_state = {
+        "regime": regime,
+        "vix_regime": vix_regime,
+        "vix_level": vix_level if vix_level is not None else None,
+        "exposure": round(exposure, 3),
+        "safe_allocation": round(safe_allocation, 3),
+        "trigger_reasons": trigger_reasons,
+        "strategy_family": strategy_family,
+        "timestamp": str(latest_date),
+        "aggregated_risk_state": latest_summary.get("aggregated_risk_state", "neutral"),
+        "active_strategies": latest_summary.get("active_strategies", 0)
+    }
+    
+    return {
+        "ok": True,
+        "strategy_state": strategy_state
+    }
+
+
+def _format_strategy_reason(
+    strategy_name: str,
+    exposure_impact: float,
+    safe_impact: float,
+    risk_state: str,
+    metadata: Dict[str, Any]
+) -> str:
+    """
+    Format a human-readable reason for a strategy's impact.
+    
+    Args:
+        strategy_name: Name of the strategy
+        exposure_impact: Exposure multiplier (1.0 = neutral)
+        safe_impact: Safe allocation contribution (0.0 = neutral)
+        risk_state: Risk state (risk-on/off/neutral)
+        metadata: Additional strategy-specific metadata
+        
+    Returns:
+        Human-readable reason string, or empty string if no meaningful impact
+    """
+    reasons = []
+    
+    # Strategy-specific formatting
+    if strategy_name == "regime_detection":
+        regime = metadata.get("regime", "unknown")
+        if regime == "uptrend":
+            reasons.append(f"Uptrend regime (+{(exposure_impact-1)*100:.0f}% exposure)")
+        elif regime == "downtrend":
+            reasons.append(f"Downtrend regime ({(exposure_impact-1)*100:.0f}% exposure, +{safe_impact*100:.0f}% cash)")
+        elif regime == "panic":
+            reasons.append(f"Panic regime (defensive: {(exposure_impact-1)*100:.0f}% exposure, +{safe_impact*100:.0f}% cash)")
+        elif regime == "neutral":
+            reasons.append("Neutral regime (standard positioning)")
+    
+    elif strategy_name == "vix_overlay":
+        vix_level = metadata.get("vix_level")
+        if vix_level and not np.isnan(vix_level):
+            if vix_level >= 25:
+                reasons.append(f"Elevated VIX ({vix_level:.1f}): reduced exposure, +{safe_impact*100:.0f}% cash")
+            elif vix_level < 18:
+                reasons.append(f"Low VIX ({vix_level:.1f}): increased exposure")
+    
+    elif strategy_name == "volatility_targeting":
+        recent_vol = metadata.get("recent_vol")
+        vol_target = metadata.get("vol_target")
+        if recent_vol is not None and vol_target is not None:
+            if exposure_impact > 1.05:
+                reasons.append(f"Vol targeting: below target ({recent_vol:.1%} < {vol_target:.1%}), +{(exposure_impact-1)*100:.0f}% exposure")
+            elif exposure_impact < 0.95:
+                reasons.append(f"Vol targeting: above target ({recent_vol:.1%} > {vol_target:.1%}), {(exposure_impact-1)*100:.0f}% exposure")
+    
+    elif strategy_name == "crypto_trend_momentum":
+        crypto_regime = metadata.get("crypto_regime", "unknown")
+        if "uptrend" in crypto_regime:
+            reasons.append(f"Crypto {crypto_regime} (+{(exposure_impact-1)*100:.0f}% exposure)")
+        elif "downtrend" in crypto_regime:
+            reasons.append(f"Crypto {crypto_regime} ({(exposure_impact-1)*100:.0f}% exposure)")
+    
+    elif strategy_name == "crypto_volatility":
+        vol_state = metadata.get("vol_state", "unknown")
+        if vol_state != "normal":
+            reasons.append(f"Crypto vol {vol_state} ({(exposure_impact-1)*100:+.0f}% exposure)")
+    
+    elif strategy_name == "income_rates_regime":
+        rates_regime = metadata.get("rates_regime", "unknown")
+        if "rising" in rates_regime:
+            reasons.append(f"Rates {rates_regime} (duration risk: {(exposure_impact-1)*100:.0f}% exposure)")
+        elif "falling" in rates_regime:
+            reasons.append(f"Rates {rates_regime} (favorable: +{(exposure_impact-1)*100:.0f}% exposure)")
+    
+    elif strategy_name == "income_credit_regime":
+        credit_regime = metadata.get("credit_regime", "unknown")
+        if credit_regime == "risk_off":
+            reasons.append(f"Credit spreads widening (risk-off: {(exposure_impact-1)*100:.0f}% exposure, +{safe_impact*100:.0f}% quality)")
+        elif credit_regime == "risk_on":
+            reasons.append(f"Credit spreads tight (risk-on: +{(exposure_impact-1)*100:.0f}% exposure)")
+    
+    elif strategy_name == "smartsafe":
+        if safe_impact > 0.05:
+            reasons.append(f"SmartSafe boost (+{safe_impact*100:.0f}% to safe assets)")
+    
+    elif strategy_name == "mode_constraint":
+        mode = metadata.get("mode", "unknown")
+        base_exposure = metadata.get("base_exposure", 1.0)
+        if abs(base_exposure - 1.0) > 0.05:
+            reasons.append(f"{mode} mode (base exposure: {base_exposure:.0%})")
+    
+    # Generic fallback for strategies without specific formatting
+    if not reasons:
+        if abs(exposure_impact - 1.0) > 0.05:
+            reasons.append(f"{strategy_name}: {(exposure_impact-1)*100:+.0f}% exposure")
+        if abs(safe_impact) > 0.05:
+            reasons.append(f"{strategy_name}: +{safe_impact*100:.0f}% safe")
+    
+    return "; ".join(reasons)
+
+
 # ------------------------------------------------------------
 # Module Initialization - Validate Wave ID Registry
 # ------------------------------------------------------------
