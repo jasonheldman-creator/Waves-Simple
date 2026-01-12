@@ -287,15 +287,17 @@ def test_wave_registry_consistency():
     for _, wave in equity_waves.iterrows():
         wave_id = wave['wave_id']
         
-        # S&P 500 Wave should not have dynamic benchmark
-        if wave_id == 'sp500_wave':
-            if wave_id in dynamic_benchmarks['benchmarks']:
-                mismatches.append((wave_id, "Has dynamic benchmark but shouldn't"))
-            continue
-        
-        # All others should have dynamic benchmark
+        # All equity waves (including S&P 500 Wave) should have dynamic benchmark
         if wave_id not in dynamic_benchmarks['benchmarks']:
             mismatches.append((wave_id, "Missing dynamic benchmark"))
+            continue
+        
+        # S&P 500 Wave should have SPY:1.0 benchmark
+        if wave_id == 'sp500_wave':
+            spec = dynamic_benchmarks['benchmarks'][wave_id]
+            components = spec.get('components', [])
+            if not (len(components) == 1 and components[0]['ticker'] == 'SPY' and components[0]['weight'] == 1.0):
+                mismatches.append((wave_id, "Benchmark components incorrect (expected SPY:1.0)"))
     
     if mismatches:
         print(f"  ✗ FAILED: {len(mismatches)} mismatches found")
