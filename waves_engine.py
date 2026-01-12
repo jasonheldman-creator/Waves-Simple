@@ -1,5 +1,13 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.2)
+from __future__ import annotations
+
+# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.3)
 # Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
+#
+# NEW in v17.3:
+#   • SNAPSHOT CACHE INVALIDATION: Engine version tracking for portfolio snapshots
+#     - Automatic invalidation when engine logic changes
+#     - Force rebuild path for manual recalculation
+#     - Ensures S&P 500 Wave and other strategy updates trigger recalculation
 #
 # NEW in v17.2:
 #   • UNIFIED PRICE SOURCE: All price data loaded from canonical PRICE_BOOK
@@ -20,7 +28,8 @@
 #   It uses internal holdings and an auto-constructed composite benchmark system (governance-native architecture).
 #   All market data is sourced from the canonical PRICE_BOOK for consistency and determinism.
 
-from __future__ import annotations
+# Engine version - increment when logic changes to invalidate cached snapshots
+ENGINE_VERSION = "17.3"
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -1358,6 +1367,20 @@ def get_display_name_from_wave_id(wave_id: str) -> Optional[str]:
         display_name (e.g., "S&P 500 Wave") or None if not found
     """
     return WAVE_ID_REGISTRY.get(wave_id)
+
+
+def get_engine_version() -> str:
+    """
+    Get the current engine version.
+    
+    This version is used for snapshot cache invalidation. When the engine
+    logic changes (e.g., S&P 500 Wave promotion to full strategy pipeline),
+    incrementing this version will force recalculation of cached snapshots.
+    
+    Returns:
+        Engine version string (e.g., "17.3")
+    """
+    return ENGINE_VERSION
 
 
 def is_smartsafe_cash_wave(wave_identifier: str) -> bool:
