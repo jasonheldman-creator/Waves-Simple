@@ -292,7 +292,7 @@ def apply_vix_safesmart_overlay(
     
     try:
         # Align VIX prices with returns
-        vix_aligned = vix_prices.reindex(returns.index).fillna(method='ffill')
+        vix_aligned = vix_prices.reindex(returns.index).ffill()
         safe_aligned = safe_returns.reindex(returns.index).fillna(0.0)
         
         # Determine exposure based on VIX regime
