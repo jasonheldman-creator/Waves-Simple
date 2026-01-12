@@ -14852,6 +14852,47 @@ def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
             with col_b:
                 st.markdown(f"- **Active Strategies:** {active_strategies}")
                 st.markdown(f"- **Timestamp:** {timestamp}")
+            
+            # NEW: Display strategy_stack if available
+            try:
+                from helpers.wave_registry import get_wave_by_id
+                from waves_engine import get_wave_id_from_display_name
+                
+                wave_id = get_wave_id_from_display_name(wave_name)
+                if wave_id:
+                    wave_info = get_wave_by_id(wave_id)
+                    if wave_info:
+                        strategy_stack = wave_info.get("strategy_stack", "")
+                        strategy_stack_applied = bool(strategy_stack and strategy_stack.strip())
+                        
+                        st.markdown("---")
+                        st.markdown("**Strategy Pipeline:**")
+                        
+                        if strategy_stack_applied:
+                            st.markdown(f"- **Strategy-Aware Pipeline:** ✅ **Active**")
+                            st.markdown(f"- **Strategy Components:** {strategy_stack}")
+                            
+                            # Parse and display individual components
+                            components = [c.strip() for c in strategy_stack.split(',') if c.strip()]
+                            if components:
+                                st.markdown("- **Active Components:**")
+                                component_display = {
+                                    "momentum": "📊 Momentum signal adjustments",
+                                    "trend_confirmation": "📈 Trend confirmation overlays",
+                                    "volatility_targeting": "🎯 Volatility targeting",
+                                    "relative_strength": "💪 Relative strength strategies",
+                                    "regime_detection": "🔍 Regime detection",
+                                    "vix_overlay": "⚡ VIX overlay adjustments"
+                                }
+                                for comp in components:
+                                    display = component_display.get(comp, f"• {comp}")
+                                    st.markdown(f"  - {display}")
+                        else:
+                            st.markdown(f"- **Strategy-Aware Pipeline:** ⚪ Not Applied")
+                            st.markdown("  - This wave uses basic return calculation without strategy overlays")
+            except Exception as e:
+                # Silently skip if strategy_stack not available
+                pass
         
     except Exception as e:
         st.error(f"⚠️ Error rendering strategy state panel: {str(e)}")
