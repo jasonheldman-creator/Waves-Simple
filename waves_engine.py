@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.3)
+# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.4)
 # Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
+#
+# NEW in v17.4:
+#   • STRATEGY SIGNAL ADJUSTMENT: Minimal tactical decision boundary refinement
+#     - Adjusted uptrend regime threshold from 0.06 to 0.055 (5.5% vs 6.0% 60D return)
+#     - Validates live strategy execution and recompute integrity end-to-end
+#     - Proves system is active and not serving stale cached results
+#     - Enables observable alpha divergence for validation purposes
 #
 # NEW in v17.3:
 #   • SNAPSHOT CACHE INVALIDATION: Engine version tracking for portfolio snapshots
@@ -29,7 +36,7 @@ from __future__ import annotations
 #   All market data is sourced from the canonical PRICE_BOOK for consistency and determinism.
 
 # Engine version - increment when logic changes to invalidate cached snapshots
-ENGINE_VERSION = "17.3"
+ENGINE_VERSION = "17.4"
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -2406,13 +2413,27 @@ def build_portfolio_composite_benchmark_returns(
 
 
 def _regime_from_return(ret_60d: float) -> str:
+    """
+    Determine regime from 60-day return.
+    
+    v17.4 Adjustment: Uptrend threshold lowered from 0.06 to 0.055
+    This creates a controlled divergence in historical decisions when
+    60D returns fall between 5.5% and 6.0%, validating that the live
+    engine and recompute logic are fully active end-to-end.
+    
+    Regime Thresholds:
+    - panic: <= -12%
+    - downtrend: -12% to -4%
+    - neutral: -4% to 5.5% (adjusted from 6.0%)
+    - uptrend: >= 5.5% (adjusted from 6.0%)
+    """
     if np.isnan(ret_60d):
         return "neutral"
     if ret_60d <= -0.12:
         return "panic"
     if ret_60d <= -0.04:
         return "downtrend"
-    if ret_60d < 0.06:
+    if ret_60d < 0.055:  # v17.4: Adjusted from 0.06 to 0.055
         return "neutral"
     return "uptrend"
 
