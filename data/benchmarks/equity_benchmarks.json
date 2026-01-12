@@ -1,9 +1,21 @@
 {
-  "version": "v1.1",
+  "version": "v1.2",
   "description": "Phase 1B: Dynamic Benchmark Definitions for Equity Waves",
   "rebalance_rule": "static_config",
-  "last_updated": "2026-01-10",
+  "last_updated": "2026-01-12",
   "benchmarks": {
+    "sp500_wave": {
+      "wave_id": "sp500_wave",
+      "benchmark_name": "S&P 500 Benchmark",
+      "components": [
+        {
+          "ticker": "SPY",
+          "weight": 1.0,
+          "name": "SPDR S&P 500 ETF"
+        }
+      ],
+      "notes": "Pure SPY benchmark for S&P 500 Wave with full strategy pipeline"
+    },
     "clean_transit_infrastructure_wave": {
       "wave_id": "clean_transit_infrastructure_wave",
       "benchmark_name": "Clean Transit & Infrastructure Composite",

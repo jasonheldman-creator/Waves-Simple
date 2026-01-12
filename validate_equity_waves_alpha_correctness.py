@@ -56,13 +56,21 @@ def validate_benchmark_configuration() -> Dict[str, any]:
         wave_name = wave['wave_name']
         benchmark_spec = wave['benchmark_spec']
         
-        # S&P 500 Wave should remain static (no dynamic benchmark)
+        # All equity waves (including S&P 500 Wave) should have dynamic benchmarks
+        if wave_id not in dynamic_benchmarks['benchmarks']:
+            issues.append(f"✗ {wave_id}: Missing dynamic benchmark definition")
+            print(f"✗ {wave_id}: Missing dynamic benchmark")
+            continue
+        
+        # S&P 500 Wave should use SPY:1.0 benchmark
         if wave_id == 'sp500_wave':
-            if wave_id in dynamic_benchmarks['benchmarks']:
-                issues.append(f"✗ {wave_id}: Should NOT have dynamic benchmark (must remain static)")
-                print(f"✗ {wave_id}: Has dynamic benchmark (should be static)")
+            spec = dynamic_benchmarks['benchmarks'][wave_id]
+            components = spec.get('components', [])
+            if len(components) == 1 and components[0]['ticker'] == 'SPY' and components[0]['weight'] == 1.0:
+                print(f"✓ {wave_id}: Correctly configured with SPY:1.0 benchmark in full pipeline")
             else:
-                print(f"✓ {wave_id}: Correctly excluded from dynamic benchmarks (static SPY)")
+                issues.append(f"✗ {wave_id}: Benchmark components incorrect (expected SPY:1.0)")
+                print(f"✗ {wave_id}: Benchmark components incorrect")
             continue
         
         # All other equity waves should have dynamic benchmarks

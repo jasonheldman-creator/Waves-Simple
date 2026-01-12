@@ -3278,7 +3278,7 @@ def _compute_core(
     wave_holdings = WAVE_WEIGHTS[wave_name]
 
     # Benchmark selection with dynamic benchmark support (Phase 1B)
-    # S&P 500 Wave always uses static SPY benchmark (excluded from dynamic benchmarks)
+    # All equity waves now use the full strategy pipeline including S&P 500 Wave
     freeze_benchmark = bool(ov.get("freeze_benchmark", False))
     use_dynamic_benchmark = False
     dynamic_benchmark_components = None
@@ -3287,8 +3287,8 @@ def _compute_core(
     # Get wave_id for dynamic benchmark lookup
     wave_id = get_wave_id_from_display_name(wave_name)
     
-    # Load dynamic benchmark specs if not frozen and not S&P 500 Wave
-    if not freeze_benchmark and wave_id != "sp500_wave":
+    # Load dynamic benchmark specs if not frozen
+    if not freeze_benchmark:
         dynamic_specs = load_dynamic_benchmark_specs()
         if dynamic_specs and "benchmarks" in dynamic_specs:
             if wave_id in dynamic_specs["benchmarks"]:
@@ -4081,7 +4081,7 @@ def _compute_core(
     else:
         out.attrs["coverage"]["dynamic_benchmark"] = {
             "enabled": False,
-            "reason": "S&P 500 Wave excluded" if wave_id == "sp500_wave" else "no_dynamic_spec_found"
+            "reason": "no_dynamic_spec_found"
         }
 
     if shadow and diag_rows:

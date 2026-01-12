@@ -30,8 +30,8 @@ EXPECTED_EQUITY_WAVES = {
     "ai_cloud_megacap_wave",
 }
 
-# S&P 500 Wave should be excluded
-EXCLUDED_WAVES = {"sp500_wave"}
+# S&P 500 Wave should now be included
+EXCLUDED_WAVES = set()
 
 WEIGHT_TOLERANCE = 0.01
 MIN_HISTORY_DAYS = 60
@@ -77,8 +77,10 @@ def validate_wave_coverage(config: dict) -> bool:
     benchmarks = config.get("benchmarks", {})
     found_waves = set(benchmarks.keys())
     
-    missing_waves = EXPECTED_EQUITY_WAVES - found_waves
-    extra_waves = found_waves - EXPECTED_EQUITY_WAVES - EXCLUDED_WAVES
+    # Include sp500_wave in expected set
+    all_expected_waves = EXPECTED_EQUITY_WAVES | {"sp500_wave"}
+    missing_waves = all_expected_waves - found_waves
+    extra_waves = found_waves - all_expected_waves - EXCLUDED_WAVES
     
     success = True
     
@@ -86,17 +88,25 @@ def validate_wave_coverage(config: dict) -> bool:
         print(f"❌ ERROR: Missing benchmark definitions for waves: {missing_waves}")
         success = False
     else:
-        print(f"✓ All {len(EXPECTED_EQUITY_WAVES)} equity waves have benchmark definitions")
+        print(f"✓ All {len(all_expected_waves)} equity waves have benchmark definitions")
     
     if extra_waves:
         print(f"⚠️  WARNING: Extra wave definitions found: {extra_waves}")
     
-    # Check that S&P 500 Wave is excluded
-    if "sp500_wave" in found_waves:
-        print(f"❌ ERROR: S&P 500 Wave should be excluded from dynamic benchmarks")
+    # Check that S&P 500 Wave is included with SPY:1.0
+    if "sp500_wave" not in found_waves:
+        print(f"❌ ERROR: S&P 500 Wave should be included in dynamic benchmarks")
         success = False
     else:
-        print(f"✓ S&P 500 Wave correctly excluded from dynamic benchmarks")
+        sp500_spec = benchmarks.get("sp500_wave", {})
+        components = sp500_spec.get("components", [])
+        if len(components) == 1 and components[0].get("ticker") == "SPY" and components[0].get("weight") == 1.0:
+            print(f"✓ S&P 500 Wave correctly configured with SPY:1.0 benchmark")
+        else:
+            print(f"❌ ERROR: S&P 500 Wave benchmark components incorrect")
+            print(f"   Expected: [SPY:1.0]")
+            print(f"   Got: {components}")
+            success = False
     
     return success
 
