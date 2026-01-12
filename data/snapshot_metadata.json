@@ -1,9 +1,9 @@
 {
-  "snapshot_id": "snap-8205d3fa0e644fdf",
+  "snapshot_id": "snap-4d4d6a2720e94c58",
   "snapshot_hash": "b21429cb2afb74fc",
   "generation_reason": "rebuild_workflow",
-  "timestamp": "2026-01-12T22:47:37.662097",
-  "software_version": "db3eea6",
+  "timestamp": "2026-01-12T22:51:22.431924",
+  "software_version": "9e7e873",
   "git_branch": "copilot/update-live-snapshot-workflow",
   "registry_version": "v20260108_040800",
   "benchmark_version": "v20260108_040800",

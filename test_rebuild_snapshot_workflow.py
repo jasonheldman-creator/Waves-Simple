@@ -14,6 +14,15 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+# Constants
+POSSIBLE_WAVE_ID_COLUMNS = ['Wave_ID', 'wave_id', 'waveid', 'Wave', 'wave', 'wave_name', 'Wave_Name']
+REQUIRED_COLUMNS_BY_CATEGORY = {
+    'Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
+    'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D',
+    'VIX_Regime', 'Exposure', 'CashPercent'
+}
+
+
 def test_rebuild_snapshot_has_required_fields():
     """
     Test that rebuild snapshot generates live_snapshot.csv with all required fields.
@@ -64,9 +73,8 @@ def test_rebuild_snapshot_has_required_fields():
     
     # Check for clean_transit_infrastructure_wave
     # Try multiple possible column names for wave identifier
-    possible_wave_cols = ['Wave_ID', 'wave_id', 'waveid', 'Wave', 'wave', 'wave_name', 'Wave_Name']
     wave_id_col = None
-    for col in possible_wave_cols:
+    for col in POSSIBLE_WAVE_ID_COLUMNS:
         if col in df.columns:
             wave_id_col = col
             break
@@ -128,9 +136,8 @@ def test_equity_waves_have_strategy_data():
     
     # Find equity wave rows
     # Try multiple possible column names for wave identifier
-    possible_wave_cols = ['Wave_ID', 'wave_id', 'waveid', 'Wave', 'wave', 'wave_name', 'Wave_Name']
     wave_col = None
-    for col in possible_wave_cols:
+    for col in POSSIBLE_WAVE_ID_COLUMNS:
         if col in df.columns:
             wave_col = col
             break

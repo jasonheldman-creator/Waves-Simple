@@ -21,6 +21,13 @@ from snapshot_ledger import generate_snapshot
 # Formatting constant
 SEPARATOR = "=" * 80
 
+# Required columns for validation
+REQUIRED_COLUMNS = [
+    'Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
+    'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D',
+    'VIX_Regime', 'Exposure', 'CashPercent'
+]
+
 
 def main() -> int:
     try:
@@ -45,10 +52,7 @@ def main() -> int:
         print(f"✓ Column count: {len(df.columns)}")
         
         # Validate required columns are present
-        required_cols = ['Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
-                        'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D',
-                        'VIX_Regime', 'Exposure', 'CashPercent']
-        missing_cols = [col for col in required_cols if col not in df.columns]
+        missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
         
         if missing_cols:
             print(f"⚠ Warning: Missing columns: {', '.join(missing_cols)}")
