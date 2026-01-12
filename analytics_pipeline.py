@@ -45,6 +45,28 @@ import pandas as pd
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# ========================================================================
+# SNAPSHOT SCHEMA CONSTANTS
+# ========================================================================
+# Column name mapping for snapshot normalization
+SNAPSHOT_COLUMN_RENAME_MAP = {
+    "wave": "Wave",
+    "return_1d": "Return_1D",
+    "return_30d": "Return_30D",
+    "return_60d": "Return_60D",
+    "return_365d": "Return_365D",
+    "alpha_1d": "Alpha_1D",
+    "alpha_30d": "Alpha_30D",
+    "alpha_60d": "Alpha_60D",
+    "alpha_365d": "Alpha_365D",
+}
+
+# Expected numeric columns after normalization
+SNAPSHOT_NUMERIC_COLUMNS = [
+    "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+    "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"
+]
+
 try:
     import yfinance as yf
     YFINANCE_AVAILABLE = True
@@ -3227,18 +3249,42 @@ def load_live_snapshot(path: str = "live_snapshot.csv", fallback: bool = True) -
     """
     Load live snapshot CSV with fallback to placeholder data.
     
+    This function normalizes column names to ensure compatibility with both
+    old and new snapshot formats. Column names are converted to lowercase,
+    then mapped to canonical names (e.g., return_1d -> Return_1D).
+    
     Args:
         path: Path to snapshot CSV file
         fallback: If True, return placeholder data if file doesn't exist
         
     Returns:
-        DataFrame with snapshot data
+        DataFrame with snapshot data (normalized columns)
     """
     import os
     
     if os.path.exists(path):
         try:
-            return pd.read_csv(path)
+            df = pd.read_csv(path)
+            
+            # --- Normalize live_snapshot schema (accept old/new formats) ---
+            # Create a copy to avoid modifying the original DataFrame
+            df = df.copy()
+            
+            # Normalize column names to lowercase
+            df.columns = [c.strip().lower() for c in df.columns]
+            
+            # Create filtered rename map (only include columns that exist)
+            rename_cols = {k: v for k, v in SNAPSHOT_COLUMN_RENAME_MAP.items() if k in df.columns}
+            
+            # Rename columns to canonical names
+            df = df.rename(columns=rename_cols)
+            
+            # Convert numeric columns with error handling
+            for col in SNAPSHOT_NUMERIC_COLUMNS:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+            
+            return df
         except Exception as e:
             print(f"Warning: Could not load snapshot from {path}: {str(e)}")
             if not fallback:
