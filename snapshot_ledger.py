@@ -508,6 +508,20 @@ def _build_smartsafe_cash_wave_row(
     exposure = 0.0
     cash_percent = 100.0
     
+    # Strategy state for cash waves (simple: always 100% cash, no complex strategy)
+    strategy_state = {
+        "regime": "cash",
+        "vix_regime": "n/a",
+        "vix_level": None,
+        "exposure": 0.0,
+        "safe_allocation": 1.0,
+        "trigger_reasons": ["SmartSafe cash wave - 100% money market allocation"],
+        "strategy_family": "cash",
+        "timestamp": datetime.now().strftime("%Y-%m-%d"),
+        "aggregated_risk_state": "neutral",
+        "active_strategies": 0
+    }
+    
     # Build row
     row = {
         "Wave_ID": wave_id,
@@ -535,6 +549,7 @@ def _build_smartsafe_cash_wave_row(
         "status": "OK",
         "missing_tickers": "",  # No tickers needed
         "NA_Reason": "✓",  # No issues - SmartSafe cash wave
+        "strategy_state": strategy_state,  # v17.4: strategy attribution
     }
     
     return row
@@ -762,6 +777,17 @@ def _build_snapshot_row_tier_a(
         except:
             pass
         
+        # Get strategy state (v17.4 feature)
+        strategy_state = {}
+        try:
+            if WAVES_ENGINE_AVAILABLE:
+                from waves_engine import get_latest_strategy_state
+                state_result = get_latest_strategy_state(wave_name, mode, days=30)
+                if state_result.get("ok"):
+                    strategy_state = state_result.get("strategy_state", {})
+        except Exception as e:
+            print(f"  ⚠ Failed to get strategy state for {wave_name}: {e}")
+        
         # Build row
         row = {
             "Wave_ID": wave_id,
@@ -789,6 +815,7 @@ def _build_snapshot_row_tier_a(
             "status": status,
             "missing_tickers": missing_tickers,
             "NA_Reason": na_reason,
+            "strategy_state": strategy_state,  # v17.4: strategy attribution
         }
         
         return row
@@ -935,6 +962,17 @@ def _build_snapshot_row_tier_b(
         except:
             pass
         
+        # Get strategy state (v17.4 feature) - limited for Tier B
+        strategy_state = {}
+        try:
+            if WAVES_ENGINE_AVAILABLE:
+                from waves_engine import get_latest_strategy_state
+                state_result = get_latest_strategy_state(wave_name, mode, days=30)
+                if state_result.get("ok"):
+                    strategy_state = state_result.get("strategy_state", {})
+        except Exception as e:
+            print(f"  ⚠ Failed to get strategy state for {wave_name}: {e}")
+        
         # Build row
         row = {
             "Wave_ID": wave_id,
@@ -962,6 +1000,7 @@ def _build_snapshot_row_tier_b(
             "status": status,
             "missing_tickers": missing_tickers,
             "NA_Reason": na_reason,
+            "strategy_state": strategy_state,  # v17.4: strategy attribution
         }
         
         return row
@@ -1074,6 +1113,9 @@ def _build_snapshot_row_tier_d(
     except:
         pass
     
+    # Strategy state empty for Tier D (no data available)
+    strategy_state = {}
+    
     # Build row with fallback values
     row = {
         "Wave_ID": wave_id,
@@ -1101,6 +1143,7 @@ def _build_snapshot_row_tier_d(
         "status": "NO DATA",
         "missing_tickers": missing_tickers,
         "NA_Reason": na_reason,
+        "strategy_state": strategy_state,  # v17.4: strategy attribution (empty for tier D)
     }
     
     return row
