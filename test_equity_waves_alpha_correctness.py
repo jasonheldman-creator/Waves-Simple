@@ -32,9 +32,9 @@ def test_benchmark_definitions():
     tests_passed = 0
     tests_failed = 0
     
-    # Test 1: All non-S&P500 equity waves have dynamic benchmarks
-    print("\n[Test 1] All non-S&P500 equity waves have dynamic benchmarks")
-    equity_wave_ids = set(equity_waves['wave_id'].tolist()) - {'sp500_wave'}
+    # Test 1: All equity waves have dynamic benchmarks (including S&P 500 Wave)
+    print("\n[Test 1] All equity waves have dynamic benchmarks")
+    equity_wave_ids = set(equity_waves['wave_id'].tolist())
     dynamic_wave_ids = set(dynamic_benchmarks['benchmarks'].keys())
     
     missing = equity_wave_ids - dynamic_wave_ids
@@ -44,17 +44,25 @@ def test_benchmark_definitions():
             print(f"    - {wave_id}")
         tests_failed += 1
     else:
-        print(f"  ✓ PASSED: All {len(equity_wave_ids)} non-S&P500 waves have dynamic benchmarks")
+        print(f"  ✓ PASSED: All {len(equity_wave_ids)} equity waves have dynamic benchmarks")
         tests_passed += 1
     
-    # Test 2: S&P 500 Wave does NOT have dynamic benchmark
-    print("\n[Test 2] S&P 500 Wave excluded from dynamic benchmarks")
-    if 'sp500_wave' in dynamic_wave_ids:
-        print("  ✗ FAILED: sp500_wave should not have dynamic benchmark")
+    # Test 2: S&P 500 Wave HAS dynamic benchmark with SPY:1.0
+    print("\n[Test 2] S&P 500 Wave uses dynamic benchmark with SPY:1.0")
+    if 'sp500_wave' not in dynamic_wave_ids:
+        print("  ✗ FAILED: sp500_wave should have dynamic benchmark")
         tests_failed += 1
     else:
-        print("  ✓ PASSED: sp500_wave correctly excluded (remains static SPY)")
-        tests_passed += 1
+        sp500_spec = dynamic_benchmarks['benchmarks']['sp500_wave']
+        components = sp500_spec.get('components', [])
+        if len(components) == 1 and components[0]['ticker'] == 'SPY' and components[0]['weight'] == 1.0:
+            print("  ✓ PASSED: sp500_wave correctly configured with SPY:1.0 benchmark")
+            tests_passed += 1
+        else:
+            print("  ✗ FAILED: sp500_wave benchmark components incorrect")
+            print(f"    Expected: [SPY:1.0]")
+            print(f"    Got: {components}")
+            tests_failed += 1
     
     # Test 3: All benchmark weights sum to 1.0
     print("\n[Test 3] All benchmark weights sum to 1.0")
@@ -76,7 +84,8 @@ def test_benchmark_definitions():
     
     # Test 4: No extra benchmarks (all belong to active equity waves)
     print("\n[Test 4] No orphaned dynamic benchmarks")
-    extra = dynamic_wave_ids - equity_wave_ids
+    all_equity_wave_ids = set(equity_waves['wave_id'].tolist())
+    extra = dynamic_wave_ids - all_equity_wave_ids
     if extra:
         print(f"  ⚠ WARNING: {len(extra)} extra benchmarks (not critical)")
         for wave_id in sorted(extra):
@@ -278,15 +287,17 @@ def test_wave_registry_consistency():
     for _, wave in equity_waves.iterrows():
         wave_id = wave['wave_id']
         
-        # S&P 500 Wave should not have dynamic benchmark
-        if wave_id == 'sp500_wave':
-            if wave_id in dynamic_benchmarks['benchmarks']:
-                mismatches.append((wave_id, "Has dynamic benchmark but shouldn't"))
-            continue
-        
-        # All others should have dynamic benchmark
+        # All equity waves (including S&P 500 Wave) should have dynamic benchmark
         if wave_id not in dynamic_benchmarks['benchmarks']:
             mismatches.append((wave_id, "Missing dynamic benchmark"))
+            continue
+        
+        # S&P 500 Wave should have SPY:1.0 benchmark
+        if wave_id == 'sp500_wave':
+            spec = dynamic_benchmarks['benchmarks'][wave_id]
+            components = spec.get('components', [])
+            if not (len(components) == 1 and components[0]['ticker'] == 'SPY' and components[0]['weight'] == 1.0):
+                mismatches.append((wave_id, "Benchmark components incorrect (expected SPY:1.0)"))
     
     if mismatches:
         print(f"  ✗ FAILED: {len(mismatches)} mismatches found")

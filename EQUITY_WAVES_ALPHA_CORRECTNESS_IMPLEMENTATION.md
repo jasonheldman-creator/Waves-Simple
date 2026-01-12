@@ -86,11 +86,13 @@ Added missing dynamic benchmark definitions for 4 equity waves:
 ### 2. Coverage Validation
 
 **Total equity waves**: 15 active equity_growth waves  
-**Dynamic benchmarks**: 14 (all except sp500_wave which remains static)
+**Dynamic benchmarks**: 15 (including sp500_wave with full strategy pipeline)
+
+**UPDATE (2026-01-12)**: S&P 500 Wave is now included in dynamic benchmarks to enable full strategy-aware computation with VIX overlay, exposure scaling, and tactical logic.
 
 | Wave ID | Dynamic Benchmark | Components | Status |
 |---------|-------------------|------------|--------|
-| sp500_wave | ❌ Static SPY | 1 | ✅ Correctly excluded |
+| sp500_wave | ✅ Dynamic | 1 (SPY 100%) | ✅ **Promoted to full pipeline** |
 | ai_cloud_megacap_wave | ✅ Dynamic | 3 (QQQ 60%, SMH 25%, IGV 15%) | ✅ Complete |
 | clean_transit_infrastructure_wave | ✅ Dynamic | 2 (PAVE 60%, XLI 40%) | ✅ Complete |
 | demas_fund_wave | ✅ Dynamic | 2 (SPY 60%, VTV 40%) | ✅ Complete |

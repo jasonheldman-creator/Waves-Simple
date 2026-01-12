@@ -51,9 +51,9 @@ The following 10 equity waves have dynamic benchmarks:
 10. **AI & Cloud MegaCap** (ai_cloud_megacap_wave)
     - Benchmark: 60% QQQ + 25% SMH + 15% IGV
 
-## Excluded Waves
-
-- **S&P 500 Wave** (sp500_wave): Remains static with 100% SPY benchmark
+11. **S&P 500 Wave** (sp500_wave)
+    - Benchmark: 100% SPY
+    - **NEW**: Now uses full strategy pipeline with VIX overlay and exposure scaling
 
 ## Configuration File
 
@@ -219,13 +219,7 @@ The S&P 500 Wave uses a **static SPY-only benchmark** for these reasons:
 3. **Consistency**: Maintains historical continuity for the flagship wave
 4. **Clarity**: Avoids confusion about what "the market" means
 
-This exception is hardcoded in the engine:
-
-```python
-# S&P 500 Wave always uses static SPY benchmark (excluded from dynamic benchmarks)
-if not freeze_benchmark and wave_id != "sp500_wave":
-    # Load dynamic benchmark specs...
-```
+**UPDATE (2026-01-12)**: The S&P 500 Wave is now included in the dynamic benchmark system to enable full strategy-aware computation with VIX overlay, exposure scaling, and tactical logic. It uses SPY:1.0 as its benchmark while going through the complete portfolio construction pipeline.
 
 ## Fallback Behavior
 

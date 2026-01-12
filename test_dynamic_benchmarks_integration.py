@@ -90,10 +90,18 @@ def test_benchmark_specs_loaded(benchmark_specs):
     assert benchmark_count >= 10, f"Expected at least 10 dynamic benchmarks for Phase 1B, found {benchmark_count}"
 
 
-def test_sp500_excluded_from_dynamic_benchmarks(benchmark_specs):
+def test_sp500_included_in_dynamic_benchmarks(benchmark_specs):
+    """S&P 500 Wave should now be in dynamic benchmarks with SPY:1.0"""
     sp500_wave_id = get_wave_id_from_display_name("S&P 500 Wave")
     assert sp500_wave_id == "sp500_wave", "S&P 500 Wave should map to wave_id 'sp500_wave'"
-    assert sp500_wave_id not in benchmark_specs["benchmarks"], "S&P 500 Wave must NOT be in dynamic benchmarks"
+    assert sp500_wave_id in benchmark_specs["benchmarks"], "S&P 500 Wave must be in dynamic benchmarks"
+    
+    # Verify it uses SPY:1.0 as benchmark
+    sp500_spec = benchmark_specs["benchmarks"][sp500_wave_id]
+    components = sp500_spec.get("components", [])
+    assert len(components) == 1, f"S&P 500 Wave should have 1 component, found {len(components)}"
+    assert components[0]["ticker"] == "SPY", f"S&P 500 Wave component should be SPY, found {components[0]['ticker']}"
+    assert components[0]["weight"] == 1.0, f"S&P 500 Wave SPY weight should be 1.0, found {components[0]['weight']}"
 
 
 def _validate_components_structure(components, wave_id: str):
