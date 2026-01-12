@@ -4905,7 +4905,10 @@ def compute_raw_wave_return(
         return pd.Series(dtype=float)
     
     # Compute daily returns for each ticker
-    returns_df = price_slice[available_tickers].pct_change(fill_method=None)
+    # Note: Using fillna(0) after pct_change to handle missing data
+    # This is consistent with existing engine behavior in _compute_core
+    returns_df = price_slice[available_tickers].pct_change()
+    returns_df = returns_df.fillna(0.0)  # Handle NaN values explicitly
     
     # Get normalized weights for available tickers
     weight_dict = {}
@@ -4921,6 +4924,8 @@ def compute_raw_wave_return(
             weight_dict[ticker] /= total_weight
     
     # Calculate weighted portfolio return (raw, no overlay)
+    # Note: Using fillna(0) is consistent with engine's existing approach for missing data
+    # This prevents propagation of NaN values while maintaining data continuity
     raw_returns = pd.Series(0.0, index=returns_df.index)
     for ticker, weight in weight_dict.items():
         raw_returns += returns_df[ticker].fillna(0.0) * weight
