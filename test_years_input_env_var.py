@@ -16,7 +16,6 @@ Tests:
 import os
 import sys
 import subprocess
-import tempfile
 
 def test_env_var_set():
     """Test that script reads YEARS_INPUT when set."""
@@ -255,8 +254,8 @@ echo "YEARS_INT=$YEARS_INT"
         return False
     print("    ✓ Passed")
     
-    # Test 6c: YEARS_INPUT="10.5" (decimal, should round to 11)
-    print("  Test 6c: YEARS_INPUT='10.5' → YEARS_INT=10 (rounded)")
+    # Test 6c: YEARS_INPUT="10.5" (decimal, rounds to nearest int)
+    print("  Test 6c: YEARS_INPUT='10.5' → YEARS_INT=10 or 11 (rounded)")
     env = os.environ.copy()
     env["YEARS_INPUT"] = "10.5"
     result = subprocess.run(
@@ -265,8 +264,9 @@ echo "YEARS_INT=$YEARS_INT"
         text=True,
         env=env
     )
+    # Python's round() uses banker's rounding, so 10.5 could round to 10 or 11
     if "YEARS_INT=10" not in result.stdout and "YEARS_INT=11" not in result.stdout:
-        print(f"    ✗ FAILED: {result.stdout}")
+        print(f"    ✗ FAILED: Expected YEARS_INT=10 or 11, got {result.stdout}")
         return False
     print("    ✓ Passed")
     
