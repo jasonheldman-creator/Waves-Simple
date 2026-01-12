@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import time
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -1309,7 +1310,6 @@ def generate_snapshot(
                 cache_valid = False
                 if os.path.exists(SNAPSHOT_METADATA_FILE):
                     try:
-                        import json
                         with open(SNAPSHOT_METADATA_FILE, 'r') as f:
                             metadata = json.load(f)
                         cached_engine_version = metadata.get('engine_version', 'unknown')
@@ -1477,7 +1477,6 @@ def generate_snapshot(
         # Generate and save metadata
         if GOVERNANCE_METADATA_AVAILABLE:
             try:
-                import json
                 metadata = create_snapshot_metadata(
                     snapshot_df=snapshot_df,
                     generation_reason=generation_reason
