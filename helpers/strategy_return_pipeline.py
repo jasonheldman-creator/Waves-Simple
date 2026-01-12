@@ -138,7 +138,7 @@ def compute_wave_returns_with_strategy(
             'wave_return': hist_df['wave_ret'],
             'benchmark_return': hist_df['bm_ret'],
             'alpha': hist_df['wave_ret'] - hist_df['bm_ret'],
-            'strategy_applied': True  # Strategy pipeline was used
+            'strategy_applied': has_strategy  # True if strategy_stack was provided
         })
         
         # Preserve diagnostics metadata if available

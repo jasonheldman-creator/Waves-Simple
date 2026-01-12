@@ -14895,8 +14895,7 @@ def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
                 pass
             except Exception as e:
                 # Log unexpected errors for debugging
-                import logging
-                logging.getLogger(__name__).warning(f"Error loading strategy_stack info: {e}")
+                logger.warning(f"Error loading strategy_stack info: {e}")
         
     except Exception as e:
         st.error(f"⚠️ Error rendering strategy state panel: {str(e)}")
