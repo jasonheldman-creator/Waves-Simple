@@ -14708,6 +14708,12 @@ def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
         wave_name: Name of the wave
         mode: Operating mode (Standard, Alpha-Minus-Beta, Private Logic)
     """
+    # Display thresholds for visual indicators
+    EXPOSURE_HIGH_THRESHOLD = 1.05  # Above this shows aggressive icon
+    EXPOSURE_LOW_THRESHOLD = 0.95   # Below this shows defensive icon
+    SAFE_HIGH_THRESHOLD = 0.30      # Above this shows heavy defense icon
+    SAFE_MEDIUM_THRESHOLD = 0.10    # Above this shows moderate defense icon
+    
     try:
         st.markdown("#### 🎯 Strategy State")
         st.caption("Current strategy positioning and trigger reasons")
@@ -14780,11 +14786,11 @@ def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
             exposure = strategy_state.get("exposure", 0.0)
             exposure_pct = exposure * 100
             
-            # Color code exposure
-            if exposure > 1.05:
+            # Color code exposure using defined thresholds
+            if exposure > EXPOSURE_HIGH_THRESHOLD:
                 exposure_delta = f"+{(exposure - 1.0) * 100:.1f}%"
                 exposure_icon = "🚀"
-            elif exposure < 0.95:
+            elif exposure < EXPOSURE_LOW_THRESHOLD:
                 exposure_delta = f"{(exposure - 1.0) * 100:.1f}%"
                 exposure_icon = "🛡️"
             else:
@@ -14802,9 +14808,10 @@ def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
             safe_allocation = strategy_state.get("safe_allocation", 0.0)
             safe_pct = safe_allocation * 100
             
-            if safe_allocation > 0.30:
+            # Icon selection using defined thresholds
+            if safe_allocation > SAFE_HIGH_THRESHOLD:
                 safe_icon = "🛡️"
-            elif safe_allocation > 0.10:
+            elif safe_allocation > SAFE_MEDIUM_THRESHOLD:
                 safe_icon = "🔒"
             else:
                 safe_icon = "💼"
