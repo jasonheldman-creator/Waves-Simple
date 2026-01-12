@@ -1,15 +1,16 @@
 {
-  "snapshot_id": "snap-91270ba6bf6d4e79",
-  "snapshot_hash": "193a44f0ea9f2f3a",
-  "generation_reason": "auto",
-  "timestamp": "2026-01-07T05:49:59.568580",
-  "software_version": "085fcf7",
-  "git_branch": "copilot/add-operator-toolbox-feature",
-  "registry_version": "v20260102_214700",
-  "benchmark_version": "v20260102_214700",
-  "data_regime": "SANDBOX",
+  "snapshot_id": "snap-4d4d6a2720e94c58",
+  "snapshot_hash": "b21429cb2afb74fc",
+  "generation_reason": "rebuild_workflow",
+  "timestamp": "2026-01-12T22:51:22.431924",
+  "software_version": "9e7e873",
+  "git_branch": "copilot/update-live-snapshot-workflow",
+  "registry_version": "v20260108_040800",
+  "benchmark_version": "v20260108_040800",
+  "engine_version": "17.5",
+  "data_regime": "LIVE",
   "safe_mode": "OFF",
   "wave_count": 28,
   "degraded_wave_count": 0,
-  "broken_ticker_count": 127
+  "broken_ticker_count": 0
 }
