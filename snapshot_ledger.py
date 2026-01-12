@@ -42,6 +42,7 @@ try:
         get_auto_benchmark_holdings,
         get_wave_id_from_display_name,
         MODE_BASE_EXPOSURE,
+        get_engine_version,
     )
     WAVES_ENGINE_AVAILABLE = True
 except ImportError:
@@ -1269,15 +1270,26 @@ def generate_snapshot(
     Uses tiered fallback approach (A -> B -> C -> D) to ensure complete coverage.
     
     Args:
-        force_refresh: If True, ignore cached snapshot
+        force_refresh: If True, ignore cached snapshot and regenerate
         max_runtime_seconds: Maximum time to spend generating snapshot
         price_df: Optional pre-fetched price DataFrame
-        generation_reason: Reason for generation ('auto', 'manual', 'fallback')
+        generation_reason: Reason for generation ('auto', 'manual', 'fallback', 'version_change')
         
     Returns:
         DataFrame with snapshot data for all waves
+        
+    Environment Variables:
+        FORCE_SNAPSHOT_REBUILD: Set to '1' or 'true' to force snapshot regeneration
     """
     start_time = time.time()
+    
+    # Check environment variable for force rebuild
+    if not force_refresh:
+        force_env = os.environ.get('FORCE_SNAPSHOT_REBUILD', '').lower()
+        if force_env in ('1', 'true', 'yes'):
+            force_refresh = True
+            generation_reason = 'env_force_rebuild'
+            print("⚠ FORCE_SNAPSHOT_REBUILD environment variable set - forcing regeneration")
     
     print("=" * 80)
     print("WAVE SNAPSHOT LEDGER - Generating Daily Snapshot")
@@ -1288,16 +1300,42 @@ def generate_snapshot(
         try:
             cached_df = pd.read_csv(SNAPSHOT_FILE)
             
-            # Check if snapshot is recent enough
+            # Check if snapshot is recent enough AND engine version matches
             if "Date" in cached_df.columns and not cached_df.empty:
                 snapshot_date = pd.to_datetime(cached_df["Date"].iloc[0])
                 age_hours = (datetime.now() - snapshot_date).total_seconds() / 3600
                 
-                if age_hours < MAX_SNAPSHOT_AGE_HOURS:
-                    print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours)")
-                    return cached_df
+                # Get engine version from cached metadata
+                cache_valid = False
+                if os.path.exists(SNAPSHOT_METADATA_FILE):
+                    try:
+                        import json
+                        with open(SNAPSHOT_METADATA_FILE, 'r') as f:
+                            metadata = json.load(f)
+                        cached_engine_version = metadata.get('engine_version', 'unknown')
+                        current_engine_version = get_engine_version() if WAVES_ENGINE_AVAILABLE else 'unknown'
+                        
+                        # Cache is valid if:
+                        # 1. Age is within threshold AND
+                        # 2. Engine version matches current version
+                        if age_hours < MAX_SNAPSHOT_AGE_HOURS and cached_engine_version == current_engine_version:
+                            cache_valid = True
+                            print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, engine v{current_engine_version})")
+                            return cached_df
+                        elif cached_engine_version != current_engine_version:
+                            print(f"⚠ Cache invalidated: engine version changed from {cached_engine_version} to {current_engine_version}")
+                        else:
+                            print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
+                    except Exception as e:
+                        print(f"⚠ Failed to load snapshot metadata, will regenerate: {e}")
+                        # If metadata file doesn't exist or is invalid, fall through to regenerate
                 else:
-                    print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
+                    # No metadata file - check age only (backward compatibility)
+                    if age_hours < MAX_SNAPSHOT_AGE_HOURS:
+                        print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, no version tracking)")
+                        return cached_df
+                    else:
+                        print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
         except Exception as e:
             print(f"⚠ Failed to load cached snapshot: {e}")
     

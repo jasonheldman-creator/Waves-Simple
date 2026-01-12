@@ -307,7 +307,7 @@ def create_snapshot_metadata(
     
     Args:
         snapshot_df: The snapshot DataFrame
-        generation_reason: Reason for generation ('auto', 'manual', 'fallback')
+        generation_reason: Reason for generation ('auto', 'manual', 'fallback', 'version_change')
         snapshot_id: Optional snapshot ID (will generate if not provided)
         
     Returns:
@@ -324,6 +324,14 @@ def create_snapshot_metadata(
     git_branch = get_git_branch()
     registry_version = get_registry_version()
     benchmark_version = get_benchmark_registry_version()
+    
+    # Get engine version
+    engine_version = 'unknown'
+    try:
+        from waves_engine import get_engine_version
+        engine_version = get_engine_version()
+    except ImportError:
+        pass
     
     # Get system status
     data_regime = detect_data_regime(snapshot_df)
@@ -346,6 +354,7 @@ def create_snapshot_metadata(
         'git_branch': git_branch,
         'registry_version': registry_version,
         'benchmark_version': benchmark_version,
+        'engine_version': engine_version,  # NEW: Track engine version for cache invalidation
         
         # System status
         'data_regime': data_regime,
