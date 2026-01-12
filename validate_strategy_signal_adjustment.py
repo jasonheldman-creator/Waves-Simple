@@ -7,12 +7,16 @@ This script validates that:
 2. Regime threshold has been adjusted from 6.0% to 5.5%
 3. The adjustment creates measurable divergence in strategy decisions
 4. Cache invalidation will trigger on next snapshot generation
+
+Note: This script imports _regime_from_return (a private function) for
+validation purposes. This is acceptable for test/validation scripts to
+ensure internal logic is working correctly.
 """
 
 from waves_engine import (
     ENGINE_VERSION,
     get_engine_version,
-    _regime_from_return,
+    _regime_from_return,  # Private function imported for validation only
     REGIME_EXPOSURE,
     REGIME_GATING,
 )
