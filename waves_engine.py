@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # waves_engine.py — WAVES Intelligence™ Vector Engine (v17.3)
 # Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
 #
@@ -28,8 +30,6 @@
 
 # Engine version - increment when logic changes to invalidate cached snapshots
 ENGINE_VERSION = "17.3"
-
-from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
