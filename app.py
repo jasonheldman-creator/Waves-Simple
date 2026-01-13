@@ -1750,7 +1750,7 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
 
 
 @st.cache_data(ttl=15)
-def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1) -> dict:
+def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1, _snapshot_version=None) -> dict:
     """
     Fetch, deduplicate, and return canonical wave universe data.
     
@@ -1763,6 +1763,8 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     Args:
         force_reload: If True, bypass cache and rebuild universe
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+        _snapshot_version: Snapshot version key for cache invalidation when snapshot is rebuilt (prefixed with _ to ignore in hash)
+                          If None, will be auto-retrieved from snapshot metadata
         
     Returns:
         Dictionary with:
@@ -1773,6 +1775,10 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
         - enabled_flags: Dictionary mapping wave names to enabled status (default True)
     """
     from datetime import datetime
+    
+    # Auto-retrieve snapshot version if not provided
+    if _snapshot_version is None:
+        _snapshot_version = get_snapshot_version()
     
     # Check cache unless force reload
     if not force_reload and "wave_universe" in st.session_state:
@@ -2381,7 +2387,7 @@ def get_cache_file_timestamp(file_path):
 
 
 @st.cache_resource(show_spinner=False)
-def get_cached_price_book_internal(_cache_buster=None):
+def get_cached_price_book_internal(_cache_buster=None, _snapshot_version=None):
     """
     Internal function to get cached PRICE_BOOK.
     
@@ -2394,6 +2400,7 @@ def get_cached_price_book_internal(_cache_buster=None):
     
     Args:
         _cache_buster: File modification timestamp (prefixed with _ to exclude from hash)
+        _snapshot_version: Snapshot version key for cache invalidation when snapshot is rebuilt (prefixed with _ to exclude from hash)
     
     Returns:
         DataFrame: Cached price book (index=dates, columns=tickers)
@@ -2414,14 +2421,17 @@ def get_cached_price_book():
     Get cached PRICE_BOOK with automatic cache-busting.
     
     This function automatically detects changes to the underlying price cache file
-    and invalidates the Streamlit cache when the file is updated.
+    and invalidates the Streamlit cache when the file is updated. Also invalidates
+    cache when snapshot is rebuilt.
     
     Returns:
         DataFrame: Cached price book (index=dates, columns=tickers)
     """
     # Get cache file timestamp for cache-busting
     cache_timestamp = get_cache_file_timestamp(CANONICAL_CACHE_PATH)
-    return get_cached_price_book_internal(_cache_buster=cache_timestamp)
+    # Get snapshot version for cache invalidation on rebuild
+    snapshot_version = get_snapshot_version()
+    return get_cached_price_book_internal(_cache_buster=cache_timestamp, _snapshot_version=snapshot_version)
 
 
 def calculate_wavescore(wave_data):
@@ -2596,8 +2606,35 @@ def determine_winner(wave1_metrics, wave2_metrics):
 # SECTION 3: SAFE DATA-LOADING HELPERS
 # ============================================================================
 
+def get_snapshot_version() -> str:
+    """
+    Get the snapshot version key from snapshot_metadata.json.
+    This is used to invalidate caches when the snapshot is rebuilt.
+    
+    Returns:
+        String combining snapshot_id and snapshot_hash, or 'default' if unavailable
+    """
+    try:
+        metadata_path = os.path.join(os.path.dirname(__file__), 'data', 'snapshot_metadata.json')
+        if os.path.exists(metadata_path):
+            import json
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            # Combine snapshot_id and snapshot_hash for a unique version key
+            snapshot_id = metadata.get('snapshot_id', 'unknown')
+            snapshot_hash = metadata.get('snapshot_hash', 'unknown')
+            return f"{snapshot_id}_{snapshot_hash}"
+        else:
+            # If metadata file doesn't exist, use a default version
+            return 'default'
+    except Exception as e:
+        logger.warning(f"Failed to load snapshot version: {e}")
+        return 'default'
+
+
 @st.cache_data(ttl=15)
-def safe_load_wave_history(_wave_universe_version=1):
+def safe_load_wave_history(_wave_universe_version=1, _snapshot_version=None):
     """
     Safely load wave history data with comprehensive error handling.
     Returns DataFrame or None if unavailable.
@@ -2609,7 +2646,14 @@ def safe_load_wave_history(_wave_universe_version=1):
     
     Args:
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+        _snapshot_version: Snapshot version key for cache invalidation when snapshot is rebuilt (prefixed with _ to ignore in hash)
+                          If None, will be auto-retrieved from snapshot metadata
     """
+    # Auto-retrieve snapshot version if not provided
+    # Note: We still accept it as a parameter so callers can explicitly pass it
+    if _snapshot_version is None:
+        _snapshot_version = get_snapshot_version()
+    
     try:
         wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
         
