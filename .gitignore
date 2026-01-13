@@ -6,14 +6,12 @@
 /data/cache/*metadata*
 
 # Ignore generated data artifacts (do not commit)
-/data/live_snapshot.csv
-/data/snapshot_metadata.json
-/data/diagnostics_run.json
+# NOTE: live_snapshot.csv, snapshot_metadata.json, diagnostics_run.json, and data_coverage_summary.csv 
+# are committed because Streamlit reads them in production and workflows update them
 /data/planb_diagnostics_run.json
 /data/live_proxy_snapshot.csv
 /data/broken_tickers.csv
 /data/missing_tickers.csv
-/data/data_coverage_summary.csv
 /data/test_snapshot.csv
 /data/prices.csv
 
