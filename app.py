@@ -1760,10 +1760,15 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     Uses wave list from waves_engine or falls back to static list.
     Caches result in session state for performance.
     
+    CACHE INVALIDATION BEHAVIOR:
+    - snapshot_version: Changes WILL invalidate Streamlit cache
+    - _wave_universe_version: Changes will NOT invalidate Streamlit cache (underscore prefix)
+    - This function primarily uses session_state caching, so Streamlit cache invalidation
+      via _wave_universe_version is not needed
+    
     Args:
         force_reload: If True, bypass cache and rebuild universe
-        _wave_universe_version: Version counter (NOTE: prefixed with _ so Streamlit ignores it in hash - 
-                                changes to this value will NOT invalidate the Streamlit cache)
+        _wave_universe_version: Version counter (prefixed with _ - ignored by Streamlit cache hash)
         snapshot_version: Snapshot version key for cache invalidation
         
     Returns:
@@ -2621,9 +2626,12 @@ def safe_load_wave_history(_wave_universe_version=1, snapshot_version: str = Non
     - Collapses multiple spaces to single space
     - Creates normalized_wave column for matching
     
+    CACHE INVALIDATION BEHAVIOR:
+    - snapshot_version: Changes WILL invalidate Streamlit cache
+    - _wave_universe_version: Changes will NOT invalidate Streamlit cache (underscore prefix)
+    
     Args:
-        _wave_universe_version: Version counter (NOTE: prefixed with _ so Streamlit ignores it in hash - 
-                                changes to this value will NOT invalidate the Streamlit cache)
+        _wave_universe_version: Version counter (prefixed with _ - ignored by Streamlit cache hash)
         snapshot_version: Snapshot version key for cache invalidation
     """
     try:
