@@ -291,37 +291,56 @@ def fetch_prices_crypto_coingecko(ticker: str, days: int = 400) -> pd.Series:
 
 def compute_period_return(prices: pd.Series, lookback_days: int) -> float:
     """
-    Compute percentage return between nearest date >= lookback_days ago and most recent.
+    Compute percentage return using trading-day alignment.
+    
+    IMPORTANT: For 1D returns (lookback_days=1), this uses the LAST TWO AVAILABLE TRADING DATES
+    in the price series, not calendar date calculations. This ensures 1D returns are always
+    based on actual trading days regardless of weekends/holidays.
+    
+    For periods > 1, uses trading-day counting (not calendar days).
     
     Args:
-        prices: Series of prices indexed by date
-        lookback_days: Number of days to look back (e.g., 1, 30, 60, 365)
+        prices: Series of prices indexed by date (must be sorted ascending)
+        lookback_days: Number of trading days to look back (e.g., 1, 30, 60, 365)
         
     Returns:
         Percentage return as decimal (e.g., 0.05 for 5%)
         Returns NaN if insufficient data
+        
+    Example:
+        # For 1D return on Monday (weekend case)
+        # prices.index = [..., Friday, Monday]
+        # Returns: (Monday price / Friday price) - 1
+        # NOT: (Monday price / Sunday price) which would be NaN
     """
     if len(prices) < 2:
         return np.nan
     
     try:
-        # Get most recent price
+        # Special case: 1D return uses last two available trading dates
+        if lookback_days == 1:
+            # asof_date = last available trading date
+            # prev_date = second-to-last available trading date
+            asof_price = float(prices.iloc[-1])
+            prev_price = float(prices.iloc[-2])
+            
+            if prev_price <= 0:
+                return np.nan
+            
+            return (asof_price / prev_price) - 1.0
+        
+        # For longer periods, use trading-day counting
+        # lookback_days represents number of trading days (rows) to go back
+        # We need lookback_days + 1 data points (start point + lookback_days worth of data)
+        required_data_points = lookback_days + 1
+        
+        if len(prices) < required_data_points:
+            # Not enough trading days available
+            return np.nan
+        
+        # Get price at lookback_days trading days ago (using row indexing)
         end_price = float(prices.iloc[-1])
-        
-        # Find start price closest to lookback_days ago
-        end_date = prices.index[-1]
-        target_date = end_date - pd.Timedelta(days=lookback_days)
-        
-        # Find the nearest date on or before target_date
-        valid_dates = prices.index[prices.index <= target_date]
-        
-        if len(valid_dates) == 0:
-            # Not enough history, use earliest available
-            start_price = float(prices.iloc[0])
-        else:
-            # Use the closest date to target_date
-            start_date = valid_dates[-1]
-            start_price = float(prices.loc[start_date])
+        start_price = float(prices.iloc[-required_data_points])
         
         if start_price <= 0:
             return np.nan
@@ -612,10 +631,81 @@ def generate_live_snapshot_csv(
     except Exception as e:
         print(f"⚠️ Could not load wave registry status: {e}")
     
+    # ========================================================================
+    # Compute VIX overlay diagnostics (if available)
+    # ========================================================================
+    vix_level = None
+    vix_regime = 'N/A'
+    exposure = None
+    cash_percent = None
+    
+    try:
+        # Build a price_book DataFrame from prices_cache for VIX computation
+        # Convert dict of series to DataFrame
+        if prices_cache:
+            # Get the union of all dates from all price series
+            all_dates = set()
+            for ticker, prices in prices_cache.items():
+                all_dates.update(prices.index)
+            
+            # Create index from sorted dates
+            price_book_index = pd.DatetimeIndex(sorted(all_dates))
+            
+            # Build DataFrame
+            price_book = pd.DataFrame(index=price_book_index)
+            for ticker, prices in prices_cache.items():
+                price_book[ticker] = prices.reindex(price_book_index)
+            
+            # Try to compute VIX regime and exposure
+            try:
+                from helpers.wave_performance import compute_volatility_regime_and_exposure
+                
+                vix_result = compute_volatility_regime_and_exposure(price_book)
+                
+                if vix_result.get('available', False):
+                    vix_level = vix_result.get('last_vix_value')
+                    vix_regime = vix_result.get('current_regime', 'N/A')
+                    exposure = vix_result.get('current_exposure')
+                    
+                    # Calculate cash percentage from exposure
+                    if exposure is not None:
+                        cash_percent = (1.0 - exposure) * 100.0
+                    
+                    # Format VIX level safely (handle None)
+                    vix_level_str = f"{vix_level:.2f}" if vix_level is not None else "N/A"
+                    exposure_str = f"{exposure:.2%}" if exposure is not None else "N/A"
+                    print(f"✓ VIX overlay: Level={vix_level_str}, Regime={vix_regime}, Exposure={exposure_str}")
+                else:
+                    reason = vix_result.get('reason', 'unknown')
+                    print(f"⚠️ VIX overlay not available: {reason}")
+            except Exception as vix_err:
+                print(f"⚠️ Could not compute VIX overlay: {vix_err}")
+        else:
+            print(f"⚠️ No prices_cache available for VIX computation")
+    except Exception as e:
+        print(f"⚠️ Error building price_book for VIX: {e}")
+    
     rows = []
     current_time = datetime.now()
     current_date = current_time.strftime("%Y-%m-%d")
     current_utc = current_time.isoformat()
+    
+    # Determine asof_date from prices_cache (max trading date)
+    asof_date = current_date  # Default to today
+    try:
+        if prices_cache:
+            # Get max date from all price series
+            all_max_dates = []
+            for ticker, prices in prices_cache.items():
+                if not prices.empty:
+                    all_max_dates.append(prices.index[-1])
+            
+            if all_max_dates:
+                asof_date_dt = max(all_max_dates)
+                asof_date = asof_date_dt.strftime("%Y-%m-%d")
+                print(f"✓ Using asof_date from price data: {asof_date}")
+    except Exception as e:
+        print(f"⚠️ Error determining asof_date: {e}, using current_date")
     
     for wave_name in waves:
         # Get wave_id (slugified)
@@ -627,7 +717,7 @@ def generate_live_snapshot_csv(
         # Get returns data
         returns_data = wave_returns.get(wave_name, {})
         
-        # Build row
+        # Build row with VIX overlay fields
         row = {
             'wave_id': wave_id,
             'wave': wave_name,
@@ -641,7 +731,12 @@ def generate_live_snapshot_csv(
             'missing_tickers': ', '.join(returns_data.get('missing_tickers', [])),
             'tickers_ok': len(returns_data.get('tickers_ok', [])),
             'tickers_total': returns_data.get('tickers_total', 0),
-            'asof_utc': current_utc
+            'asof_utc': current_utc,
+            'asof_date': asof_date,  # Trading as-of date
+            'VIX_Level': vix_level,
+            'VIX_Regime': vix_regime,
+            'Exposure': exposure,
+            'CashPercent': cash_percent
         }
         
         rows.append(row)
