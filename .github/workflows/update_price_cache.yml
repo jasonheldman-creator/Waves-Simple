@@ -162,16 +162,14 @@ jobs:
           echo "CHANGE DETECTION"
           echo "========================================================================"
 
-          git add data/cache/prices_cache.parquet || true
-          git add data/cache/prices_cache_meta.json || true
-
-          if git diff --staged --quiet; then
+          # Check if cache files have been modified (don't stage yet)
+          if git diff --quiet data/cache/prices_cache.parquet data/cache/prices_cache_meta.json 2>/dev/null; then
             echo "status=no_changes" >> $GITHUB_OUTPUT
-            echo "ℹ No staged changes in cache files"
+            echo "ℹ No changes in cache files"
           else
             echo "status=has_changes" >> $GITHUB_OUTPUT
             echo "✓ Changes detected:"
-            git diff --staged --stat
+            git diff --stat data/cache/prices_cache.parquet data/cache/prices_cache_meta.json 2>/dev/null || echo "  (new files)"
           fi
 
           echo "========================================================================"
@@ -185,19 +183,31 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          # Rebase onto latest main to avoid "fetch first"
+          # Clean workspace to ensure we're in a pristine state
+          echo "Cleaning workspace..."
+          git reset --hard
+          git clean -fd
+
+          # Fetch and rebase onto latest main BEFORE staging any changes
+          echo "Fetching latest changes from origin/main..."
           git fetch origin main
+          echo "Rebasing onto origin/main..."
           git pull --rebase origin main
 
-          # Re-stage after rebase (safe)
+          # Now stage the cache files (after rebase is complete)
+          echo "Staging cache files..."
           git add data/cache/prices_cache.parquet || true
           git add data/cache/prices_cache_meta.json || true
 
+          # Check if there are any staged differences
           if git diff --staged --quiet; then
             echo "ℹ After rebase, nothing to commit."
             exit 0
           fi
 
+          # Commit and push the changes
+          echo "Committing changes..."
           git commit -m "Update prices cache (auto)"
+          echo "Pushing to origin/main..."
           git push
           echo "✓ Cache files committed and pushed"
