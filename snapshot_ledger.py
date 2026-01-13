@@ -22,6 +22,7 @@ Directory Structure:
 from __future__ import annotations
 
 import os
+import re  # For VIX adjustment pattern parsing
 import time
 import json
 from datetime import datetime, timedelta
@@ -94,6 +95,10 @@ TIMEFRAMES = {
     "60D": 60,
     "365D": 365,
 }
+
+# Compiled regex pattern for parsing VIX adjustment from trigger_reasons
+# Matches patterns like: "vix_overlay: -5% exposure" or "vix_overlay: +3.5% exposure"
+VIX_ADJUSTMENT_PATTERN = re.compile(r'([+-]?\d+(?:\.\d+)?)\s*%\s+exposure')
 
 
 def _load_canonical_waves_from_weights() -> List[Tuple[str, str]]:
@@ -360,7 +365,7 @@ def _extract_vix_diagnostics_from_strategy_state(strategy_state: Dict[str, Any])
     
     # Extract VIX regime from strategy_state
     state_vix_regime = strategy_state.get('vix_regime')
-    if state_vix_regime and state_vix_regime not in ['unknown', 'n/a', None]:
+    if state_vix_regime is not None and state_vix_regime not in ['unknown', 'n/a']:
         vix_regime = state_vix_regime
     
     # Parse VIX adjustment percentage from trigger_reasons
@@ -371,10 +376,8 @@ def _extract_vix_diagnostics_from_strategy_state(strategy_state: Dict[str, Any])
             if isinstance(reason, str):
                 # Look for vix_overlay pattern
                 if 'vix_overlay' in reason.lower():
-                    # Try to extract percentage using regex
-                    import re
-                    # Pattern to match: optional +/-, digits, optional decimal, %
-                    match = re.search(r'([+-]?\d+(?:\.\d+)?)\s*%\s+exposure', reason)
+                    # Use pre-compiled regex pattern for efficiency
+                    match = VIX_ADJUSTMENT_PATTERN.search(reason)
                     if match:
                         pct_str = match.group(1)
                         try:
