@@ -1,9 +1,9 @@
 {
-  "snapshot_id": "snap-227bfd8d8a364c9b",
-  "snapshot_hash": "84bb6b118fa2885d",
+  "snapshot_id": "snap-0abbc7ad3a09462a",
+  "snapshot_hash": "614a5a0901970352",
   "generation_reason": "rebuild_workflow",
-  "timestamp": "2026-01-13T14:55:37.186792",
-  "software_version": "5dc169c",
+  "timestamp": "2026-01-13T21:02:56.481571",
+  "software_version": "dc0ac94",
   "git_branch": "main",
   "registry_version": "v20260108_040800",
   "benchmark_version": "v20260108_040800",
