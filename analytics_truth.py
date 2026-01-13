@@ -1411,6 +1411,9 @@ def _create_empty_truth_frame() -> pd.DataFrame:
             'benchmark_return_365d': np.nan,
             'exposure_pct': np.nan,
             'cash_pct': np.nan,
+            'vix_level': '',  # NEW: VIX level (blank default)
+            'vix_regime': 'unknown',  # NEW: VIX regime (default to unknown)
+            'vix_adjustment_pct': '',  # NEW: VIX adjustment percentage (blank default)
             'beta_real': np.nan,
             'beta_target': np.nan,
             'beta_drift': np.nan,
@@ -1464,6 +1467,9 @@ def _map_snapshot_to_truth_frame(snapshot_df: pd.DataFrame) -> pd.DataFrame:
         'Benchmark_Return_365D': 'benchmark_return_365d',
         'Exposure': 'exposure_pct',
         'CashPercent': 'cash_pct',
+        'VIX_Level': 'vix_level',  # NEW: VIX level from snapshot
+        'VIX_Regime': 'vix_regime',  # NEW: VIX regime from snapshot
+        'VIX_Adjustment_Pct': 'vix_adjustment_pct',  # NEW: VIX overlay adjustment percentage
         'Beta_Real': 'beta_real',
         'Beta_Target': 'beta_target',
         'Beta_Drift': 'beta_drift',

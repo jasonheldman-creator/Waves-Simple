@@ -22,6 +22,7 @@ Directory Structure:
 from __future__ import annotations
 
 import os
+import re  # For VIX adjustment pattern parsing
 import time
 import json
 from datetime import datetime, timedelta
@@ -94,6 +95,12 @@ TIMEFRAMES = {
     "60D": 60,
     "365D": 365,
 }
+
+# Compiled regex pattern for parsing VIX adjustment from trigger_reasons
+# Matches patterns like: "vix_overlay: -5% exposure" or "vix_overlay: +3.5% exposure"
+# The pattern requires " exposure" after the percentage per problem statement specification.
+# If future implementations need more flexible patterns, this can be relaxed.
+VIX_ADJUSTMENT_PATTERN = re.compile(r'([+-]?\d+(?:\.\d+)?)\s*%\s+exposure')
 
 
 def _load_canonical_waves_from_weights() -> List[Tuple[str, str]]:
@@ -332,6 +339,63 @@ def _get_vix_level_and_regime(price_df: Optional[pd.DataFrame] = None) -> Tuple[
     return vix_level, vix_regime
 
 
+def _extract_vix_diagnostics_from_strategy_state(strategy_state: Dict[str, Any]) -> Tuple[Any, str, Any]:
+    """
+    Extract VIX diagnostics from strategy_state for export.
+    
+    Args:
+        strategy_state: Strategy state dictionary from get_latest_strategy_state
+        
+    Returns:
+        Tuple of (vix_level, vix_regime, vix_adjustment_pct)
+        - vix_level: VIX level from strategy_state, or blank if None/NaN
+        - vix_regime: VIX regime from strategy_state, or 'unknown' if unavailable
+        - vix_adjustment_pct: Parsed VIX overlay adjustment as float (e.g., -0.05 for -5%), 
+                             or blank if pattern not found
+    """
+    vix_level = ""
+    vix_regime = "unknown"
+    vix_adjustment_pct = ""
+    
+    if not strategy_state:
+        return vix_level, vix_regime, vix_adjustment_pct
+    
+    # Extract VIX level from strategy_state
+    state_vix_level = strategy_state.get('vix_level')
+    if state_vix_level is not None and not (isinstance(state_vix_level, float) and np.isnan(state_vix_level)):
+        vix_level = state_vix_level
+    
+    # Extract VIX regime from strategy_state
+    state_vix_regime = strategy_state.get('vix_regime')
+    # Only use state_vix_regime if it's not None and not exactly 'unknown' or 'n/a'
+    # Note: 'n/a (crypto)' should be preserved as it's informative
+    if state_vix_regime is not None and state_vix_regime not in ['unknown']:
+        # Special case: preserve 'n/a (crypto)' and similar variants, but reject plain 'n/a'
+        if state_vix_regime != 'n/a':
+            vix_regime = state_vix_regime
+    
+    # Parse VIX adjustment percentage from trigger_reasons
+    # Looking for patterns like: "vix_overlay: -5% exposure" or "vix_overlay: +10% exposure"
+    trigger_reasons = strategy_state.get('trigger_reasons', [])
+    if isinstance(trigger_reasons, list):
+        for reason in trigger_reasons:
+            if isinstance(reason, str):
+                # Look for vix_overlay pattern
+                if 'vix_overlay' in reason.lower():
+                    # Use pre-compiled regex pattern for efficiency
+                    match = VIX_ADJUSTMENT_PATTERN.search(reason)
+                    if match:
+                        pct_str = match.group(1)
+                        try:
+                            # Convert percentage to decimal (e.g., "-5" -> -0.05)
+                            vix_adjustment_pct = float(pct_str) / 100.0
+                            break
+                        except (ValueError, TypeError):
+                            pass
+    
+    return vix_level, vix_regime, vix_adjustment_pct
+
+
 def _compute_exposure_and_cash(
     wave_name: str,
     mode: str,
@@ -505,6 +569,7 @@ def _build_smartsafe_cash_wave_row(
     
     # VIX and exposure (cash waves are always 100% cash, 0% exposure)
     vix_level, vix_regime = 0.0, "N/A"
+    vix_adjustment_pct = ""  # No VIX adjustments for cash waves
     exposure = 0.0
     cash_percent = 100.0
     
@@ -538,6 +603,7 @@ def _build_smartsafe_cash_wave_row(
         "CashPercent": cash_percent,
         "VIX_Level": vix_level,
         "VIX_Regime": vix_regime,
+        "VIX_Adjustment_Pct": vix_adjustment_pct,  # NEW: VIX overlay adjustment percentage (blank for cash)
         "Beta_Real": float("nan"),  # N/A for cash
         "Beta_Target": float("nan"),  # N/A for cash
         "Beta_Drift": float("nan"),  # N/A for cash
@@ -822,6 +888,16 @@ def _build_snapshot_row_tier_a(
         except Exception as e:
             print(f"  ⚠ Failed to get strategy state for {wave_name}: {e}")
         
+        # Extract VIX diagnostics from strategy_state for export
+        state_vix_level, state_vix_regime, vix_adjustment_pct = _extract_vix_diagnostics_from_strategy_state(strategy_state)
+        
+        # Use strategy_state VIX values if available, otherwise fall back to computed values
+        # VIX_Level: use strategy_state value if available, otherwise use computed vix_level
+        final_vix_level = state_vix_level if state_vix_level != "" else vix_level
+        
+        # VIX_Regime: use strategy_state value if available and not 'unknown', otherwise use computed vix_regime
+        final_vix_regime = state_vix_regime if state_vix_regime not in ["unknown", ""] else vix_regime
+        
         # Build row
         row = {
             "Wave_ID": wave_id,
@@ -836,8 +912,9 @@ def _build_snapshot_row_tier_a(
             **alphas,
             "Exposure": exposure,
             "CashPercent": cash_percent,
-            "VIX_Level": vix_level,
-            "VIX_Regime": vix_regime,
+            "VIX_Level": final_vix_level,
+            "VIX_Regime": final_vix_regime,
+            "VIX_Adjustment_Pct": vix_adjustment_pct,  # NEW: VIX overlay adjustment percentage
             "Beta_Real": beta_real,
             "Beta_Target": beta_target,
             "Beta_Drift": beta_drift,
@@ -999,6 +1076,13 @@ def _build_snapshot_row_tier_b(
         except Exception as e:
             print(f"  ⚠ Failed to get strategy state for {wave_name}: {e}")
         
+        # Extract VIX diagnostics from strategy_state for export
+        state_vix_level, state_vix_regime, vix_adjustment_pct = _extract_vix_diagnostics_from_strategy_state(strategy_state)
+        
+        # Use strategy_state VIX values if available, otherwise fall back to computed values
+        final_vix_level = state_vix_level if state_vix_level != "" else vix_level
+        final_vix_regime = state_vix_regime if state_vix_regime not in ["unknown", ""] else vix_regime
+        
         # Build row
         row = {
             "Wave_ID": wave_id,
@@ -1013,8 +1097,9 @@ def _build_snapshot_row_tier_b(
             **alphas,
             "Exposure": exposure,
             "CashPercent": cash_percent,
-            "VIX_Level": vix_level,
-            "VIX_Regime": vix_regime,
+            "VIX_Level": final_vix_level,
+            "VIX_Regime": final_vix_regime,
+            "VIX_Adjustment_Pct": vix_adjustment_pct,  # NEW: VIX overlay adjustment percentage
             "Beta_Real": beta_real,
             "Beta_Target": beta_target,
             "Beta_Drift": beta_drift,
@@ -1134,6 +1219,9 @@ def _build_snapshot_row_tier_d(
     # Strategy state empty for Tier D (no data available)
     strategy_state = {}
     
+    # For Tier D, VIX diagnostics are blank since there's no strategy state
+    vix_adjustment_pct = ""
+    
     # Build row with fallback values
     row = {
         "Wave_ID": wave_id,
@@ -1150,6 +1238,7 @@ def _build_snapshot_row_tier_d(
         "CashPercent": cash_percent,
         "VIX_Level": vix_level,
         "VIX_Regime": vix_regime,
+        "VIX_Adjustment_Pct": vix_adjustment_pct,  # NEW: VIX overlay adjustment percentage (blank for Tier D)
         "Beta_Real": float("nan"),
         "Beta_Target": 1.0,
         "Beta_Drift": float("nan"),
