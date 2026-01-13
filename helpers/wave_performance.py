@@ -1151,8 +1151,7 @@ def compute_portfolio_snapshot(
         'filtered_price_book_shape': None,
         'reason_if_failure': None,
         'exception_message': None,
-        'exception_traceback': None,
-        'using_ledger': True  # Track that we're using ledger-based computation
+        'exception_traceback': None
     }
     
     result = {
@@ -1261,7 +1260,6 @@ def compute_portfolio_snapshot(
         
         # Copy diagnostic information from ledger
         debug.update(ledger.get('debug', {}))
-        debug['using_ledger'] = True
         
         # Mark as successful
         result['success'] = True
