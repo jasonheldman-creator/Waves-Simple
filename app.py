@@ -10416,54 +10416,106 @@ def render_executive_brief_tab():
                 
                     st.divider()
                 
-                    # Alpha Attribution Row (30D window for detailed attribution)
-                    st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
-                
-                    period_30d = ledger['period_results'].get('30D', {})
-                    if period_30d.get('available'):
-                        col1, col2, col3, col4 = st.columns(4)
+                    # Alpha Source Breakdown - Show for both 30D and 60D
+                    st.markdown("**🔬 Alpha Source Breakdown**")
+                    st.caption("Decomposes total alpha into Selection (wave picking) and Overlay (VIX regime adjustment)")
                     
-                        with col1:
-                            total_alpha = period_30d['total_alpha']
-                            st.metric(
-                                "Total Alpha", 
-                                f"{total_alpha:+.2%}",
-                                help="Realized return - Benchmark return"
-                            )
+                    # Create tabs for different periods
+                    tab_30d, tab_60d = st.tabs(["30D Attribution", "60D Attribution"])
                     
-                        with col2:
-                            selection_alpha = period_30d['selection_alpha']
-                            st.metric(
-                                "Selection Alpha", 
-                                f"{selection_alpha:+.2%}",
-                                help="Alpha from wave selection (unoverlay - benchmark)"
-                            )
+                    with tab_30d:
+                        period_30d = ledger['period_results'].get('30D', {})
+                        if period_30d.get('available'):
+                            col1, col2, col3, col4 = st.columns(4)
+                        
+                            with col1:
+                                total_alpha = period_30d['total_alpha']
+                                st.metric(
+                                    "Total Alpha", 
+                                    f"{total_alpha:+.2%}",
+                                    help="Realized return - Benchmark return"
+                                )
+                        
+                            with col2:
+                                selection_alpha = period_30d['selection_alpha']
+                                st.metric(
+                                    "Selection Alpha", 
+                                    f"{selection_alpha:+.2%}",
+                                    help="Alpha from wave selection (unoverlay - benchmark)"
+                                )
+                        
+                            with col3:
+                                overlay_alpha = period_30d['overlay_alpha']
+                                overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
+                                st.metric(
+                                    overlay_label, 
+                                    f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
+                                    help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
+                                )
+                        
+                            with col4:
+                                residual = period_30d['residual']
+                                # Color code residual based on tolerance
+                                residual_pct = abs(residual) * 100
+                                residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
+                                st.metric(
+                                    f"{residual_color} Residual", 
+                                    f"{residual:+.3%}",
+                                    help="Attribution residual (should be near 0%)"
+                                )
+                        
+                            # Alpha Captured (if overlay available)
+                            if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
+                                st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
+                        else:
+                            st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
                     
-                        with col3:
-                            overlay_alpha = period_30d['overlay_alpha']
-                            overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
-                            st.metric(
-                                overlay_label, 
-                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
-                                help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
-                            )
-                    
-                        with col4:
-                            residual = period_30d['residual']
-                            # Color code residual based on tolerance
-                            residual_pct = abs(residual) * 100
-                            residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
-                            st.metric(
-                                f"{residual_color} Residual", 
-                                f"{residual:+.3%}",
-                                help="Attribution residual (should be near 0%)"
-                            )
-                    
-                        # Alpha Captured (if overlay available)
-                        if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
-                            st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
-                    else:
-                        st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
+                    with tab_60d:
+                        period_60d = ledger['period_results'].get('60D', {})
+                        if period_60d.get('available'):
+                            col1, col2, col3, col4 = st.columns(4)
+                        
+                            with col1:
+                                total_alpha = period_60d['total_alpha']
+                                st.metric(
+                                    "Total Alpha", 
+                                    f"{total_alpha:+.2%}",
+                                    help="Realized return - Benchmark return"
+                                )
+                        
+                            with col2:
+                                selection_alpha = period_60d['selection_alpha']
+                                st.metric(
+                                    "Selection Alpha", 
+                                    f"{selection_alpha:+.2%}",
+                                    help="Alpha from wave selection (unoverlay - benchmark)"
+                                )
+                        
+                            with col3:
+                                overlay_alpha = period_60d['overlay_alpha']
+                                overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
+                                st.metric(
+                                    overlay_label, 
+                                    f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
+                                    help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
+                                )
+                        
+                            with col4:
+                                residual = period_60d['residual']
+                                # Color code residual based on tolerance
+                                residual_pct = abs(residual) * 100
+                                residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
+                                st.metric(
+                                    f"{residual_color} Residual", 
+                                    f"{residual:+.3%}",
+                                    help="Attribution residual (should be near 0%)"
+                                )
+                        
+                            # Alpha Captured (if overlay available)
+                            if ledger['overlay_available'] and period_60d.get('alpha_captured') is not None:
+                                st.caption(f"💎 Alpha Captured (60D): {period_60d['alpha_captured']:+.2%} (exposure-weighted)")
+                        else:
+                            st.warning(f"⚠️ 60D attribution unavailable: {period_60d.get('reason', 'unknown')}")
                 
                     # Warnings display
                     if ledger.get('warnings'):
