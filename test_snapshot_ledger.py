@@ -74,7 +74,7 @@ class TestSnapshotLedger:
             "Benchmark_Return_1D", "Benchmark_Return_30D", "Benchmark_Return_60D", "Benchmark_Return_365D",
             "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
             "Exposure", "CashPercent",
-            "VIX_Level", "VIX_Regime",
+            "VIX_Level", "VIX_Regime", "VIX_Adjustment_Pct",  # VIX diagnostics
             "Beta_Real", "Beta_Target", "Beta_Drift",
             "Turnover_Est", "MaxDD",
             "Flags", "Data_Regime_Tag", "Coverage_Score"

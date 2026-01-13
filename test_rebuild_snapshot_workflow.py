@@ -19,7 +19,8 @@ POSSIBLE_WAVE_ID_COLUMNS = ['Wave_ID', 'wave_id', 'waveid', 'Wave', 'wave', 'wav
 REQUIRED_COLUMNS_BY_CATEGORY = {
     'Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
     'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D',
-    'VIX_Regime', 'Exposure', 'CashPercent'
+    'VIX_Regime', 'VIX_Level', 'VIX_Adjustment_Pct',  # VIX diagnostics including new column
+    'Exposure', 'CashPercent'
 }
 
 
@@ -53,7 +54,7 @@ def test_rebuild_snapshot_has_required_fields():
     required_fields = {
         'returns': ['return1d', 'return30d', 'return60d', 'return365d'],
         'alpha': ['alpha1d', 'alpha30d', 'alpha60d', 'alpha365d'],
-        'vix': ['vixregime'],
+        'vix': ['vixregime', 'vixlevel', 'vixadjustmentpct'],  # VIX diagnostics including new column
         'exposure': ['exposure', 'cashpercent'],
     }
     
