@@ -1762,7 +1762,8 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     
     Args:
         force_reload: If True, bypass cache and rebuild universe
-        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+        _wave_universe_version: Version counter (NOTE: prefixed with _ so Streamlit ignores it in hash - 
+                                changes to this value will NOT invalidate the Streamlit cache)
         snapshot_version: Snapshot version key for cache invalidation
         
     Returns:
@@ -2383,7 +2384,7 @@ def get_cache_file_timestamp(file_path):
 
 
 @st.cache_resource(show_spinner=False)
-def get_cached_price_book_internal(_cache_buster=None, snapshot_version: str = None):
+def get_cached_price_book_internal(cache_buster=None, snapshot_version: str = None):
     """
     Internal function to get cached PRICE_BOOK.
     
@@ -2395,7 +2396,7 @@ def get_cached_price_book_internal(_cache_buster=None, snapshot_version: str = N
     underlying cache file has been updated.
     
     Args:
-        _cache_buster: File modification timestamp (prefixed with _ to exclude from hash)
+        cache_buster: File modification timestamp for cache invalidation
         snapshot_version: Snapshot version key for cache invalidation
     
     Returns:
@@ -2434,7 +2435,7 @@ def get_cached_price_book():
         logger.warning(f"Failed to get snapshot version: {e}")
         snapshot_version = "unknown"
     
-    return get_cached_price_book_internal(_cache_buster=cache_timestamp, snapshot_version=snapshot_version)
+    return get_cached_price_book_internal(cache_buster=cache_timestamp, snapshot_version=snapshot_version)
 
 
 def calculate_wavescore(wave_data):
@@ -2621,7 +2622,8 @@ def safe_load_wave_history(_wave_universe_version=1, snapshot_version: str = Non
     - Creates normalized_wave column for matching
     
     Args:
-        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+        _wave_universe_version: Version counter (NOTE: prefixed with _ so Streamlit ignores it in hash - 
+                                changes to this value will NOT invalidate the Streamlit cache)
         snapshot_version: Snapshot version key for cache invalidation
     """
     try:
