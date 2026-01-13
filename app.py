@@ -1750,7 +1750,7 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
 
 
 @st.cache_data(ttl=15)
-def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1, _snapshot_version: str = None) -> dict:
+def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1, snapshot_version: str = None) -> dict:
     """
     Fetch, deduplicate, and return canonical wave universe data.
     
@@ -1760,10 +1760,16 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     Uses wave list from waves_engine or falls back to static list.
     Caches result in session state for performance.
     
+    CACHE INVALIDATION BEHAVIOR:
+    - snapshot_version: Changes WILL invalidate Streamlit cache
+    - _wave_universe_version: Changes will NOT invalidate Streamlit cache (underscore prefix)
+    - This function primarily uses session_state caching, so Streamlit cache invalidation
+      via _wave_universe_version is not needed
+    
     Args:
         force_reload: If True, bypass cache and rebuild universe
-        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
-        _snapshot_version: Snapshot version key for cache invalidation (prefixed with _ to ignore in hash)
+        _wave_universe_version: Version counter (prefixed with _ - ignored by Streamlit cache hash)
+        snapshot_version: Snapshot version key for cache invalidation
         
     Returns:
         Dictionary with:
@@ -1882,9 +1888,10 @@ def get_wave_universe():
     try:
         # Get wave universe version from session state
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
         
         # Use canonical wave universe (which already deduplicates and ensures Russell 3000 Wave)
-        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         # Extract waves list
         waves = universe.get("waves", [])
@@ -2382,7 +2389,7 @@ def get_cache_file_timestamp(file_path):
 
 
 @st.cache_resource(show_spinner=False)
-def get_cached_price_book_internal(_cache_buster=None, _snapshot_version: str = None):
+def get_cached_price_book_internal(cache_buster=None, snapshot_version: str = None):
     """
     Internal function to get cached PRICE_BOOK.
     
@@ -2394,8 +2401,8 @@ def get_cached_price_book_internal(_cache_buster=None, _snapshot_version: str = 
     underlying cache file has been updated.
     
     Args:
-        _cache_buster: File modification timestamp (prefixed with _ to exclude from hash)
-        _snapshot_version: Snapshot version key for cache invalidation (prefixed with _ to ignore in hash)
+        cache_buster: File modification timestamp for cache invalidation
+        snapshot_version: Snapshot version key for cache invalidation
     
     Returns:
         DataFrame: Cached price book (index=dates, columns=tickers)
@@ -2433,7 +2440,7 @@ def get_cached_price_book():
         logger.warning(f"Failed to get snapshot version: {e}")
         snapshot_version = "unknown"
     
-    return get_cached_price_book_internal(_cache_buster=cache_timestamp, _snapshot_version=snapshot_version)
+    return get_cached_price_book_internal(cache_buster=cache_timestamp, snapshot_version=snapshot_version)
 
 
 def calculate_wavescore(wave_data):
@@ -2609,7 +2616,7 @@ def determine_winner(wave1_metrics, wave2_metrics):
 # ============================================================================
 
 @st.cache_data(ttl=15)
-def safe_load_wave_history(_wave_universe_version=1, _snapshot_version: str = None):
+def safe_load_wave_history(_wave_universe_version=1, snapshot_version: str = None):
     """
     Safely load wave history data with comprehensive error handling.
     Returns DataFrame or None if unavailable.
@@ -2619,9 +2626,13 @@ def safe_load_wave_history(_wave_universe_version=1, _snapshot_version: str = No
     - Collapses multiple spaces to single space
     - Creates normalized_wave column for matching
     
+    CACHE INVALIDATION BEHAVIOR:
+    - snapshot_version: Changes WILL invalidate Streamlit cache
+    - _wave_universe_version: Changes will NOT invalidate Streamlit cache (underscore prefix)
+    
     Args:
-        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
-        _snapshot_version: Snapshot version key for cache invalidation (prefixed with _ to ignore in hash)
+        _wave_universe_version: Version counter (prefixed with _ - ignored by Streamlit cache hash)
+        snapshot_version: Snapshot version key for cache invalidation
     """
     try:
         wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
@@ -2675,7 +2686,8 @@ def safe_load_wave_history(_wave_universe_version=1, _snapshot_version: str = No
 def get_latest_data_timestamp():
     """Get the latest available 'as of' data timestamp from wave_history.csv."""
     try:
-        df = safe_load_wave_history()
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        df = safe_load_wave_history(snapshot_version=snapshot_version)
         if df is not None and 'date' in df.columns and len(df) > 0:
             latest_date = df['date'].max()
             return latest_date.strftime("%Y-%m-%d") if pd.notna(latest_date) else "unknown"
@@ -2759,7 +2771,8 @@ def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
     """
     try:
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        df = safe_load_wave_history(_wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         if df is None or 'wave' not in df.columns:
             return []
@@ -2797,11 +2810,12 @@ def get_wave_status_map(_wave_universe_version=1):
     try:
         # Get all waves from universe
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         all_waves = universe.get("waves", [])
         
         # Get wave history
-        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         if wave_history is None or 'wave' not in wave_history.columns:
             # No data available - all waves are Missing Inputs
@@ -2919,7 +2933,8 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         # Load universe if not provided
         if wave_universe is None:
             wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            wave_universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            snapshot_version = st.session_state.get("snapshot_version", "unknown")
+            wave_universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         # Check 1: Wave is enabled
         enabled_flags = wave_universe.get("enabled_flags", {})
@@ -2951,7 +2966,8 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             # Fallback to checking wave_history.csv
             if wave_history_df is None:
                 wave_history_version = st.session_state.get("wave_universe_version", 1)
-                wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
+                snapshot_version = st.session_state.get("snapshot_version", "unknown")
+                wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version, snapshot_version=snapshot_version)
             
             if wave_history_df is None or 'wave' not in wave_history_df.columns:
                 # CHANGED: Don't fail immediately - wave might still work with fresh data
@@ -3125,7 +3141,8 @@ def get_crypto_income_wave_data(days=30):
         DataFrame with crypto income wave data or None if unavailable
     """
     try:
-        df = safe_load_wave_history()
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        df = safe_load_wave_history(snapshot_version=snapshot_version)
         
         if df is None or 'wave' not in df.columns:
             return None
@@ -3182,6 +3199,7 @@ def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
     try:
         # Get wave_universe_version from session state
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
         
         # Special case: Russell 3000 Wave (index reference wave)
         if wave_name == "Russell 3000 Wave":
@@ -3202,7 +3220,7 @@ def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
             return None
         
         # Load standard wave data
-        df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        df = safe_load_wave_history(_wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         if df is None:
             return None
@@ -3390,7 +3408,8 @@ def render_data_diagnostic_card(wave_name, days=30):
         
         with st.expander("🔍 Data Diagnostics - Click to expand", expanded=True):
             wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+            snapshot_version = st.session_state.get("snapshot_version", "unknown")
+            df = safe_load_wave_history(_wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
             
             # File information
             wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
@@ -4207,7 +4226,8 @@ def compute_alpha_metrics_all_waves():
         
         # Get wave_history to extract wave_ids if available
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         wave_id_map = {}
         if wave_history is not None and 'wave' in wave_history.columns and 'wave_id' in wave_history.columns:
@@ -4265,7 +4285,8 @@ def compute_wave_universe_diagnostics():
         # Note: force_reload=False is intentional - diagnostics should use cached universe
         # to show current state. Use operator controls to force reload if needed.
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         registry_waves = set(universe.get("waves", []))
         duplicate_waves = universe.get("removed_duplicates", [])
@@ -4279,7 +4300,7 @@ def compute_wave_universe_diagnostics():
         diagnostics['active_count'] = active_count
         
         # Get wave history data
-        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         
         if wave_history is not None and 'wave' in wave_history.columns:
             # Get unique waves in history
@@ -5258,14 +5279,16 @@ def get_mission_control_data():
     }
     
     try:
-        df = safe_load_wave_history()
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        df = safe_load_wave_history(snapshot_version=snapshot_version)
         
         if df is None:
             mc_data['system_status'] = 'Data Unavailable'
             # Still get wave universe count even if no history (Data Backbone V1)
             try:
                 wave_universe_version = st.session_state.get("wave_universe_version", 1)
-                universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+                snapshot_version = st.session_state.get("snapshot_version", "unknown")
+                universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
                 
                 canonical_waves = universe.get("waves", [])
                 enabled_flags = universe.get("enabled_flags", {})
@@ -5333,7 +5356,8 @@ def get_mission_control_data():
         try:
             # Get wave universe - single source of truth for all wave lists and counts
             wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            snapshot_version = st.session_state.get("snapshot_version", "unknown")
+            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
             
             canonical_waves = universe.get("waves", [])
             enabled_flags = universe.get("enabled_flags", {})
@@ -5603,7 +5627,8 @@ def get_biggest_movers():
     Returns a DataFrame with wave names and score changes, or None if unavailable.
     """
     try:
-        df = safe_load_wave_history()
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        df = safe_load_wave_history(snapshot_version=snapshot_version)
         
         if df is None:
             return None
@@ -5671,7 +5696,8 @@ def get_system_alerts():
     alerts = []
     
     try:
-        df = safe_load_wave_history()
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        df = safe_load_wave_history(snapshot_version=snapshot_version)
         
         if df is None:
             alerts.append({
@@ -7144,7 +7170,8 @@ def render_mission_control():
     
     # Load wave history data for analytics
     try:
-        df = safe_load_wave_history()
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        df = safe_load_wave_history(snapshot_version=snapshot_version)
         
         if df is not None and len(df) > 0:
             # ================================================================
@@ -7654,7 +7681,8 @@ def render_sidebar_info():
     try:
         # Universe count - with freshness indicator
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         all_waves = universe.get("waves", [])
         active_wave_count = len(all_waves)
         
@@ -8736,7 +8764,8 @@ def render_sidebar_info():
                     try:
                         # Get current universe
                         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-                        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+                        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+                        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
                         
                         # Create enabled flags dictionary with all waves set to True
                         enabled_flags = {wave: True for wave in universe.get("waves", [])}
@@ -9065,7 +9094,8 @@ def render_sidebar_info():
                             pass
                         
                         # Trigger canonical wave universe reload with force_reload=True
-                        get_canonical_wave_universe(force_reload=True)
+                        snapshot_version = st.session_state.get("snapshot_version", "unknown")
+                        get_canonical_wave_universe(force_reload=True, snapshot_version=snapshot_version)
                         
                         st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
                         # Mark user interaction
@@ -13347,7 +13377,8 @@ def render_overview_tab():
                         # Calculate expected tickers from universe
                         try:
                             from helpers.ticker_rail import collect_required_tickers
-                            universe = get_canonical_wave_universe(force_reload=False)
+                            snapshot_version = st.session_state.get("snapshot_version", "unknown")
+                            universe = get_canonical_wave_universe(force_reload=False, snapshot_version=snapshot_version)
                             expected_tickers = set()
                             for wave in universe.get('waves', []):
                                 ticker_list = wave.get('tickers', [])
@@ -15020,7 +15051,8 @@ def render_individual_wave_view(selected_wave, all_metrics):
             # Display alpha attribution for S&P 500 Wave
             try:
                 # Load wave history data
-                wave_df = safe_load_wave_history()
+                snapshot_version = st.session_state.get("snapshot_version", "unknown")
+                wave_df = safe_load_wave_history(snapshot_version=snapshot_version)
                 
                 if wave_df is not None and not wave_df.empty and 'wave' in wave_df.columns:
                     # Filter data for S&P 500 Wave
@@ -15292,7 +15324,8 @@ def render_details_tab():
     st.write("Detailed analytics and metrics for individual waves.")
     
     # Load wave history - same unified DataFrame as used in Executive tab
-    df = safe_load_wave_history()
+    snapshot_version = st.session_state.get("snapshot_version", "unknown")
+    df = safe_load_wave_history(snapshot_version=snapshot_version)
     
     # Check if data is loaded
     if df is None:
@@ -16072,7 +16105,8 @@ def render_overlays_tab():
     st.write("Alpha attribution weighted by capital allocation across portfolio.")
     
     # Load wave history data
-    df = safe_load_wave_history()
+    snapshot_version = st.session_state.get("snapshot_version", "unknown")
+    df = safe_load_wave_history(snapshot_version=snapshot_version)
     
     # Always render the section, never blank
     if df is None or len(df) == 0:
@@ -16171,7 +16205,8 @@ def render_attribution_tab():
         return
     
     # Load wave history data
-    wave_df = safe_load_wave_history()
+    snapshot_version = st.session_state.get("snapshot_version", "unknown")
+    wave_df = safe_load_wave_history(snapshot_version=snapshot_version)
     
     if wave_df is None or wave_df.empty:
         st.error("❌ Wave history data is not available. Cannot compute attribution.")
@@ -22834,6 +22869,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         # Initialize wave_universe_version
         st.session_state.wave_universe_version = 1
         
+        # Initialize snapshot_version for cache invalidation
+        try:
+            from helpers.snapshot_version import get_snapshot_version_key
+            st.session_state.snapshot_version = get_snapshot_version_key()
+        except Exception as e:
+            logger.warning(f"Failed to initialize snapshot version: {e}")
+            st.session_state.snapshot_version = "unknown"
+        
         # Initialize last_refresh_time
         st.session_state.last_refresh_time = datetime.now()
         
@@ -22886,15 +22929,16 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Check for force reload flag and rebuild universe if needed
     force_reload = st.session_state.get("force_reload_universe", False)
     wave_universe_version = st.session_state.get("wave_universe_version", 1)
+    snapshot_version = st.session_state.get("snapshot_version", "unknown")
     
     if force_reload:
         # Rebuild wave universe
-        get_canonical_wave_universe(force_reload=True, _wave_universe_version=wave_universe_version)
+        get_canonical_wave_universe(force_reload=True, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
         # Reset the flag
         st.session_state["force_reload_universe"] = False
     else:
         # Normal initialization - use cached universe
-        get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version, snapshot_version=snapshot_version)
     
     # Display duplicate cleanup feedback in sidebar
     try:
