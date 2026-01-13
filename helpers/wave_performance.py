@@ -1204,13 +1204,16 @@ def compute_portfolio_snapshot(
     # portfolio alpha ledger used by Alpha Source Breakdown
     # ========================================================================
     try:
+        # Use same safe ticker preference as ledger for consistency
+        SAFE_TICKER_PREFERENCE = ["BIL", "SHY"]
+        
         ledger = compute_portfolio_alpha_ledger(
             price_book=price_book,
             periods=periods,
             benchmark_ticker=DEFAULT_BENCHMARK_TICKER,
-            safe_ticker_preference=["BIL", "SHY"],
+            safe_ticker_preference=SAFE_TICKER_PREFERENCE,
             mode=mode,
-            wave_registry=None,
+            wave_registry=None,  # Use default WAVE_WEIGHTS
             vix_exposure_enabled=True
         )
         
@@ -1248,7 +1251,8 @@ def compute_portfolio_snapshot(
             period_data = period_results.get(period_key, {})
             
             if period_data.get('available', False):
-                # Use cum_realized for portfolio return (includes VIX overlay)
+                # Use cum_realized for portfolio return (strategy-adjusted with VIX overlay)
+                # cum_realized = exposure * risk_return + (1-exposure) * safe_return
                 result['portfolio_returns'][period_key] = period_data.get('cum_realized')
                 result['benchmark_returns'][period_key] = period_data.get('cum_benchmark')
                 result['alphas'][period_key] = period_data.get('total_alpha')
