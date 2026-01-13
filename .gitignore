@@ -5,6 +5,18 @@
 /data/cache/*ledger*
 /data/cache/*metadata*
 
+# Ignore generated data artifacts (do not commit)
+/data/live_snapshot.csv
+/data/snapshot_metadata.json
+/data/diagnostics_run.json
+/data/planb_diagnostics_run.json
+/data/live_proxy_snapshot.csv
+/data/broken_tickers.csv
+/data/missing_tickers.csv
+/data/data_coverage_summary.csv
+/data/test_snapshot.csv
+/data/prices.csv
+
 # Python cache files
 __pycache__/
 *.pyc

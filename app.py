@@ -199,6 +199,14 @@ except ImportError:
     WAVE_PERFORMANCE_AVAILABLE = False
     compute_portfolio_snapshot = None
 
+# Import snapshot version helper for cache invalidation
+try:
+    from helpers.snapshot_version import get_snapshot_version_key
+    SNAPSHOT_VERSION_AVAILABLE = True
+except ImportError:
+    SNAPSHOT_VERSION_AVAILABLE = False
+    get_snapshot_version_key = None
+
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
 # ============================================================================
@@ -236,6 +244,16 @@ else:
     
     # Reset the flag after reading
     st.session_state.trigger_set_by_rerun = False
+
+# ============================================================================
+# SNAPSHOT VERSION - Cache Invalidation Key
+# ============================================================================
+# Get snapshot version key for cache invalidation
+# This ensures cached data refreshes when snapshot is regenerated
+if SNAPSHOT_VERSION_AVAILABLE and get_snapshot_version_key:
+    snapshot_version = get_snapshot_version_key()
+else:
+    snapshot_version = "unknown:0"
 
 # ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
@@ -2597,7 +2615,7 @@ def determine_winner(wave1_metrics, wave2_metrics):
 # ============================================================================
 
 @st.cache_data(ttl=15)
-def safe_load_wave_history(_wave_universe_version=1):
+def safe_load_wave_history(_wave_universe_version=1, _snapshot_version: str = "unknown"):
     """
     Safely load wave history data with comprehensive error handling.
     Returns DataFrame or None if unavailable.
@@ -2609,6 +2627,7 @@ def safe_load_wave_history(_wave_universe_version=1):
     
     Args:
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+        _snapshot_version: Snapshot version key for cache invalidation (prefixed with _ to ignore in hash)
     """
     try:
         wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
@@ -2662,7 +2681,7 @@ def safe_load_wave_history(_wave_universe_version=1):
 def get_latest_data_timestamp():
     """Get the latest available 'as of' data timestamp from wave_history.csv."""
     try:
-        df = safe_load_wave_history()
+        df = safe_load_wave_history(_snapshot_version=snapshot_version)
         if df is not None and 'date' in df.columns and len(df) > 0:
             latest_date = df['date'].max()
             return latest_date.strftime("%Y-%m-%d") if pd.notna(latest_date) else "unknown"
@@ -2746,7 +2765,7 @@ def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
     """
     try:
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        df = safe_load_wave_history(_wave_universe_version=wave_universe_version, _snapshot_version=snapshot_version)
         
         if df is None or 'wave' not in df.columns:
             return []
@@ -2788,7 +2807,7 @@ def get_wave_status_map(_wave_universe_version=1):
         all_waves = universe.get("waves", [])
         
         # Get wave history
-        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version, _snapshot_version=snapshot_version)
         
         if wave_history is None or 'wave' not in wave_history.columns:
             # No data available - all waves are Missing Inputs
@@ -2938,7 +2957,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             # Fallback to checking wave_history.csv
             if wave_history_df is None:
                 wave_history_version = st.session_state.get("wave_universe_version", 1)
-                wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
+                wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version, _snapshot_version=snapshot_version)
             
             if wave_history_df is None or 'wave' not in wave_history_df.columns:
                 # CHANGED: Don't fail immediately - wave might still work with fresh data
@@ -3112,7 +3131,7 @@ def get_crypto_income_wave_data(days=30):
         DataFrame with crypto income wave data or None if unavailable
     """
     try:
-        df = safe_load_wave_history()
+        df = safe_load_wave_history(_snapshot_version=snapshot_version)
         
         if df is None or 'wave' not in df.columns:
             return None
@@ -3189,7 +3208,7 @@ def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
             return None
         
         # Load standard wave data
-        df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        df = safe_load_wave_history(_wave_universe_version=wave_universe_version, _snapshot_version=snapshot_version)
         
         if df is None:
             return None
@@ -3377,7 +3396,7 @@ def render_data_diagnostic_card(wave_name, days=30):
         
         with st.expander("🔍 Data Diagnostics - Click to expand", expanded=True):
             wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+            df = safe_load_wave_history(_wave_universe_version=wave_universe_version, _snapshot_version=snapshot_version)
             
             # File information
             wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
@@ -4194,7 +4213,7 @@ def compute_alpha_metrics_all_waves():
         
         # Get wave_history to extract wave_ids if available
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version, _snapshot_version=snapshot_version)
         
         wave_id_map = {}
         if wave_history is not None and 'wave' in wave_history.columns and 'wave_id' in wave_history.columns:
@@ -4266,7 +4285,7 @@ def compute_wave_universe_diagnostics():
         diagnostics['active_count'] = active_count
         
         # Get wave history data
-        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version, _snapshot_version=snapshot_version)
         
         if wave_history is not None and 'wave' in wave_history.columns:
             # Get unique waves in history
@@ -5245,7 +5264,7 @@ def get_mission_control_data():
     }
     
     try:
-        df = safe_load_wave_history()
+        df = safe_load_wave_history(_snapshot_version=snapshot_version)
         
         if df is None:
             mc_data['system_status'] = 'Data Unavailable'
@@ -5590,7 +5609,7 @@ def get_biggest_movers():
     Returns a DataFrame with wave names and score changes, or None if unavailable.
     """
     try:
-        df = safe_load_wave_history()
+        df = safe_load_wave_history(_snapshot_version=snapshot_version)
         
         if df is None:
             return None
@@ -5658,7 +5677,7 @@ def get_system_alerts():
     alerts = []
     
     try:
-        df = safe_load_wave_history()
+        df = safe_load_wave_history(_snapshot_version=snapshot_version)
         
         if df is None:
             alerts.append({
@@ -7131,7 +7150,7 @@ def render_mission_control():
     
     # Load wave history data for analytics
     try:
-        df = safe_load_wave_history()
+        df = safe_load_wave_history(_snapshot_version=snapshot_version)
         
         if df is not None and len(df) > 0:
             # ================================================================
@@ -10193,6 +10212,64 @@ def render_executive_brief_tab():
         st.divider()
         
         # ========================================================================
+        # HELPER FUNCTION: Render Alpha Attribution for a Period
+        # ========================================================================
+        def render_alpha_attribution_period(period_key: str, period_data: dict, overlay_available: bool):
+            """
+            Helper function to render alpha attribution metrics for a given period.
+            Reduces code duplication between 30D and 60D tabs.
+            
+            Args:
+                period_key: Period identifier (e.g., '30D', '60D')
+                period_data: Dictionary with period results from ledger
+                overlay_available: Whether VIX overlay is available
+            """
+            if period_data.get('available'):
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    total_alpha = period_data['total_alpha']
+                    st.metric(
+                        "Total Alpha", 
+                        f"{total_alpha:+.2%}",
+                        help="Realized return - Benchmark return"
+                    )
+                
+                with col2:
+                    selection_alpha = period_data['selection_alpha']
+                    st.metric(
+                        "Selection Alpha", 
+                        f"{selection_alpha:+.2%}",
+                        help="Alpha from wave selection (unoverlay - benchmark)"
+                    )
+                
+                with col3:
+                    overlay_alpha = period_data['overlay_alpha']
+                    overlay_label = "Overlay Alpha" if overlay_available else "Overlay (N/A)"
+                    st.metric(
+                        overlay_label, 
+                        f"{overlay_alpha:+.2%}" if overlay_available else "—",
+                        help="Alpha from VIX overlay (realized - unoverlay)" if overlay_available else "VIX overlay not available"
+                    )
+                
+                with col4:
+                    residual = period_data['residual']
+                    # Color code residual based on tolerance
+                    residual_pct = abs(residual) * 100
+                    residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
+                    st.metric(
+                        f"{residual_color} Residual", 
+                        f"{residual:+.3%}",
+                        help="Attribution residual (should be near 0%)"
+                    )
+                
+                # Alpha Captured (if overlay available)
+                if overlay_available and period_data.get('alpha_captured') is not None:
+                    st.caption(f"💎 Alpha Captured ({period_key}): {period_data['alpha_captured']:+.2%} (exposure-weighted)")
+            else:
+                st.warning(f"⚠️ {period_key} attribution unavailable: {period_data.get('reason', 'unknown')}")
+        
+        # ========================================================================
         # SECTION 1.5: PORTFOLIO SNAPSHOT (BLUE BOX)
         # Only show for Portfolio View (all waves), not individual wave view
         # ========================================================================
@@ -10397,54 +10474,20 @@ def render_executive_brief_tab():
                 
                     st.divider()
                 
-                    # Alpha Attribution Row (30D window for detailed attribution)
-                    st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
-                
-                    period_30d = ledger['period_results'].get('30D', {})
-                    if period_30d.get('available'):
-                        col1, col2, col3, col4 = st.columns(4)
+                    # Alpha Source Breakdown - Show for both 30D and 60D
+                    st.markdown("**🔬 Alpha Source Breakdown**")
+                    st.caption("Decomposes total alpha into Selection (wave picking) and Overlay (VIX regime adjustment)")
                     
-                        with col1:
-                            total_alpha = period_30d['total_alpha']
-                            st.metric(
-                                "Total Alpha", 
-                                f"{total_alpha:+.2%}",
-                                help="Realized return - Benchmark return"
-                            )
+                    # Create tabs for different periods
+                    tab_30d, tab_60d = st.tabs(["30D Attribution", "60D Attribution"])
                     
-                        with col2:
-                            selection_alpha = period_30d['selection_alpha']
-                            st.metric(
-                                "Selection Alpha", 
-                                f"{selection_alpha:+.2%}",
-                                help="Alpha from wave selection (unoverlay - benchmark)"
-                            )
+                    with tab_30d:
+                        period_30d = ledger['period_results'].get('30D', {})
+                        render_alpha_attribution_period('30D', period_30d, ledger['overlay_available'])
                     
-                        with col3:
-                            overlay_alpha = period_30d['overlay_alpha']
-                            overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
-                            st.metric(
-                                overlay_label, 
-                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
-                                help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
-                            )
-                    
-                        with col4:
-                            residual = period_30d['residual']
-                            # Color code residual based on tolerance
-                            residual_pct = abs(residual) * 100
-                            residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
-                            st.metric(
-                                f"{residual_color} Residual", 
-                                f"{residual:+.3%}",
-                                help="Attribution residual (should be near 0%)"
-                            )
-                    
-                        # Alpha Captured (if overlay available)
-                        if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
-                            st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
-                    else:
-                        st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
+                    with tab_60d:
+                        period_60d = ledger['period_results'].get('60D', {})
+                        render_alpha_attribution_period('60D', period_60d, ledger['overlay_available'])
                 
                     # Warnings display
                     if ledger.get('warnings'):
@@ -14996,7 +15039,7 @@ def render_individual_wave_view(selected_wave, all_metrics):
             # Display alpha attribution for S&P 500 Wave
             try:
                 # Load wave history data
-                wave_df = safe_load_wave_history()
+                wave_df = safe_load_wave_history(_snapshot_version=snapshot_version)
                 
                 if wave_df is not None and not wave_df.empty and 'wave' in wave_df.columns:
                     # Filter data for S&P 500 Wave
@@ -15268,7 +15311,7 @@ def render_details_tab():
     st.write("Detailed analytics and metrics for individual waves.")
     
     # Load wave history - same unified DataFrame as used in Executive tab
-    df = safe_load_wave_history()
+    df = safe_load_wave_history(_snapshot_version=snapshot_version)
     
     # Check if data is loaded
     if df is None:
@@ -16048,7 +16091,7 @@ def render_overlays_tab():
     st.write("Alpha attribution weighted by capital allocation across portfolio.")
     
     # Load wave history data
-    df = safe_load_wave_history()
+    df = safe_load_wave_history(_snapshot_version=snapshot_version)
     
     # Always render the section, never blank
     if df is None or len(df) == 0:
@@ -16147,7 +16190,7 @@ def render_attribution_tab():
         return
     
     # Load wave history data
-    wave_df = safe_load_wave_history()
+    wave_df = safe_load_wave_history(_snapshot_version=snapshot_version)
     
     if wave_df is None or wave_df.empty:
         st.error("❌ Wave history data is not available. Cannot compute attribution.")
