@@ -55,6 +55,7 @@ DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
 DEFAULT_HISTORY_DAYS = 365  # Default lookback period for wave history computation
 MIN_DATES_FOR_PORTFOLIO = 2  # Minimum number of dates required for portfolio aggregation
 RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution validation
+SAFE_TICKER_PREFERENCE = ["BIL", "SHY"]  # Default safe asset preference for portfolio calculations
 
 # VIX regime thresholds and exposure mapping
 VIX_LOW_THRESHOLD = 18  # VIX below this is Low Volatility regime
@@ -1204,9 +1205,6 @@ def compute_portfolio_snapshot(
     # portfolio alpha ledger used by Alpha Source Breakdown
     # ========================================================================
     try:
-        # Use same safe ticker preference as ledger for consistency
-        SAFE_TICKER_PREFERENCE = ["BIL", "SHY"]
-        
         ledger = compute_portfolio_alpha_ledger(
             price_book=price_book,
             periods=periods,
