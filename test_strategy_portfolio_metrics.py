@@ -21,6 +21,9 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Test constants
+ALPHA_DECOMPOSITION_TOLERANCE = 0.001  # 0.1% tolerance for alpha arithmetic
+
 
 def test_snapshot_version_key():
     """Test get_snapshot_version_key() reads metadata correctly."""
@@ -130,7 +133,7 @@ def test_portfolio_alpha_ledger_structure():
                     residual = period_data['residual']
                     
                     reconstructed = selection + overlay + residual
-                    assert abs(total - reconstructed) < 0.001, \
+                    assert abs(total - reconstructed) < ALPHA_DECOMPOSITION_TOLERANCE, \
                         f"{period_key}: Alpha decomposition failed: {total:.6f} != {reconstructed:.6f}"
                     
                     print(f"✓ {period_key}: Total={total:+.2%}, Selection={selection:+.2%}, Overlay={overlay:+.2%}, Residual={residual:+.3%}")

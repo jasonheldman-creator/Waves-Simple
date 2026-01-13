@@ -54,7 +54,7 @@ def get_snapshot_version_key() -> str:
         
         return f"{snapshot_id}:{snapshot_hash}"
     
-    except (json.JSONDecodeError, IOError, KeyError) as e:
+    except (json.JSONDecodeError, IOError) as e:
         # If metadata file is corrupt or unreadable, return fallback
         return "unknown:0"
 
