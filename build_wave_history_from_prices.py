@@ -1,3 +1,23 @@
+"""
+Build wave history from prices with strategy adjustments.
+
+This script generates wave_history.csv with strategy-adjusted returns for equity waves.
+For equity growth waves, it applies VIX overlay exposure adjustments to portfolio_return,
+ensuring that historical returns reflect the strategy pipeline output.
+
+Note: This is a simplified batch processor. For full strategy pipeline with safe allocation,
+volatility targeting, and all overlays, see waves_engine.compute_history_nav().
+
+Strategy adjustments applied:
+- VIX overlay: Exposure factor based on VIX level (equity waves only)
+
+Not applied in batch mode (applied in real-time by waves_engine):
+- Safe allocation: Blending with safe assets (SGOV, BIL, etc.)
+- Volatility targeting: Dynamic scaling based on recent volatility
+- Momentum tilting: Weight adjustments based on 60-day momentum
+- Trend confirmation: Additional trend-based filters
+"""
+
 import pandas as pd
 import numpy as np
 import os
@@ -400,6 +420,10 @@ for wave, wdf in weights.groupby("wave"):
         df_wave["vix_regime"] = spy_60d_aligned.apply(classify_regime).values
         df_wave["exposure_used"] = vix_aligned.apply(get_vix_exposure_factor).values
         df_wave["overlay_active"] = True
+        
+        # Apply exposure adjustment to portfolio_return to create strategy-adjusted returns
+        # This ensures the wave_history.csv contains post-strategy returns, not raw holdings returns
+        df_wave["portfolio_return"] = df_wave["portfolio_return"] * df_wave["exposure_used"]
     else:
         # Non-equity waves or missing data: VIX overlay disabled
         df_wave["vix_level"] = np.nan
