@@ -12,6 +12,7 @@ This script validates the requirements from the problem statement:
 
 import sys
 import os
+import re
 import pandas as pd
 import numpy as np
 
@@ -94,7 +95,6 @@ def validate_snapshot_metrics():
             strategy_state = str(row['strategy_state'])
             if 'vix_overlay' in strategy_state.lower():
                 # Extract the trigger reason
-                import re
                 match = re.search(r"vix_overlay: ([^'\"]+)", strategy_state)
                 if match:
                     print(f"    Strategy trigger: {match.group(1).strip()}")

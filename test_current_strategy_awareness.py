@@ -67,27 +67,25 @@ def test_current_implementation():
         if 'vix_overlay' in str(strategy_state).lower():
             print(f"    ✓ Strategy state mentions vix_overlay")
     
-    # Key question: Are Return_* and Alpha_* computed from strategy-adjusted NAV?
-    # Let's trace through the logic:
+    # Key validation: Check that VIX overlay is tracked in strategy_state
     print("\n" + "=" * 80)
-    print("ANALYSIS: How are Return_* and Alpha_* computed?")
+    print("VALIDATION: VIX overlay is tracked in strategy_state")
     print("=" * 80)
     
-    print("""
-Current implementation (from code analysis):
-
-1. snapshot_ledger.py calls compute_history_nav(wave_name, mode, days=365)
-2. compute_history_nav() returns wave_nav and bm_nav series
-3. wave_nav is built from strategy-adjusted daily returns (wave_ret_list)
-4. wave_ret_list includes exposure adjustments, VIX overlay, safe allocation
-5. snapshot_ledger.py computes Return_* as (wave_nav[end] / wave_nav[start]) - 1
-
-Therefore:
-- Return_* IS computed from strategy-adjusted NAV ✓
-- Alpha_* IS computed as Return_* - Benchmark_Return_* ✓
-
-Conclusion: Current implementation APPEARS to be strategy-aware!
-""")
+    has_vix_overlay = False
+    for idx, row in waves_with_vix.head(3).iterrows():
+        strategy_state = row['strategy_state']
+        if 'vix_overlay' in str(strategy_state).lower():
+            has_vix_overlay = True
+            print(f"✓ {row['Wave']}: strategy_state includes vix_overlay")
+    
+    if not has_vix_overlay:
+        print("✗ No waves have vix_overlay in strategy_state")
+        return False
+    
+    print("\n" + "=" * 80)
+    print("CONCLUSION: Current implementation tracks VIX overlay in strategy_state")
+    print("=" * 80)
     
     return True
 
