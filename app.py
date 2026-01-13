@@ -1750,7 +1750,7 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
 
 
 @st.cache_data(ttl=15)
-def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1) -> dict:
+def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1, _snapshot_version: str = None) -> dict:
     """
     Fetch, deduplicate, and return canonical wave universe data.
     
@@ -1763,6 +1763,7 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     Args:
         force_reload: If True, bypass cache and rebuild universe
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+        _snapshot_version: Snapshot version key for cache invalidation (prefixed with _ to ignore in hash)
         
     Returns:
         Dictionary with:
@@ -2381,7 +2382,7 @@ def get_cache_file_timestamp(file_path):
 
 
 @st.cache_resource(show_spinner=False)
-def get_cached_price_book_internal(_cache_buster=None):
+def get_cached_price_book_internal(_cache_buster=None, _snapshot_version: str = None):
     """
     Internal function to get cached PRICE_BOOK.
     
@@ -2394,6 +2395,7 @@ def get_cached_price_book_internal(_cache_buster=None):
     
     Args:
         _cache_buster: File modification timestamp (prefixed with _ to exclude from hash)
+        _snapshot_version: Snapshot version key for cache invalidation (prefixed with _ to ignore in hash)
     
     Returns:
         DataFrame: Cached price book (index=dates, columns=tickers)
@@ -2414,14 +2416,24 @@ def get_cached_price_book():
     Get cached PRICE_BOOK with automatic cache-busting.
     
     This function automatically detects changes to the underlying price cache file
-    and invalidates the Streamlit cache when the file is updated.
+    and invalidates the Streamlit cache when the file is updated. Also uses
+    snapshot version for cache invalidation when snapshots are rebuilt.
     
     Returns:
         DataFrame: Cached price book (index=dates, columns=tickers)
     """
     # Get cache file timestamp for cache-busting
     cache_timestamp = get_cache_file_timestamp(CANONICAL_CACHE_PATH)
-    return get_cached_price_book_internal(_cache_buster=cache_timestamp)
+    
+    # Get snapshot version for cache invalidation
+    try:
+        from helpers.snapshot_version import get_snapshot_version_key
+        snapshot_version = get_snapshot_version_key()
+    except Exception as e:
+        logger.warning(f"Failed to get snapshot version: {e}")
+        snapshot_version = "unknown"
+    
+    return get_cached_price_book_internal(_cache_buster=cache_timestamp, _snapshot_version=snapshot_version)
 
 
 def calculate_wavescore(wave_data):
@@ -2597,7 +2609,7 @@ def determine_winner(wave1_metrics, wave2_metrics):
 # ============================================================================
 
 @st.cache_data(ttl=15)
-def safe_load_wave_history(_wave_universe_version=1):
+def safe_load_wave_history(_wave_universe_version=1, _snapshot_version: str = None):
     """
     Safely load wave history data with comprehensive error handling.
     Returns DataFrame or None if unavailable.
@@ -2609,6 +2621,7 @@ def safe_load_wave_history(_wave_universe_version=1):
     
     Args:
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+        _snapshot_version: Snapshot version key for cache invalidation (prefixed with _ to ignore in hash)
     """
     try:
         wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
@@ -10204,13 +10217,23 @@ def render_executive_brief_tab():
                 from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
                 from helpers.price_book import get_price_book
                 from waves_engine import get_all_waves_universe
+                from helpers.snapshot_version import get_snapshot_version_key
             
-                # Load PRICE_BOOK
+                # Get current snapshot version for cache invalidation
+                current_snapshot_version = get_snapshot_version_key()
+                
+                # Load PRICE_BOOK (already uses snapshot_version internally)
                 price_book = get_cached_price_book()
             
-                # Use canonical ledger from session state if available (single source of truth)
-                # Only compute if not already in session state
-                if 'portfolio_alpha_ledger' in st.session_state:
+                # Check if we need to recompute due to snapshot version change
+                cached_snapshot_version = st.session_state.get('portfolio_alpha_ledger_snapshot_version')
+                needs_recompute = (
+                    'portfolio_alpha_ledger' not in st.session_state or
+                    cached_snapshot_version != current_snapshot_version
+                )
+                
+                # Use canonical ledger from session state if available and valid
+                if not needs_recompute:
                     ledger = st.session_state['portfolio_alpha_ledger']
                 else:
                     # Compute portfolio alpha ledger (canonical implementation)
@@ -10221,9 +10244,10 @@ def render_executive_brief_tab():
                         mode='Standard',
                         vix_exposure_enabled=True
                     )
-                    # Only cache successful ledger computations to allow retry on failure
+                    # Cache successful ledger computations with snapshot version
                     if ledger['success']:
                         st.session_state['portfolio_alpha_ledger'] = ledger
+                        st.session_state['portfolio_alpha_ledger_snapshot_version'] = current_snapshot_version
             
                 # Add diagnostic information
                 if ledger['success']:
