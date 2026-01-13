@@ -98,6 +98,8 @@ TIMEFRAMES = {
 
 # Compiled regex pattern for parsing VIX adjustment from trigger_reasons
 # Matches patterns like: "vix_overlay: -5% exposure" or "vix_overlay: +3.5% exposure"
+# The pattern requires " exposure" after the percentage per problem statement specification.
+# If future implementations need more flexible patterns, this can be relaxed.
 VIX_ADJUSTMENT_PATTERN = re.compile(r'([+-]?\d+(?:\.\d+)?)\s*%\s+exposure')
 
 
@@ -365,8 +367,12 @@ def _extract_vix_diagnostics_from_strategy_state(strategy_state: Dict[str, Any])
     
     # Extract VIX regime from strategy_state
     state_vix_regime = strategy_state.get('vix_regime')
-    if state_vix_regime is not None and state_vix_regime not in ['unknown', 'n/a']:
-        vix_regime = state_vix_regime
+    # Only use state_vix_regime if it's not None and not exactly 'unknown' or 'n/a'
+    # Note: 'n/a (crypto)' should be preserved as it's informative
+    if state_vix_regime is not None and state_vix_regime not in ['unknown']:
+        # Special case: preserve 'n/a (crypto)' and similar variants, but reject plain 'n/a'
+        if state_vix_regime != 'n/a':
+            vix_regime = state_vix_regime
     
     # Parse VIX adjustment percentage from trigger_reasons
     # Looking for patterns like: "vix_overlay: -5% exposure" or "vix_overlay: +10% exposure"
