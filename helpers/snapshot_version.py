@@ -5,12 +5,19 @@ Provides utilities for cache invalidation based on snapshot metadata.
 When a snapshot is rebuilt, the snapshot_id and snapshot_hash change,
 allowing cached data loaders to detect and refresh their caches.
 
+IMPORTANT: The snapshot_version parameter MUST NOT be prefixed with underscore
+when used with @st.cache_data or @st.cache_resource decorators. Streamlit ignores
+underscore-prefixed parameters when computing the cache hash, which would prevent
+cache invalidation when the snapshot version changes.
+
 Usage:
     from helpers.snapshot_version import get_snapshot_version_key
     
     @st.cache_data
     def my_cached_loader(snapshot_version=None):
-        # snapshot_version triggers cache invalidation
+        # snapshot_version parameter triggers cache invalidation
+        # DO NOT prefix with underscore (_snapshot_version) as Streamlit
+        # would ignore it in the cache hash computation
         return load_data()
     
     # In app code:
