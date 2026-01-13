@@ -474,6 +474,11 @@ def _load_wave_history_from_csv(wave_id: str, days: int = 365) -> Optional[pd.Da
     
     This is a fallback method when compute_history_nav fails due to network issues.
     
+    The wave_history.csv file contains strategy-adjusted returns for equity waves,
+    with VIX overlay exposure adjustments already applied to portfolio_return.
+    For full strategy pipeline with safe allocation and volatility targeting,
+    use compute_history_nav() which is the primary method.
+    
     Note: NAV calculation starts from an arbitrary base of 100 and compounds returns.
     This is suitable for computing relative performance metrics (returns, alpha) but not
     absolute NAV values.
