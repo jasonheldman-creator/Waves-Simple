@@ -25,6 +25,23 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Define metadata path as a constant for consistency
+_SNAPSHOT_METADATA_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'data',
+    'snapshot_metadata.json'
+)
+
+
+def _get_metadata_path() -> str:
+    """
+    Get the path to snapshot_metadata.json.
+    
+    Returns:
+        str: Absolute path to snapshot_metadata.json
+    """
+    return _SNAPSHOT_METADATA_PATH
+
 
 def get_snapshot_version_key() -> str:
     """
@@ -45,11 +62,7 @@ def get_snapshot_version_key() -> str:
     """
     try:
         # Get metadata file path
-        metadata_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'data',
-            'snapshot_metadata.json'
-        )
+        metadata_path = _get_metadata_path()
         
         # Check if file exists
         if not os.path.exists(metadata_path):
@@ -94,11 +107,7 @@ def get_snapshot_metadata() -> Optional[dict]:
     """
     try:
         # Get metadata file path
-        metadata_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'data',
-            'snapshot_metadata.json'
-        )
+        metadata_path = _get_metadata_path()
         
         # Check if file exists
         if not os.path.exists(metadata_path):

@@ -18,6 +18,11 @@ from helpers.wave_performance import compute_portfolio_alpha_ledger
 from helpers.price_book import get_price_book
 from helpers.snapshot_version import get_snapshot_version_key
 
+# Constants for test validation
+ALPHA_TOLERANCE_PCT = 0.001  # 0.1% tolerance for alpha validation
+RESIDUAL_TOLERANCE_PCT = 0.001  # 0.1% tolerance for residual validation
+OVERLAY_ALPHA_TOLERANCE_PCT = 0.001  # 0.1% tolerance for overlay alpha when VIX unavailable
+
 
 def test_portfolio_alpha_ledger_computes_successfully():
     """Test that portfolio alpha ledger computes without errors."""
@@ -84,7 +89,7 @@ def test_portfolio_snapshot_reflects_vix_overlay():
             overlay_alpha = period_30d.get('overlay_alpha')
             assert overlay_alpha is not None, "Should have overlay_alpha field"
             # When VIX is not available, overlay_alpha should be close to 0
-            assert abs(overlay_alpha) < 0.001, \
+            assert abs(overlay_alpha) < OVERLAY_ALPHA_TOLERANCE_PCT, \
                 f"Overlay alpha should be ~0 when VIX unavailable, got {overlay_alpha}"
 
 
@@ -164,11 +169,10 @@ def test_portfolio_ledger_alpha_decomposition():
         # Verify alpha decomposition: total = selection + overlay + residual
         computed_total = selection_alpha + overlay_alpha + residual
         
-        # Allow small numerical error (0.1% tolerance)
-        tolerance = 0.001
+        # Allow small numerical error
         diff = abs(total_alpha - computed_total)
         
-        assert diff < tolerance, \
+        assert diff < RESIDUAL_TOLERANCE_PCT, \
             f"Alpha decomposition failed: total={total_alpha:.6f}, " \
             f"selection+overlay+residual={computed_total:.6f}, diff={diff:.6f}"
 

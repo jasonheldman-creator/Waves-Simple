@@ -16,7 +16,14 @@ import pytest
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from helpers.snapshot_version import get_snapshot_version_key, get_snapshot_metadata
+from helpers.snapshot_version import (
+    get_snapshot_version_key, 
+    get_snapshot_metadata,
+    _get_metadata_path
+)
+
+# Define alpha tolerance constant for readability
+ALPHA_TOLERANCE_PCT = 0.1  # 0.1% tolerance for alpha validation
 
 
 def test_get_snapshot_version_key_returns_valid_format():
@@ -68,9 +75,8 @@ def test_snapshot_version_changes_with_metadata():
     # Get original version
     original_version = get_snapshot_version_key()
     
-    # Get correct metadata path (in Waves-Simple subdirectory)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    metadata_path = os.path.join(current_dir, 'data', 'snapshot_metadata.json')
+    # Get metadata path using same logic as production code
+    metadata_path = _get_metadata_path()
     
     # Skip test if metadata file doesn't exist
     if not os.path.exists(metadata_path):
