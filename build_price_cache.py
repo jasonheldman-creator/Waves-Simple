@@ -433,10 +433,8 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Days: {info['num_days']}")
         logger.info(f"  Date range: {info['date_range'][0]} to {info['date_range'][1]}")
         
-        user_input = input("\nCache exists. Rebuild? (y/N): ").strip().lower()
-        if user_input != 'y':
-            logger.info("Keeping existing cache")
-            return True, 1.0
+        logger.info("Cache exists and --force not set — keeping existing cache (non-interactive).")
+        return True, 1.0
     
     # Step 1: Collect all tickers
     all_tickers, wave_tickers, benchmark_tickers = collect_all_tickers()
