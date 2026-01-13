@@ -10,7 +10,9 @@ This test validates:
 
 import sys
 import os
-sys.path.insert(0, '/home/runner/work/Waves-Simple/Waves-Simple')
+
+# Add parent directory to path for imports (works in any environment)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pandas as pd
 import numpy as np

@@ -331,13 +331,16 @@ def compute_period_return(prices: pd.Series, lookback_days: int) -> float:
         
         # For longer periods, use trading-day counting
         # lookback_days represents number of trading days (rows) to go back
-        if len(prices) < lookback_days + 1:
+        # We need lookback_days + 1 data points (start point + lookback_days worth of data)
+        required_data_points = lookback_days + 1
+        
+        if len(prices) < required_data_points:
             # Not enough trading days available
             return np.nan
         
         # Get price at lookback_days trading days ago (using row indexing)
         end_price = float(prices.iloc[-1])
-        start_price = float(prices.iloc[-(lookback_days + 1)])
+        start_price = float(prices.iloc[-required_data_points])
         
         if start_price <= 0:
             return np.nan
@@ -668,7 +671,10 @@ def generate_live_snapshot_csv(
                     if exposure is not None:
                         cash_percent = (1.0 - exposure) * 100.0
                     
-                    print(f"✓ VIX overlay: Level={vix_level:.2f}, Regime={vix_regime}, Exposure={exposure:.2%}")
+                    # Format VIX level safely (handle None)
+                    vix_level_str = f"{vix_level:.2f}" if vix_level is not None else "N/A"
+                    exposure_str = f"{exposure:.2%}" if exposure is not None else "N/A"
+                    print(f"✓ VIX overlay: Level={vix_level_str}, Regime={vix_regime}, Exposure={exposure_str}")
                 else:
                     reason = vix_result.get('reason', 'unknown')
                     print(f"⚠️ VIX overlay not available: {reason}")
