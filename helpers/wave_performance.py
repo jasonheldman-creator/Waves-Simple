@@ -1102,12 +1102,13 @@ def compute_portfolio_snapshot(
     """
     Compute portfolio-level snapshot with returns and alpha attribution.
     
-    This is the deterministic computation pipeline that runs on first load.
-    It builds portfolio_daily_returns and portfolio_benchmark_daily_returns
-    from PRICE_BOOK for the selected mode, then computes multi-window metrics.
+    This function delegates to compute_portfolio_alpha_ledger to get
+    strategy-adjusted returns with VIX overlay exposure applied, ensuring
+    consistency with the portfolio alpha ledger and Alpha Source Breakdown.
     
     Key Features:
     - Equal-weight portfolio across all active waves
+    - Strategy-adjusted returns with VIX overlay exposure
     - Equal-weight benchmark across all wave benchmarks
     - Handles insufficient history by showing N/A for specific windows
     - Returns structured data ready for UI rendering
@@ -1150,7 +1151,8 @@ def compute_portfolio_snapshot(
         'filtered_price_book_shape': None,
         'reason_if_failure': None,
         'exception_message': None,
-        'exception_traceback': None
+        'exception_traceback': None,
+        'using_ledger': True  # Track that we're using ledger-based computation
     }
     
     result = {
@@ -1197,328 +1199,82 @@ def compute_portfolio_snapshot(
     except Exception as e:
         logger.warning(f"Failed to compute data age: {e}")
     
-    # Get all waves
-    if not WAVES_ENGINE_AVAILABLE:
-        result['failure_reason'] = 'waves_engine not available'
-        debug['reason_if_failure'] = 'waves_engine not available'
-        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
-        return result
-    
+    # ========================================================================
+    # Use compute_portfolio_alpha_ledger to get strategy-adjusted returns
+    # This ensures VIX overlay exposure is applied, consistent with the
+    # portfolio alpha ledger used by Alpha Source Breakdown
+    # ========================================================================
     try:
-        universe = get_all_waves_universe()
-        all_waves = universe.get('waves', [])
-        debug['active_waves_count'] = len(all_waves)
-    except Exception as e:
-        result['failure_reason'] = f'Error getting wave universe: {str(e)}'
-        debug['reason_if_failure'] = f'Error getting wave universe: {str(e)}'
-        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
-        return result
-    
-    if not all_waves:
-        result['failure_reason'] = 'No waves found in universe'
-        debug['reason_if_failure'] = 'No waves found in universe'
-        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
-        return result
-    
-    # ========================================================================
-    # DETERMINISTIC PORTFOLIO AGGREGATION (PR #406 spec)
-    # ========================================================================
-    # For each wave:
-    #   1. Get daily return series aligned on date
-    #   2. Concatenate into matrix R (rows=dates, cols=waves)
-    #   3. Compute portfolio_return = R.mean(axis=1, skipna=True) (equal weight)
-    #   4. Drop dates where all waves are NaN
-    #   5. Sort index ascending
-    # ========================================================================
-    
-    wave_return_series_dict = {}  # {wave_name: pd.Series of daily returns}
-    wave_benchmark_return_dict = {}  # {wave_name: pd.Series of benchmark daily returns}
-    
-    # Track all tickers across all waves for debugging
-    all_requested_tickers = set()
-    all_available_tickers = set()
-    
-    for wave_name in all_waves:
-        # Get wave tickers and weights
-        if wave_name not in WAVE_WEIGHTS:
-            continue
-        
-        wave_holdings = WAVE_WEIGHTS[wave_name]
-        if not wave_holdings:
-            continue
-        
-        try:
-            # Extract tickers and weights
-            tickers = [h.ticker for h in wave_holdings]
-            weights = [h.weight for h in wave_holdings]
-            
-            # Track requested tickers for debugging
-            all_requested_tickers.update(tickers)
-            
-            # Normalize weights
-            total_weight = sum(weights)
-            if total_weight == 0:
-                continue
-            normalized_weights = [w / total_weight for w in weights]
-            
-            # Filter to available tickers
-            available_tickers = []
-            available_weights = []
-            for ticker, weight in zip(tickers, normalized_weights):
-                if ticker in price_book.columns:
-                    available_tickers.append(ticker)
-                    available_weights.append(weight)
-                    all_available_tickers.add(ticker)  # Track for debugging
-            
-            if not available_tickers:
-                continue
-            
-            # Renormalize weights for available tickers
-            total_available = sum(available_weights)
-            renormalized_weights = [w / total_available for w in available_weights]
-            
-            # Get price data for available tickers
-            ticker_prices = price_book[available_tickers].copy()
-            if len(ticker_prices) < 2:
-                continue
-            
-            # Compute daily returns for each ticker
-            # fill_method=None prevents forward-filling of NaN values, ensuring
-            # that missing price data propagates as NaN returns rather than 0% returns
-                # fill_method=None prevents forward-filling of NaN values, ensuring
-                # that missing price data propagates as NaN returns rather than 0% returns
-            ticker_returns = ticker_prices.pct_change(fill_method=None)
-            
-            # Compute weighted portfolio returns for this wave
-            wave_returns = pd.Series(0.0, index=ticker_returns.index)
-            for i, ticker in enumerate(available_tickers):
-                weight = renormalized_weights[i]
-                # Don't fill NaN - let them propagate naturally
-                ticker_ret = ticker_returns[ticker]
-                wave_returns = wave_returns.add(ticker_ret * weight, fill_value=0.0)
-            
-            # Drop the first row (which is NaN from pct_change)
-            wave_returns = wave_returns.iloc[1:]
-            
-            # Store if we have valid data
-            if len(wave_returns) > 0 and wave_returns.notna().any():
-                wave_return_series_dict[wave_name] = wave_returns
-                
-                # PHASE 1B.1: Compute wave-level benchmark returns using compute_history_nav
-                # This ensures consistency with wave-level dynamic benchmarks
-                try:
-                    # Compute wave history to get benchmark returns
-                    # Use same price_book and sufficient days to get history
-                    wave_history = compute_history_nav(
-                        wave_name=wave_name,
-                        mode=mode,
-                        days=DEFAULT_HISTORY_DAYS,  # Get full history available
-                        include_diagnostics=False,
-                        price_df=price_book
-                    )
-                    
-                    if not wave_history.empty and 'bm_ret' in wave_history.columns:
-                        # Extract benchmark returns from wave history
-                        bm_ret_series = wave_history['bm_ret'].copy()
-                        
-                        # Store benchmark returns for this wave
-                        if bm_ret_series.notna().any():
-                            wave_benchmark_return_dict[wave_name] = bm_ret_series
-                        else:
-                            logger.debug(f"Wave {wave_name}: benchmark returns are all NaN")
-                    else:
-                        logger.debug(f"Wave {wave_name}: compute_history_nav returned empty or missing bm_ret")
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to compute benchmark for wave {wave_name}: {e}")
-                    # Don't add to wave_benchmark_return_dict if benchmark computation fails
-            
-        except Exception as e:
-            logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
-            continue
-    
-    # Update debug info with ticker statistics
-    debug['tickers_requested_count'] = len(all_requested_tickers)
-    debug['tickers_intersection_count'] = len(all_available_tickers)
-    
-    # Get missing tickers (first 10 as sample)
-    missing_tickers = all_requested_tickers - all_available_tickers
-    debug['tickers_missing_sample'] = sorted(list(missing_tickers))[:10]
-    
-    # Check if we got any valid waves
-    if not wave_return_series_dict:
-        result['failure_reason'] = 'No valid wave return series computed'
-        debug['reason_if_failure'] = f'no tickers intersect (requested={len(all_requested_tickers)}, available={len(all_available_tickers)})'
-        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']} - {debug['reason_if_failure']}")
-        return result
-    
-    result['wave_count'] = len(wave_return_series_dict)
-    
-    # ========================================================================
-    # PHASE 1B.1: Build Portfolio Composite Benchmark
-    # ========================================================================
-    # Build wave_results dict for composite benchmark computation
-    # Each entry needs to be a DataFrame with 'bm_ret' column
-    wave_results_for_composite = {}
-    for wave_name in wave_return_series_dict.keys():
-        if wave_name in wave_benchmark_return_dict:
-            # Create a simple DataFrame with bm_ret column
-            bm_ret_series = wave_benchmark_return_dict[wave_name]
-            wave_results_for_composite[wave_name] = pd.DataFrame({'bm_ret': bm_ret_series})
-    
-    # Compute portfolio composite benchmark using equal weights
-    portfolio_benchmark_returns = build_portfolio_composite_benchmark_returns(
-        wave_results=wave_results_for_composite,
-        wave_weights=None  # Use equal weights as specified
-    )
-    
-    # Update debug info
-    debug['composite_benchmark_waves'] = len(wave_results_for_composite)
-    debug['composite_benchmark_days'] = len(portfolio_benchmark_returns) if not portfolio_benchmark_returns.empty else 0
-    
-    # Build return matrix R (rows=dates, cols=waves)
-    try:
-        # Concatenate all wave return series into a DataFrame
-        return_matrix = pd.DataFrame(wave_return_series_dict)
-        
-        # Record portfolio rows count for debugging
-        debug['portfolio_rows_count'] = len(return_matrix)
-        debug['filtered_price_book_shape'] = f"{len(return_matrix)} x {len(return_matrix.columns)}"
-        
-        # Compute equal-weight portfolio return: mean across waves (skipna=True)
-        portfolio_returns = return_matrix.mean(axis=1, skipna=True)
-        
-        # Use composite benchmark returns (already computed above)
-        benchmark_returns = portfolio_benchmark_returns
-        
-        # If composite benchmark is empty, fall back to error
-        if benchmark_returns.empty:
-            result['failure_reason'] = 'Failed to build portfolio composite benchmark'
-            debug['reason_if_failure'] = 'composite benchmark empty or insufficient history'
-            logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
-            return result
-        
-        # Align portfolio returns and benchmark returns on common dates
-        # This handles the case where they may have different date ranges
-        common_dates = portfolio_returns.index.intersection(benchmark_returns.index)
-        if len(common_dates) < MIN_DATES_FOR_PORTFOLIO:
-            result['failure_reason'] = f'Insufficient common dates between portfolio and benchmark: {len(common_dates)}'
-            debug['reason_if_failure'] = f'only {len(common_dates)} common dates after alignment'
-            return result
-        
-        portfolio_returns = portfolio_returns.loc[common_dates]
-        benchmark_returns = benchmark_returns.loc[common_dates]
-        
-        # Drop dates where portfolio return is NaN
-        valid_dates = ~portfolio_returns.isna()
-        portfolio_returns = portfolio_returns[valid_dates]
-        benchmark_returns = benchmark_returns[valid_dates]
-        
-        # Sort index ascending
-        portfolio_returns = portfolio_returns.sort_index()
-        benchmark_returns = benchmark_returns.sort_index()
-        
-        # Check if we have sufficient data
-        if len(portfolio_returns) < MIN_DATES_FOR_PORTFOLIO:
-            result['failure_reason'] = f'Insufficient dates after aggregation: {len(portfolio_returns)} (need at least {MIN_DATES_FOR_PORTFOLIO})'
-            debug['reason_if_failure'] = f'filtered df empty or too small ({len(portfolio_returns)} dates)'
-            return result
-        
-        # Record that we have these series
-        result['has_portfolio_returns_series'] = True
-        result['has_portfolio_benchmark_series'] = True
-        result['has_overlay_alpha_series'] = False  # VIX overlay not yet implemented
-        
-        # Record date range
-        result['date_range'] = (
-            portfolio_returns.index[0].strftime('%Y-%m-%d'),
-            portfolio_returns.index[-1].strftime('%Y-%m-%d')
+        ledger = compute_portfolio_alpha_ledger(
+            price_book=price_book,
+            periods=periods,
+            benchmark_ticker=DEFAULT_BENCHMARK_TICKER,
+            safe_ticker_preference=["BIL", "SHY"],
+            mode=mode,
+            wave_registry=None,
+            vix_exposure_enabled=True
         )
         
-        # Compute cumulative returns for each period
-        # Convert daily returns to cumulative index starting at 100
-        portfolio_cumulative = (1 + portfolio_returns).cumprod() * 100
-        benchmark_cumulative = (1 + benchmark_returns).cumprod() * 100
-        
-        max_available_days = len(portfolio_cumulative)
-        
-        for period in periods:
-            try:
-                # Map period to trading days using standard conventions
-                # period is the input (e.g., 1, 30, 60, 365)
-                # We need to map 365 -> 252 trading days
-                if period == 365:
-                    trading_days = TRADING_DAYS_MAP['365D']  # 252 trading days
-                elif period == 60:
-                    trading_days = TRADING_DAYS_MAP['60D']   # 60 trading days
-                elif period == 30:
-                    trading_days = TRADING_DAYS_MAP['30D']   # 30 trading days
-                elif period == 1:
-                    trading_days = TRADING_DAYS_MAP['1D']    # 1 trading day
-                else:
-                    # For any other period, use it as-is (assuming trading days)
-                    trading_days = period
-                
-                if trading_days >= max_available_days:
-                    # Not enough history for this period
-                    result['portfolio_returns'][f'{period}D'] = None
-                    result['benchmark_returns'][f'{period}D'] = None
-                    result['alphas'][f'{period}D'] = None
-                    continue
-                
-                # Get cumulative values from 'trading_days' ago and current value
-                current_portfolio = portfolio_cumulative.iloc[-1]
-                past_portfolio = portfolio_cumulative.iloc[-(trading_days + 1)]
-                current_benchmark = benchmark_cumulative.iloc[-1]
-                past_benchmark = benchmark_cumulative.iloc[-(trading_days + 1)]
-                
-                # Handle NaN values
-                if (pd.isna(current_portfolio) or pd.isna(past_portfolio) or 
-                    pd.isna(current_benchmark) or pd.isna(past_benchmark) or
-                    past_portfolio == 0 or past_benchmark == 0):
-                    result['portfolio_returns'][f'{period}D'] = None
-                    result['benchmark_returns'][f'{period}D'] = None
-                    result['alphas'][f'{period}D'] = None
-                    continue
-                
-                # Calculate returns
-                portfolio_ret = (current_portfolio - past_portfolio) / past_portfolio
-                benchmark_ret = (current_benchmark - past_benchmark) / past_benchmark
-                alpha = portfolio_ret - benchmark_ret
-                
-                result['portfolio_returns'][f'{period}D'] = portfolio_ret
-                result['benchmark_returns'][f'{period}D'] = benchmark_ret
-                result['alphas'][f'{period}D'] = alpha
-                
-            except (IndexError, ValueError) as e:
-                logger.warning(f"Error computing {period}D portfolio return: {e}")
-                result['portfolio_returns'][f'{period}D'] = None
-                result['benchmark_returns'][f'{period}D'] = None
-                result['alphas'][f'{period}D'] = None
-        
-        # Check if we got at least one valid return
-        valid_returns = [v for v in result['portfolio_returns'].values() if v is not None]
-        if not valid_returns:
-            result['failure_reason'] = 'No valid returns computed (insufficient history or all NaN)'
-            debug['reason_if_failure'] = 'no valid returns (insufficient history or all NaN)'
+        if not ledger['success']:
+            result['failure_reason'] = ledger.get('failure_reason', 'Ledger computation failed')
+            debug['reason_if_failure'] = result['failure_reason']
+            debug.update(ledger.get('debug', {}))
             return result
         
-        # Success!
+        # Extract wave count from ledger debug
+        result['wave_count'] = ledger.get('debug', {}).get('active_waves_count', 0)
+        debug['active_waves_count'] = result['wave_count']
+        
+        # Check if we have the daily return series
+        if ledger.get('daily_realized_return') is not None:
+            daily_realized = ledger['daily_realized_return']
+            result['has_portfolio_returns_series'] = True
+            result['has_overlay_alpha_series'] = ledger.get('overlay_available', False)
+            
+            # Record date range
+            if len(daily_realized) > 0:
+                result['date_range'] = (
+                    daily_realized.index[0].strftime('%Y-%m-%d'),
+                    daily_realized.index[-1].strftime('%Y-%m-%d')
+                )
+        
+        if ledger.get('daily_benchmark_return') is not None:
+            result['has_portfolio_benchmark_series'] = True
+        
+        # Extract period results from ledger
+        period_results = ledger.get('period_results', {})
+        
+        for period in periods:
+            period_key = f'{period}D'
+            period_data = period_results.get(period_key, {})
+            
+            if period_data.get('available', False):
+                # Use cum_realized for portfolio return (includes VIX overlay)
+                result['portfolio_returns'][period_key] = period_data.get('cum_realized')
+                result['benchmark_returns'][period_key] = period_data.get('cum_benchmark')
+                result['alphas'][period_key] = period_data.get('total_alpha')
+            else:
+                # Period not available - leave as None
+                result['portfolio_returns'][period_key] = None
+                result['benchmark_returns'][period_key] = None
+                result['alphas'][period_key] = None
+        
+        # Copy diagnostic information from ledger
+        debug.update(ledger.get('debug', {}))
+        debug['using_ledger'] = True
+        
+        # Mark as successful
         result['success'] = True
-        result['failure_reason'] = None
+        
+        return result
         
     except Exception as e:
-
-        result['failure_reason'] = f'Error computing portfolio metrics: {str(e)}'
-        debug['reason_if_failure'] = f'exception: {str(e)}'
+        result['failure_reason'] = f'Error computing portfolio snapshot via ledger: {str(e)}'
+        debug['reason_if_failure'] = result['failure_reason']
         debug['exception_message'] = str(e)
         debug['exception_traceback'] = traceback.format_exc()
+        logger.error(f"Portfolio snapshot computation failed: {e}", exc_info=True)
         return result
-    
-    # Log debug info for troubleshooting (using debug level to avoid performance impact)
-    logger.debug(f"Portfolio snapshot debug: {debug}")
-    
-    return result
 
 
 def compute_portfolio_alpha_attribution(
