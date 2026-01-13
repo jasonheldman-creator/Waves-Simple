@@ -422,7 +422,14 @@ for wave, wdf in weights.groupby("wave"):
         df_wave["overlay_active"] = True
         
         # Apply exposure adjustment to portfolio_return to create strategy-adjusted returns
-        # This ensures the wave_history.csv contains post-strategy returns, not raw holdings returns
+        # This ensures the wave_history.csv contains post-VIX-overlay returns, not raw holdings returns
+        # 
+        # Note: This batch processor applies VIX overlay only. It does NOT apply:
+        # - Safe allocation (requires daily state of safe asset prices)
+        # - Volatility targeting (requires rolling window volatility calculation)
+        # - Momentum tilting (already captured in holdings weights)
+        # 
+        # For full strategy pipeline, use waves_engine.compute_history_nav()
         df_wave["portfolio_return"] = df_wave["portfolio_return"] * df_wave["exposure_used"]
     else:
         # Non-equity waves or missing data: VIX overlay disabled
