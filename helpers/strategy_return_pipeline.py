@@ -216,68 +216,48 @@ def compute_wave_returns_with_strategy(
         return result
         
     except Exception as e:
-        logger.error(f"Error computing returns for {wave_id}: {e}", exc_info=True)
-        result['failure_reason'] = str(e)
-        return result
+        logger.error(f"Error computing strategy-aware returns for {wave_id}: {e}", 
+                    exc_info=True)
+        return _empty_strategy_returns_dataframe()
 
 
-def _parse_ticker_list(ticker_string: str) -> list:
-    """Parse comma-separated ticker string into list."""
-    if not ticker_string or pd.isna(ticker_string):
-        return []
-    
-    tickers = [t.strip() for t in ticker_string.split(',')]
-    return [t for t in tickers if t]  # Filter empty strings
+def _empty_strategy_returns_dataframe() -> pd.DataFrame:
+    """Return an empty dataframe with the standard strategy return columns."""
+    return pd.DataFrame(columns=[
+        'wave_return',
+        'benchmark_return', 
+        'alpha',
+        'strategy_applied'
+    ])
 
 
-def _compute_portfolio_returns(
-    price_data: pd.DataFrame,
-    tickers: list,
-    weights: Optional[list] = None,
-    equal_weight: bool = False
-) -> pd.Series:
+def get_strategy_stack_from_wave(wave_id: str) -> List[str]:
     """
-    Compute portfolio returns from price data.
+    Get the strategy_stack for a wave from the registry.
     
     Args:
-        price_data: DataFrame with dates as index and tickers as columns
-        tickers: List of tickers to include
-        weights: Optional list of weights (must sum to 1.0)
-        equal_weight: If True, use equal weights for all tickers
+        wave_id: Wave identifier
         
     Returns:
-        Series of daily portfolio returns
+        List of strategy component names, or empty list if none defined
     """
-    # Filter to available tickers
-    available_tickers = [t for t in tickers if t in price_data.columns]
-    
-    if not available_tickers:
-        logger.warning(f"No available tickers found in price data")
-        return pd.Series(np.nan, index=price_data.index)
-    
-    # Get prices for portfolio
-    portfolio_prices = price_data[available_tickers]
-    
-    # Set weights
-    if equal_weight or weights is None:
-        n = len(available_tickers)
-        portfolio_weights = [1.0 / n] * n
-    else:
-        # Use provided weights, filtering to available tickers
-        portfolio_weights = []
-        for ticker in available_tickers:
-            idx = tickers.index(ticker)
-            portfolio_weights.append(weights[idx])
+    try:
+        wave = wave_registry.get_wave_by_id(wave_id)
+        if wave is None:
+            return []
         
-        # Normalize weights to sum to 1.0
-        total_weight = sum(portfolio_weights)
-        if total_weight > 0:
-            portfolio_weights = [w / total_weight for w in portfolio_weights]
-    
-    # Compute individual ticker returns
-    ticker_returns = portfolio_prices.pct_change(fill_method=None)
-    
-    # Compute weighted portfolio returns
-    portfolio_returns = (ticker_returns * portfolio_weights).sum(axis=1)
-    
-    return portfolio_returns
+        # Get strategy_stack field (could be string or list)
+        strategy_stack = wave.get('strategy_stack', '')
+        
+        # Handle different formats
+        if isinstance(strategy_stack, list):
+            return strategy_stack
+        elif isinstance(strategy_stack, str) and strategy_stack:
+            # Parse comma-separated string
+            return [s.strip() for s in strategy_stack.split(',') if s.strip()]
+        else:
+            return []
+            
+    except Exception as e:
+        logger.error(f"Error getting strategy_stack for {wave_id}: {e}")
+        return []

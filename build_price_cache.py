@@ -636,12 +636,25 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Build initial price cache')
     parser.add_argument('--force', action='store_true', help='Force rebuild even if cache exists')
-    parser.add_argument('--years', type=int, default=DEFAULT_CACHE_YEARS, help='Number of years of history')
+    parser.add_argument('--years', type=int, default=None, help='Number of years of history')
     parser.add_argument('--skip-validation', action='store_true', help='Skip strict validation checks')
     
     args = parser.parse_args()
     
-    success, success_rate = build_initial_cache(force_rebuild=args.force, years=args.years)
+    # Determine years: priority is CLI arg > env var > default
+    if args.years is not None:
+        years = args.years
+    else:
+        # Fallback to YEARS_INPUT environment variable with default of "3"
+        YEARS_INPUT = os.getenv("YEARS_INPUT", "3")
+        try:
+            YEARS_INT = int(YEARS_INPUT)
+            years = YEARS_INT
+        except ValueError:
+            logger.warning(f"Invalid YEARS_INPUT value '{YEARS_INPUT}', using default {DEFAULT_CACHE_YEARS}")
+            years = DEFAULT_CACHE_YEARS
+    
+    success, success_rate = build_initial_cache(force_rebuild=args.force, years=years)
     
     # Strict exit codes:
     # - Exit 0 if success rate >= MIN_SUCCESS_RATE AND cache file exists AND validations pass
