@@ -1604,6 +1604,18 @@ def generate_snapshot(
         except Exception as e:
             print(f"⚠ Failed to load global price cache: {e}")
     
+    # Fallback: Load price cache directly from parquet if still None
+    if price_df is None or (hasattr(price_df, 'empty') and price_df.empty):
+        try:
+            cache_path = "data/cache/prices_cache.parquet"
+            if os.path.exists(cache_path):
+                price_df = pd.read_parquet(cache_path)
+                print(f"✓ Loaded price cache directly from parquet: {len(price_df)} rows, {len(price_df.columns)} columns")
+            else:
+                print(f"⚠ Price cache file not found: {cache_path}")
+        except Exception as e:
+            print(f"⚠ Failed to load price cache from parquet: {e}")
+    
     # Generate snapshot rows
     snapshot_rows = []
     tier_stats = {"A": 0, "B": 0, "C": 0, "D": 0}
