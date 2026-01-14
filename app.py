@@ -10199,6 +10199,89 @@ def render_executive_brief_tab():
         if is_portfolio_view:
             st.markdown("### 💼 Portfolio Snapshot")
             st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
+            
+            # ========================================================================
+            # DIAGNOSTIC DEBUG BLOCK
+            # Show critical system dates to diagnose frozen snapshot issue
+            # ========================================================================
+            with st.expander("🔍 Debug: SPY Trading Calendar & Cache Dates", expanded=False):
+                import json
+                from helpers.trading_calendar import get_trading_calendar_dates
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**📅 SPY Trading Calendar**")
+                    try:
+                        # Get price_book to extract SPY calendar
+                        from helpers.price_book import get_price_book
+                        price_book_debug = get_price_book()
+                        
+                        if price_book_debug is not None and 'SPY' in price_book_debug.columns:
+                            asof_date, prev_date = get_trading_calendar_dates(price_book_debug)
+                            if asof_date and prev_date:
+                                st.metric("SPY asof_date", asof_date.strftime('%Y-%m-%d'))
+                                st.metric("SPY prev_date", prev_date.strftime('%Y-%m-%d'))
+                            else:
+                                st.warning("Unable to extract SPY calendar dates")
+                        else:
+                            st.warning("SPY not available in price_book")
+                    except Exception as e:
+                        st.error(f"Error extracting SPY dates: {e}")
+                
+                with col2:
+                    st.markdown("**📊 Cache Metadata**")
+                    try:
+                        # Load prices_cache_meta.json
+                        meta_path = "data/cache/prices_cache_meta.json"
+                        if os.path.exists(meta_path):
+                            with open(meta_path, 'r') as f:
+                                meta = json.load(f)
+                            
+                            st.metric("max_price_date", meta.get('max_price_date', 'N/A'))
+                            st.metric("spy_max_date", meta.get('spy_max_date', 'N/A'))
+                            if meta.get('overall_max_date'):
+                                st.caption(f"overall_max_date: {meta.get('overall_max_date')}")
+                            if meta.get('min_symbol_max_date'):
+                                st.caption(f"min_symbol_max_date: {meta.get('min_symbol_max_date')}")
+                        else:
+                            st.warning("prices_cache_meta.json not found")
+                    except Exception as e:
+                        st.error(f"Error loading cache metadata: {e}")
+                
+                # Show live_snapshot.csv max date
+                st.markdown("**📈 Live Snapshot Date**")
+                try:
+                    snapshot_path = "data/live_snapshot.csv"
+                    if os.path.exists(snapshot_path):
+                        snapshot_df_debug = pd.read_csv(snapshot_path)
+                        if 'Date' in snapshot_df_debug.columns and not snapshot_df_debug.empty:
+                            snapshot_date = snapshot_df_debug['Date'].iloc[0]
+                            st.metric("Snapshot Date", snapshot_date)
+                        else:
+                            st.warning("Date column not found in snapshot")
+                    else:
+                        st.warning("live_snapshot.csv not found")
+                except Exception as e:
+                    st.error(f"Error loading snapshot date: {e}")
+                
+                # Show portfolio contributors (if ledger available)
+                st.markdown("**👥 Portfolio Contributors**")
+                try:
+                    if 'portfolio_alpha_ledger' in st.session_state:
+                        ledger_debug = st.session_state['portfolio_alpha_ledger']
+                        if ledger_debug.get('success'):
+                            # Count contributors from period_results
+                            for period_label in ['1D', '30D', '60D']:
+                                period_result = ledger_debug['period_results'].get(period_label, {})
+                                n_contributors = period_result.get('n_waves_with_returns', 0)
+                                st.caption(f"{period_label} contributors: {n_contributors}")
+                        else:
+                            st.caption("Ledger computation failed")
+                    else:
+                        st.caption("Ledger not yet computed")
+                except Exception as e:
+                    st.caption(f"Error: {e}")
         
             try:
                 from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
