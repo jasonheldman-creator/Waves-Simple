@@ -2947,6 +2947,11 @@ def compute_portfolio_alpha_ledger(
         result['success'] = True
         result['failure_reason'] = None
         
+        # Add convenience accessor for contributor counts (for UI diagnostics panel)
+        result['contributors_1D'] = result['period_results'].get('1D', {}).get('n_waves_with_returns', 0)
+        result['contributors_30D'] = result['period_results'].get('30D', {}).get('n_waves_with_returns', 0)
+        result['contributors_60D'] = result['period_results'].get('60D', {}).get('n_waves_with_returns', 0)
+        
     except Exception as e:
 
         result['failure_reason'] = f'Error computing period results: {str(e)}'

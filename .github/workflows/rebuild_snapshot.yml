@@ -36,6 +36,7 @@ jobs:
 
       # IMPORTANT:
       # PR runs should NOT try to commit/push (they are checks only).
+      # For workflow_dispatch: ALWAYS commit (even small metadata changes)
       - name: Commit snapshot if changed
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -49,13 +50,61 @@ jobs:
           if [ -d output ]; then git add -A output || true; fi
 
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "⚠ Manual run completed but no changes detected."
+            echo "This can happen if the snapshot was just updated by another workflow."
             exit 0
           fi
 
-          git commit -m "Rebuild live snapshot"
+          # Extract metadata for logging
+          echo ""
+          echo "========================================================================"
+          echo "SNAPSHOT METADATA LOGGING"
+          echo "========================================================================"
+          
+          # Log snapshot date and SPY calendar info
+          if [ -f data/live_snapshot.csv ]; then
+            echo "Live Snapshot Date:"
+            python3 << 'EOF'
+import pandas as pd
+try:
+    df = pd.read_csv('data/live_snapshot.csv')
+    if 'Date' in df.columns and not df.empty:
+        print(f"  Snapshot Date: {df['Date'].iloc[0]}")
+    else:
+        print("  Snapshot Date: N/A (empty or missing Date column)")
+except Exception as e:
+    print(f"  Error reading snapshot: {e}")
+EOF
+          fi
+          
+          if [ -f data/cache/prices_cache_meta.json ]; then
+            echo ""
+            echo "SPY Trading Calendar (from prices_cache_meta.json):"
+            python3 << 'EOF'
+import json
+try:
+    with open('data/cache/prices_cache_meta.json', 'r') as f:
+        meta = json.load(f)
+    print(f"  spy_max_date: {meta.get('spy_max_date', 'N/A')}")
+    print(f"  max_price_date: {meta.get('max_price_date', 'N/A')}")
+except Exception as e:
+    print(f"  Error reading cache metadata: {e}")
+EOF
+          fi
+
+          echo ""
+          echo "Committing changes..."
+          git commit -m "Rebuild live snapshot (manual run)"
+          
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "  Commit SHA: $COMMIT_SHA"
 
           # Authenticated remote + explicit branch push (avoids detached HEAD failures)
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           BRANCH="${GITHUB_REF_NAME}"
           git push origin "HEAD:${BRANCH}"
+          
+          echo ""
+          echo "✓ Snapshot files committed and pushed successfully"
+          echo "  Last commit SHA: $COMMIT_SHA"
+          echo "========================================================================"

@@ -264,11 +264,20 @@ def _safe_return(nav_series: pd.Series, days: int) -> float:
         # Get the most recent value
         end_val = float(nav_series.iloc[-1])
         
-        # Get value from 'days' ago, or earliest if not enough history
-        start_idx = max(0, len(nav_series) - days - 1)
-        start_val = float(nav_series.iloc[start_idx])
+        # For 1D returns, we need exactly the last two data points (asof and prev)
+        # For longer periods, we can use what's available
+        if days == 1:
+            # Strict check: need exactly 2 points
+            if len(nav_series) < 2:
+                return float("nan")
+            start_val = float(nav_series.iloc[-2])
+        else:
+            # Get value from 'days' ago, or earliest if not enough history
+            start_idx = max(0, len(nav_series) - days - 1)
+            start_val = float(nav_series.iloc[start_idx])
         
-        if start_val <= 0:
+        # Check for invalid values
+        if pd.isna(start_val) or pd.isna(end_val) or start_val <= 0:
             return float("nan")
         
         return (end_val / start_val) - 1.0
@@ -867,7 +876,18 @@ def _build_snapshot_row_tier_a(
         
         # Get current values
         current_nav = float(wave_nav.iloc[-1])
-        nav_1d_change = float(wave_nav.iloc[-1] - wave_nav.iloc[-2]) if len(wave_nav) >= 2 else float("nan")
+        
+        # Compute 1D NAV change - MUST have both asof and prev values
+        # If either is missing or NaN, set to NaN (not 0.0)
+        if len(wave_nav) >= 2:
+            asof_nav = wave_nav.iloc[-1]
+            prev_nav = wave_nav.iloc[-2]
+            if pd.isna(asof_nav) or pd.isna(prev_nav):
+                nav_1d_change = float("nan")
+            else:
+                nav_1d_change = float(asof_nav - prev_nav)
+        else:
+            nav_1d_change = float("nan")
         
         # Compute returns for all timeframes
         returns = {}
@@ -1073,7 +1093,18 @@ def _build_snapshot_row_tier_b(
         
         # Get current values
         current_nav = float(wave_nav.iloc[-1])
-        nav_1d_change = float(wave_nav.iloc[-1] - wave_nav.iloc[-2]) if len(wave_nav) >= 2 else float("nan")
+        
+        # Compute 1D NAV change - MUST have both asof and prev values
+        # If either is missing or NaN, set to NaN (not 0.0)
+        if len(wave_nav) >= 2:
+            asof_nav = wave_nav.iloc[-1]
+            prev_nav = wave_nav.iloc[-2]
+            if pd.isna(asof_nav) or pd.isna(prev_nav):
+                nav_1d_change = float("nan")
+            else:
+                nav_1d_change = float(asof_nav - prev_nav)
+        else:
+            nav_1d_change = float("nan")
         
         # Compute returns for available timeframes
         returns = {}
