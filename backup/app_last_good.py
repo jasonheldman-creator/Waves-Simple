@@ -16,12 +16,19 @@ FULL MULTI-TAB CONSOLE UI - Post PR #336
 Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
 Includes all analytics, monitoring, and governance features.
 """
-
 import streamlit as st
+
+# GLOBAL RENDER LOCK (prevents infinite reruns)
+if "__render_lock__" not in st.session_state:
+    st.session_state["__render_lock__"] = True   
+import logging
+
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
 import subprocess
 import os
 import traceback
-import logging
 import time
 import itertools
 import html
@@ -49,6 +56,21 @@ try:
     VIX_DIAGNOSTICS_AVAILABLE = True
 except ImportError:
     VIX_DIAGNOSTICS_AVAILABLE = False
+
+# Import VIX overlay configuration
+try:
+    from config.vix_overlay_config import (
+        get_vix_overlay_config,
+        is_vix_overlay_live,
+        get_vix_overlay_status
+    )
+    from waves_engine import (
+        get_vix_overlay_status_for_wave,
+        is_vix_overlay_active_for_wave
+    )
+    VIX_CONFIG_AVAILABLE = True
+except ImportError:
+    VIX_CONFIG_AVAILABLE = False
 
 # Import waves engine for wave definitions (single source of truth)
 try:
@@ -132,9 +154,10 @@ except ImportError:
 try:
     from helpers.operator_toolbox import (
         get_data_health_metadata,
-        rebuild_price_cache,
+        rebuild_price_cache as rebuild_price_cache_toolbox,
         rebuild_wave_history,
-        run_self_test
+        run_self_test,
+        force_ledger_recompute
     )
     OPERATOR_TOOLBOX_AVAILABLE = True
 except ImportError:
@@ -164,7 +187,7 @@ except ImportError:
     PRICE_CACHE_DEGRADED_DAYS = 30
     STALE_DAYS_THRESHOLD = 30
     DEGRADED_DAYS_THRESHOLD = 14
-    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"
+    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"  # Canonical path
     compute_system_health = None
     get_price_book = None
 
@@ -231,6 +254,13 @@ RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
 # SAFE_MODE: Enable/disable safe mode for error handling
 # When enabled, catches exceptions in Wave Intelligence Center and falls back gracefully
 SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
+
+# ============================================================================
+# RERUN THROTTLE CONFIGURATION
+# ============================================================================
+# Rerun throttle settings to prevent rapid consecutive reruns
+RERUN_THROTTLE_THRESHOLD = 0.5  # Minimum seconds between reruns (below this triggers counter)
+MAX_RAPID_RERUNS = 3  # Number of rapid reruns before halting execution
 
 # ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
@@ -308,6 +338,11 @@ DEFAULT_DATA_INTEGRITY = "Degraded"
 DEFAULT_CONFIDENCE = "Moderate"
 BATCH_PAUSE_MIN = 0.5
 BATCH_PAUSE_MAX = 1.5
+
+# Executive Summary attribution constants
+ATTRIBUTION_TILT_STRENGTH = 0.8  # Momentum tilt strength for attribution calculation
+ATTRIBUTION_BASE_EXPOSURE = 1.0  # Base exposure level for attribution calculation
+ATTRIBUTION_TIMEFRAME_DAYS = 30  # Default timeframe for Executive Summary attribution display
 
 # ============================================================================
 # WAVE SELECTION HELPER FUNCTIONS
@@ -1048,43 +1083,49 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # ========================================================================
         if is_portfolio_view:
             # Use module-level imports if available
-            if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE and compute_portfolio_snapshot and get_price_book:
+            if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE:
                 try:
                     # Load PRICE_BOOK
-                    price_book = get_price_book()
+                    price_book = get_cached_price_book()
                     
-                    # Compute portfolio snapshot with all periods
-                    snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
-                    
-                    # Store debug info in session state for diagnostics panel
-                    # Always update to ensure fresh debug data (even on failure)
-                    if 'debug' in snapshot:
-                        st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
-                    
-                    if snapshot['success']:
-                        # Extract portfolio returns
-                        ret_1d = snapshot['portfolio_returns'].get('1D')
-                        ret_30d = snapshot['portfolio_returns'].get('30D')
-                        ret_60d = snapshot['portfolio_returns'].get('60D')
-                        ret_365d = snapshot['portfolio_returns'].get('365D')
-                        
-                        # Extract alphas
-                        alpha_1d = snapshot['alphas'].get('1D')
-                        alpha_30d = snapshot['alphas'].get('30D')
-                        alpha_60d = snapshot['alphas'].get('60D')
-                        alpha_365d = snapshot['alphas'].get('365D')
-                        
-                        # Format return strings
-                        ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                        ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                        ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                        ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
-                        
-                        # Format alpha strings
-                        alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                        alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                        alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                        alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                    # Use ENGINE_RUNNING as a reentrancy lock
+                    if not st.session_state.get("ENGINE_RUNNING", False):
+                        st.session_state.ENGINE_RUNNING = True
+                        try:
+                            # Compute portfolio snapshot with all periods
+                            snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
+                            
+                            # Store debug info in session state for diagnostics panel
+                            # Always update to ensure fresh debug data (even on failure)
+                            if 'debug' in snapshot:
+                                st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
+                            
+                            if snapshot['success']:
+                                # Extract portfolio returns
+                                ret_1d = snapshot['portfolio_returns'].get('1D')
+                                ret_30d = snapshot['portfolio_returns'].get('30D')
+                                ret_60d = snapshot['portfolio_returns'].get('60D')
+                                ret_365d = snapshot['portfolio_returns'].get('365D')
+                                
+                                # Extract alphas
+                                alpha_1d = snapshot['alphas'].get('1D')
+                                alpha_30d = snapshot['alphas'].get('30D')
+                                alpha_60d = snapshot['alphas'].get('60D')
+                                alpha_365d = snapshot['alphas'].get('365D')
+                                
+                                # Format return strings
+                                ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
+                                ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
+                                ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
+                                ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                                
+                                # Format alpha strings
+                                alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
+                                alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
+                                alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
+                                alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                        finally:
+                            st.session_state.ENGINE_RUNNING = False
                 except Exception as e:
                     # Log error but keep N/A values (graceful degradation)
                     logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
@@ -1172,6 +1213,23 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
         display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
         
+        # Get VIX overlay status for this wave
+        vix_overlay_active = False
+        vix_overlay_status_str = "N/A"
+        if VIX_CONFIG_AVAILABLE and not is_portfolio_view:
+            try:
+                vix_status = get_vix_overlay_status_for_wave(selected_wave)
+                vix_overlay_active = vix_status["is_enabled_for_wave"] and vix_status["is_equity_wave"]
+                if vix_status["is_equity_wave"]:
+                    if vix_status["is_enabled_for_wave"]:
+                        vix_overlay_status_str = "🟢 LIVE"
+                    else:
+                        vix_overlay_status_str = "⚪ Off"
+                else:
+                    vix_overlay_status_str = "—"  # Not applicable for non-equity waves
+            except:
+                vix_overlay_status_str = "N/A"
+        
         # Wave-specific metrics HTML (shown only for individual waves)
         wave_specific_metrics_html = ""
         if not is_portfolio_view:
@@ -1182,6 +1240,10 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                 <div class="stat-tile">
                     <div class="stat-label">VIX Regime</div>
                     <div class="stat-value">{vix_regime_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">VIX Overlay</div>
+                    <div class="stat-value" style="font-size: 0.9em;">{vix_overlay_status_str}</div>
                 </div>
                 <div class="stat-tile">
                     <div class="stat-label">Exposure</div>
@@ -2298,6 +2360,68 @@ def trigger_rerun(trigger_name: str):
     
     # Trigger the rerun
     st.rerun()
+
+
+def get_cache_file_timestamp(file_path):
+    """
+    Get the modification timestamp of a file for cache-busting.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        float: File modification timestamp, or 0.0 if file doesn't exist
+    """
+    try:
+        if os.path.exists(file_path):
+            return os.path.getmtime(file_path)
+        return 0.0
+    except Exception:
+        return 0.0
+
+
+@st.cache_resource(show_spinner=False)
+def get_cached_price_book_internal(_cache_buster=None):
+    """
+    Internal function to get cached PRICE_BOOK.
+    
+    This function wraps helpers.price_book.get_price_book() with Streamlit's
+    @st.cache_resource decorator to ensure it loads only once per session,
+    preventing repeated "PRICE_BOOK: Loading canonical price data" log spam.
+    
+    Uses cache-busting via file modification timestamp to detect when the
+    underlying cache file has been updated.
+    
+    Args:
+        _cache_buster: File modification timestamp (prefixed with _ to exclude from hash)
+    
+    Returns:
+        DataFrame: Cached price book (index=dates, columns=tickers)
+    """
+    # Import here to avoid circular dependencies
+    if PRICE_BOOK_CONSTANTS_AVAILABLE and get_price_book is not None:
+        # Log only on cache miss (first load)
+        logger.info("PRICE_BOOK loaded (cached) - this message appears only on cache miss")
+        return get_price_book(active_tickers=None)
+    else:
+        # Fallback if price_book module not available
+        logger.warning("PRICE_BOOK unavailable - price_book module not loaded")
+        return pd.DataFrame()
+
+
+def get_cached_price_book():
+    """
+    Get cached PRICE_BOOK with automatic cache-busting.
+    
+    This function automatically detects changes to the underlying price cache file
+    and invalidates the Streamlit cache when the file is updated.
+    
+    Returns:
+        DataFrame: Cached price book (index=dates, columns=tickers)
+    """
+    # Get cache file timestamp for cache-busting
+    cache_timestamp = get_cache_file_timestamp(CANONICAL_CACHE_PATH)
+    return get_cached_price_book_internal(_cache_buster=cache_timestamp)
 
 
 def calculate_wavescore(wave_data):
@@ -5142,8 +5266,7 @@ def get_mission_control_data():
                 
                 # Compute waves_live_count from PRICE_BOOK validation
                 try:
-                    from helpers.price_book import get_price_book
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
                         canonical_waves, enabled_flags, price_book
                     )
@@ -5157,8 +5280,8 @@ def get_mission_control_data():
         # Get latest date from PRICE_BOOK (canonical price source)
         # This ensures Data Age reflects actual live price data, not history file timestamps
         try:
-            from helpers.price_book import get_price_book, get_price_book_meta
-            price_book = get_price_book(active_tickers=None)
+            from helpers.price_book import get_price_book_meta
+            price_book = get_cached_price_book()
             price_meta = get_price_book_meta(price_book)
             
             if price_meta['date_max'] is not None:
@@ -5218,7 +5341,7 @@ def get_mission_control_data():
                 # This counts active waves that have valid price data in PRICE_BOOK
                 try:
                     from helpers.price_book import get_price_book
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
                         canonical_waves, enabled_flags, price_book
                     )
@@ -5231,7 +5354,7 @@ def get_mission_control_data():
                 # Compute waves_live_count from PRICE_BOOK
                 try:
                     from helpers.price_book import get_price_book
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
                         canonical_waves, enabled_flags, price_book
                     )
@@ -5253,7 +5376,7 @@ def get_mission_control_data():
                     from helpers.price_book import get_price_book
                     from helpers.wave_performance import compute_all_waves_performance
                     
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     if not price_book.empty:
                         # Count validated waves by computing performance
                         perf_df = compute_all_waves_performance(
@@ -5279,7 +5402,7 @@ def get_mission_control_data():
                 DEGRADED_DAYS_THRESHOLD
             )
             
-            price_book = get_price_book(active_tickers=None)
+            price_book = get_cached_price_book()
             health = compute_system_health(price_book)
             meta = get_price_book_meta(price_book)
             
@@ -5331,11 +5454,37 @@ def get_mission_control_data():
             else:
                 mc_data['market_regime'] = 'Neutral'
         
-        # VIX Gate Status - only calculate if actual VIX data is available
-        # Changed to gate incomplete metrics per institutional readiness requirements
-        # Reuse price_book from earlier in function to avoid redundant loading
+        # VIX Gate Status - check for VIX execution state in wave_history
+        # This ensures VIX overlay is marked as LIVE when daily execution records exist
         try:
-            if 'VIX' in price_book.columns and not price_book['VIX'].dropna().empty:
+            # First, check if wave_history has VIX execution state columns
+            has_vix_state = False
+            if 'overlay_active' in df.columns and 'vix_level' in df.columns:
+                # Check if any equity wave has active overlay with valid VIX data
+                latest_data = df[df['date'] == latest_date]
+                if len(latest_data) > 0:
+                    active_overlays = latest_data[
+                        (latest_data['overlay_active'] == True) & 
+                        (latest_data['vix_level'].notna())
+                    ]
+                    has_vix_state = len(active_overlays) > 0
+            
+            if has_vix_state:
+                # VIX execution state is persisted in wave_history - overlay is LIVE
+                # Get VIX level from latest execution state
+                vix_data = latest_data[latest_data['vix_level'].notna()]
+                if len(vix_data) > 0:
+                    current_vix = vix_data['vix_level'].iloc[0]
+                    if current_vix < RISK_REGIME_VIX_LOW:
+                        mc_data['vix_gate_status'] = f'LIVE - GREEN ({current_vix:.1f})'
+                    elif current_vix < RISK_REGIME_VIX_HIGH:
+                        mc_data['vix_gate_status'] = f'LIVE - YELLOW ({current_vix:.1f})'
+                    else:
+                        mc_data['vix_gate_status'] = f'LIVE - RED ({current_vix:.1f})'
+                else:
+                    mc_data['vix_gate_status'] = 'LIVE (No VIX Data Today)'
+            elif 'VIX' in price_book.columns and not price_book['VIX'].dropna().empty:
+                # Fall back to checking price_book if wave_history doesn't have VIX state
                 vix_prices = price_book['VIX'].dropna()
                 current_vix = vix_prices.iloc[-1] if len(vix_prices) > 0 else None
                 
@@ -5351,7 +5500,7 @@ def get_mission_control_data():
             else:
                 # VIX data not available - do not estimate from volatility
                 mc_data['vix_gate_status'] = 'Pending'
-        except Exception:
+        except Exception as e:
             mc_data['vix_gate_status'] = 'Pending'
         
         # Calculate Alpha metrics
@@ -6147,7 +6296,7 @@ def compute_alpha_source_breakdown(df):
         from helpers.price_book import get_price_book
         
         # Get PRICE_BOOK
-        price_book = get_price_book()
+        price_book = get_cached_price_book()
         
         if price_book is None or price_book.empty:
             return result
@@ -6180,7 +6329,7 @@ def compute_alpha_source_breakdown(df):
             }
             return result
         
-        # Store ledger in session state for consistency
+        # Store ledger in session state for consistency (only reached if successful due to early return above)
         st.session_state['portfolio_alpha_ledger'] = ledger
         st.session_state['portfolio_exposure_series'] = ledger.get('daily_exposure')
         
@@ -6524,7 +6673,7 @@ def render_reality_panel():
         
         # Load the PRICE_BOOK (this is the actual object used by execution)
         active_tickers = get_active_required_tickers()
-        price_book = get_price_book(active_tickers=None)  # Load all cached tickers
+        price_book = get_cached_price_book()  # Load all cached tickers
         
         # Get metadata from the actual PRICE_BOOK
         meta = get_price_book_meta(price_book)
@@ -7565,6 +7714,9 @@ def render_sidebar_info():
                 pass  # Logging errors should not block button execution
             
             st.sidebar.success("✅ Cache cleared")
+            
+            # Trigger rerun to refresh the app with cleared caches
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Cache clear failed: {str(e)}")
     
@@ -7587,6 +7739,10 @@ def render_sidebar_info():
                     del st.session_state[key]
                     cleared_count += 1
             
+            # Also clear Streamlit caches
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
             action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
             st.session_state.last_operator_action = "Force Recompute"
             st.session_state.last_operator_time = action_time
@@ -7598,6 +7754,9 @@ def render_sidebar_info():
                 pass  # Logging errors should not block button execution
             
             st.sidebar.success(f"✅ Cleared {cleared_count} keys")
+            
+            # Trigger rerun to refresh the app with recomputed data
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Recompute failed: {str(e)}")
     
@@ -7625,8 +7784,9 @@ def render_sidebar_info():
             if 'price_book_cache' in st.session_state:
                 del st.session_state['price_book_cache']
             
-            # Clear Streamlit cache for price book
+            # Clear Streamlit caches for price book
             st.cache_data.clear()
+            st.cache_resource.clear()
             
             action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
             st.session_state.last_operator_action = "Reload Price Book"
@@ -7639,39 +7799,89 @@ def render_sidebar_info():
                 pass  # Logging errors should not block button execution
             
             st.sidebar.success("✅ Price book reloaded")
+            
+            # Trigger rerun to refresh the app with reloaded data
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Price book reload failed: {str(e)}")
     
     # Force Ledger Recompute Button
-    if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger"):
+    if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger from fresh price_book cache"):
         try:
-            # Clear ledger-related session state keys
-            ledger_keys = [
-                'portfolio_alpha_ledger',
-                'portfolio_snapshot_debug',
-                'portfolio_exposure_series',
-                'canonical_return_ledger'
-            ]
-            
-            cleared_count = 0
-            for key in ledger_keys:
-                if key in st.session_state:
-                    del st.session_state[key]
-                    cleared_count += 1
-            
-            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            st.session_state.last_operator_action = "Force Ledger Recompute"
-            st.session_state.last_operator_time = action_time
-            
-            # Log the action (fail-safe)
-            try:
-                logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} ledger keys)")
-            except Exception:
-                pass  # Logging errors should not block button execution
-            
-            st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
+            if OPERATOR_TOOLBOX_AVAILABLE and force_ledger_recompute:
+                # Use the new comprehensive recompute function with diagnostic wrapper
+                with st.spinner("Reloading price_book and rebuilding wave_history..."):
+                    success, message, details = force_ledger_recompute()
+                
+                if success:
+                    # Clear ledger-related session state keys to trigger fresh computation
+                    ledger_keys = [
+                        'portfolio_alpha_ledger',
+                        'portfolio_snapshot_debug',
+                        'portfolio_exposure_series',
+                        'canonical_return_ledger',
+                        'wave_data_cache',
+                        'price_book_cache'
+                    ]
+                    
+                    cleared_count = 0
+                    for key in ledger_keys:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                            cleared_count += 1
+                    
+                    action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                    st.session_state.last_operator_action = "Force Ledger Recompute"
+                    st.session_state.last_operator_time = action_time
+                    
+                    # Log the action (fail-safe)
+                    try:
+                        logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} keys)")
+                    except Exception:
+                        pass  # Logging errors should not block button execution
+                    
+                    st.sidebar.success(message)
+                    st.rerun()
+                else:
+                    # Display error message with diagnostics
+                    st.sidebar.error(message)
+                    
+                    # If there's a traceback in details, show it
+                    if 'traceback' in details:
+                        st.sidebar.markdown("**📍 Stack Trace for Debugging:**")
+                        st.sidebar.code(details['traceback'], language="python")
+            else:
+                # Fallback to old behavior if operator_toolbox not available
+                ledger_keys = [
+                    'portfolio_alpha_ledger',
+                    'portfolio_snapshot_debug',
+                    'portfolio_exposure_series',
+                    'canonical_return_ledger'
+                ]
+                
+                cleared_count = 0
+                for key in ledger_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        cleared_count += 1
+                
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_operator_action = "Force Ledger Recompute"
+                st.session_state.last_operator_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} ledger keys)")
+                except Exception:
+                    pass  # Logging errors should not block button execution
+                
+                st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
         except Exception as e:
+            # Diagnostic: Capture full stack trace for any error
+            full_traceback = traceback.format_exc()
             st.sidebar.error(f"❌ Ledger recompute failed: {str(e)}")
+            st.sidebar.markdown("**📍 Full Stack Trace:**")
+            st.sidebar.code(full_traceback, language="python")
     
     st.sidebar.markdown("---")
     
@@ -7691,7 +7901,7 @@ def render_sidebar_info():
     # Price Cache Max Date
     try:
         if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             if price_book is not None and not price_book.empty:
                 max_date = price_book.index.max()
                 max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
@@ -7703,24 +7913,52 @@ def render_sidebar_info():
     except Exception as e:
         st.sidebar.caption(f"**Price cache max date:** `Error: {str(e)[:30]}`")
     
-    # Ledger Max Date
+    # Ledger Max Date - Read from metadata or artifact if available
     try:
-        if 'portfolio_alpha_ledger' in st.session_state:
+        ledger_max_date_display = None
+        
+        # First try to get from get_data_health_metadata if available
+        if OPERATOR_TOOLBOX_AVAILABLE and get_data_health_metadata:
+            try:
+                health_metadata = get_data_health_metadata()
+                ledger_max_date_display = health_metadata.get('ledger_max_date')
+            except Exception:
+                pass  # Fall back to session state check
+        
+        # If not found in metadata, check session state
+        if not ledger_max_date_display and 'portfolio_alpha_ledger' in st.session_state:
             ledger = st.session_state['portfolio_alpha_ledger']
             if ledger and isinstance(ledger, dict) and ledger.get('success'):
                 ledger_df = ledger.get('ledger')
                 if ledger_df is not None and not ledger_df.empty:
                     max_date = ledger_df.index.max()
-                    max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
-                    st.sidebar.caption(f"**Ledger max date:** `{max_date_str}`")
-                else:
-                    st.sidebar.caption("**Ledger max date:** `N/A`")
-            else:
-                st.sidebar.caption("**Ledger max date:** `N/A`")
+                    ledger_max_date_display = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+        
+        # Display result
+        if ledger_max_date_display:
+            st.sidebar.caption(f"**Ledger max date:** `{ledger_max_date_display}`")
         else:
-            st.sidebar.caption("**Ledger max date:** `Not computed`")
+            st.sidebar.caption("**Ledger max date:** `N/A`")
     except Exception as e:
         st.sidebar.caption(f"**Ledger max date:** `Error: {str(e)[:30]}`")
+    
+    # Wave History Max Date
+    try:
+        wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+        if os.path.exists(wave_history_path):
+            import pandas as pd
+            wave_history = pd.read_csv(wave_history_path)
+            if 'date' in wave_history.columns and not wave_history.empty:
+                wave_history['date'] = pd.to_datetime(wave_history['date'])
+                max_date = wave_history['date'].max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                st.sidebar.caption(f"**Wave history max date:** `{max_date_str}`")
+            else:
+                st.sidebar.caption("**Wave history max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Wave history max date:** `Not found`")
+    except Exception as e:
+        st.sidebar.caption(f"**Wave history max date:** `Error: {str(e)[:30]}`")
     
     # Display last operator action
     if st.session_state.last_operator_action:
@@ -7839,7 +8077,7 @@ def render_sidebar_info():
             if st.button("🔨 Rebuild Price Cache (price_book)", key="toolbox_rebuild_price_cache", use_container_width=True):
                 try:
                     with st.spinner("Rebuilding price cache... (this may take a few minutes)"):
-                        success, message = rebuild_price_cache()
+                        success, message = rebuild_price_cache_toolbox()
                     
                     if success:
                         st.success(message)
@@ -7862,6 +8100,46 @@ def render_sidebar_info():
                         st.error(message)
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
+            
+            # Force Ledger Recompute button (comprehensive)
+            if st.button("🔄 Force Ledger Recompute (Full Pipeline)", key="toolbox_force_ledger_recompute", use_container_width=True):
+                try:
+                    with st.spinner("Reloading price_book, rebuilding wave_history, and clearing ledger cache..."):
+                        success, message, details = force_ledger_recompute()
+                    
+                    if success:
+                        # Clear ledger-related session state
+                        ledger_keys = [
+                            'portfolio_alpha_ledger',
+                            'portfolio_snapshot_debug',
+                            'portfolio_exposure_series',
+                            'canonical_return_ledger',
+                            'wave_data_cache',
+                            'price_book_cache'
+                        ]
+                        
+                        cleared_count = 0
+                        for key in ledger_keys:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                                cleared_count += 1
+                        
+                        st.success(f"{message}\n\n✅ Cleared {cleared_count} cached keys")
+                        st.rerun()
+                    else:
+                        # Display error message with diagnostics
+                        st.error(message)
+                        
+                        # If there's a traceback in details, show it
+                        if 'traceback' in details:
+                            st.markdown("**📍 Stack Trace for Debugging:**")
+                            st.code(details['traceback'], language="python")
+                except Exception as e:
+                    # Diagnostic: Capture full stack trace for any error during unpacking or processing
+                    full_traceback = traceback.format_exc()
+                    st.error(f"❌ Error: {str(e)}")
+                    st.markdown("**📍 Full Stack Trace:**")
+                    st.code(full_traceback, language="python")
             
             # Run Self-Test button
             if st.button("🔍 Run Self-Test", key="toolbox_self_test", use_container_width=True):
@@ -7985,7 +8263,8 @@ def render_sidebar_info():
                         
                         # Temporarily allow the build by creating a temporary session state
                         temp_session_state = dict(st.session_state)
-                        temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+                        temp_session_state["safe_mode_no_fetch"] = False
+                        
                         
                         snapshot_df = generate_live_snapshot(
                             output_path="data/live_snapshot.csv",
@@ -8949,7 +9228,7 @@ def render_sidebar_info():
             
             # Check price cache status
             try:
-                price_cache_path = "data/cache/prices_cache.parquet"
+                price_cache_path = CANONICAL_CACHE_PATH  # Use canonical path
                 cache_exists = os.path.exists(price_cache_path)
                 st.text(f"Price Cache Path: {price_cache_path}")
                 st.text(f"Price Cache Exists: {cache_exists}")
@@ -8972,8 +9251,43 @@ def render_sidebar_info():
             try:
                 if "portfolio_snapshot_debug" in st.session_state:
                     debug_info = st.session_state.portfolio_snapshot_debug
-                    import json
-                    st.json(debug_info)
+                    
+                    # Enhanced display with structured sections
+                    if debug_info.get('reason_if_failure'):
+                        st.error(f"**Failure Reason:** {debug_info['reason_if_failure']}")
+                    
+                    # Show exception details if available
+                    if debug_info.get('exception_message'):
+                        with st.expander("🔍 Exception Details", expanded=True):
+                            st.markdown("**Error Message:**")
+                            st.code(debug_info['exception_message'])
+                            
+                            if debug_info.get('exception_traceback'):
+                                st.markdown("**Traceback:**")
+                                st.code(debug_info['exception_traceback'], language='python')
+                    
+                    # Show input summaries
+                    with st.expander("📊 Input Summary", expanded=False):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Price Book Shape", debug_info.get('price_book_shape', 'N/A'))
+                            st.metric("Active Waves", debug_info.get('active_waves_count', 'N/A'))
+                            st.metric("Tickers Requested", debug_info.get('tickers_requested_count', 'N/A'))
+                        with col2:
+                            st.metric("Date Min", debug_info.get('price_book_index_min', 'N/A'))
+                            st.metric("Date Max", debug_info.get('price_book_index_max', 'N/A'))
+                            st.metric("Tickers Found", debug_info.get('tickers_intersection_count', 'N/A'))
+                        
+                        # Show missing tickers if any
+                        missing = debug_info.get('tickers_missing_sample', [])
+                        if missing:
+                            st.markdown("**Missing Tickers (sample):**")
+                            st.caption(', '.join(missing))
+                    
+                    # Show full JSON for power users
+                    with st.expander("🔧 Full Debug JSON", expanded=False):
+                        import json
+                        st.json(debug_info)
                 else:
                     st.text("No portfolio snapshot debug info available yet")
                     st.caption("Navigate to Portfolio View to generate debug data")
@@ -9318,6 +9632,13 @@ def render_executive_brief_tab():
     NO DIAGNOSTICS CONTENT - All diagnostics moved to Diagnostics tab.
     """
     # ========================================================================
+    # RESOLVE APP CONTEXT - Get selected wave for conditional rendering
+    # ========================================================================
+    ctx = resolve_app_context()
+    selected_wave = ctx["selected_wave_name"]
+    is_portfolio_view = is_portfolio_context(selected_wave)
+    
+    # ========================================================================
     # MISSION CONTROL HEADER
     # ========================================================================
     st.markdown("""
@@ -9387,6 +9708,32 @@ def render_executive_brief_tab():
             st.warning("⚠️ TruthFrame module not available. Using fallback data.")
         except Exception as e:
             st.warning(f"⚠️ TruthFrame error: {str(e)}")
+        
+        # ========================================================================
+        # WAVE STATUS FILTERING - Add UI toggle for staging waves
+        # ========================================================================
+        include_staging = st.checkbox(
+            "Include Staging Waves",
+            value=False,
+            key="include_staging_waves_executive",
+            help="Enable to include waves with STAGING status in aggregations and summaries"
+        )
+        
+        # Filter snapshot_df based on wave_status if the column exists
+        if snapshot_df is not None and not snapshot_df.empty and 'wave_status' in snapshot_df.columns:
+            # Store original count
+            total_waves_all = len(snapshot_df)
+            
+            # Filter by wave_status
+            if not include_staging:
+                snapshot_df = snapshot_df[snapshot_df['wave_status'] == 'ACTIVE'].copy()
+                staging_count = total_waves_all - len(snapshot_df)
+                if staging_count > 0:
+                    st.caption(f"ℹ️ Filtered out {staging_count} STAGING wave(s). Showing {len(snapshot_df)} ACTIVE waves.")
+            else:
+                active_count = (snapshot_df['wave_status'] == 'ACTIVE').sum()
+                staging_count = (snapshot_df['wave_status'] == 'STAGING').sum()
+                st.caption(f"ℹ️ Showing all waves: {active_count} ACTIVE, {staging_count} STAGING")
         
         # ========================================================================
         # SNAPSHOT CONTROLS - Last Snapshot Timestamp + Force Refresh Button
@@ -9593,7 +9940,7 @@ def render_executive_brief_tab():
                     from helpers.wave_performance import validate_portfolio_diagnostics
                     from helpers.price_book import get_price_book
                     
-                    price_book = get_price_book()
+                    price_book = get_cached_price_book()
                     diagnostics = validate_portfolio_diagnostics(price_book, mode='Standard')
                     
                     # Display key diagnostics
@@ -9847,253 +10194,505 @@ def render_executive_brief_tab():
         
         # ========================================================================
         # SECTION 1.5: PORTFOLIO SNAPSHOT (BLUE BOX)
+        # Only show for Portfolio View (all waves), not individual wave view
         # ========================================================================
-        st.markdown("### 💼 Portfolio Snapshot")
-        st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
-        
-        try:
-            from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
-            from helpers.price_book import get_price_book
-            from waves_engine import get_all_waves_universe
+        if is_portfolio_view:
+            st.markdown("### 💼 Portfolio Snapshot")
+            st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
             
-            # Load PRICE_BOOK
-            price_book = get_price_book()
-            
-            # Use canonical ledger from session state if available (single source of truth)
-            # Only compute if not already in session state
-            if 'portfolio_alpha_ledger' in st.session_state:
-                ledger = st.session_state['portfolio_alpha_ledger']
-            else:
-                # Compute portfolio alpha ledger (canonical implementation)
-                ledger = compute_portfolio_alpha_ledger(
-                    price_book, 
-                    periods=[1, 30, 60, 365],
-                    benchmark_ticker='SPY',
-                    mode='Standard',
-                    vix_exposure_enabled=True
-                )
-                # Store in session state for reuse
-                st.session_state['portfolio_alpha_ledger'] = ledger
-            
-            # Add diagnostic information
-            if ledger['success']:
-                # Count waves from daily_risk_return computation
-                n_waves_used = len([w for w in get_all_waves_universe().get('waves', []) if w in WAVE_WEIGHTS])
+            # ========================================================================
+            # DIAGNOSTIC DEBUG BLOCK
+            # Show critical system dates to diagnose frozen snapshot issue
+            # ========================================================================
+            with st.expander("🔍 Debug: SPY Trading Calendar & Cache Dates", expanded=False):
+                import json
+                from helpers.trading_calendar import get_trading_calendar_dates
                 
-                # Get date range from period results
-                period_1d = ledger['period_results'].get('1D', {})
-                if period_1d.get('available'):
-                    end_date = period_1d.get('end_date', 'N/A')
-                    n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
-                    start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
-                else:
-                    end_date = 'N/A'
-                    start_date = 'N/A'
-                    n_dates = 0
+                col1, col2 = st.columns(2)
                 
-                # Display VIX overlay status
-                vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
-                safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
-                
-                st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
-                st.caption(f"📅 Period: {start_date} to {end_date}")
-            else:
-                # Check for empty result condition
-                n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
-                st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
-                
-                # Check for specific error conditions
-                if n_dates < 2:
-                    st.error(f"❌ Portfolio ledger unavailable: {ledger['failure_reason']}")
-            
-            if ledger['success']:
-                # RENDERER PROOF LINE - Enhanced with data source info
-                build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
-                
-                # Get price_book info for proof label
-                price_max_date = "N/A"
-                price_rows = 0
-                price_cols = 0
-                if price_book is not None and not price_book.empty:
-                    price_max_date = price_book.index.max().strftime('%Y-%m-%d')
-                    price_rows, price_cols = price_book.shape
-                
-                st.markdown(
-                    f"""
-                    <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                        <strong>Renderer:</strong> Ledger | <strong>Source:</strong> compute_portfolio_alpha_ledger | <strong>Price max date:</strong> {price_max_date} | <strong>Rows:</strong> {price_rows} | <strong>Cols:</strong> {price_cols}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                # VIX/Exposure Status Line
-                vix_proxy_used = ledger.get('vix_ticker_used', 'none found')
-                if not vix_proxy_used:
-                    vix_proxy_used = 'none found'
-                
-                # Determine exposure mode
-                exposure_mode = "computed" if ledger.get('overlay_available', False) else "fallback 1.0"
-                
-                # Calculate exposure min/max over last 60 rows if available
-                exposure_min_max = ""
-                if ledger.get('daily_exposure') is not None:
+                with col1:
+                    st.markdown("**📅 SPY Trading Calendar**")
                     try:
-                        exposure_series = ledger['daily_exposure']
-                        if len(exposure_series) > 0:
-                            # Get last 60 rows
-                            last_60 = exposure_series.tail(60)
-                            exp_min = last_60.min()
-                            exp_max = last_60.max()
-                            exposure_min_max = f" | Exposure min/max (60D): {exp_min:.2f} - {exp_max:.2f}"
-                    except Exception:
-                        pass
-                
-                st.markdown(
-                    f"""
-                    <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
-                        <strong>VIX Proxy:</strong> {vix_proxy_used} | <strong>Exposure Mode:</strong> {exposure_mode}{exposure_min_max}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                # Display in blue box with metrics from ledger
-                st.markdown("""
-                <div style="
-                    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-                    border: 2px solid #00d9ff;
-                    border-radius: 12px;
-                    padding: 20px;
-                    margin-bottom: 20px;
-                ">
-                """, unsafe_allow_html=True)
-                
-                # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
-                st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
-                st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
-                    with col:
-                        period_data = ledger['period_results'].get(period_key, {})
+                        # Get price_book to extract SPY calendar
+                        from helpers.price_book import get_price_book
+                        price_book_debug = get_price_book()
                         
-                        if period_data.get('available'):
-                            # Extract values
-                            cum_realized = period_data['cum_realized']
-                            cum_benchmark = period_data['cum_benchmark']
-                            total_alpha = period_data['total_alpha']
-                            start = period_data['start_date']
-                            end = period_data['end_date']
-                            
-                            # Display stacked format with header
-                            st.markdown(f"**{period_key}**")
-                            st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
-                            st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
-                            
-                            # Color-code alpha (green for positive, red for negative)
-                            alpha_color = "green" if total_alpha >= 0 else "red"
-                            st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
-                            
-                            st.caption(f"{start} to {end}")
+                        if price_book_debug is not None and 'SPY' in price_book_debug.columns:
+                            asof_date, prev_date = get_trading_calendar_dates(price_book_debug)
+                            if asof_date and prev_date:
+                                st.metric("SPY asof_date", asof_date.strftime('%Y-%m-%d'))
+                                st.metric("SPY prev_date", prev_date.strftime('%Y-%m-%d'))
+                            else:
+                                st.warning("Unable to extract SPY calendar dates")
                         else:
-                            # Unavailable period - show N/A for all three lines with reason
-                            reason = period_data.get('reason', 'unknown')
-                            MAX_REASON_LENGTH = 60  # Configurable truncation length
-                            st.markdown(f"**{period_key}**")
-                            st.markdown(f"📈 **Portfolio:** N/A")
-                            st.markdown(f"📊 **Benchmark:** N/A")
-                            st.markdown(f"🎯 **Alpha:** N/A")
-                            # Truncate long reasons with ellipsis
-                            truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
-                            st.caption(f"⚠️ {truncated_reason}")
+                            st.warning("SPY not available in price_book")
+                    except Exception as e:
+                        st.error(f"Error extracting SPY dates: {e}")
                 
-                st.divider()
+                with col2:
+                    st.markdown("**📊 Cache Metadata**")
+                    try:
+                        # Load prices_cache_meta.json
+                        meta_path = "data/cache/prices_cache_meta.json"
+                        if os.path.exists(meta_path):
+                            with open(meta_path, 'r') as f:
+                                meta = json.load(f)
+                            
+                            st.metric("max_price_date", meta.get('max_price_date', 'N/A'))
+                            st.metric("spy_max_date", meta.get('spy_max_date', 'N/A'))
+                            if meta.get('overall_max_date'):
+                                st.caption(f"overall_max_date: {meta.get('overall_max_date')}")
+                            if meta.get('min_symbol_max_date'):
+                                st.caption(f"min_symbol_max_date: {meta.get('min_symbol_max_date')}")
+                        else:
+                            st.warning("prices_cache_meta.json not found")
+                    except Exception as e:
+                        st.error(f"Error loading cache metadata: {e}")
                 
-                # Alpha Attribution Row (30D window for detailed attribution)
-                st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
+                # Show live_snapshot.csv max date
+                st.markdown("**📈 Live Snapshot Date**")
+                try:
+                    snapshot_path = "data/live_snapshot.csv"
+                    if os.path.exists(snapshot_path):
+                        snapshot_df_debug = pd.read_csv(snapshot_path)
+                        if 'Date' in snapshot_df_debug.columns and not snapshot_df_debug.empty:
+                            snapshot_date = snapshot_df_debug['Date'].iloc[0]
+                            st.metric("Snapshot Date", snapshot_date)
+                        else:
+                            st.warning("Date column not found in snapshot")
+                    else:
+                        st.warning("live_snapshot.csv not found")
+                except Exception as e:
+                    st.error(f"Error loading snapshot date: {e}")
                 
-                period_30d = ledger['period_results'].get('30D', {})
-                if period_30d.get('available'):
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        total_alpha = period_30d['total_alpha']
-                        st.metric(
-                            "Total Alpha", 
-                            f"{total_alpha:+.2%}",
-                            help="Realized return - Benchmark return"
-                        )
-                    
-                    with col2:
-                        selection_alpha = period_30d['selection_alpha']
-                        st.metric(
-                            "Selection Alpha", 
-                            f"{selection_alpha:+.2%}",
-                            help="Alpha from wave selection (unoverlay - benchmark)"
-                        )
-                    
-                    with col3:
-                        overlay_alpha = period_30d['overlay_alpha']
-                        overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
-                        st.metric(
-                            overlay_label, 
-                            f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
-                            help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
-                        )
-                    
-                    with col4:
-                        residual = period_30d['residual']
-                        # Color code residual based on tolerance
-                        residual_pct = abs(residual) * 100
-                        residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
-                        st.metric(
-                            f"{residual_color} Residual", 
-                            f"{residual:+.3%}",
-                            help="Attribution residual (should be near 0%)"
-                        )
-                    
-                    # Alpha Captured (if overlay available)
-                    if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
-                        st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
+                # Show portfolio contributors (if ledger available)
+                st.markdown("**👥 Portfolio Contributors**")
+                try:
+                    if 'portfolio_alpha_ledger' in st.session_state:
+                        ledger_debug = st.session_state['portfolio_alpha_ledger']
+                        if ledger_debug.get('success'):
+                            # Count contributors from period_results
+                            for period_label in ['1D', '30D', '60D']:
+                                period_result = ledger_debug['period_results'].get(period_label, {})
+                                n_contributors = period_result.get('n_waves_with_returns', 0)
+                                st.caption(f"{period_label} contributors: {n_contributors}")
+                        else:
+                            st.caption("Ledger computation failed")
+                    else:
+                        st.caption("Ledger not yet computed")
+                except Exception as e:
+                    st.caption(f"Error: {e}")
+        
+            try:
+                from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
+                from helpers.price_book import get_price_book
+                from waves_engine import get_all_waves_universe
+            
+                # Load PRICE_BOOK
+                price_book = get_cached_price_book()
+            
+                # Use canonical ledger from session state if available (single source of truth)
+                # Only compute if not already in session state
+                if 'portfolio_alpha_ledger' in st.session_state:
+                    ledger = st.session_state['portfolio_alpha_ledger']
                 else:
-                    st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
+                    # Compute portfolio alpha ledger (canonical implementation)
+                    ledger = compute_portfolio_alpha_ledger(
+                        price_book, 
+                        periods=[1, 30, 60, 365],
+                        benchmark_ticker='SPY',
+                        mode='Standard',
+                        vix_exposure_enabled=True
+                    )
+                    # Only cache successful ledger computations to allow retry on failure
+                    if ledger['success']:
+                        st.session_state['portfolio_alpha_ledger'] = ledger
+            
+                # Add diagnostic information
+                if ledger['success']:
+                    # Count waves from daily_risk_return computation (efficient set intersection)
+                    all_waves = set(get_all_waves_universe().get('waves', []))
+                    wave_weights_keys = set(WAVE_WEIGHTS.keys())
+                    n_waves_used = len(all_waves & wave_weights_keys)
                 
-                # Warnings display
-                if ledger.get('warnings'):
-                    st.caption("⚠️ " + " | ".join(ledger['warnings']))
+                    # Get date range from period results
+                    period_1d = ledger['period_results'].get('1D', {})
+                    if period_1d.get('available'):
+                        end_date = period_1d.get('end_date', 'N/A')
+                        n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
+                        start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
+                    else:
+                        end_date = 'N/A'
+                        start_date = 'N/A'
+                        n_dates = 0
                 
-                st.markdown("</div>", unsafe_allow_html=True)
+                    # Display VIX overlay status
+                    vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
+                    safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
                 
-            else:
-                # Display error message
-                st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
+                    st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
+                    st.caption(f"📅 Period: {start_date} to {end_date}")
+                else:
+                    # Check for empty result condition
+                    n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
+                    st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
                 
-                # Show explicit error (no placeholder data)
-                st.markdown("""
-                <div style="
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    border: 2px solid #ff6b6b;
-                    border-radius: 12px;
-                    padding: 20px;
-                    margin-bottom: 20px;
-                ">
-                """, unsafe_allow_html=True)
+                    # Display warning with failure reason
+                    failure_reason = ledger.get('failure_reason', 'Unknown error')
+                    st.warning(f"⚠️ Portfolio Snapshot empty because: {failure_reason}")
                 
-                st.markdown(f"**❌ Portfolio metrics unavailable**")
-                st.markdown(f"Reason: {ledger['failure_reason']}")
-                st.caption("No placeholder data will be displayed. Please check data availability.")
+                    # Enhanced diagnostics with collapsible details
+                    debug = ledger.get('debug', {})
+                    if debug:
+                        with st.expander("🔍 Show Diagnostic Details", expanded=False):
+                            st.markdown("**Error Details:**")
+                            st.code(failure_reason)
+                            
+                            # Show exception traceback if available
+                            if debug.get('exception_traceback'):
+                                st.markdown("**Exception Traceback:**")
+                                st.code(debug['exception_traceback'], language='python')
+                            
+                            # Show key input summaries
+                            st.markdown("**Input Summary:**")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Price Book Shape", debug.get('price_book_shape', 'N/A'))
+                                st.metric("SPY Present", "✓" if debug.get('spy_present') else "✗")
+                                st.metric("Active Waves", debug.get('active_waves_count', 'N/A'))
+                            with col2:
+                                st.metric("Date Range", f"{debug.get('price_book_index_min', 'N/A')} to {debug.get('price_book_index_max', 'N/A')}")
+                                st.metric("Tickers Requested", debug.get('tickers_requested_count', 'N/A'))
+                                st.metric("Tickers Found", debug.get('tickers_intersection_count', 'N/A'))
+                            
+                            # Show missing tickers sample if available
+                            missing_tickers = debug.get('tickers_missing_sample', [])
+                            if missing_tickers:
+                                st.markdown("**Missing Tickers (sample):**")
+                                st.caption(', '.join(missing_tickers))
                 
-                st.markdown("</div>", unsafe_allow_html=True)
+                    # Check for specific error conditions
+                    if n_dates < 2:
+                        st.error(f"❌ Portfolio ledger unavailable: {failure_reason}")
+            
+                if ledger['success']:
+                    # RENDERER PROOF LINE - Enhanced with data source info
+                    build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+                
+                    # Get price_book info for proof label
+                    price_max_date = "N/A"
+                    price_rows = 0
+                    price_cols = 0
+                    if price_book is not None and not price_book.empty:
+                        price_max_date = price_book.index.max().strftime('%Y-%m-%d')
+                        price_rows, price_cols = price_book.shape
+                
+                    st.markdown(
+                        f"""
+                        <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                            <strong>Renderer:</strong> Ledger | <strong>Source:</strong> compute_portfolio_alpha_ledger | <strong>Price max date:</strong> {price_max_date} | <strong>Rows:</strong> {price_rows} | <strong>Cols:</strong> {price_cols}
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                
+                    # VIX/Exposure Status Line
+                    vix_proxy_used = ledger.get('vix_ticker_used', 'none found')
+                    if not vix_proxy_used:
+                        vix_proxy_used = 'none found'
+                
+                    # Determine exposure mode
+                    exposure_mode = "computed" if ledger.get('overlay_available', False) else "fallback 1.0"
+                
+                    # Calculate exposure min/max over last 60 rows if available
+                    exposure_min_max = ""
+                    if ledger.get('daily_exposure') is not None:
+                        try:
+                            exposure_series = ledger['daily_exposure']
+                            if len(exposure_series) > 0:
+                                # Get last 60 rows
+                                last_60 = exposure_series.tail(60)
+                                exp_min = last_60.min()
+                                exp_max = last_60.max()
+                                exposure_min_max = f" | Exposure min/max (60D): {exp_min:.2f} - {exp_max:.2f}"
+                        except Exception:
+                            pass
+                
+                    st.markdown(
+                        f"""
+                        <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
+                            <strong>VIX Proxy:</strong> {vix_proxy_used} | <strong>Exposure Mode:</strong> {exposure_mode}{exposure_min_max}
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                
+                    # Display in blue box with metrics from ledger
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+                        border: 2px solid #00d9ff;
+                        border-radius: 12px;
+                        padding: 20px;
+                        margin-bottom: 20px;
+                    ">
+                    """, unsafe_allow_html=True)
+                
+                    # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
+                    st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
+                    st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
+                
+                    col1, col2, col3, col4 = st.columns(4)
+                
+                    for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
+                        with col:
+                            period_data = ledger['period_results'].get(period_key, {})
+                        
+                            if period_data.get('available'):
+                                # Extract values
+                                cum_realized = period_data['cum_realized']
+                                cum_benchmark = period_data['cum_benchmark']
+                                total_alpha = period_data['total_alpha']
+                                start = period_data['start_date']
+                                end = period_data['end_date']
+                            
+                                # Display stacked format with header
+                                st.markdown(f"**{period_key}**")
+                                st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
+                                st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
+                            
+                                # Color-code alpha (green for positive, red for negative)
+                                alpha_color = "green" if total_alpha >= 0 else "red"
+                                st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
+                            
+                                st.caption(f"{start} to {end}")
+                            else:
+                                # Unavailable period - show N/A for all three lines with reason
+                                reason = period_data.get('reason', 'unknown')
+                                MAX_REASON_LENGTH = 60  # Configurable truncation length
+                                st.markdown(f"**{period_key}**")
+                                st.markdown(f"📈 **Portfolio:** N/A")
+                                st.markdown(f"📊 **Benchmark:** N/A")
+                                st.markdown(f"🎯 **Alpha:** N/A")
+                                # Truncate long reasons with ellipsis
+                                truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
+                                st.caption(f"⚠️ {truncated_reason}")
+                
+                    st.divider()
+                
+                    # Alpha Attribution Row (30D window for detailed attribution)
+                    st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
+                
+                    period_30d = ledger['period_results'].get('30D', {})
+                    if period_30d.get('available'):
+                        col1, col2, col3, col4 = st.columns(4)
+                    
+                        with col1:
+                            total_alpha = period_30d['total_alpha']
+                            st.metric(
+                                "Total Alpha", 
+                                f"{total_alpha:+.2%}",
+                                help="Realized return - Benchmark return"
+                            )
+                    
+                        with col2:
+                            selection_alpha = period_30d['selection_alpha']
+                            st.metric(
+                                "Selection Alpha", 
+                                f"{selection_alpha:+.2%}",
+                                help="Alpha from wave selection (unoverlay - benchmark)"
+                            )
+                    
+                        with col3:
+                            overlay_alpha = period_30d['overlay_alpha']
+                            overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
+                            st.metric(
+                                overlay_label, 
+                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
+                                help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
+                            )
+                    
+                        with col4:
+                            residual = period_30d['residual']
+                            # Color code residual based on tolerance
+                            residual_pct = abs(residual) * 100
+                            residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
+                            st.metric(
+                                f"{residual_color} Residual", 
+                                f"{residual:+.3%}",
+                                help="Attribution residual (should be near 0%)"
+                            )
+                    
+                        # Alpha Captured (if overlay available)
+                        if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
+                            st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
+                    else:
+                        st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
+                
+                    # Warnings display
+                    if ledger.get('warnings'):
+                        st.caption("⚠️ " + " | ".join(ledger['warnings']))
+                
+                    # Download Debug Report button
+                    st.markdown("---")
+                    st.markdown("**📥 Download Debug Report**")
+                
+                    # Create debug report DataFrame
+                    try:
+                        import pandas as pd
+                        from helpers.price_loader import get_price_book_debug_summary
+                    
+                        # Get price_book debug summary
+                        price_book_summary = get_price_book_debug_summary(price_book)
+                    
+                        # Collect debug data
+                        debug_data = []
+                    
+                        # Add price_book summary
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Rows (Trading Days)',
+                            'Value': str(price_book_summary['rows'])
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Cols (Tickers)',
+                            'Value': str(price_book_summary['cols'])
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Start Date',
+                            'Value': str(price_book_summary['start_date']) if price_book_summary['start_date'] else 'N/A'
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'End Date',
+                            'Value': str(price_book_summary['end_date']) if price_book_summary['end_date'] else 'N/A'
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Non-null Cells',
+                            'Value': str(price_book_summary['non_null_cells'])
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Is Empty',
+                            'Value': str(price_book_summary['is_empty'])
+                        })
+                    
+                        # Add ledger info
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Success',
+                            'Value': str(ledger.get('success', False))
+                        })
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Failure Reason',
+                            'Value': str(ledger.get('failure_reason', 'N/A'))
+                        })
+                    
+                        # Add wave count (efficient set intersection)
+                        all_waves = set(get_all_waves_universe().get('waves', []))
+                        wave_weights_keys = set(WAVE_WEIGHTS.keys())
+                        n_waves_used = len(all_waves & wave_weights_keys)
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Waves Processed',
+                            'Value': str(n_waves_used)
+                        })
+                    
+                        # Add ticker count (from price_book)
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Tickers Available',
+                            'Value': str(price_book_summary['num_tickers'])
+                        })
+                    
+                        # Add VIX and safe asset info
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'VIX Ticker Used',
+                            'Value': str(ledger.get('vix_ticker_used', 'N/A'))
+                        })
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Safe Ticker Used',
+                            'Value': str(ledger.get('safe_ticker_used', 'N/A'))
+                        })
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Overlay Available',
+                            'Value': str(ledger.get('overlay_available', False))
+                        })
+                    
+                        # Add period results
+                        for period_key, period_data in ledger.get('period_results', {}).items():
+                            debug_data.append({
+                                'Category': f'Period {period_key}',
+                                'Metric': 'Available',
+                                'Value': str(period_data.get('available', False))
+                            })
+                            debug_data.append({
+                                'Category': f'Period {period_key}',
+                                'Metric': 'Reason',
+                                'Value': str(period_data.get('reason', 'N/A'))
+                            })
+                            if period_data.get('available'):
+                                debug_data.append({
+                                    'Category': f'Period {period_key}',
+                                    'Metric': 'Total Alpha',
+                                    'Value': f"{period_data.get('total_alpha', 0):.4%}"
+                                })
+                    
+                        # Create DataFrame
+                        debug_df = pd.DataFrame(debug_data)
+                    
+                        # Convert to CSV
+                        csv_data = debug_df.to_csv(index=False)
+                    
+                        # Add download button
+                        st.download_button(
+                            label="📥 Download Debug Report (CSV)",
+                            data=csv_data,
+                            file_name=f"portfolio_snapshot_debug_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            key="download_debug_report"
+                        )
+                    
+                    except Exception as download_err:
+                        st.warning(f"⚠️ Could not generate debug report: {str(download_err)}")
+                
+                    st.markdown("</div>", unsafe_allow_html=True)
+                
+                else:
+                    # Display error message
+                    st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
+                
+                    # Show explicit error (no placeholder data)
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                        border: 2px solid #ff6b6b;
+                        border-radius: 12px;
+                        padding: 20px;
+                        margin-bottom: 20px;
+                    ">
+                    """, unsafe_allow_html=True)
+                
+                    st.markdown(f"**❌ Portfolio metrics unavailable**")
+                    st.markdown(f"Reason: {ledger['failure_reason']}")
+                    st.caption("No placeholder data will be displayed. Please check data availability.")
+                
+                    st.markdown("</div>", unsafe_allow_html=True)
         
-        except Exception as e:
-            st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
-            if st.session_state.get("debug_mode", False):
-                import traceback
-                st.code(traceback.format_exc())
+            except Exception as e:
+                st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
+                if st.session_state.get("debug_mode", False):
+                    import traceback
+                    st.code(traceback.format_exc())
         
-        st.divider()
+            st.divider()
         
         # ========================================================================
         # SECTION 2: COMPREHENSIVE PERFORMANCE TABLE - ALL WAVES (FROM SNAPSHOT)
@@ -12714,7 +13313,7 @@ def render_overview_tab():
             # Load price_book
             if PRICE_BOOK_CONSTANTS_AVAILABLE and get_price_book:
                 try:
-                    price_book = get_price_book()
+                    price_book = get_cached_price_book()
                     
                     if price_book is not None and not price_book.empty:
                         # Get shape
@@ -12905,6 +13504,40 @@ def render_overview_tab():
             # Convert to snapshot_df format for backward compatibility
             snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
             
+            # Add UI toggle for including staging waves
+            st.markdown("---")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown("### 🎛️ Wave Filtering")
+            with col2:
+                include_staging = st.checkbox(
+                    "Include Staging Waves",
+                    value=False,
+                    key="include_staging_waves_overview",
+                    help="Enable to include waves with STAGING status in aggregations and summaries"
+                )
+            
+            # Filter snapshot_df based on wave_status if the column exists
+            if snapshot_df is not None and not snapshot_df.empty:
+                # Check if wave_status column exists in snapshot
+                if 'wave_status' in snapshot_df.columns:
+                    # Store original count
+                    total_waves = len(snapshot_df)
+                    
+                    # Filter by wave_status
+                    if not include_staging:
+                        snapshot_df = snapshot_df[snapshot_df['wave_status'] == 'ACTIVE'].copy()
+                        staging_count = total_waves - len(snapshot_df)
+                        if staging_count > 0:
+                            st.info(f"ℹ️ Filtered out {staging_count} STAGING wave(s). Total ACTIVE waves: {len(snapshot_df)}")
+                    else:
+                        active_count = (snapshot_df['wave_status'] == 'ACTIVE').sum()
+                        staging_count = (snapshot_df['wave_status'] == 'STAGING').sum()
+                        st.info(f"ℹ️ Showing all waves: {active_count} ACTIVE, {staging_count} STAGING")
+                else:
+                    # wave_status column doesn't exist yet - inform user
+                    st.caption("Note: Wave status filtering not available (regenerate snapshot to enable)")
+            
             if snapshot_df is not None and not snapshot_df.empty:
                 # Display snapshot table
                 with st.expander("📋 Full Snapshot Table (28/28 Waves)", expanded=True):
@@ -12969,7 +13602,7 @@ def render_overview_tab():
                     
                     # Select key columns to display (avoid overwhelming the table)
                     key_columns = [
-                        "Wave_ID", "Wave", "Category", "Readiness", "Alert",
+                        "Wave_ID", "Wave", "Category", "wave_status", "Readiness", "Alert",
                         "Return_1D", "Return_30D", "Return_60D", "Return_365D",
                         "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
                         "Exposure", "CashPercent", "Coverage %", "NA_Reason"
@@ -13020,7 +13653,7 @@ def render_overview_tab():
                             # Get SPY and QQQ 1D returns from PRICE_BOOK (canonical cache)
                             try:
                                 from helpers.price_book import get_price_book
-                                price_book = get_price_book(active_tickers=None)
+                                price_book = get_cached_price_book()
                                 
                                 if not price_book.empty:
                                     # Get SPY 1D return from PRICE_BOOK
@@ -14148,6 +14781,211 @@ def render_all_waves_system_view(all_metrics):
             st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
 
 
+def render_strategy_state_panel(wave_name: str, mode: str = "Standard"):
+    """
+    Render the Strategy State panel showing current strategy positioning.
+    
+    v17.4 Feature: Displays regime, exposure, safe allocation, and trigger reasons.
+    
+    Args:
+        wave_name: Name of the wave
+        mode: Operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+    """
+    # Display thresholds for visual indicators
+    EXPOSURE_HIGH_THRESHOLD = 1.05  # Above this shows aggressive icon
+    EXPOSURE_LOW_THRESHOLD = 0.95   # Below this shows defensive icon
+    SAFE_HIGH_THRESHOLD = 0.30      # Above this shows heavy defense icon
+    SAFE_MEDIUM_THRESHOLD = 0.10    # Above this shows moderate defense icon
+    
+    try:
+        st.markdown("#### 🎯 Strategy State")
+        st.caption("Current strategy positioning and trigger reasons")
+        
+        # Get strategy state from waves_engine
+        strategy_state_result = None
+        if WAVES_ENGINE_AVAILABLE:
+            try:
+                from waves_engine import get_latest_strategy_state
+                strategy_state_result = get_latest_strategy_state(wave_name, mode, days=30)
+            except Exception as e:
+                st.warning(f"⚠️ Unable to load strategy state: {str(e)}")
+                return
+        else:
+            st.warning("⚠️ Waves engine not available - strategy state cannot be displayed")
+            return
+        
+        if not strategy_state_result or not strategy_state_result.get("ok"):
+            st.info("📊 Strategy state data not available for this wave")
+            return
+        
+        strategy_state = strategy_state_result.get("strategy_state", {})
+        
+        if not strategy_state:
+            st.info("📊 No strategy state data available")
+            return
+        
+        # Display key metrics in columns
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            regime = strategy_state.get("regime", "n/a")
+            regime_icon = {
+                "uptrend": "📈",
+                "neutral": "➡️",
+                "downtrend": "📉",
+                "panic": "⚠️",
+                "cash": "💵"
+            }.get(regime.lower(), "❓")
+            
+            st.metric(
+                label="Regime",
+                value=f"{regime_icon} {regime.title()}",
+                help="Current market regime"
+            )
+        
+        with col2:
+            vix_regime = strategy_state.get("vix_regime", "n/a")
+            vix_level = strategy_state.get("vix_level")
+            
+            vix_icon = {
+                "low": "😌",
+                "normal": "😐",
+                "elevated": "😟",
+                "high": "😨"
+            }.get(vix_regime.lower(), "❓")
+            
+            if vix_level is not None:
+                vix_display = f"{vix_icon} {vix_regime.title()} ({vix_level:.1f})"
+            else:
+                vix_display = f"{vix_icon} {vix_regime.title()}"
+            
+            st.metric(
+                label="VIX Regime",
+                value=vix_display,
+                help="Volatility regime (VIX level if available)"
+            )
+        
+        with col3:
+            exposure = strategy_state.get("exposure", 0.0)
+            exposure_pct = exposure * 100
+            
+            # Color code exposure using defined thresholds
+            if exposure > EXPOSURE_HIGH_THRESHOLD:
+                exposure_delta = f"+{(exposure - 1.0) * 100:.1f}%"
+                exposure_icon = "🚀"
+            elif exposure < EXPOSURE_LOW_THRESHOLD:
+                exposure_delta = f"{(exposure - 1.0) * 100:.1f}%"
+                exposure_icon = "🛡️"
+            else:
+                exposure_delta = None
+                exposure_icon = "⚖️"
+            
+            st.metric(
+                label="Exposure",
+                value=f"{exposure_icon} {exposure_pct:.1f}%",
+                delta=exposure_delta,
+                help="Current market exposure multiplier"
+            )
+        
+        with col4:
+            safe_allocation = strategy_state.get("safe_allocation", 0.0)
+            safe_pct = safe_allocation * 100
+            
+            # Icon selection using defined thresholds
+            if safe_allocation > SAFE_HIGH_THRESHOLD:
+                safe_icon = "🛡️"
+            elif safe_allocation > SAFE_MEDIUM_THRESHOLD:
+                safe_icon = "🔒"
+            else:
+                safe_icon = "💼"
+            
+            st.metric(
+                label="Safe Allocation",
+                value=f"{safe_icon} {safe_pct:.1f}%",
+                help="Percentage allocated to safe assets (cash, treasuries)"
+            )
+        
+        # Display trigger reasons
+        trigger_reasons = strategy_state.get("trigger_reasons", [])
+        
+        if trigger_reasons:
+            st.markdown("**🔔 Active Triggers:**")
+            
+            # Display reasons in a clean, bulleted format
+            for reason in trigger_reasons:
+                st.markdown(f"- {reason}")
+        else:
+            st.markdown("**🔔 Active Triggers:** None (standard positioning)")
+        
+        # Additional metadata in expander
+        with st.expander("📋 Strategy Details"):
+            st.markdown("**Metadata:**")
+            
+            strategy_family = strategy_state.get("strategy_family", "unknown")
+            risk_state = strategy_state.get("aggregated_risk_state", "neutral")
+            active_strategies = strategy_state.get("active_strategies", 0)
+            timestamp = strategy_state.get("timestamp", "unknown")
+            
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown(f"- **Strategy Family:** {strategy_family}")
+                st.markdown(f"- **Risk State:** {risk_state}")
+            
+            with col_b:
+                st.markdown(f"- **Active Strategies:** {active_strategies}")
+                st.markdown(f"- **Timestamp:** {timestamp}")
+            
+            # NEW: Display strategy_stack if available
+            try:
+                from helpers.wave_registry import get_wave_by_id
+                from waves_engine import get_wave_id_from_display_name
+                
+                wave_id = get_wave_id_from_display_name(wave_name)
+                if wave_id:
+                    wave_info = get_wave_by_id(wave_id)
+                    if wave_info:
+                        strategy_stack = wave_info.get("strategy_stack", "")
+                        strategy_stack_applied = bool(strategy_stack and strategy_stack.strip())
+                        
+                        st.markdown("---")
+                        st.markdown("**Strategy Pipeline:**")
+                        
+                        if strategy_stack_applied:
+                            st.markdown(f"- **Strategy-Aware Pipeline:** ✅ **Active**")
+                            st.markdown(f"- **Strategy Components:** {strategy_stack}")
+                            
+                            # Parse and display individual components
+                            components = [c.strip() for c in strategy_stack.split(',') if c.strip()]
+                            if components:
+                                st.markdown("- **Active Components:**")
+                                component_display = {
+                                    "momentum": "📊 Momentum signal adjustments",
+                                    "trend_confirmation": "📈 Trend confirmation overlays",
+                                    "volatility_targeting": "🎯 Volatility targeting",
+                                    "relative_strength": "💪 Relative strength strategies",
+                                    "regime_detection": "🔍 Regime detection",
+                                    "vix_overlay": "⚡ VIX overlay adjustments"
+                                }
+                                for comp in components:
+                                    display = component_display.get(comp, f"• {comp}")
+                                    st.markdown(f"  - {display}")
+                        else:
+                            st.markdown(f"- **Strategy-Aware Pipeline:** ⚪ Not Applied")
+                            st.markdown("  - This wave uses basic return calculation without strategy overlays")
+            except (ImportError, KeyError, AttributeError) as e:
+                # Expected errors if modules not available or wave not found
+                pass
+            except Exception as e:
+                # Log unexpected errors for debugging
+                logger.warning(f"Error loading strategy_stack info: {e}")
+        
+    except Exception as e:
+        st.error(f"⚠️ Error rendering strategy state panel: {str(e)}")
+        with st.expander("🔍 Technical Details"):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+
+
 def render_individual_wave_view(selected_wave, all_metrics):
     """
     Render the Individual Wave View - Wave-specific intelligence.
@@ -14211,6 +15049,142 @@ def render_individual_wave_view(selected_wave, all_metrics):
                 )
         else:
             st.info(f"📊 No performance data available for {selected_wave}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION A1.5: Strategy State Panel (v17.4)
+        # ========================================================================
+        render_strategy_state_panel(selected_wave, mode=st.session_state.get("mode", "Standard"))
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION A2: Executive Summary - Alpha Attribution
+        # ========================================================================
+        # NOTE: Attribution infrastructure is wired for:
+        #   - S&P 500 Wave: ENABLED (displays in UI)
+        #   - AI & Cloud MegaCap Wave: WIRED (internal only, gated from UI)
+        # 
+        # AI & Cloud MegaCap Wave uses same return ledger and attribution pipeline
+        # with static ETF proxy benchmark: 60% QQQ, 25% SMH, 15% IGV
+        # Attribution categories: Exposure & Timing, Regime & VIX Overlay (inactive),
+        # Momentum & Trend, Volatility & Risk Control, Asset Selection
+        # ========================================================================
+        st.markdown("#### 📋 Executive Summary")
+        
+        # Check if this is the S&P 500 Wave
+        # NOTE: Add "AI & Cloud MegaCap Wave" to this condition to enable UI display
+        if selected_wave == "S&P 500 Wave":
+            # Display alpha attribution for S&P 500 Wave
+            try:
+                # Load wave history data
+                wave_df = safe_load_wave_history()
+                
+                if wave_df is not None and not wave_df.empty and 'wave' in wave_df.columns:
+                    # Filter data for S&P 500 Wave
+                    sp500_data = wave_df[wave_df['wave'] == "S&P 500 Wave"].copy()
+                    
+                    if not sp500_data.empty and len(sp500_data) >= ATTRIBUTION_TIMEFRAME_DAYS:
+                        # Sort by date and take last N days
+                        sp500_data = sp500_data.sort_values('date').tail(ATTRIBUTION_TIMEFRAME_DAYS)
+                        
+                        # Prepare history DataFrame for attribution
+                        sp500_data = sp500_data.set_index('date')
+                        history_df = pd.DataFrame({
+                            'wave_ret': sp500_data['portfolio_return'],
+                            'bm_ret': sp500_data['benchmark_return']
+                        })
+                        
+                        # Compute attribution using the alpha_attribution module
+                        if ALPHA_ATTRIBUTION_AVAILABLE:
+                            with st.spinner("Computing S&P 500 Wave attribution..."):
+                                daily_df, summary = compute_alpha_attribution_series(
+                                    wave_name="S&P 500 Wave",
+                                    mode="Standard",
+                                    history_df=history_df,
+                                    diagnostics_df=None,
+                                    tilt_strength=ATTRIBUTION_TILT_STRENGTH,
+                                    base_exposure=ATTRIBUTION_BASE_EXPOSURE
+                                )
+                            
+                            # Display attribution summary in a clean format
+                            st.markdown(f"**Alpha Attribution ({ATTRIBUTION_TIMEFRAME_DAYS}-Day Period)**")
+                            
+                            # Summary metrics
+                            col_sum1, col_sum2, col_sum3 = st.columns(3)
+                            
+                            with col_sum1:
+                                st.metric(
+                                    "Total Wave Return",
+                                    f"{summary.total_wave_return * 100:+.2f}%",
+                                    help="S&P 500 Wave return over 30 days"
+                                )
+                            
+                            with col_sum2:
+                                st.metric(
+                                    "Total Benchmark Return",
+                                    f"{summary.total_benchmark_return * 100:+.2f}%",
+                                    help="Benchmark return over 30 days"
+                                )
+                            
+                            with col_sum3:
+                                st.metric(
+                                    "Total Alpha",
+                                    f"{summary.total_alpha * 100:+.2f}%",
+                                    help="Wave Return - Benchmark Return"
+                                )
+                            
+                            # Attribution components table
+                            st.markdown("**Attribution Breakdown:**")
+                            
+                            attribution_data = {
+                                "Component": [
+                                    "1️⃣ Exposure & Timing Alpha",
+                                    "2️⃣ Regime & VIX Overlay Alpha",
+                                    "3️⃣ Momentum & Trend Alpha",
+                                    "4️⃣ Volatility & Risk Control Alpha",
+                                    "5️⃣ Asset Selection Alpha"
+                                ],
+                                "Contribution": [
+                                    f"{summary.exposure_timing_alpha * 100:+.2f}%",
+                                    f"{summary.regime_vix_alpha * 100:+.2f}%",
+                                    f"{summary.momentum_trend_alpha * 100:+.2f}%",
+                                    f"{summary.volatility_control_alpha * 100:+.2f}%",
+                                    f"{summary.asset_selection_alpha * 100:+.2f}%"
+                                ],
+                                "Share of Alpha": [
+                                    f"{summary.exposure_timing_contribution_pct:+.1f}%",
+                                    f"{summary.regime_vix_contribution_pct:+.1f}%",
+                                    f"{summary.momentum_trend_contribution_pct:+.1f}%",
+                                    f"{summary.volatility_control_contribution_pct:+.1f}%",
+                                    f"{summary.asset_selection_contribution_pct:+.1f}%"
+                                ]
+                            }
+                            
+                            df_attribution = pd.DataFrame(attribution_data)
+                            st.dataframe(
+                                df_attribution,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                            
+                            # Reconciliation note
+                            st.caption(f"✓ Reconciliation: {summary.reconciliation_pct_error:.4f}% error (target: <0.01%)")
+                            
+                        else:
+                            st.warning("⚠️ Alpha attribution module not available")
+                    else:
+                        st.info(f"📊 Insufficient data for S&P 500 Wave attribution (minimum {ATTRIBUTION_TIMEFRAME_DAYS} days required)")
+                else:
+                    st.info("📊 Wave history data not available")
+                    
+            except Exception as e:
+                st.warning(f"⚠️ Unable to compute attribution: {str(e)}")
+        else:
+            # Placeholder for other waves
+            st.info("📊 **Attribution Rollout Pending**")
+            st.caption(f"Detailed alpha attribution for {selected_wave} is currently in development. Full attribution analysis will be available in an upcoming release.")
         
         st.divider()
         
@@ -18726,7 +19700,7 @@ def render_operator_panel_tab():
     try:
         if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
             # Load price book
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             
             if price_book is not None and not price_book.empty:
                 # Cache path (imported at top of file)
@@ -18881,7 +19855,7 @@ def render_operator_panel_tab():
         
         # Get price book for volatility regime computation
         if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             
             if price_book is not None and not price_book.empty:
                 # Compute volatility regime and exposure
@@ -19810,9 +20784,11 @@ def render_diagnostics_tab():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
+                # Extract filename from canonical path
+                cache_filename = os.path.basename(CANONICAL_CACHE_PATH)
                 st.metric(
                     "📁 Price Source File",
-                    "prices_cache.parquet",
+                    cache_filename,
                     help="Exact price source file used for this run"
                 )
             
@@ -20675,7 +21651,7 @@ def render_overview_clean_tab():
             from helpers.price_book import get_price_book, get_price_book_meta
             from helpers.wave_performance import compute_all_waves_performance
             
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             price_meta = get_price_book_meta(price_book)
             performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
             
@@ -21316,7 +22292,8 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                 diag_col1, diag_col2, diag_col3 = st.columns(3)
                 
                 with diag_col1:
-                    st.metric("Cache File", "prices_cache.parquet")
+                    cache_filename = os.path.basename(CANONICAL_CACHE_PATH)
+                    st.metric("Cache File", cache_filename)
                     st.caption(f"Path: {pb_diag.get('path', 'N/A')}")
                 
                 with diag_col2:
@@ -21492,6 +22469,38 @@ def main():
         st.warning("The application detected more than 3 consecutive runs without user interaction. This indicates a potential infinite loop.")
         st.info("Please refresh the page manually or click a button to continue.")
         st.stop()
+    
+    # ========================================================================
+    # STEP 1.5: Rerun Throttle Safety Fuse (Prevent Rapid Reruns)
+    # ========================================================================
+    
+    # Initialize rerun throttle state
+    if "last_rerun_time" not in st.session_state:
+        st.session_state.last_rerun_time = time.time()
+        st.session_state.rapid_rerun_count = 0
+    else:
+        current_time = time.time()
+        time_since_last_rerun = current_time - st.session_state.last_rerun_time
+        
+        # Check if rerun is happening too quickly (configurable threshold)
+        if time_since_last_rerun < RERUN_THROTTLE_THRESHOLD:
+            st.session_state.rapid_rerun_count += 1
+            
+            # If we've exceeded max rapid reruns, halt execution
+            if st.session_state.rapid_rerun_count >= MAX_RAPID_RERUNS:
+                st.error("⚠️ **RAPID RERUN DETECTED: Application halted for safety**")
+                st.warning(f"The application detected {st.session_state.rapid_rerun_count} consecutive reruns within {RERUN_THROTTLE_THRESHOLD} seconds. This indicates a rerun loop.")
+                st.info("**What to do:**")
+                st.info("1. Refresh the page manually (F5 or Ctrl+R)")
+                st.info("2. If the problem persists, check for auto-refresh settings or report this issue")
+                st.caption(f"Debug info: Last rerun was {time_since_last_rerun:.3f}s ago (threshold: {RERUN_THROTTLE_THRESHOLD}s)")
+                st.stop()
+        else:
+            # Reset rapid rerun counter if enough time has passed
+            st.session_state.rapid_rerun_count = 0
+        
+        # Update last rerun time
+        st.session_state.last_rerun_time = current_time
     
     # ========================================================================
     # STEP 2: Run ID Counter & Trigger Diagnostics (Infinite Loop Prevention)

@@ -2614,6 +2614,7 @@ def compute_portfolio_alpha_ledger(
         
         result['daily_risk_return'] = daily_risk_return
         result['daily_unoverlay_return'] = daily_risk_return.copy()  # Same as risk return (exposure=1.0)
+        result['_return_matrix'] = return_matrix  # Internal: for contributor counts
         
     except Exception as e:
 
@@ -2814,7 +2815,8 @@ def compute_portfolio_alpha_ledger(
                     'selection_alpha': None,
                     'overlay_alpha': None,
                     'residual': None,
-                    'alpha_captured': None
+                    'alpha_captured': None,
+                    'n_waves_with_returns': 0  # NEW: contributor count (0 for insufficient data)
                 }
                 continue
             
@@ -2827,6 +2829,15 @@ def compute_portfolio_alpha_ledger(
             period_series = daily_realized_return.iloc[-trading_days:]
             start_date = period_series.index[0].strftime('%Y-%m-%d')
             end_date = period_series.index[-1].strftime('%Y-%m-%d')
+            
+            # Count waves with valid returns for this period
+            # Check return_matrix for non-NaN values in this period's window
+            n_waves_with_returns = 0
+            if result.get('_return_matrix') is not None:
+                return_matrix = result['_return_matrix']
+                period_return_matrix = return_matrix.iloc[-trading_days:]
+                # Count how many waves have at least one non-NaN return in this period
+                n_waves_with_returns = (period_return_matrix.notna().any(axis=0)).sum()
             
             if cum_realized is None or cum_unoverlay is None or cum_benchmark is None:
                 # Computation error
@@ -2845,7 +2856,8 @@ def compute_portfolio_alpha_ledger(
                     'selection_alpha': None,
                     'overlay_alpha': None,
                     'residual': None,
-                    'alpha_captured': None
+                    'alpha_captured': None,
+                    'n_waves_with_returns': n_waves_with_returns  # NEW: contributor count
                 }
                 continue
             
@@ -2880,7 +2892,8 @@ def compute_portfolio_alpha_ledger(
                     'selection_alpha': None,
                     'overlay_alpha': None,
                     'residual': None,
-                    'alpha_captured': None
+                    'alpha_captured': None,
+                    'n_waves_with_returns': n_waves_with_returns  # NEW: contributor count
                 }
                 continue
             
@@ -2901,7 +2914,8 @@ def compute_portfolio_alpha_ledger(
                     'selection_alpha': None,
                     'overlay_alpha': None,
                     'residual': None,
-                    'alpha_captured': None
+                    'alpha_captured': None,
+                    'n_waves_with_returns': n_waves_with_returns  # NEW: contributor count
                 }
                 continue
             
@@ -2926,7 +2940,8 @@ def compute_portfolio_alpha_ledger(
                 'selection_alpha': selection_alpha,
                 'overlay_alpha': overlay_alpha,
                 'residual': residual,
-                'alpha_captured': alpha_captured
+                'alpha_captured': alpha_captured,
+                'n_waves_with_returns': n_waves_with_returns  # NEW: contributor count
             }
         
         result['success'] = True

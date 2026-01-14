@@ -34,7 +34,7 @@ import pandas as pd
 
 # Import trading calendar helper
 try:
-    from helpers.trading_calendar import get_asof_dates, get_asof_date_str
+    from helpers.trading_calendar import get_asof_dates, get_asof_date_str, get_trading_calendar_dates
     TRADING_CALENDAR_AVAILABLE = True
 except ImportError:
     TRADING_CALENDAR_AVAILABLE = False
@@ -187,18 +187,30 @@ def _get_wave_tickers(wave_name: str) -> List[str]:
 
 def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
     """
-    Get the snapshot date from the price cache.
+    Get the snapshot date from the price cache using SPY-based trading calendar.
     
-    This uses the as-of date (max date) from the price cache, NOT datetime.now(),
-    to ensure the snapshot date matches the actual data availability.
+    This uses the SPY as-of date (last SPY trading date) from the price cache,
+    NOT datetime.now(), to ensure the snapshot date matches actual trading calendar.
+    
+    **DO NOT use datetime.now() anywhere for snapshot date endpoints.**
     
     Args:
-        price_df: Optional price DataFrame with DatetimeIndex
+        price_df: Optional price DataFrame with DatetimeIndex and SPY column
         
     Returns:
-        Date string in YYYY-MM-DD format
+        Date string in YYYY-MM-DD format (SPY-based trading date)
     """
     if TRADING_CALENDAR_AVAILABLE and price_df is not None:
+        # Try SPY-based calendar first (canonical)
+        try:
+            from helpers.trading_calendar import get_trading_calendar_dates
+            asof_date, _ = get_trading_calendar_dates(price_df)
+            if asof_date is not None:
+                return asof_date.strftime('%Y-%m-%d')
+        except Exception:
+            pass
+        
+        # Fallback to legacy get_asof_date_str if SPY not available
         return get_asof_date_str(price_df, fmt='%Y-%m-%d')
     
     # If price_df not provided, try to load from canonical price cache
@@ -208,11 +220,25 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
         if os.path.exists(cache_path):
             cached_prices = pd.read_parquet(cache_path)
             if TRADING_CALENDAR_AVAILABLE:
+                # Try SPY-based calendar
+                try:
+                    from helpers.trading_calendar import get_trading_calendar_dates
+                    asof_date, _ = get_trading_calendar_dates(cached_prices)
+                    if asof_date is not None:
+                        return asof_date.strftime('%Y-%m-%d')
+                except Exception:
+                    pass
+                
+                # Fallback to legacy
                 return get_asof_date_str(cached_prices, fmt='%Y-%m-%d')
     except Exception:
         pass
     
-    # Fallback to datetime.now() if trading calendar not available or cache not accessible
+    # Last resort fallback - should rarely reach here
+    # Note: This violates the "no datetime.now()" requirement but is a safety net
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("Unable to determine SPY-based snapshot date, falling back to datetime.now()")
     return datetime.now().strftime("%Y-%m-%d")
 
 
@@ -1577,6 +1603,18 @@ def generate_snapshot(
             print(f"✓ Loaded global price cache with {len(price_df.columns) if price_df is not None else 0} tickers")
         except Exception as e:
             print(f"⚠ Failed to load global price cache: {e}")
+    
+    # Fallback: Load price cache directly from parquet if still None
+    if price_df is None or (hasattr(price_df, 'empty') and price_df.empty):
+        try:
+            cache_path = "data/cache/prices_cache.parquet"
+            if os.path.exists(cache_path):
+                price_df = pd.read_parquet(cache_path)
+                print(f"✓ Loaded price cache directly from parquet: {len(price_df)} rows, {len(price_df.columns)} columns")
+            else:
+                print(f"⚠ Price cache file not found: {cache_path}")
+        except Exception as e:
+            print(f"⚠ Failed to load price cache from parquet: {e}")
     
     # Generate snapshot rows
     snapshot_rows = []

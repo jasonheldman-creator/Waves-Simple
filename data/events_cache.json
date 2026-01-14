@@ -1,0 +1,14 @@
+{
+  "last_updated": "2026-01-14T20:17:29.661686",
+  "fed_indicators": {
+    "fed_funds_rate": "4.25-4.50%",
+    "next_fomc_date": null,
+    "cpi_latest": "N/A",
+    "jobs_latest": "N/A"
+  },
+  "waves_status": {
+    "system_status": "ONLINE",
+    "last_update": "20:17:29",
+    "waves_status": "ACTIVE"
+  }
+}
