@@ -87,6 +87,53 @@ REQUIRED_CASH_PROXIES = ['BIL', 'SHY']  # All required (used by pricing engine)
 MAX_STALE_CALENDAR_DAYS = 5  # Accept cache if max_date within last 5 calendar days
 
 
+def get_spy_series(cache_df):
+    """
+    Validate and extract SPY ticker series from cache DataFrame.
+    
+    This function enforces SPY as a hard requirement for price cache validity.
+    It performs strict validation to ensure SPY data exists and is usable.
+    
+    Requirements (per problem statement):
+    1. Match exactly "SPY" (case-sensitive)
+    2. Assert SPY contains at least 2 entries with non-NaN prices
+    3. Calculate spy_max_date as its most recent valid entry
+    4. Raise exception if validation fails
+    
+    Args:
+        cache_df: DataFrame with dates as index and tickers as columns
+        
+    Returns:
+        Tuple of (spy_series, spy_max_date):
+        - spy_series: Series with SPY prices (NaN values dropped)
+        - spy_max_date: Most recent date with valid SPY price (datetime)
+        
+    Raises:
+        ValueError: If SPY validation fails for any reason
+    """
+    # Check if SPY column exists (case-sensitive exact match)
+    if 'SPY' not in cache_df.columns:
+        raise ValueError("SPY ticker not found in cache (case-sensitive match required)")
+    
+    # Extract SPY series
+    spy_series_raw = cache_df['SPY']
+    
+    # Drop NaN values to get valid SPY prices
+    spy_series = spy_series_raw.dropna()
+    
+    # Validate: at least 2 entries with non-NaN prices
+    if len(spy_series) < 2:
+        raise ValueError(f"SPY has insufficient valid data: {len(spy_series)} entries (minimum 2 required)")
+    
+    # Calculate spy_max_date as the most recent valid entry
+    spy_max_date = spy_series.index.max()
+    
+    logger.info(f"✓ SPY validation passed: {len(spy_series)} valid entries")
+    logger.info(f"  SPY date range: {spy_series.index.min()} to {spy_max_date}")
+    
+    return spy_series, spy_max_date
+
+
 def get_last_trading_day():
     """
     Get the last trading day by checking SPY (S&P 500 ETF).
@@ -593,6 +640,57 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     max_price_date = None
     if not cache_df.empty:
         max_price_date = cache_df.index[-1]
+    
+    # Step 6.4: VALIDATE SPY PRESENCE (HARD REQUIREMENT)
+    # This must come before other validations to fail fast if SPY is missing
+    logger.info("=" * 70)
+    logger.info("VALIDATING SPY TICKER (HARD REQUIREMENT)")
+    logger.info("=" * 70)
+    
+    spy_valid = False
+    spy_series = None
+    spy_max_date = None
+    
+    if not cache_df.empty:
+        try:
+            spy_series, spy_max_date = get_spy_series(cache_df)
+            spy_valid = True
+            logger.info(f"✓ SPY validation PASSED")
+        except ValueError as e:
+            logger.error(f"✗ SPY validation FAILED: {e}")
+            # SPY is a hard requirement - fail the job
+            logger.error("=" * 70)
+            logger.error("CACHE BUILD FAILED: SPY ticker is required but not valid")
+            logger.error("=" * 70)
+            
+            # Still write metadata with failure information
+            save_metadata(
+                total_tickers=total_requested,
+                successful_tickers=successful_downloads,
+                failed_tickers=len(all_failures),
+                success_rate=success_rate,
+                max_price_date=None,  # No valid max_price_date without SPY
+                missing_required={'benchmarks': ['SPY']},
+                cache_df=None  # Don't pass cache_df since SPY is invalid
+            )
+            return False, 0.0
+    else:
+        logger.error("✗ SPY validation FAILED: Cache is empty")
+        # Write metadata with failure information
+        save_metadata(
+            total_tickers=total_requested,
+            successful_tickers=0,
+            failed_tickers=total_requested,
+            success_rate=0.0,
+            max_price_date=None,
+            missing_required={
+                'volatility': REQUIRED_VOLATILITY_REGIME,
+                'benchmarks': REQUIRED_BENCHMARKS,
+                'cash_proxies': REQUIRED_CASH_PROXIES
+            },
+            cache_df=None
+        )
+        return False, 0.0
     
     # Step 6.5: Validate required symbols
     logger.info("=" * 70)

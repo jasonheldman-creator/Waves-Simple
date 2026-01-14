@@ -155,6 +155,60 @@ jobs:
 
           echo "========================================================================"
 
+      - name: Sanity validate metadata
+        run: |
+          echo "========================================================================"
+          echo "METADATA SANITY VALIDATION"
+          echo "========================================================================"
+          
+          if [ ! -f data/cache/prices_cache_meta.json ]; then
+            echo "✗ ERROR: Metadata file missing"
+            exit 1
+          fi
+          
+          # Extract and validate key metadata fields using Python
+          python3 << 'EOF'
+          import json
+          import sys
+          
+          try:
+              with open('data/cache/prices_cache_meta.json', 'r') as f:
+                  meta = json.load(f)
+              
+              # Check required fields
+              required_fields = ['spy_max_date', 'max_price_date', 'overall_max_date', 'generated_at_utc']
+              missing_fields = [f for f in required_fields if f not in meta]
+              
+              if missing_fields:
+                  print(f"✗ ERROR: Missing required fields: {missing_fields}")
+                  sys.exit(1)
+              
+              # Validate spy_max_date is not None
+              if meta['spy_max_date'] is None or meta['spy_max_date'] == 'None':
+                  print(f"✗ ERROR: spy_max_date is None - SPY validation failed")
+                  sys.exit(1)
+              
+              # Validate max_price_date equals spy_max_date (canonical requirement)
+              if meta['max_price_date'] != meta['spy_max_date']:
+                  print(f"⚠ WARNING: max_price_date ({meta['max_price_date']}) != spy_max_date ({meta['spy_max_date']})")
+                  print(f"  This is acceptable if SPY was not available, but should be investigated")
+              
+              # Print validation summary
+              print("✓ Metadata validation passed")
+              print(f"  spy_max_date: {meta['spy_max_date']}")
+              print(f"  max_price_date: {meta['max_price_date']}")
+              print(f"  overall_max_date: {meta['overall_max_date']}")
+              print(f"  min_symbol_max_date: {meta.get('min_symbol_max_date', 'N/A')}")
+              print(f"  generated_at_utc: {meta['generated_at_utc']}")
+              print(f"  success_rate: {meta.get('success_rate', 'N/A')}")
+              
+          except Exception as e:
+              print(f"✗ ERROR: Failed to validate metadata: {e}")
+              sys.exit(1)
+          EOF
+          
+          echo "========================================================================"
+
       - name: Check for changes
         id: check_changes
         run: |

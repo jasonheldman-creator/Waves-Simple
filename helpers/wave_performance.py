@@ -1763,6 +1763,7 @@ def compute_portfolio_alpha_attribution(
         
         result['daily_unoverlay_return'] = daily_unoverlay_return
         result['daily_benchmark_return'] = daily_benchmark_return
+        result['_return_matrix'] = return_matrix_unoverlay  # Internal: for contributor counts
         
     except Exception as e:
         result['failure_reason'] = f'Error computing unoverlay returns: {str(e)}'
@@ -1874,7 +1875,8 @@ def compute_portfolio_alpha_attribution(
                     'total_alpha': None,
                     'selection_alpha': None,
                     'overlay_alpha': None,
-                    'residual': None
+                    'residual': None,
+                    'n_waves_with_returns': 0  # NEW: contributor count (0 for insufficient data)
                 }
                 continue
             
@@ -1882,6 +1884,15 @@ def compute_portfolio_alpha_attribution(
             cum_real = compute_cumulative_return(daily_realized_return, trading_days)
             cum_sel = compute_cumulative_return(daily_unoverlay_return, trading_days)
             cum_bm = compute_cumulative_return(daily_benchmark_return, trading_days)
+            
+            # Count waves with valid returns for this period
+            # Check return_matrix for non-NaN values in this period's window
+            n_waves_with_returns = 0
+            if result.get('_return_matrix') is not None:
+                return_matrix = result['_return_matrix']
+                period_return_matrix = return_matrix.iloc[-trading_days:]
+                # Count how many waves have at least one non-NaN return in this period
+                n_waves_with_returns = (period_return_matrix.notna().any(axis=0)).sum()
             
             # These should not be None since we checked rows_available >= trading_days
             # However, None can still occur due to data quality issues (e.g., all NaN values,
@@ -1901,7 +1912,8 @@ def compute_portfolio_alpha_attribution(
                     'total_alpha': None,
                     'selection_alpha': None,
                     'overlay_alpha': None,
-                    'residual': None
+                    'residual': None,
+                    'n_waves_with_returns': n_waves_with_returns  # NEW: contributor count
                 }
                 continue
             
@@ -1923,11 +1935,20 @@ def compute_portfolio_alpha_attribution(
                 'total_alpha': total_alpha,
                 'selection_alpha': selection_alpha,
                 'overlay_alpha': overlay_alpha,
-                'residual': residual
+                'residual': residual,
+                'n_waves_with_returns': n_waves_with_returns  # NEW: contributor count
             }
         
         # Since inception summary (always computed - uses all available rows)
         rows_available = len(daily_realized_return)
+        
+        # Count waves with valid returns for inception
+        n_waves_inception = 0
+        if result.get('_return_matrix') is not None:
+            return_matrix = result['_return_matrix']
+            # Count how many waves have at least one non-NaN return across all history
+            n_waves_inception = (return_matrix.notna().any(axis=0)).sum()
+        
         cum_real_inception = (1 + daily_realized_return).prod() - 1
         cum_sel_inception = (1 + daily_unoverlay_return).prod() - 1
         cum_bm_inception = (1 + daily_benchmark_return).prod() - 1
@@ -1950,11 +1971,17 @@ def compute_portfolio_alpha_attribution(
             'total_alpha': float(total_alpha_inception),
             'selection_alpha': float(selection_alpha_inception),
             'overlay_alpha': float(overlay_alpha_inception),
-            'residual': float(residual_inception)
+            'residual': float(residual_inception),
+            'n_waves_with_returns': n_waves_inception  # NEW: contributor count for inception
         }
         
         result['success'] = True
         result['failure_reason'] = None
+        
+        # Add convenience accessor for contributor counts (for UI diagnostics panel)
+        result['contributors_1D'] = result['period_summaries'].get('1D', {}).get('n_waves_with_returns', 0)
+        result['contributors_30D'] = result['period_summaries'].get('30D', {}).get('n_waves_with_returns', 0)
+        result['contributors_60D'] = result['period_summaries'].get('60D', {}).get('n_waves_with_returns', 0)
         
     except Exception as e:
         result['failure_reason'] = f'Error computing period summaries: {str(e)}'
