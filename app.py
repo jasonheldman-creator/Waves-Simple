@@ -10203,10 +10203,12 @@ def render_executive_brief_tab():
             # ========================================================================
             # DIAGNOSTIC DEBUG BLOCK
             # Show critical system dates to diagnose frozen snapshot issue
+            # REQUIRED: Show spy_max_date, max_price_date, overall_max_date, snapshot date, contributors
             # ========================================================================
-            with st.expander("🔍 Debug: SPY Trading Calendar & Cache Dates", expanded=False):
+            with st.expander("🔍 Snapshot Diagnostics", expanded=False):
                 import json
                 from helpers.trading_calendar import get_trading_calendar_dates
+                from datetime import datetime, timedelta
                 
                 col1, col2 = st.columns(2)
                 
@@ -10231,6 +10233,10 @@ def render_executive_brief_tab():
                 
                 with col2:
                     st.markdown("**📊 Cache Metadata**")
+                    spy_max_date_str = None
+                    max_price_date_str = None
+                    overall_max_date_str = None
+                    
                     try:
                         # Load prices_cache_meta.json
                         meta_path = "data/cache/prices_cache_meta.json"
@@ -10238,10 +10244,13 @@ def render_executive_brief_tab():
                             with open(meta_path, 'r') as f:
                                 meta = json.load(f)
                             
-                            st.metric("max_price_date", meta.get('max_price_date', 'N/A'))
-                            st.metric("spy_max_date", meta.get('spy_max_date', 'N/A'))
-                            if meta.get('overall_max_date'):
-                                st.caption(f"overall_max_date: {meta.get('overall_max_date')}")
+                            spy_max_date_str = meta.get('spy_max_date', 'N/A')
+                            max_price_date_str = meta.get('max_price_date', 'N/A')
+                            overall_max_date_str = meta.get('overall_max_date', 'N/A')
+                            
+                            st.metric("spy_max_date", spy_max_date_str)
+                            st.metric("max_price_date", max_price_date_str)
+                            st.caption(f"overall_max_date: {overall_max_date_str}")
                             if meta.get('min_symbol_max_date'):
                                 st.caption(f"min_symbol_max_date: {meta.get('min_symbol_max_date')}")
                         else:
@@ -10251,13 +10260,14 @@ def render_executive_brief_tab():
                 
                 # Show live_snapshot.csv max date
                 st.markdown("**📈 Live Snapshot Date**")
+                snapshot_date_str = None
                 try:
                     snapshot_path = "data/live_snapshot.csv"
                     if os.path.exists(snapshot_path):
                         snapshot_df_debug = pd.read_csv(snapshot_path)
                         if 'Date' in snapshot_df_debug.columns and not snapshot_df_debug.empty:
-                            snapshot_date = snapshot_df_debug['Date'].iloc[0]
-                            st.metric("Snapshot Date", snapshot_date)
+                            snapshot_date_str = snapshot_df_debug['Date'].iloc[0]
+                            st.metric("Snapshot Date", snapshot_date_str)
                         else:
                             st.warning("Date column not found in snapshot")
                     else:
@@ -10268,20 +10278,51 @@ def render_executive_brief_tab():
                 # Show portfolio contributors (if ledger available)
                 st.markdown("**👥 Portfolio Contributors**")
                 try:
+                    # Use convenience accessors if available, otherwise fall back to period_results
                     if 'portfolio_alpha_ledger' in st.session_state:
                         ledger_debug = st.session_state['portfolio_alpha_ledger']
                         if ledger_debug.get('success'):
-                            # Count contributors from period_results
-                            for period_label in ['1D', '30D', '60D']:
-                                period_result = ledger_debug['period_results'].get(period_label, {})
-                                n_contributors = period_result.get('n_waves_with_returns', 0)
-                                st.caption(f"{period_label} contributors: {n_contributors}")
+                            # Try convenience accessors first (added in this PR)
+                            contributors_1d = ledger_debug.get('contributors_1D')
+                            contributors_30d = ledger_debug.get('contributors_30D')
+                            contributors_60d = ledger_debug.get('contributors_60D')
+                            
+                            # Fallback to period_results if convenience accessors not available
+                            if contributors_1d is None:
+                                contributors_1d = ledger_debug['period_results'].get('1D', {}).get('n_waves_with_returns', 0)
+                            if contributors_30d is None:
+                                contributors_30d = ledger_debug['period_results'].get('30D', {}).get('n_waves_with_returns', 0)
+                            if contributors_60d is None:
+                                contributors_60d = ledger_debug['period_results'].get('60D', {}).get('n_waves_with_returns', 0)
+                            
+                            st.caption(f"1D contributors: {contributors_1d} waves")
+                            st.caption(f"30D contributors: {contributors_30d} waves")
+                            st.caption(f"60D contributors: {contributors_60d} waves")
                         else:
                             st.caption("Ledger computation failed")
                     else:
                         st.caption("Ledger not yet computed")
                 except Exception as e:
                     st.caption(f"Error: {e}")
+                
+                # WARNING: Check if spy_max_date is stale compared to snapshot date
+                if spy_max_date_str and spy_max_date_str != 'N/A' and snapshot_date_str:
+                    try:
+                        from datetime import datetime
+                        spy_date = datetime.strptime(spy_max_date_str, '%Y-%m-%d').date()
+                        snapshot_date = datetime.strptime(snapshot_date_str, '%Y-%m-%d').date()
+                        
+                        if spy_date < snapshot_date:
+                            days_behind = (snapshot_date - spy_date).days
+                            st.warning(f"🚨 Portfolio results may be frozen: spy_max_date ({spy_max_date_str}) is {days_behind} day(s) behind snapshot date ({snapshot_date_str})")
+                        
+                        # Also check if spy_max_date is older than today (accounting for weekends)
+                        today = datetime.now().date()
+                        days_old = (today - spy_date).days
+                        if days_old > 5:  # More than 5 calendar days is definitely stale
+                            st.warning(f"🚨 SPY calendar is stale: spy_max_date={spy_max_date_str} is {days_old} days old")
+                    except Exception as e:
+                        st.caption(f"Unable to compare dates: {e}")
         
             try:
                 from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
