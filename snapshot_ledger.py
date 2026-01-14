@@ -256,8 +256,8 @@ def _safe_return(nav_series: pd.Series, days: int) -> float:
     if nav_series is None or len(nav_series) < 2:
         return float("nan")
     
-    # Need at least days + 1 points
-    if len(nav_series) < min(days + 1, 2):
+    # Need at least days + 1 points for non-1D calculations
+    if days > 1 and len(nav_series) < min(days + 1, 2):
         return float("nan")
     
     try:
@@ -267,9 +267,7 @@ def _safe_return(nav_series: pd.Series, days: int) -> float:
         # For 1D returns, we need exactly the last two data points (asof and prev)
         # For longer periods, we can use what's available
         if days == 1:
-            # Strict check: need exactly 2 points
-            if len(nav_series) < 2:
-                return float("nan")
+            # For 1D: use exactly the last two points
             start_val = float(nav_series.iloc[-2])
         else:
             # Get value from 'days' ago, or earliest if not enough history

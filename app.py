@@ -10208,7 +10208,7 @@ def render_executive_brief_tab():
             with st.expander("🔍 Snapshot Diagnostics", expanded=False):
                 import json
                 from helpers.trading_calendar import get_trading_calendar_dates
-                from datetime import datetime, timedelta
+                from datetime import datetime
                 
                 col1, col2 = st.columns(2)
                 
@@ -10308,7 +10308,6 @@ def render_executive_brief_tab():
                 # WARNING: Check if spy_max_date is stale compared to snapshot date
                 if spy_max_date_str and spy_max_date_str != 'N/A' and snapshot_date_str:
                     try:
-                        from datetime import datetime
                         spy_date = datetime.strptime(spy_max_date_str, '%Y-%m-%d').date()
                         snapshot_date = datetime.strptime(snapshot_date_str, '%Y-%m-%d').date()
                         
