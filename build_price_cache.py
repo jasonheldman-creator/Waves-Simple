@@ -344,7 +344,7 @@ def load_existing_price_files():
     return merged
 
 
-def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date, missing_required=None):
+def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date, missing_required=None, cache_df=None):
     """
     Save metadata file next to the cache file.
     
@@ -353,8 +353,9 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         successful_tickers: Number of successfully downloaded tickers
         failed_tickers: Number of failed tickers
         success_rate: Success rate (0.0 to 1.0)
-        max_price_date: Latest date in the cache (datetime or string)
+        max_price_date: Latest date in the cache (datetime or string) - DEPRECATED, use spy_max_date
         missing_required: Dict of missing required symbols (optional)
+        cache_df: DataFrame with price cache data (optional, for SPY-based date extraction)
     """
     try:
         # Ensure cache directory exists
@@ -368,6 +369,57 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         else:
             max_price_date_str = str(max_price_date) if max_price_date else None
         
+        # Compute SPY-specific max date (canonical trading calendar)
+        spy_max_date_str = None
+        overall_max_date_str = None
+        min_symbol_max_date_str = None
+        
+        if cache_df is not None and not cache_df.empty:
+            # 1. SPY max date (canonical)
+            if 'SPY' in cache_df.columns:
+                spy_series = cache_df['SPY'].dropna()
+                if not spy_series.empty:
+                    spy_max_date = spy_series.index.max()
+                    if isinstance(spy_max_date, pd.Timestamp):
+                        spy_max_date_str = spy_max_date.strftime('%Y-%m-%d')
+                    elif hasattr(spy_max_date, 'strftime'):
+                        spy_max_date_str = spy_max_date.strftime('%Y-%m-%d')
+                    else:
+                        spy_max_date_str = str(spy_max_date)
+            
+            # 2. Overall max date (diagnostic)
+            overall_max_date = cache_df.index.max()
+            if isinstance(overall_max_date, pd.Timestamp):
+                overall_max_date_str = overall_max_date.strftime('%Y-%m-%d')
+            elif hasattr(overall_max_date, 'strftime'):
+                overall_max_date_str = overall_max_date.strftime('%Y-%m-%d')
+            else:
+                overall_max_date_str = str(overall_max_date)
+            
+            # 3. Min symbol max date (diagnostic - minimum across all tickers' last dates)
+            symbol_max_dates = []
+            for col in cache_df.columns:
+                col_series = cache_df[col].dropna()
+                if not col_series.empty:
+                    symbol_max_dates.append(col_series.index.max())
+            
+            if symbol_max_dates:
+                min_symbol_max_date = min(symbol_max_dates)
+                if isinstance(min_symbol_max_date, pd.Timestamp):
+                    min_symbol_max_date_str = min_symbol_max_date.strftime('%Y-%m-%d')
+                elif hasattr(min_symbol_max_date, 'strftime'):
+                    min_symbol_max_date_str = min_symbol_max_date.strftime('%Y-%m-%d')
+                else:
+                    min_symbol_max_date_str = str(min_symbol_max_date)
+        
+        # Use SPY max date as the canonical max_price_date if available
+        # This is the key change: max_price_date now reflects SPY's calendar, not the intersection
+        if spy_max_date_str:
+            canonical_max_price_date = spy_max_date_str
+        else:
+            # Fallback to provided max_price_date if SPY not available
+            canonical_max_price_date = max_price_date_str
+        
         metadata = {
             "generated_at_utc": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "success_rate": success_rate,
@@ -375,7 +427,10 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
             "tickers_total": total_tickers,
             "tickers_successful": successful_tickers,
             "tickers_failed": failed_tickers,
-            "max_price_date": max_price_date_str,
+            "max_price_date": canonical_max_price_date,  # Now SPY-based
+            "spy_max_date": spy_max_date_str,  # Explicit SPY date
+            "overall_max_date": overall_max_date_str,  # Diagnostic
+            "min_symbol_max_date": min_symbol_max_date_str,  # Diagnostic
             "cache_file": CACHE_PATH
         }
         
@@ -387,6 +442,10 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
             json.dump(metadata, f, indent=2)
         
         logger.info(f"Saved metadata to {METADATA_PATH}")
+        logger.info(f"  SPY max date: {spy_max_date_str}")
+        logger.info(f"  Overall max date: {overall_max_date_str}")
+        logger.info(f"  Min symbol max date: {min_symbol_max_date_str}")
+        logger.info(f"  Canonical max_price_date: {canonical_max_price_date}")
         
     except Exception as e:
         logger.error(f"Error saving metadata: {e}")
@@ -560,14 +619,15 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info("Saving cache...")
         save_cache(cache_df)
         
-        # Save metadata file with missing symbols
+        # Save metadata file with missing symbols and cache_df for SPY-based dates
         save_metadata(
             total_tickers=total_requested,
             successful_tickers=successful_downloads,
             failed_tickers=len(all_failures),
             success_rate=success_rate,
             max_price_date=max_price_date,
-            missing_required=missing_symbols if not symbols_valid else None
+            missing_required=missing_symbols if not symbols_valid else None,
+            cache_df=cache_df  # Pass cache_df for SPY-based date extraction
         )
         
         # Print summary
@@ -625,7 +685,8 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                 'volatility': REQUIRED_VOLATILITY_REGIME,
                 'benchmarks': REQUIRED_BENCHMARKS,
                 'cash_proxies': REQUIRED_CASH_PROXIES
-            }
+            },
+            cache_df=None  # No cache_df on failure
         )
         return False, 0.0
 
