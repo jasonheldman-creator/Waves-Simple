@@ -32,6 +32,13 @@ from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import pandas as pd
 
+# Import trading calendar helper
+try:
+    from helpers.trading_calendar import get_asof_dates, get_asof_date_str
+    TRADING_CALENDAR_AVAILABLE = True
+except ImportError:
+    TRADING_CALENDAR_AVAILABLE = False
+
 # Import from waves_engine
 try:
     from waves_engine import (
@@ -176,6 +183,37 @@ def _get_wave_tickers(wave_name: str) -> List[str]:
     except Exception as e:
         print(f"⚠ Warning: Failed to get tickers for wave '{wave_name}': {e}")
         return []
+
+
+def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
+    """
+    Get the snapshot date from the price cache.
+    
+    This uses the as-of date (max date) from the price cache, NOT datetime.now(),
+    to ensure the snapshot date matches the actual data availability.
+    
+    Args:
+        price_df: Optional price DataFrame with DatetimeIndex
+        
+    Returns:
+        Date string in YYYY-MM-DD format
+    """
+    if TRADING_CALENDAR_AVAILABLE and price_df is not None:
+        return get_asof_date_str(price_df, fmt='%Y-%m-%d')
+    
+    # If price_df not provided, try to load from canonical price cache
+    try:
+        import os
+        cache_path = "data/cache/prices_cache.parquet"
+        if os.path.exists(cache_path):
+            cached_prices = pd.read_parquet(cache_path)
+            if TRADING_CALENDAR_AVAILABLE:
+                return get_asof_date_str(cached_prices, fmt='%Y-%m-%d')
+    except Exception:
+        pass
+    
+    # Fallback to datetime.now() if trading calendar not available or cache not accessible
+    return datetime.now().strftime("%Y-%m-%d")
 
 
 def _safe_return(nav_series: pd.Series, days: int) -> float:
@@ -533,7 +571,8 @@ def _load_wave_history_from_csv(wave_id: str, days: int = 365) -> Optional[pd.Da
 def _build_smartsafe_cash_wave_row(
     wave_id: str,
     wave_name: str,
-    mode: str
+    mode: str,
+    price_df: Optional[pd.DataFrame] = None
 ) -> Dict[str, Any]:
     """
     Build snapshot row for SmartSafe cash waves.
@@ -598,7 +637,7 @@ def _build_smartsafe_cash_wave_row(
         "Wave": wave_name,
         "Category": category,
         "Mode": mode,
-        "Date": datetime.now().strftime("%Y-%m-%d"),
+        "Date": _get_snapshot_date(price_df),
         "NAV": 1.0,  # Constant NAV for cash
         "NAV_1D_Change": 0.0,
         **returns,
@@ -760,7 +799,7 @@ def _build_snapshot_row_tier_a(
             from waves_engine import is_smartsafe_cash_wave
             if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
                 # Build row with 0% returns and N/A benchmarks
-                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode, price_df)
         except (ImportError, AttributeError):
             pass
     
@@ -909,7 +948,7 @@ def _build_snapshot_row_tier_a(
             "Wave": wave_name,
             "Category": category,
             "Mode": mode,
-            "Date": datetime.now().strftime("%Y-%m-%d"),
+            "Date": _get_snapshot_date(price_df),
             "NAV": current_nav,
             "NAV_1D_Change": nav_1d_change,
             **returns,
@@ -969,7 +1008,7 @@ def _build_snapshot_row_tier_b(
         try:
             from waves_engine import is_smartsafe_cash_wave
             if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
-                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode, price_df)
         except (ImportError, AttributeError):
             pass
     
@@ -1094,7 +1133,7 @@ def _build_snapshot_row_tier_b(
             "Wave": wave_name,
             "Category": category,
             "Mode": mode,
-            "Date": datetime.now().strftime("%Y-%m-%d"),
+            "Date": _get_snapshot_date(price_df),
             "NAV": current_nav,
             "NAV_1D_Change": nav_1d_change,
             **returns,
@@ -1153,7 +1192,7 @@ def _build_snapshot_row_tier_c(
         try:
             from waves_engine import is_smartsafe_cash_wave
             if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
-                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode, price_df)
         except (ImportError, AttributeError):
             pass
     
@@ -1198,7 +1237,7 @@ def _build_snapshot_row_tier_d(
         try:
             from waves_engine import is_smartsafe_cash_wave
             if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
-                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode, price_df)
         except (ImportError, AttributeError):
             pass
     
@@ -1233,7 +1272,7 @@ def _build_snapshot_row_tier_d(
         "Wave": wave_name,
         "Category": category,
         "Mode": mode,
-        "Date": datetime.now().strftime("%Y-%m-%d"),
+        "Date": _get_snapshot_date(price_df),
         "NAV": float("nan"),
         "NAV_1D_Change": float("nan"),
         **returns,
