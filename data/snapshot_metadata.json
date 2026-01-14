@@ -1,9 +1,9 @@
 {
-  "snapshot_id": "snap-846ea1919de942b5",
+  "snapshot_id": "snap-115002a96a2a431d",
   "snapshot_hash": "94e3f9b1cca45557",
-  "generation_reason": "rebuild_workflow",
-  "timestamp": "2026-01-14T20:13:50.909579",
-  "software_version": "38e2cc4",
+  "generation_reason": "auto",
+  "timestamp": "2026-01-14T20:16:39.283181",
+  "software_version": "ca00e1d",
   "git_branch": "copilot/fix-price-cache-max-date",
   "registry_version": "v20260108_040800",
   "benchmark_version": "v20260108_040800",
