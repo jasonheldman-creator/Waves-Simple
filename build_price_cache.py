@@ -591,8 +591,12 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                         
                         # Explicitly overwrite cache_df['SPY'] with fresh data
                         # This ensures metadata computations (spy_max_date) use the updated cache_df
+                        # First, reindex to include all dates from spy_data_df
+                        all_dates = cache_df.index.union(spy_data_df.index)
+                        cache_df = cache_df.reindex(all_dates)
+                        # Then update SPY column with fresh data
                         cache_df['SPY'] = spy_data_df['SPY']
-                        logger.info(f"  Explicitly updated cache_df['SPY'] with fresh data")
+                        logger.info(f"  Explicitly updated cache_df['SPY'] with fresh data ({len(spy_series)} data points, max={spy_max_date.date()})")
                     else:
                         logger.warning("⚠ SPY data is empty after dropna()")
                         all_failures.update(spy_failures)
