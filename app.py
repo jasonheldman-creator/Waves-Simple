@@ -1,6 +1,14 @@
+import streamlit as st
+
+# MUST BE FIRST STREAMLIT CALL
+st.set_page_config(
+    page_title="WAVES Intelligence",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import os
 import pandas as pd
-import streamlit as st
 
 WAVE_HISTORY_PATH = "wave_history.csv"
 assert os.path.exists(WAVE_HISTORY_PATH), f"Missing {WAVE_HISTORY_PATH}"
@@ -23098,4 +23106,3 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     st.caption("ENTRYPOINT: app.py")
     
-    # ==============================================================
