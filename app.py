@@ -23011,6 +23011,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             # Store exception for debug panel
             if "data_load_exceptions" not in st.session_state:
                 st.session_state.data_load_exceptions = []
+                st.session_state.data_load_exceptions.append(str(e))
             st.session_state.data_load_exceptions.append({
                 "component": "Readiness Report",
                 "error": str(e),
