@@ -6,7 +6,7 @@
   "tickers_successful": 124,
   "tickers_failed": 0,
   "max_price_date": "2026-01-09",
-  "spy_max_date": "2026-01-09",
+  "spy_max_date": "2026-01-15"
   "overall_max_date": "2026-01-10",
   "min_symbol_max_date": "2022-01-15",
   "cache_file": "data/cache/prices_cache.parquet"
