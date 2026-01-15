@@ -13,17 +13,20 @@ import pandas as pd
 WAVE_HISTORY_PATH = "wave_history.csv"
 assert os.path.exists(WAVE_HISTORY_PATH), f"Missing {WAVE_HISTORY_PATH}"
 
-st.error(
-    f"""
-    🔍 DATA LOAD DIAGNOSTIC
-    Path: {WAVE_HISTORY_PATH}
-    Exists: {os.path.exists(WAVE_HISTORY_PATH)}
-    Last modified: {os.path.getmtime(WAVE_HISTORY_PATH) if os.path.exists(WAVE_HISTORY_PATH) else 'N/A'}
-    """
-)
+DEBUG_MODE = True  # TEMP – set to False later
 
 df = pd.read_csv(WAVE_HISTORY_PATH)
-st.error(f"Rows loaded: {len(df)}")
+
+if DEBUG_MODE:
+    st.warning(
+        f"""
+🔍 DATA LOAD DIAGNOSTIC
+Path: {WAVE_HISTORY_PATH}
+Exists: {os.path.exists(WAVE_HISTORY_PATH)}
+Last modified: {os.path.getmtime(WAVE_HISTORY_PATH)}
+Rows loaded: {len(df)}
+"""
+    )
 
 """
 Institutional Console v2 - Executive Layer v2
@@ -23102,7 +23105,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     st.title("Institutional Console - Executive Layer v2")
     
     # ========================================================================
-    # ENTRYPOINT FINGERPRINT - UI Banner
-    # ========================================================================
-    st.caption("ENTRYPOINT: app.py")
-    
+    # ENTRYPOI
