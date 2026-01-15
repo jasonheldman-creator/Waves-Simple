@@ -48,7 +48,8 @@ except ImportError:
 # Configuration
 # ------------------------
 
-PRICES_FILE = "prices.csv"
+# Single source of truth for prices: canonical price cache
+PRICES_CACHE_FILE = "data/cache/prices_cache.parquet"
 WAVE_WEIGHTS_FILE = "wave_weights.csv"
 OUTPUT_FILE = "wave_history.csv"
 SNAPSHOT_FILE = "wave_coverage_snapshot.json"
@@ -156,92 +157,9 @@ BENCHMARK_BY_WAVE = {
 
 
 # ------------------------
-# Helper function to fetch prices
-# ------------------------
-
-def fetch_and_save_prices(tickers_to_fetch, prices_file):
-    """
-    Fetch historical prices for the given tickers using yfinance.
-    Saves the data to prices_file in the format expected by this script.
-    
-    Args:
-        tickers_to_fetch: List of ticker symbols
-        prices_file: Path to save the CSV file
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        import yfinance as yf
-    except ImportError:
-        print("[ERROR] yfinance is not installed. Cannot fetch prices.")
-        print("        Please install it with: pip install yfinance")
-        return False
-    
-    try:
-        print(f"Fetching historical prices for {len(tickers_to_fetch)} tickers...")
-        
-        # Fetch last 5 years of data
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=5*365)
-        
-        # Download data for all tickers
-        data = yf.download(
-            tickers=tickers_to_fetch,
-            start=start_date,
-            end=end_date,
-            auto_adjust=True,
-            progress=True,
-            group_by="ticker"
-        )
-        
-        if data.empty:
-            print("[ERROR] No data returned from yfinance.")
-            return False
-        
-        # Convert to the expected format: date, ticker, close
-        rows = []
-        
-        if len(tickers_to_fetch) == 1:
-            # Single ticker case
-            ticker = tickers_to_fetch[0]
-            if "Close" in data.columns:
-                for date, row in data.iterrows():
-                    rows.append({
-                        "date": date.strftime("%Y-%m-%d"),
-                        "ticker": ticker,
-                        "close": row["Close"]
-                    })
-        else:
-            # Multiple tickers case
-            for ticker in tickers_to_fetch:
-                try:
-                    if (ticker, "Close") in data.columns:
-                        ticker_data = data[(ticker, "Close")]
-                        for date, close_price in ticker_data.items():
-                            if pd.notna(close_price):
-                                rows.append({
-                                    "date": date.strftime("%Y-%m-%d"),
-                                    "ticker": ticker,
-                                    "close": close_price
-                                })
-                except Exception as e:
-                    print(f"[WARN] Could not process ticker {ticker}: {e}")
-                    continue
-        
-        if not rows:
-            print("[ERROR] No valid price data could be extracted.")
-            return False
-        
-        # Create DataFrame and save
-        prices_df = pd.DataFrame(rows)
-        prices_df.to_csv(prices_file, index=False)
-        print(f"Successfully fetched and saved {len(rows)} price records to {prices_file}")
-        return True
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to fetch prices: {e}")
-        return False
+# REMOVED: fetch_and_save_prices function
+# No longer needed - we enforce single source of truth from prices_cache.parquet
+# All price fetching must happen via the Update Price Cache workflow
 
 
 # ------------------------
@@ -271,41 +189,51 @@ required_tickers = sorted(list(required_tickers))
 
 print(f"Found {len(required_tickers)} unique tickers in wave weights and benchmarks")
 
-# Check if prices.csv exists, if not fetch the data
-if not os.path.exists(PRICES_FILE):
-    print(f"[WARN] {PRICES_FILE} not found. Attempting to fetch historical prices...")
-    
-    success = fetch_and_save_prices(required_tickers, PRICES_FILE)
-    
-    if not success:
-        print("\n" + "="*70)
-        print("[ERROR] Unable to fetch price data.")
-        print("        The application cannot proceed without price data.")
-        print("        Please ensure:")
-        print("        1. You have internet connectivity")
-        print("        2. yfinance is installed: pip install yfinance")
-        print("        3. Or manually create prices.csv with columns: date, ticker, close")
-        print("="*70)
-        sys.exit(1)
-    
-    print(f"Successfully created {PRICES_FILE}")
-else:
-    print(f"Found existing {PRICES_FILE}")
+# ENFORCE: Single source of truth - prices_cache.parquet only
+# No fallback to prices.csv or network fetching
+if not os.path.exists(PRICES_CACHE_FILE):
+    error_message = f"""
+{'=' * 70}
+[ERROR] Canonical price cache not found!
+        Expected path: {PRICES_CACHE_FILE}
 
-print("Loading prices...")
-prices = pd.read_csv(PRICES_FILE, parse_dates=["date"])
-
-# Apply ticker normalization to prices
-prices["ticker"] = prices["ticker"].apply(normalize_ticker)
-prices = prices.sort_values(["ticker", "date"])
-
-if prices.empty:
-    print(f"[ERROR] {PRICES_FILE} is empty. Cannot proceed.")
+        The price cache is the ONLY allowed data source.
+        Please run the Update Price Cache workflow first:
+        1. Go to GitHub Actions
+        2. Run 'Update Price Cache' workflow
+        3. Wait for completion
+        4. Then re-run this workflow
+{'=' * 70}
+"""
+    print(error_message)
     sys.exit(1)
 
-# Pivot prices to wide format and compute daily returns
+print(f"Loading canonical price cache: {PRICES_CACHE_FILE}")
+try:
+    # Load price cache (already in wide format with date index and ticker columns)
+    price_wide = pd.read_parquet(PRICES_CACHE_FILE)
+    
+    # Ensure date index is datetime
+    if not isinstance(price_wide.index, pd.DatetimeIndex):
+        price_wide.index = pd.to_datetime(price_wide.index)
+    
+    price_wide = price_wide.sort_index()
+    
+    print(f"✓ Loaded price cache successfully")
+    print(f"  Date range: {price_wide.index.min()} to {price_wide.index.max()}")
+    print(f"  Symbols: {len(price_wide.columns)}")
+    
+except Exception as e:
+    print(f"\n[ERROR] Failed to load price cache: {e}")
+    print("        Ensure the price cache was built correctly.")
+    sys.exit(1)
+
+if price_wide.empty:
+    print(f"[ERROR] Price cache is empty. Cannot proceed.")
+    sys.exit(1)
+
+# Compute daily returns from price cache
 print("Computing daily returns...")
-price_wide = prices.pivot_table(index="date", columns="ticker", values="close").sort_index()
 rets = price_wide.pct_change().dropna(how="all")  # daily returns, NaN where missing
 
 # ------------------------
