@@ -16,6 +16,23 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 
+def is_valid_spy_date(spy_max_date):
+    """
+    Check if spy_max_date is valid (not None, not empty, not whitespace-only).
+    
+    Args:
+        spy_max_date: The spy_max_date value to validate
+        
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if spy_max_date is None:
+        return False
+    if isinstance(spy_max_date, str) and not spy_max_date.strip():
+        return False
+    return True
+
+
 def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json'):
     """
     Validate cache metadata file.
@@ -57,7 +74,7 @@ def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json'):
     # Validation 1: spy_max_date is not missing or null
     print("Validation 1: spy_max_date exists and is not null")
     spy_max_date = metadata.get('spy_max_date')
-    if spy_max_date is None or spy_max_date == '':
+    if not is_valid_spy_date(spy_max_date):
         print(f"✗ FAIL: spy_max_date is missing or null")
         all_valid = False
     else:
@@ -82,7 +99,7 @@ def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json'):
     
     # Validation 3: spy_max_date is not more than 5 calendar days stale
     print("Validation 3: spy_max_date is not more than 5 calendar days stale")
-    if spy_max_date is None or spy_max_date == '':
+    if not is_valid_spy_date(spy_max_date):
         print(f"✗ FAIL: Cannot validate staleness - spy_max_date is missing")
         all_valid = False
     else:
@@ -106,7 +123,7 @@ def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json'):
             else:
                 print(f"✓ PASS: spy_max_date is {days_old} days old (within 5-day threshold)")
         except ValueError as e:
-            print(f"✗ FAIL: Invalid date format for spy_max_date: {spy_max_date} - {e}")
+            print(f"✗ FAIL: Invalid date format for spy_max_date: {spy_max_date} (expected YYYY-MM-DD format) - {e}")
             all_valid = False
     print()
     
