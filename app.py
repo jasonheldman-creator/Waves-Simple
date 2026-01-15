@@ -18,12 +18,7 @@ Includes all analytics, monitoring, and governance features.
 """
 import streamlit as st
 # ================================
-
 import logging
-
-logger = logging.getLogger("waves_app")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
 import subprocess
 import os
 import traceback
@@ -31,11 +26,18 @@ import time
 import itertools
 import html
 from datetime import datetime, timedelta, timezone
+
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+
 
 # Import alpha attribution module
 try:
