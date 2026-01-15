@@ -22997,7 +22997,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
             
             print(f"ℹ️ Snapshot does not exist - Safe Mode prevents auto-build. Use manual rebuild button.")
-    
+    # TEMPORARY SYNTAX GUARD
+if False:
+    pass
     # ========================================================================
     # Session State Initialization
     # ========================================================================
