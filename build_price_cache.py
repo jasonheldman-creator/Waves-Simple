@@ -588,6 +588,11 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                         # Note: SPY is guaranteed to be in the list at this point (checked at line 569)
                         missing_tickers.remove('SPY')
                         logger.info(f"  Removed SPY from batch fetch list ({len(missing_tickers)} tickers remaining)")
+                        
+                        # Explicitly overwrite cache_df['SPY'] with fresh data
+                        # This ensures metadata computations (spy_max_date) use the updated cache_df
+                        cache_df['SPY'] = spy_data_df['SPY']
+                        logger.info(f"  Explicitly updated cache_df['SPY'] with fresh data")
                     else:
                         logger.warning("⚠ SPY data is empty after dropna()")
                         all_failures.update(spy_failures)
