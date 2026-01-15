@@ -401,8 +401,8 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
                     
                     if tickers_missing_at_spy_end:
                         logger.info(f"Tickers missing data at SPY end date ({spy_max_date_str}): {len(tickers_missing_at_spy_end)}")
-                        # Log first MAX_SAMPLE_TICKERS_LOG for visibility
-                        sample = sorted(tickers_missing_at_spy_end)[:MAX_SAMPLE_TICKERS_LOG]
+                        # Log first MAX_SAMPLE_TICKERS_LOG for visibility (no sorting needed for sample)
+                        sample = tickers_missing_at_spy_end[:MAX_SAMPLE_TICKERS_LOG]
                         logger.info(f"  Sample: {sample}")
                         if len(tickers_missing_at_spy_end) > MAX_SAMPLE_TICKERS_LOG:
                             logger.info(f"  ... and {len(tickers_missing_at_spy_end) - MAX_SAMPLE_TICKERS_LOG} more")
@@ -584,9 +584,8 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                         logger.info(f"    Date range: {spy_series.index.min().date()} to {spy_max_date.date()}")
                         logger.info(f"    SPY max date: {spy_max_date.date()} (canonical trading calendar)")
                         
-                        # Remove SPY from missing_tickers to avoid re-fetching (efficient for small lists)
-                        if 'SPY' in missing_tickers:
-                            missing_tickers.remove('SPY')
+                        # Remove SPY from missing_tickers to avoid re-fetching
+                        missing_tickers.remove('SPY')
                         logger.info(f"  Removed SPY from batch fetch list ({len(missing_tickers)} tickers remaining)")
                     else:
                         logger.warning("⚠ SPY data is empty after dropna()")

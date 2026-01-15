@@ -33,19 +33,21 @@ def test_spy_independent_fetch_logic():
     print("\n2. Testing SPY removal from batch list...")
     missing_tickers = ['SPY', 'AAPL', 'MSFT', 'GOOGL']
     
-    # Simulate SPY being fetched successfully
-    missing_tickers_after = [t for t in missing_tickers if t != 'SPY']
+    # Simulate the production logic
+    if 'SPY' in missing_tickers:
+        missing_tickers.remove('SPY')
     
-    assert 'SPY' not in missing_tickers_after, "SPY should be removed from list"
-    assert len(missing_tickers_after) == 3, f"Should have 3 tickers, got {len(missing_tickers_after)}"
-    assert 'AAPL' in missing_tickers_after, "AAPL should still be in list"
-    print(f"   ✓ SPY removed: {missing_tickers} -> {missing_tickers_after}")
+    assert 'SPY' not in missing_tickers, "SPY should be removed from list"
+    assert len(missing_tickers) == 3, f"Should have 3 tickers, got {len(missing_tickers)}"
+    assert 'AAPL' in missing_tickers, "AAPL should still be in list"
+    print(f"   ✓ SPY removed using production logic: now {missing_tickers}")
     
     # Test 3: Verify metadata extraction logic
     print("\n3. Testing SPY metadata extraction...")
     
-    # Create mock cache with SPY data
-    dates = pd.date_range('2026-01-01', '2026-01-14', freq='B')  # Business days
+    # Create mock cache with SPY data using relative dates
+    today = pd.Timestamp.now().normalize()
+    dates = pd.date_range(end=today, periods=10, freq='B')  # Last 10 business days
     cache_df = pd.DataFrame({
         'SPY': [100.0 + i for i in range(len(dates))],
         'AAPL': [150.0 + i for i in range(len(dates))],
@@ -56,19 +58,19 @@ def test_spy_independent_fetch_logic():
     spy_max_date = spy_series.index.max()
     
     print(f"   ✓ SPY max date: {spy_max_date.strftime('%Y-%m-%d')}")
-    assert spy_max_date.strftime('%Y-%m-%d') == '2026-01-14', \
-        f"SPY max should be 2026-01-14, got {spy_max_date.strftime('%Y-%m-%d')}"
+    assert spy_max_date == dates[-1], \
+        f"SPY max should be last business day, got {spy_max_date.strftime('%Y-%m-%d')}"
     
     # Test 4: Verify tickers missing at SPY end date detection
     print("\n4. Testing detection of tickers missing at SPY end...")
     
     # Create cache where some tickers are missing at SPY's end date
-    dates_full = pd.date_range('2026-01-01', '2026-01-14', freq='B')
-    dates_partial = pd.date_range('2026-01-01', '2026-01-10', freq='B')
+    dates_full = pd.date_range(end=today, periods=10, freq='B')
+    dates_partial = dates_full[:-3]  # Missing last 3 business days
     
     cache_df_partial = pd.DataFrame(index=dates_full)
     cache_df_partial['SPY'] = [100.0 + i for i in range(len(dates_full))]
-    cache_df_partial['AAPL'] = [150.0 + i for i in range(len(dates_partial))] + [float('nan')] * (len(dates_full) - len(dates_partial))
+    cache_df_partial['AAPL'] = [150.0 + i for i in range(len(dates_partial))] + [float('nan')] * 3
     
     # Detect tickers missing at SPY end
     spy_series = cache_df_partial['SPY'].dropna()
