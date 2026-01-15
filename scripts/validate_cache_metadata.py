@@ -123,7 +123,7 @@ def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json'):
             else:
                 print(f"✓ PASS: spy_max_date is {days_old} days old (within 5-day threshold)")
         except ValueError as e:
-            print(f"✗ FAIL: Invalid date format for spy_max_date: {spy_max_date} (expected YYYY-MM-DD format) - {e}")
+            print(f"✗ FAIL: Invalid date format for spy_max_date: {spy_max_date}. Expected format: YYYY-MM-DD")
             all_valid = False
     print()
     
