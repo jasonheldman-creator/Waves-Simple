@@ -253,10 +253,21 @@ def run_all_tests():
             print(f"\n✗ FAILED: {test_name}")
             print(f"  Error: {e}")
             failed += 1
+        except FileNotFoundError as e:
+            # Only skip for expected missing optional files
+            if "wave_coverage_snapshot.json" in str(e):
+                print(f"\n⚠ SKIPPED: {test_name}")
+                print(f"  Reason: Optional file not found - {e}")
+                skipped += 1
+            else:
+                print(f"\n✗ FAILED: {test_name}")
+                print(f"  Unexpected error: {e}")
+                failed += 1
         except Exception as e:
-            print(f"\n⚠ SKIPPED: {test_name}")
-            print(f"  Reason: {e}")
-            skipped += 1
+            # All other exceptions are failures
+            print(f"\n✗ FAILED: {test_name}")
+            print(f"  Unexpected error: {e}")
+            failed += 1
     
     # Final summary
     print("\n" + "=" * 80)

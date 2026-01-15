@@ -46,7 +46,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -81,7 +81,7 @@ jobs:
       - name: Build wave history
         run: |
           echo "=== Building Wave History ==="
-          python build_wave_history_from_prices.py
+          python3 build_wave_history_from_prices.py
 
       - name: Validate wave_history.csv exists and is non-empty
         run: |
@@ -218,14 +218,19 @@ jobs:
           echo "CHANGE DETECTION"
           echo "========================================================================"
 
-          # Check if wave_history.csv has been modified
-          if git diff --quiet wave_history.csv wave_coverage_snapshot.json 2>/dev/null; then
-            echo "status=no_changes" >> $GITHUB_OUTPUT
-            echo "ℹ No changes in wave history files"
+          # Check if wave_history.csv has been modified (handle case where files are new)
+          if [ -f wave_history.csv ] && [ -f wave_coverage_snapshot.json ]; then
+            if git diff --quiet wave_history.csv wave_coverage_snapshot.json; then
+              echo "status=no_changes" >> $GITHUB_OUTPUT
+              echo "ℹ No changes in wave history files"
+            else
+              echo "status=has_changes" >> $GITHUB_OUTPUT
+              echo "✓ Changes detected:"
+              git diff --stat wave_history.csv wave_coverage_snapshot.json
+            fi
           else
             echo "status=has_changes" >> $GITHUB_OUTPUT
-            echo "✓ Changes detected:"
-            git diff --stat wave_history.csv wave_coverage_snapshot.json 2>/dev/null || echo "  (new files)"
+            echo "✓ New files detected (first build)"
           fi
 
           echo "========================================================================"
@@ -238,11 +243,6 @@ jobs:
 
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-
-          # Clean workspace to ensure pristine state
-          echo "Cleaning workspace..."
-          git reset --hard
-          git clean -fd
 
           # Fetch and rebase onto latest main BEFORE staging any changes
           echo "Fetching latest changes from origin/main..."
