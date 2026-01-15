@@ -86,6 +86,9 @@ REQUIRED_CASH_PROXIES = ['BIL', 'SHY']  # All required (used by pricing engine)
 # Freshness configuration - trading day aware
 MAX_STALE_CALENDAR_DAYS = 5  # Accept cache if max_date within last 5 calendar days
 
+# Logging configuration
+MAX_SAMPLE_TICKERS_LOG = 10  # Maximum number of tickers to show in log samples
+
 
 def get_last_trading_day():
     """
@@ -373,6 +376,7 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         spy_max_date_str = None
         overall_max_date_str = None
         min_symbol_max_date_str = None
+        tickers_missing_at_spy_end = []
         
         if cache_df is not None and not cache_df.empty:
             # 1. SPY max date (canonical)
@@ -386,6 +390,22 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
                         spy_max_date_str = spy_max_date.strftime('%Y-%m-%d')
                     else:
                         spy_max_date_str = str(spy_max_date)
+                    
+                    # 1b. Identify tickers missing data at SPY's end date
+                    # This helps diagnose alignment issues
+                    for col in cache_df.columns:
+                        if col != 'SPY':
+                            col_series = cache_df[col].dropna()
+                            if col_series.empty or col_series.index.max() < spy_max_date:
+                                tickers_missing_at_spy_end.append(col)
+                    
+                    if tickers_missing_at_spy_end:
+                        logger.info(f"Tickers missing data at SPY end date ({spy_max_date_str}): {len(tickers_missing_at_spy_end)}")
+                        # Log first MAX_SAMPLE_TICKERS_LOG for visibility (no sorting needed for sample)
+                        sample = tickers_missing_at_spy_end[:MAX_SAMPLE_TICKERS_LOG]
+                        logger.info(f"  Sample: {sample}")
+                        if len(tickers_missing_at_spy_end) > MAX_SAMPLE_TICKERS_LOG:
+                            logger.info(f"  ... and {len(tickers_missing_at_spy_end) - MAX_SAMPLE_TICKERS_LOG} more")
             
             # 2. Overall max date (diagnostic)
             overall_max_date = cache_df.index.max()
@@ -431,6 +451,7 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
             "spy_max_date": spy_max_date_str,  # Explicit SPY date
             "overall_max_date": overall_max_date_str,  # Diagnostic
             "min_symbol_max_date": min_symbol_max_date_str,  # Diagnostic
+            "tickers_missing_at_spy_end": len(tickers_missing_at_spy_end),  # Count of tickers missing at SPY's end
             "cache_file": CACHE_PATH
         }
         
@@ -535,35 +556,81 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     
     # Step 5: Fetch missing data (if network is available)
     all_failures = {}
+    spy_data_df = pd.DataFrame()
+    
     if missing_tickers:
         logger.info("=" * 70)
         logger.info(f"FETCHING DATA FOR {len(missing_tickers)} TICKERS")
         logger.info(f"Date range for fetch: {start_date.date()} to {end_date.date()}")
         logger.info("=" * 70)
         
-        # Fetch in batches
-        all_new_data = []
-        
-        for i in range(0, len(missing_tickers), BATCH_SIZE):
-            batch = missing_tickers[i:i + BATCH_SIZE]
-            batch_num = i // BATCH_SIZE + 1
-            total_batches = (len(missing_tickers) - 1) // BATCH_SIZE + 1
-            
-            logger.info(f"Fetching batch {batch_num}/{total_batches} ({len(batch)} tickers)...")
+        # Step 5a: Fetch SPY independently FIRST to ensure complete data
+        # SPY is the canonical trading calendar - must be fetched without truncation
+        if 'SPY' in missing_tickers:
+            logger.info("=" * 70)
+            logger.info("FETCHING SPY INDEPENDENTLY (canonical trading calendar)")
+            logger.info(f"  SPY fetch date range: {start_date.date()} to {end_date.date()}")
+            logger.info("=" * 70)
             
             try:
-                batch_data, batch_failures = fetch_prices_batch(batch, start_date, end_date)
+                spy_data_df, spy_failures = fetch_prices_batch(['SPY'], start_date, end_date)
                 
-                if not batch_data.empty:
-                    all_new_data.append(batch_data)
-                    logger.info(f"  Fetched {len(batch_data)} days for {len(batch_data.columns)} tickers")
-                
-                all_failures.update(batch_failures)
-                
+                if not spy_data_df.empty and 'SPY' in spy_data_df.columns:
+                    spy_series = spy_data_df['SPY'].dropna()
+                    if not spy_series.empty:
+                        spy_max_date = spy_series.index.max()
+                        logger.info(f"✓ SPY fetched successfully:")
+                        logger.info(f"    Data points: {len(spy_series)}")
+                        logger.info(f"    Date range: {spy_series.index.min().date()} to {spy_max_date.date()}")
+                        logger.info(f"    SPY max date: {spy_max_date.date()} (canonical trading calendar)")
+                        
+                        # Remove SPY from missing_tickers to avoid re-fetching
+                        # Note: SPY is guaranteed to be in the list at this point (checked at line 569)
+                        missing_tickers.remove('SPY')
+                        logger.info(f"  Removed SPY from batch fetch list ({len(missing_tickers)} tickers remaining)")
+                    else:
+                        logger.warning("⚠ SPY data is empty after dropna()")
+                        all_failures.update(spy_failures)
+                else:
+                    logger.error("✗ SPY fetch failed - SPY not in result")
+                    all_failures.update(spy_failures)
+                    
             except Exception as e:
-                logger.error(f"  Batch {batch_num} failed: {e}")
-                for ticker in batch:
-                    all_failures[ticker] = str(e)
+                logger.error(f"✗ SPY independent fetch failed: {e}")
+                all_failures['SPY'] = str(e)
+        
+        # Step 5b: Fetch remaining tickers in batches
+        all_new_data = []
+        
+        # Add SPY data first if fetched successfully
+        if not spy_data_df.empty:
+            all_new_data.append(spy_data_df)
+        
+        if missing_tickers:
+            logger.info("=" * 70)
+            logger.info(f"FETCHING REMAINING {len(missing_tickers)} TICKERS IN BATCHES")
+            logger.info("=" * 70)
+            
+            for i in range(0, len(missing_tickers), BATCH_SIZE):
+                batch = missing_tickers[i:i + BATCH_SIZE]
+                batch_num = i // BATCH_SIZE + 1
+                total_batches = (len(missing_tickers) - 1) // BATCH_SIZE + 1
+                
+                logger.info(f"Fetching batch {batch_num}/{total_batches} ({len(batch)} tickers)...")
+                
+                try:
+                    batch_data, batch_failures = fetch_prices_batch(batch, start_date, end_date)
+                    
+                    if not batch_data.empty:
+                        all_new_data.append(batch_data)
+                        logger.info(f"  Fetched {len(batch_data)} days for {len(batch_data.columns)} tickers")
+                    
+                    all_failures.update(batch_failures)
+                    
+                except Exception as e:
+                    logger.error(f"  Batch {batch_num} failed: {e}")
+                    for ticker in batch:
+                        all_failures[ticker] = str(e)
         
         # Merge new data with cache
         if all_new_data:
@@ -573,7 +640,19 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
             for df in all_new_data[1:]:
                 new_data_df = pd.concat([new_data_df, df], axis=1)
             
+            # Log SPY status before merge
+            if 'SPY' in new_data_df.columns:
+                spy_before_merge = new_data_df['SPY'].dropna()
+                if not spy_before_merge.empty:
+                    logger.info(f"SPY before merge: {len(spy_before_merge)} days, max={spy_before_merge.index.max().date()}")
+            
             cache_df = merge_cache_and_new_data(cache_df, new_data_df)
+            
+            # Log SPY status after merge
+            if 'SPY' in cache_df.columns:
+                spy_after_merge = cache_df['SPY'].dropna()
+                if not spy_after_merge.empty:
+                    logger.info(f"SPY after merge: {len(spy_after_merge)} days, max={spy_after_merge.index.max().date()}")
         
         # Log failures with ticker + reason
         if all_failures:
