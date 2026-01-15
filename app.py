@@ -22605,10 +22605,12 @@ def main():
     # Check run_count threshold (max 3 iterations without user action)
     if st.session_state.run_count > 3:
         st.session_state.loop_detected = True
-        st.error("⚠️ **LOOP DETECTION: Automatic execution halted**")
-        st.warning("The application detected more than 3 consecutive runs without user interaction. This indicates a potential infinite loop.")
-        st.info("Please refresh the page manually or click a button to continue.")
-        st.stop()
+        # Log loop detection but continue rendering UI
+        logger.warning(f"Loop detection triggered: {st.session_state.run_count} consecutive runs without user interaction")
+        # Display warning banner but allow UI to continue
+        if st.session_state.get("debug_mode", False):
+            st.warning("⚠️ Loop detection: Multiple consecutive runs detected. Debug mode allows continued execution.")
+        # st.stop()  # REMOVED: Allow UI to render instead of halting
     
     # ========================================================================
     # STEP 1.5: Rerun Throttle Safety Fuse (Prevent Rapid Reruns)
@@ -22626,15 +22628,14 @@ def main():
         if time_since_last_rerun < RERUN_THROTTLE_THRESHOLD:
             st.session_state.rapid_rerun_count += 1
             
-            # If we've exceeded max rapid reruns, halt execution
+            # If we've exceeded max rapid reruns, log but continue
             if st.session_state.rapid_rerun_count >= MAX_RAPID_RERUNS:
-                st.error("⚠️ **RAPID RERUN DETECTED: Application halted for safety**")
-                st.warning(f"The application detected {st.session_state.rapid_rerun_count} consecutive reruns within {RERUN_THROTTLE_THRESHOLD} seconds. This indicates a rerun loop.")
-                st.info("**What to do:**")
-                st.info("1. Refresh the page manually (F5 or Ctrl+R)")
-                st.info("2. If the problem persists, check for auto-refresh settings or report this issue")
-                st.caption(f"Debug info: Last rerun was {time_since_last_rerun:.3f}s ago (threshold: {RERUN_THROTTLE_THRESHOLD}s)")
-                st.stop()
+                # Log rapid rerun detection but continue rendering UI
+                logger.warning(f"Rapid rerun detection triggered: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s")
+                # Display warning banner but allow UI to continue
+                if st.session_state.get("debug_mode", False):
+                    st.warning(f"⚠️ Rapid rerun detected: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s. Debug mode allows continued execution.")
+                # st.stop()  # REMOVED: Allow UI to render instead of halting
         else:
             # Reset rapid rerun counter if enough time has passed
             st.session_state.rapid_rerun_count = 0
@@ -22794,9 +22795,12 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     elapsed_time = time.time() - WATCHDOG_START_TIME
     if st.session_state.safe_mode_no_fetch and elapsed_time > 3.0:
-        st.error("⏱️ **Safe Mode watchdog stopped long-running execution.** (Exceeded 3-second timeout)")
-        st.info("Turn OFF Safe Mode to enable full functionality, or use manual buttons to trigger specific operations.")
-        st.stop()
+        # Log watchdog timeout but continue rendering UI
+        logger.warning(f"Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed (threshold: 3.0s)")
+        # Display warning banner but allow UI to continue
+        if st.session_state.get("debug_mode", False):
+            st.warning(f"⏱️ Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed. Debug mode allows continued execution.")
+        # st.stop()  # REMOVED: Allow UI to render instead of halting
     
     # Debug trace: Mark that we passed the watchdog
     if st.session_state.get("debug_mode", False):
