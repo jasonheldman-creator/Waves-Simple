@@ -17,6 +17,17 @@ Complete implementation with 18 tab render functions (16-17 visible tabs dependi
 Includes all analytics, monitoring, and governance features.
 """
 import streamlit as st
+# ================================
+# HARD OVERRIDE — DISABLE ALL SAFETY / DIAGNOSTICS MODES
+# ================================
+try:
+    st.session_state["diagnostics_mode"] = False
+    st.session_state["debug_mode"] = False
+    st.session_state["safe_mode"] = False
+    st.session_state["proof_mode"] = False
+    st.session_state["__render_lock__"] = False
+except Exception:
+    pass
 import logging
 
 logger = logging.getLogger("waves_app")
@@ -23105,7 +23116,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         removed_duplicates = universe.get("removed_duplicates", [])
         
         if removed_duplicates:
-            # Show info message with duplicate count
-            st.sidebar.info(f"ℹ️ Removed {len(removed_duplicates)} duplicate wave(s) from universe")
-    except Exception:
-        pass  # Parser safety guard: ensures try block is properly terminated
+            # Show in
