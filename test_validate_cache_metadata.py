@@ -356,12 +356,16 @@ def test_bootstrap_override():
     print("TEST: Bootstrap Override (ALLOW_METADATA_BOOTSTRAP)")
     print("=" * 80)
     
-    # Create a stale metadata file
+    # Create a stale metadata file with a date that's guaranteed to be old
+    stale_date = (date.today() - timedelta(days=30))
+    stale_date_str = stale_date.strftime('%Y-%m-%d')
+    stale_timestamp = stale_date.strftime('%Y-%m-%dT00:00:00Z')
+    
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         metadata = {
-            "spy_max_date": "2026-01-01",  # Intentionally stale
+            "spy_max_date": stale_date_str,  # Intentionally stale (30 days old)
             "tickers_total": 100,
-            "generated_at_utc": "2026-01-01T00:00:00Z"
+            "generated_at_utc": stale_timestamp
         }
         json.dump(metadata, f)
         temp_path = f.name
@@ -405,11 +409,14 @@ def test_bootstrap_override():
         print("\n3. Testing that other validations still fail with override...")
         os.environ['ALLOW_METADATA_BOOTSTRAP'] = '1'
         
+        # Use a recent timestamp for this test
+        recent_timestamp = date.today().strftime('%Y-%m-%dT00:00:00Z')
+        
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             bad_metadata = {
                 "spy_max_date": None,  # Missing spy_max_date
                 "tickers_total": 100,
-                "generated_at_utc": "2026-01-01T00:00:00Z"
+                "generated_at_utc": recent_timestamp
             }
             json.dump(bad_metadata, f)
             bad_path = f.name
