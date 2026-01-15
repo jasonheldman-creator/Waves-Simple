@@ -244,13 +244,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          # Fetch and rebase onto latest main BEFORE staging any changes
-          echo "Fetching latest changes from origin/main..."
-          git fetch origin main
-          echo "Rebasing onto origin/main..."
-          git pull --rebase origin main
-
-          # Now stage the wave history files (after rebase is complete)
+          # Stage the wave history files
           echo "Staging wave history files..."
           git add wave_history.csv || true
           git add wave_coverage_snapshot.json || true
@@ -259,10 +253,10 @@ jobs:
           if git diff --staged --quiet; then
             # For workflow_dispatch, we still log completion even with no changes
             if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-              echo "⚠ Manual run completed but no changes detected after rebase."
+              echo "⚠ Manual run completed but no changes detected."
               echo "This can happen if wave_history.csv was just updated by another workflow."
             else
-              echo "ℹ After rebase, nothing to commit."
+              echo "ℹ No changes to commit."
             fi
             exit 0
           fi
