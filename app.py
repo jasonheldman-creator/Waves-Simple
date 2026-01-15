@@ -6802,11 +6802,6 @@ def render_snapshot_authority_banner():
     visibility into the data pipeline status.
     """
     try:
-        import json
-        import os
-        import pandas as pd
-        from datetime import datetime
-        
         # Load snapshot date from live_snapshot.csv
         snapshot_date_str = "N/A"
         snapshot_rows = "N/A"
@@ -6878,10 +6873,10 @@ def render_snapshot_authority_banner():
                 <div style="color: #FFFFFF; font-size: 16px; line-height: 1.8;">
                     <div style="display: grid; grid-template-columns: 200px auto; gap: 10px;">
                         <div><strong>📅 Snapshot Date:</strong></div>
-                        <div>{snapshot_date_str} <span style="color: #FFD700;">(BEHIND)</span></div>
+                        <div>{snapshot_date_str} <span style="color: #FFD700; font-weight: bold;">⚠️ BEHIND</span></div>
                         
                         <div><strong>📊 SPY Last Trading Day:</strong></div>
-                        <div>{spy_max_date_str} <span style="color: #00FF00;">(CURRENT)</span></div>
+                        <div>{spy_max_date_str} <span style="color: #00FF00; font-weight: bold;">✓ CURRENT</span></div>
                         
                         <div><strong>💾 Cache Max Date:</strong></div>
                         <div>{cache_max_date_str}</div>
@@ -6932,8 +6927,6 @@ def render_snapshot_authority_banner():
         
     except Exception as e:
         st.error(f"⚠️ Failed to render Snapshot Authority Banner: {e}")
-        import traceback
-        st.code(traceback.format_exc(), language="python")
 
 
 def render_mission_control():

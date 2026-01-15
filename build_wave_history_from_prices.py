@@ -192,17 +192,20 @@ print(f"Found {len(required_tickers)} unique tickers in wave weights and benchma
 # ENFORCE: Single source of truth - prices_cache.parquet only
 # No fallback to prices.csv or network fetching
 if not os.path.exists(PRICES_CACHE_FILE):
-    print("\n" + "="*70)
-    print("[ERROR] Canonical price cache not found!")
-    print(f"        Expected path: {PRICES_CACHE_FILE}")
-    print("")
-    print("        The price cache is the ONLY allowed data source.")
-    print("        Please run the Update Price Cache workflow first:")
-    print("        1. Go to GitHub Actions")
-    print("        2. Run 'Update Price Cache' workflow")
-    print("        3. Wait for completion")
-    print("        4. Then re-run this workflow")
-    print("="*70)
+    error_message = f"""
+{'=' * 70}
+[ERROR] Canonical price cache not found!
+        Expected path: {PRICES_CACHE_FILE}
+
+        The price cache is the ONLY allowed data source.
+        Please run the Update Price Cache workflow first:
+        1. Go to GitHub Actions
+        2. Run 'Update Price Cache' workflow
+        3. Wait for completion
+        4. Then re-run this workflow
+{'=' * 70}
+"""
+    print(error_message)
     sys.exit(1)
 
 print(f"Loading canonical price cache: {PRICES_CACHE_FILE}")
