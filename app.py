@@ -23107,5 +23107,5 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         if removed_duplicates:
             # Show info message with duplicate count
             st.sidebar.info(f"ℹ️ Removed {len(removed_duplicates)} duplicate wave(s) from universe")
-            
-            # Optionally show list o
+    except Exception:
+        pass  # Parser safety guard: ensures try block is properly terminated
