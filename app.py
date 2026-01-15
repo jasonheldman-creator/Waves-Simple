@@ -2,7 +2,8 @@ import os
 import pandas as pd
 import streamlit as st
 
-WAVE_HISTORY_PATH = "data/wave_history.csv"
+WAVE_HISTORY_PATH = "wave_history.csv"
+assert os.path.exists(WAVE_HISTORY_PATH), f"Missing {WAVE_HISTORY_PATH}"
 
 st.error(
     f"""
@@ -23097,14 +23098,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     st.caption("ENTRYPOINT: app.py")
     
-    # ========================================================================
-    # REALITY PANEL - Single Source of Truth for Price Data
-    # ========================================================================
-    # Display the Reality Panel showing actual PRICE_BOOK metadata
-    render_reality_panel()
-    
-    st.markdown("---")
-    
-    # ========================================================================
-    # ROUND 7 Phase 1: Wave Universe Validation Banner
-    
+    # ==============================================================
