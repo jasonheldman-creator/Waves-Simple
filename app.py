@@ -2620,13 +2620,18 @@ def validate_wave_history_integrity(df, wave_history_path):
     """
     Validate wave_history data integrity and freshness.
     
+    Args:
+        df: DataFrame containing wave history data (can be None)
+        wave_history_path: Path to the wave_history.csv file
+    
     Returns:
         dict with keys:
         - 'status': 'ok', 'warning', or 'error'
         - 'issues': list of issue descriptions
-        - 'days_old': age of most recent data in days
+        - 'days_old': age of most recent data in days (None if no data)
         - 'row_count': number of rows
         - 'wave_count': number of unique waves
+        - 'file_exists': whether the file exists on disk
     """
     validation = {
         'status': 'ok',
@@ -2693,6 +2698,17 @@ def validate_wave_history_integrity(df, wave_history_path):
     return validation
 
 
+def _store_wave_history_validation(validation_dict):
+    """
+    Helper function to store validation results in Streamlit session state.
+    
+    Args:
+        validation_dict: Dictionary with validation results
+    """
+    if 'st' in globals() and hasattr(st, 'session_state'):
+        st.session_state['wave_history_validation'] = validation_dict
+
+
 def safe_load_wave_history(_wave_universe_version=1):
     """
     Safely load wave history data with comprehensive error handling and validation.
@@ -2716,50 +2732,52 @@ def safe_load_wave_history(_wave_universe_version=1):
     
     try:
         if not os.path.exists(wave_history_path):
-            # Store validation state
-            if 'st' in globals() and hasattr(st, 'session_state'):
-                st.session_state['wave_history_validation'] = {
-                    'status': 'error',
-                    'issues': ['wave_history.csv file not found'],
-                    'file_exists': False
-                }
+            _store_wave_history_validation({
+                'status': 'error',
+                'issues': ['wave_history.csv file not found'],
+                'file_exists': False
+            })
             return None
         
         df = pd.read_csv(wave_history_path)
         
         if df is None or len(df) == 0:
-            # Store validation state
-            if 'st' in globals() and hasattr(st, 'session_state'):
-                st.session_state['wave_history_validation'] = {
-                    'status': 'error',
-                    'issues': ['wave_history.csv is empty'],
-                    'file_exists': True
-                }
+            _store_wave_history_validation({
+                'status': 'error',
+                'issues': ['wave_history.csv is empty'],
+                'file_exists': True
+            })
             return None
         
         # Validate required columns
         if 'date' not in df.columns:
-            if 'st' in globals() and hasattr(st, 'session_state'):
-                st.session_state['wave_history_validation'] = {
-                    'status': 'error',
-                    'issues': ['Missing required "date" column'],
-                    'file_exists': True
-                }
+            _store_wave_history_validation({
+                'status': 'error',
+                'issues': ['Missing required "date" column'],
+                'file_exists': True
+            })
             return None
         
-        # Convert date to datetime
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        # Convert date to datetime with explicit error handling
+        try:
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        except Exception as date_error:
+            _store_wave_history_validation({
+                'status': 'error',
+                'issues': [f'Error parsing date column: {str(date_error)}'],
+                'file_exists': True
+            })
+            return None
         
         # Remove rows with invalid dates
         df = df.dropna(subset=['date'])
         
         if len(df) == 0:
-            if 'st' in globals() and hasattr(st, 'session_state'):
-                st.session_state['wave_history_validation'] = {
-                    'status': 'error',
-                    'issues': ['All dates are invalid or missing'],
-                    'file_exists': True
-                }
+            _store_wave_history_validation({
+                'status': 'error',
+                'issues': ['All dates are invalid or missing'],
+                'file_exists': True
+            })
             return None
         
         # Create 'wave' column if it doesn't exist
@@ -2785,19 +2803,17 @@ def safe_load_wave_history(_wave_universe_version=1):
         validation = validate_wave_history_integrity(df, wave_history_path)
         
         # Store validation results in session state for UI display
-        if 'st' in globals() and hasattr(st, 'session_state'):
-            st.session_state['wave_history_validation'] = validation
+        _store_wave_history_validation(validation)
         
         return df
         
     except Exception as e:
         # Store error in validation state
-        if 'st' in globals() and hasattr(st, 'session_state'):
-            st.session_state['wave_history_validation'] = {
-                'status': 'error',
-                'issues': [f'Error loading wave_history.csv: {str(e)}'],
-                'file_exists': os.path.exists(wave_history_path)
-            }
+        _store_wave_history_validation({
+            'status': 'error',
+            'issues': [f'Error loading wave_history.csv: {str(e)}'],
+            'file_exists': os.path.exists(wave_history_path)
+        })
         return None
 
 
