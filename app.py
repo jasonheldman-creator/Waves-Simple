@@ -22552,11 +22552,13 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
             
             with net_col2:
                 st.metric("Auto-Refresh", "ON" if auto_refresh_status else "OFF")
-                
+    
+    except Exception as e:
+        st.error("Unable to render executive dashboard")
+        if st.session_state.get("debug_mode", False):
+            st.exception(e)
 
-# TEMPORARY SYNTAX GUARD
-if False:
-    pass
+
 # ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
@@ -22990,9 +22992,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
             
             print(f"ℹ️ Snapshot does not exist - Safe Mode prevents auto-build. Use manual rebuild button.")
-    # TEMPORARY SYNTAX GUARD
-if False:
-    pass
+    
     # ========================================================================
     # Session State Initialization
     # ========================================================================
@@ -23100,4 +23100,9 @@ if False:
         # Reset the flag
         st.session_state["force_reload_universe"] = False
     else:
-        # Normal initializ
+        # Normal initialization - use cached universe
+        get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+
+
+if __name__ == "__main__":
+    main()
