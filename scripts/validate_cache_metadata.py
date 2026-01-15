@@ -15,12 +15,12 @@ Exits with code 1 if any validation fails, code 0 if all validations pass.
 
 import json
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from pathlib import Path
 from typing import Optional, Tuple
 
 
-def fetch_spy_latest_trading_day(calendar_days: int = 15) -> Tuple[Optional[datetime], list]:
+def fetch_spy_latest_trading_day(calendar_days: int = 15) -> Tuple[Optional[date], list]:
     """
     Fetch SPY price history to determine the latest trading day.
     
