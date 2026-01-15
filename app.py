@@ -1,7 +1,3 @@
-# TEMPORARY SYNTAX GUARD
-if False:
-    pass
-
 """
 Institutional Console v2 - Executive Layer v2
 Full implementation with advanced analytics and visualization
