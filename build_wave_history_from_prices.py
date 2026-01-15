@@ -1,21 +1,18 @@
 """
-Build wave history from prices with strategy adjustments.
+Build wave history from prices with full strategy pipeline.
 
-This script generates wave_history.csv with strategy-adjusted returns for equity waves.
-For equity growth waves, it applies VIX overlay exposure adjustments to portfolio_return,
-ensuring that historical returns reflect the strategy pipeline output.
-
-Note: This is a simplified batch processor. For full strategy pipeline with safe allocation,
-volatility targeting, and all overlays, see waves_engine.compute_history_nav().
-
-Strategy adjustments applied:
-- VIX overlay: Exposure factor based on VIX level (equity waves only)
-
-Not applied in batch mode (applied in real-time by waves_engine):
-- Safe allocation: Blending with safe assets (SGOV, BIL, etc.)
-- Volatility targeting: Dynamic scaling based on recent volatility
-- Momentum tilting: Weight adjustments based on 60-day momentum
+This script generates wave_history.csv with complete strategy-adjusted returns for equity waves.
+For equity growth waves, it uses waves_engine.compute_history_nav() to apply the full strategy
+pipeline including:
+- Momentum overlay: Weight tilting based on 60-day momentum
+- VIX overlay: Exposure scaling and safe allocation based on VIX regime
+- Regime detection: Market regime-based exposure adjustments
+- Volatility targeting: Dynamic volatility scaling
 - Trend confirmation: Additional trend-based filters
+- Safe allocation: Blending with safe assets (SGOV, BIL, etc.)
+
+This ensures wave_history.csv contains returns that reflect the complete strategy stack,
+matching the S&P 500 Wave reference implementation and providing full strategy stacking parity.
 """
 
 import pandas as pd
@@ -36,6 +33,15 @@ _spec = importlib.util.spec_from_file_location(
 _ticker_normalize = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_ticker_normalize)
 normalize_ticker = _ticker_normalize.normalize_ticker
+
+# Import waves_engine for full strategy pipeline
+try:
+    import waves_engine
+    WAVES_ENGINE_AVAILABLE = True
+    print("[INFO] waves_engine loaded - will use full strategy pipeline for equity waves")
+except ImportError:
+    WAVES_ENGINE_AVAILABLE = False
+    print("[WARN] waves_engine not available - will use simplified VIX-only overlay")
 
 
 # ------------------------
@@ -407,32 +413,128 @@ for wave, wdf in weights.groupby("wave"):
         "benchmark_return": bench_rets.reindex(wave_rets.index).values,
     }).dropna()
     
-    # Add VIX execution state columns for equity waves
+    # Apply strategy overlays for equity waves using waves_engine
     is_equity = is_equity_wave(wave)
     
-    if is_equity and vix_levels is not None and spy_60d_returns is not None:
-        # Align VIX and SPY data with wave dates
-        vix_aligned = vix_levels.reindex(df_wave["date"])
-        spy_60d_aligned = spy_60d_returns.reindex(df_wave["date"])
+    if is_equity and WAVES_ENGINE_AVAILABLE:
+        # Use waves_engine.compute_history_nav() for full strategy pipeline
+        # This applies: momentum, VIX, regime detection, volatility targeting, safe allocation, etc.
+        print(f"[INFO] Computing full strategy pipeline for '{wave}' using waves_engine...")
         
-        # Compute VIX regime for each date
-        df_wave["vix_level"] = vix_aligned.values
-        df_wave["vix_regime"] = spy_60d_aligned.apply(classify_regime).values
-        df_wave["exposure_used"] = vix_aligned.apply(get_vix_exposure_factor).values
-        df_wave["overlay_active"] = True
+        try:
+            # Prepare price DataFrame for waves_engine (date index, ticker columns)
+            # waves_engine expects prices, not returns
+            price_df_for_engine = price_wide.copy()
+            
+            # Call waves_engine with full strategy pipeline
+            result_df = waves_engine.compute_history_nav(
+                wave_name=wave,
+                mode="Standard",
+                days=len(df_wave),  # Use same date range
+                include_diagnostics=True,
+                price_df=price_df_for_engine
+            )
+            
+            if result_df is not None and not result_df.empty and 'wave_ret' in result_df.columns and 'bm_ret' in result_df.columns:
+                # Success! Use strategy-adjusted returns from waves_engine
+                # Align with our date range
+                result_df = result_df.reindex(df_wave["date"])
+                
+                # Replace portfolio_return and benchmark_return with strategy-adjusted values
+                df_wave["portfolio_return"] = result_df["wave_ret"].values
+                df_wave["benchmark_return"] = result_df["bm_ret"].values
+                
+                # Extract diagnostics if available
+                if hasattr(result_df, 'attrs') and 'diagnostics' in result_df.attrs:
+                    diag_df = result_df.attrs['diagnostics']
+                    if diag_df is not None and not diag_df.empty:
+                        # Align diagnostics with wave dates
+                        # Check if Date column exists, otherwise use index
+                        if 'Date' in diag_df.columns:
+                            diag_aligned = diag_df.set_index('Date').reindex(df_wave["date"])
+                        elif isinstance(diag_df.index, pd.DatetimeIndex):
+                            diag_aligned = diag_df.reindex(df_wave["date"])
+                        else:
+                            # Cannot align diagnostics, use defaults
+                            diag_aligned = None
+                        
+                        if diag_aligned is not None:
+                            df_wave["vix_level"] = diag_aligned["vix"].values if "vix" in diag_aligned.columns else np.nan
+                            df_wave["vix_regime"] = diag_aligned["regime"].values if "regime" in diag_aligned.columns else "neutral"
+                            df_wave["exposure_used"] = diag_aligned["exposure"].values if "exposure" in diag_aligned.columns else 1.0
+                        else:
+                            df_wave["vix_level"] = np.nan
+                            df_wave["vix_regime"] = "neutral"
+                            df_wave["exposure_used"] = 1.0
+                    else:
+                        # No diagnostics, use defaults
+                        df_wave["vix_level"] = np.nan
+                        df_wave["vix_regime"] = "neutral"
+                        df_wave["exposure_used"] = 1.0
+                else:
+                    # No diagnostics, use defaults
+                    df_wave["vix_level"] = np.nan
+                    df_wave["vix_regime"] = "neutral"
+                    df_wave["exposure_used"] = 1.0
+                
+                df_wave["overlay_active"] = True
+                print(f"[SUCCESS] Full strategy pipeline applied for '{wave}' ({len(result_df)} days)")
+            else:
+                # waves_engine returned empty/invalid data, fall back to simplified VIX overlay
+                print(f"[WARN] waves_engine returned invalid data for '{wave}', falling back to simplified VIX overlay")
+                # Raise exception to trigger fallback logic
+                raise ValueError("waves_engine returned empty or invalid data")
+                
+        except Exception as e:
+            # If waves_engine fails, fall back to simplified VIX-only overlay
+            print(f"[WARN] waves_engine failed for '{wave}': {e}")
+            print(f"[INFO] Falling back to simplified VIX overlay for '{wave}'")
+            
+            if vix_levels is not None and spy_60d_returns is not None:
+                # Align VIX and SPY data with wave dates
+                vix_aligned = vix_levels.reindex(df_wave["date"])
+                spy_60d_aligned = spy_60d_returns.reindex(df_wave["date"])
+                
+                # Compute VIX regime for each date
+                df_wave["vix_level"] = vix_aligned.values
+                df_wave["vix_regime"] = spy_60d_aligned.apply(classify_regime).values
+                df_wave["exposure_used"] = vix_aligned.apply(get_vix_exposure_factor).values
+                df_wave["overlay_active"] = True
+                
+                # Apply VIX-only exposure adjustment (simplified)
+                df_wave["portfolio_return"] = df_wave["portfolio_return"] * df_wave["exposure_used"]
+            else:
+                # No VIX data available
+                df_wave["vix_level"] = np.nan
+                df_wave["vix_regime"] = "neutral"
+                df_wave["exposure_used"] = 1.0
+                df_wave["overlay_active"] = False
+    
+    elif is_equity and not WAVES_ENGINE_AVAILABLE:
+        # waves_engine not available, use simplified VIX-only overlay
+        print(f"[INFO] Using simplified VIX overlay for '{wave}' (waves_engine not available)")
         
-        # Apply exposure adjustment to portfolio_return to create strategy-adjusted returns
-        # This ensures the wave_history.csv contains post-VIX-overlay returns, not raw holdings returns
-        # 
-        # Note: This batch processor applies VIX overlay only. It does NOT apply:
-        # - Safe allocation (requires daily state of safe asset prices)
-        # - Volatility targeting (requires rolling window volatility calculation)
-        # - Momentum tilting (already captured in holdings weights)
-        # 
-        # For full strategy pipeline, use waves_engine.compute_history_nav()
-        df_wave["portfolio_return"] = df_wave["portfolio_return"] * df_wave["exposure_used"]
+        if vix_levels is not None and spy_60d_returns is not None:
+            # Align VIX and SPY data with wave dates
+            vix_aligned = vix_levels.reindex(df_wave["date"])
+            spy_60d_aligned = spy_60d_returns.reindex(df_wave["date"])
+            
+            # Compute VIX regime for each date
+            df_wave["vix_level"] = vix_aligned.values
+            df_wave["vix_regime"] = spy_60d_aligned.apply(classify_regime).values
+            df_wave["exposure_used"] = vix_aligned.apply(get_vix_exposure_factor).values
+            df_wave["overlay_active"] = True
+            
+            # Apply VIX-only exposure adjustment (simplified)
+            df_wave["portfolio_return"] = df_wave["portfolio_return"] * df_wave["exposure_used"]
+        else:
+            # No VIX data available
+            df_wave["vix_level"] = np.nan
+            df_wave["vix_regime"] = "neutral"
+            df_wave["exposure_used"] = 1.0
+            df_wave["overlay_active"] = False
     else:
-        # Non-equity waves or missing data: VIX overlay disabled
+        # Non-equity waves (crypto, income): no strategy overlays
         df_wave["vix_level"] = np.nan
         df_wave["vix_regime"] = "neutral"
         df_wave["exposure_used"] = 1.0
