@@ -6788,6 +6788,154 @@ def render_reality_panel():
         st.code(traceback.format_exc(), language="python")
 
 
+def render_snapshot_authority_banner():
+    """
+    Render Snapshot Authority Banner - Data Freshness & Staleness Warning
+    
+    This banner enforces data freshness by displaying:
+    - Snapshot date from live_snapshot.csv
+    - SPY last trading date from prices_cache_meta.json
+    - Cache max date from prices_cache_meta.json
+    - STALE DATA warning if snapshot_date < last_trading_date
+    
+    This prevents the app from silently rendering stale data and provides
+    visibility into the data pipeline status.
+    """
+    try:
+        import json
+        import os
+        import pandas as pd
+        from datetime import datetime
+        
+        # Load snapshot date from live_snapshot.csv
+        snapshot_date_str = "N/A"
+        snapshot_rows = "N/A"
+        snapshot_exists = False
+        
+        snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(snapshot_path):
+            try:
+                snapshot_df = pd.read_csv(snapshot_path)
+                snapshot_exists = True
+                snapshot_rows = len(snapshot_df)
+                if "Date" in snapshot_df.columns and not snapshot_df.empty:
+                    snapshot_date_str = snapshot_df["Date"].iloc[0]
+                else:
+                    snapshot_date_str = "Missing Date column"
+            except Exception as e:
+                snapshot_date_str = f"Error: {e}"
+        
+        # Load SPY trading date and cache max date from prices_cache_meta.json
+        spy_max_date_str = "N/A"
+        cache_max_date_str = "N/A"
+        cache_generated_at = "N/A"
+        
+        cache_meta_path = "data/cache/prices_cache_meta.json"
+        if os.path.exists(cache_meta_path):
+            try:
+                with open(cache_meta_path, 'r') as f:
+                    cache_meta = json.load(f)
+                
+                spy_max_date_str = cache_meta.get("spy_max_date", "N/A")
+                cache_max_date_str = cache_meta.get("max_price_date", "N/A")
+                cache_generated_at = cache_meta.get("generated_at_utc", "N/A")
+            except Exception as e:
+                spy_max_date_str = f"Error: {e}"
+                cache_max_date_str = f"Error: {e}"
+        
+        # Determine if data is stale
+        is_stale = False
+        stale_message = ""
+        
+        if snapshot_date_str != "N/A" and spy_max_date_str != "N/A":
+            try:
+                snapshot_date = pd.to_datetime(snapshot_date_str).date()
+                spy_trading_date = pd.to_datetime(spy_max_date_str).date()
+                
+                if snapshot_date < spy_trading_date:
+                    is_stale = True
+                    days_behind = (spy_trading_date - snapshot_date).days
+                    stale_message = f"STALE DATA: Snapshot is {days_behind} trading day(s) behind!"
+            except Exception as e:
+                stale_message = f"Date comparison error: {e}"
+        
+        # Render banner
+        if is_stale:
+            # STALE DATA - Red alert banner
+            st.error(f"🚨 {stale_message}")
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, #8B0000 0%, #DC143C 50%, #FF6347 100%);
+                border: 4px solid #FF0000;
+                border-radius: 12px;
+                padding: 20px 30px;
+                margin: 20px 0;
+                box-shadow: 0 6px 12px rgba(255, 0, 0, 0.5);
+            ">
+                <h3 style="color: #FFFFFF; margin: 0 0 15px 0; text-align: center;">
+                    ⚠️ SNAPSHOT AUTHORITY BANNER - STALE DATA DETECTED ⚠️
+                </h3>
+                <div style="color: #FFFFFF; font-size: 16px; line-height: 1.8;">
+                    <div style="display: grid; grid-template-columns: 200px auto; gap: 10px;">
+                        <div><strong>📅 Snapshot Date:</strong></div>
+                        <div>{snapshot_date_str} <span style="color: #FFD700;">(BEHIND)</span></div>
+                        
+                        <div><strong>📊 SPY Last Trading Day:</strong></div>
+                        <div>{spy_max_date_str} <span style="color: #00FF00;">(CURRENT)</span></div>
+                        
+                        <div><strong>💾 Cache Max Date:</strong></div>
+                        <div>{cache_max_date_str}</div>
+                        
+                        <div><strong>📦 Snapshot Rows:</strong></div>
+                        <div>{snapshot_rows}</div>
+                    </div>
+                    <div style="margin-top: 20px; padding: 15px; background: rgba(0, 0, 0, 0.3); border-radius: 8px;">
+                        <strong>⚠️ ACTION REQUIRED:</strong><br/>
+                        1. Run "Update Price Cache" workflow<br/>
+                        2. Run "Build Wave History" workflow<br/>
+                        3. Run "Rebuild Snapshot" workflow<br/>
+                        <br/>
+                        <strong>The app is displaying STALE data. Do not make decisions based on this data.</strong>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # FRESH DATA - Green success banner
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, #1a472a 0%, #2d5f3d 50%, #4a7c59 100%);
+                border: 3px solid #00FF88;
+                border-radius: 12px;
+                padding: 15px 25px;
+                margin: 15px 0;
+                box-shadow: 0 4px 8px rgba(0, 255, 136, 0.3);
+            ">
+                <h4 style="color: #00FF88; margin: 0 0 10px 0; text-align: center;">
+                    ✅ Snapshot Authority - Data Status
+                </h4>
+                <div style="color: #FFFFFF; font-size: 14px; display: grid; grid-template-columns: 180px auto; gap: 8px;">
+                    <div><strong>📅 Snapshot Date:</strong></div>
+                    <div>{snapshot_date_str}</div>
+                    
+                    <div><strong>📊 SPY Last Trading Day:</strong></div>
+                    <div>{spy_max_date_str}</div>
+                    
+                    <div><strong>💾 Cache Max Date:</strong></div>
+                    <div>{cache_max_date_str}</div>
+                    
+                    <div><strong>📦 Snapshot Rows:</strong></div>
+                    <div>{snapshot_rows}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"⚠️ Failed to render Snapshot Authority Banner: {e}")
+        import traceback
+        st.code(traceback.format_exc(), language="python")
+
+
 def render_mission_control():
     """
     Render the Mission Control summary strip at the top of the page.
@@ -23044,6 +23192,13 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # Display the Reality Panel showing actual PRICE_BOOK metadata
     render_reality_panel()
+    
+    # ========================================================================
+    # SNAPSHOT AUTHORITY BANNER - Data Freshness Enforcement
+    # ========================================================================
+    # Display snapshot authority banner showing data freshness status
+    # and STALE DATA warnings when snapshot_date < last_trading_date
+    render_snapshot_authority_banner()
     
     st.markdown("---")
     

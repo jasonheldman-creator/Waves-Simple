@@ -1728,6 +1728,67 @@ def generate_snapshot(
     print(f"Generation Time: {time.time() - start_time:.1f}s")
     print("=" * 80)
     
+    # ENFORCE: Trading-day freshness validation
+    # Ensure snapshot date matches the last SPY trading day
+    try:
+        # Get snapshot date from the snapshot data
+        if "Date" in snapshot_df.columns and not snapshot_df.empty:
+            snapshot_date_str = snapshot_df["Date"].iloc[0]
+            snapshot_date = pd.to_datetime(snapshot_date_str).date()
+            
+            # Get last trading day from prices_cache_meta.json
+            cache_meta_path = "data/cache/prices_cache_meta.json"
+            if os.path.exists(cache_meta_path):
+                with open(cache_meta_path, 'r') as f:
+                    cache_meta = json.load(f)
+                
+                spy_max_date_str = cache_meta.get("spy_max_date")
+                if spy_max_date_str:
+                    last_trading_date = pd.to_datetime(spy_max_date_str).date()
+                    
+                    print("\n" + "=" * 80)
+                    print("TRADING-DAY FRESHNESS VALIDATION")
+                    print("=" * 80)
+                    print(f"Snapshot Date:        {snapshot_date}")
+                    print(f"Last SPY Trading Day: {last_trading_date}")
+                    
+                    if snapshot_date < last_trading_date:
+                        error_msg = (
+                            f"\n❌ STALE DATA DETECTED ❌\n"
+                            f"Snapshot date ({snapshot_date}) is BEHIND the last SPY trading day ({last_trading_date}).\n"
+                            f"This indicates the snapshot is using stale price data.\n\n"
+                            f"Required actions:\n"
+                            f"1. Run 'Update Price Cache' workflow to fetch latest prices\n"
+                            f"2. Run 'Build Wave History' workflow to update wave_history.csv\n"
+                            f"3. Then re-run 'Rebuild Snapshot' workflow\n"
+                            f"\n"
+                            f"The snapshot will NOT be saved with stale data."
+                        )
+                        print(error_msg)
+                        print("=" * 80)
+                        raise ValueError(error_msg)
+                    elif snapshot_date == last_trading_date:
+                        print("✓ Snapshot is FRESH (matches last trading day)")
+                    else:
+                        # Snapshot date is ahead of last trading day (possible on weekends/holidays)
+                        print(f"⚠ Snapshot date is ahead of last trading day (acceptable during non-trading days)")
+                    
+                    print("=" * 80)
+                else:
+                    print("⚠ Warning: spy_max_date not found in cache metadata, skipping freshness check")
+            else:
+                print(f"⚠ Warning: Cache metadata file not found at {cache_meta_path}, skipping freshness check")
+        else:
+            print("⚠ Warning: Snapshot has no Date column, skipping freshness check")
+    except ValueError:
+        # Re-raise validation errors
+        raise
+    except Exception as e:
+        print(f"⚠ Warning: Failed to validate trading-day freshness (non-fatal): {e}")
+        # Continue with save - this is a warning, not a fatal error
+        import traceback
+        traceback.print_exc()
+    
     # Persist snapshot
     try:
         # Create directory if needed (handle case where dirname is empty)
