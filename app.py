@@ -8502,7 +8502,7 @@ def render_sidebar_info():
                     key="debug_mode_ui_toggle",
                     help="Show detailed error messages and diagnostics when components fail (default: OFF)"
                 )
-                st.session_state["debug_mode"] = debug_mode_ui
+                st.session_state["debug_mode"] = False
                 
                 st.markdown("---")
                 
@@ -23108,10 +23108,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             # Show info message with duplicate count
             st.sidebar.info(f"ℹ️ Removed {len(removed_duplicates)} duplicate wave(s) from universe")
             
-            # Optionally show list of removed duplicates in expander
-            with st.sidebar.expander("View Removed Duplicates"):
-                st.write("**Duplicates removed during deduplication:**")
-                for dup in removed_duplicates:
-                    st.text(f"• {dup}")
-    except Exception:
-        pass
+            # Optionally show list o
