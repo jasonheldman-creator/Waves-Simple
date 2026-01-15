@@ -8500,7 +8500,7 @@ def render_sidebar_info():
                     key="debug_mode_ui_toggle",
                     help="Show detailed error messages and diagnostics when components fail (default: OFF)"
                 )
-                st.session_state["debug_mode"] = False
+                st.session_state["debug_mode"] = debug_mode_ui
                 
                 st.markdown("---")
                 
