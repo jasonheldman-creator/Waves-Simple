@@ -1,3 +1,33 @@
+import streamlit as st
+
+# MUST BE FIRST STREAMLIT CALL
+st.set_page_config(
+    page_title="WAVES Intelligence",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+import os
+import pandas as pd
+
+WAVE_HISTORY_PATH = "wave_history.csv"
+assert os.path.exists(WAVE_HISTORY_PATH), f"Missing {WAVE_HISTORY_PATH}"
+
+DEBUG_MODE = True  # TEMP – set to False later
+
+df = pd.read_csv(WAVE_HISTORY_PATH)
+
+if DEBUG_MODE:
+    st.warning(
+        f"""
+🔍 DATA LOAD DIAGNOSTIC
+Path: {WAVE_HISTORY_PATH}
+Exists: {os.path.exists(WAVE_HISTORY_PATH)}
+Last modified: {os.path.getmtime(WAVE_HISTORY_PATH)}
+Rows loaded: {len(df)}
+"""
+    )
+
 """
 Institutional Console v2 - Executive Layer v2
 Full implementation with advanced analytics and visualization
@@ -10203,10 +10233,12 @@ def render_executive_brief_tab():
             # ========================================================================
             # DIAGNOSTIC DEBUG BLOCK
             # Show critical system dates to diagnose frozen snapshot issue
+            # REQUIRED: Show spy_max_date, max_price_date, overall_max_date, snapshot date, contributors
             # ========================================================================
-            with st.expander("🔍 Debug: SPY Trading Calendar & Cache Dates", expanded=False):
+            with st.expander("🔍 Snapshot Diagnostics", expanded=False):
                 import json
                 from helpers.trading_calendar import get_trading_calendar_dates
+                from datetime import datetime
                 
                 col1, col2 = st.columns(2)
                 
@@ -10231,6 +10263,10 @@ def render_executive_brief_tab():
                 
                 with col2:
                     st.markdown("**📊 Cache Metadata**")
+                    spy_max_date_str = None
+                    max_price_date_str = None
+                    overall_max_date_str = None
+                    
                     try:
                         # Load prices_cache_meta.json
                         meta_path = "data/cache/prices_cache_meta.json"
@@ -10238,10 +10274,13 @@ def render_executive_brief_tab():
                             with open(meta_path, 'r') as f:
                                 meta = json.load(f)
                             
-                            st.metric("max_price_date", meta.get('max_price_date', 'N/A'))
-                            st.metric("spy_max_date", meta.get('spy_max_date', 'N/A'))
-                            if meta.get('overall_max_date'):
-                                st.caption(f"overall_max_date: {meta.get('overall_max_date')}")
+                            spy_max_date_str = meta.get('spy_max_date', 'N/A')
+                            max_price_date_str = meta.get('max_price_date', 'N/A')
+                            overall_max_date_str = meta.get('overall_max_date', 'N/A')
+                            
+                            st.metric("spy_max_date", spy_max_date_str)
+                            st.metric("max_price_date", max_price_date_str)
+                            st.caption(f"overall_max_date: {overall_max_date_str}")
                             if meta.get('min_symbol_max_date'):
                                 st.caption(f"min_symbol_max_date: {meta.get('min_symbol_max_date')}")
                         else:
@@ -10251,13 +10290,14 @@ def render_executive_brief_tab():
                 
                 # Show live_snapshot.csv max date
                 st.markdown("**📈 Live Snapshot Date**")
+                snapshot_date_str = None
                 try:
                     snapshot_path = "data/live_snapshot.csv"
                     if os.path.exists(snapshot_path):
                         snapshot_df_debug = pd.read_csv(snapshot_path)
                         if 'Date' in snapshot_df_debug.columns and not snapshot_df_debug.empty:
-                            snapshot_date = snapshot_df_debug['Date'].iloc[0]
-                            st.metric("Snapshot Date", snapshot_date)
+                            snapshot_date_str = snapshot_df_debug['Date'].iloc[0]
+                            st.metric("Snapshot Date", snapshot_date_str)
                         else:
                             st.warning("Date column not found in snapshot")
                     else:
@@ -10268,20 +10308,50 @@ def render_executive_brief_tab():
                 # Show portfolio contributors (if ledger available)
                 st.markdown("**👥 Portfolio Contributors**")
                 try:
+                    # Use convenience accessors if available, otherwise fall back to period_results
                     if 'portfolio_alpha_ledger' in st.session_state:
                         ledger_debug = st.session_state['portfolio_alpha_ledger']
                         if ledger_debug.get('success'):
-                            # Count contributors from period_results
-                            for period_label in ['1D', '30D', '60D']:
-                                period_result = ledger_debug['period_results'].get(period_label, {})
-                                n_contributors = period_result.get('n_waves_with_returns', 0)
-                                st.caption(f"{period_label} contributors: {n_contributors}")
+                            # Try convenience accessors first (added in this PR)
+                            contributors_1d = ledger_debug.get('contributors_1D')
+                            contributors_30d = ledger_debug.get('contributors_30D')
+                            contributors_60d = ledger_debug.get('contributors_60D')
+                            
+                            # Fallback to period_results if convenience accessors not available
+                            if contributors_1d is None:
+                                contributors_1d = ledger_debug['period_results'].get('1D', {}).get('n_waves_with_returns', 0)
+                            if contributors_30d is None:
+                                contributors_30d = ledger_debug['period_results'].get('30D', {}).get('n_waves_with_returns', 0)
+                            if contributors_60d is None:
+                                contributors_60d = ledger_debug['period_results'].get('60D', {}).get('n_waves_with_returns', 0)
+                            
+                            st.caption(f"1D contributors: {contributors_1d} waves")
+                            st.caption(f"30D contributors: {contributors_30d} waves")
+                            st.caption(f"60D contributors: {contributors_60d} waves")
                         else:
                             st.caption("Ledger computation failed")
                     else:
                         st.caption("Ledger not yet computed")
                 except Exception as e:
                     st.caption(f"Error: {e}")
+                
+                # WARNING: Check if spy_max_date is stale compared to snapshot date
+                if spy_max_date_str and spy_max_date_str != 'N/A' and snapshot_date_str:
+                    try:
+                        spy_date = datetime.strptime(spy_max_date_str, '%Y-%m-%d').date()
+                        snapshot_date = datetime.strptime(snapshot_date_str, '%Y-%m-%d').date()
+                        
+                        if spy_date < snapshot_date:
+                            days_behind = (snapshot_date - spy_date).days
+                            st.warning(f"🚨 Portfolio results may be frozen: spy_max_date ({spy_max_date_str}) is {days_behind} day(s) behind snapshot date ({snapshot_date_str})")
+                        
+                        # Also check if spy_max_date is older than today (accounting for weekends)
+                        today = datetime.now().date()
+                        days_old = (today - spy_date).days
+                        if days_old > 5:  # More than 5 calendar days is definitely stale
+                            st.warning(f"🚨 SPY calendar is stale: spy_max_date={spy_max_date_str} is {days_old} days old")
+                    except Exception as e:
+                        st.caption(f"Unable to compare dates: {e}")
         
             try:
                 from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
@@ -23035,380 +23105,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     st.title("Institutional Console - Executive Layer v2")
     
     # ========================================================================
-    # ENTRYPOINT FINGERPRINT - UI Banner
-    # ========================================================================
-    st.caption("ENTRYPOINT: app.py")
-    
-    # ========================================================================
-    # REALITY PANEL - Single Source of Truth for Price Data
-    # ========================================================================
-    # Display the Reality Panel showing actual PRICE_BOOK metadata
-    render_reality_panel()
-    
-    st.markdown("---")
-    
-    # ========================================================================
-    # ROUND 7 Phase 1: Wave Universe Validation Banner
-    # ========================================================================
-    # Display warning banner if wave universe validation failed
-    if st.session_state.get("wave_universe_validation_failed", False):
-        discrepancy = st.session_state.get("wave_universe_discrepancy", "Unknown discrepancy")
-        st.error(f"🔴 **Wave Universe Validation Failed:** {discrepancy}")
-    
-    # Check if Wave Intelligence Center encountered errors (SAFE_MODE fallback)
-    # Use session state to check both the error flag and if safe mode is enabled
-    wave_ic_has_errors = st.session_state.get("wave_ic_has_errors", False)
-    use_safe_mode = st.session_state.get("safe_mode_enabled", SAFE_MODE)
-    
-    # Tab structure based on SAFE_MODE status and ENABLE_WAVE_PROFILE
-    if wave_ic_has_errors and use_safe_mode:
-        # SAFE_MODE fallback - exclude Wave Intelligence Center tab
-        st.warning("⚠️ Wave Intelligence Center is temporarily unavailable. Displaying core tabs only.")
-        
-        analytics_tabs = st.tabs([
-            "Institutional Readiness",        # NEW: FIRST TAB - Clean demo-ready overview
-            "Console",                 # Core functionality
-            "Overview",                # Market tab equivalent
-            "Details",     
-            "Reports",     
-            "Overlays",    
-            "Attribution", 
-            "Board Pack",  
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",            # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
-            "Governance & Audit",      # NEW: Governance and transparency layer
-            "Operator Panel",          # NEW: Operator layer for system state and diagnostics
-            "Diagnostics",             # Health/Diagnostics tab
-            "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Institutional Readiness tab (FIRST)
-        with analytics_tabs[0]:
-            safe_component("Institutional Readiness", render_overview_clean_tab)
-        
-        # Console tab
-        with analytics_tabs[1]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Overview tab
-        with analytics_tabs[2]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overview", render_overview_tab)
-        
-        # Details tab
-        with analytics_tabs[3]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[4]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[5]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[6]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[7]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[8]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[9]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[10]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[11]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[12]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[13]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Operator Panel tab (NEW)
-        with analytics_tabs[14]:
-            safe_component("Operator Panel", render_operator_panel_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[15]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[16]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    
-    elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Institutional Readiness is FIRST
-        analytics_tabs = st.tabs([
-            "Institutional Readiness",            # NEW: FIRST TAB - Clean demo-ready overview
-            "Overview",                    # Second tab - unified system overview with performance, alpha attribution, and market context
-            "Console",                     # Third tab - Executive
-            "Wave",                        # Fourth tab - Wave Profile with hero card
-            "Details",                     # Factor Decomp equivalent
-            "Reports",                     # Risk Lab equivalent
-            "Overlays",                    # Correlation equivalent
-            "Attribution",                 # Rolling Diagnostics equivalent
-            "Board Pack",                  # Mode Proof equivalent
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
-            "Governance & Audit",          # NEW: Governance and transparency layer
-            "Operator Panel",              # NEW: Operator layer for system state and diagnostics
-            "Diagnostics",                 # Health/Diagnostics tab
-            "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Institutional Readiness tab (FIRST)
-        with analytics_tabs[0]:
-            safe_component("Institutional Readiness", render_overview_clean_tab)
-        
-        # Overview tab (second) - Executive Brief
-        with analytics_tabs[1]:
-            safe_component("Executive Brief", render_executive_brief_tab)
-        
-        # Console tab (third)
-        with analytics_tabs[2]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Wave Profile tab (fourth)
-        with analytics_tabs[3]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Wave Profile", render_wave_intelligence_center_tab)
-        
-        # Details tab
-        with analytics_tabs[4]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[5]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[6]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[7]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[8]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[9]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[10]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[11]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[12]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[13]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[14]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Operator Panel tab (NEW)
-        with analytics_tabs[15]:
-            safe_component("Operator Panel", render_operator_panel_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[16]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[17]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    else:
-        # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Institutional Readiness is FIRST tab
-        analytics_tabs = st.tabs([
-            "Institutional Readiness",           # NEW: FIRST TAB - Clean demo-ready overview
-            "Overview",                   # Second tab - unified system overview
-            "Console",                    # Third tab - Executive
-            "Details",                    # Factor Decomp equivalent
-            "Reports",                    # Risk Lab equivalent
-            "Overlays",                   # Correlation equivalent
-            "Attribution",                # Rolling Diagnostics equivalent
-            "Board Pack",                 # Mode Proof equivalent
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",               # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
-            "Governance & Audit",         # NEW: Governance and transparency layer
-            "Operator Panel",             # NEW: Operator layer for system state and diagnostics
-            "Diagnostics",                # Health/Diagnostics tab
-            "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Institutional Readiness tab (FIRST)
-        with analytics_tabs[0]:
-            safe_component("Institutional Readiness", render_overview_clean_tab)
-        
-        # Overview tab (second) - Executive Brief
-        with analytics_tabs[1]:
-            safe_component("Executive Brief", render_executive_brief_tab)
-        
-        # Console tab (third)
-        with analytics_tabs[2]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Details tab
-        with analytics_tabs[3]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[4]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[5]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[6]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[7]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[8]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[9]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[10]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[11]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[12]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[13]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Operator Panel tab (NEW)
-        with analytics_tabs[14]:
-            safe_component("Operator Panel", render_operator_panel_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[15]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[16]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    
-    # ========================================================================
-    # Bottom Ticker Bar Rendering
-    # ========================================================================
-    
-    # Render bottom ticker bar if enabled
-    if st.session_state.get("show_bottom_ticker", True):
-        safe_component("Bottom Ticker", render_bottom_ticker_bar, show_error=False)
-
-
-# Run the application
-if __name__ == "__main__":
-    # Initialize safe_mode_enabled if not present
-    if "safe_mode_enabled" not in st.session_state:
-        st.session_state.safe_mode_enabled = False
-    
-    # Wrap main execution in try-except to capture errors into Safe Mode
-    # but continue rendering the UI with degraded functionality
-    try:
-        main()
-    except Exception as e:
-        # ========================================================================
-        # SAFE MODE ERROR HANDLING - NO FULL-PAGE TAKEOVER
-        # ========================================================================
-        # Errors are captured and stored in session state for display in the
-        # Diagnostics tab. The main UI continues to render with degraded
-        # functionality rather than showing a full-page error screen.
-        # ========================================================================
-        
-        # Store error in session state for Diagnostics tab
-        st.session_state.safe_mode_enabled = True
-        st.session_state.safe_mode_error_message = str(e)
-        st.session_state.safe_mode_error_traceback = traceback.format_exc()
-        
-        # Show a small, non-intrusive notification
-        # (only at the very top - not taking over the whole page)
-        if not st.session_state.get("safe_mode_error_shown", False):
-            st.toast("⚠️ An error occurred. Check Diagnostics tab for details.", icon="⚠️")
-            st.session_state.safe_mode_error_shown = True
-        
-        # Try to run main() again - this time it will run with safe_mode_enabled=True
-        # which causes graceful degradation in components
-        try:
-            main()
-        except Exception as retry_error:
-            # If main() fails even in safe mode, show minimal error
-            st.error("Critical Error: Unable to render application.")
-            st.code(f"Error: {str(retry_error)}\n\n{traceback.format_exc()}", language="python")
-            # mobile commit trigger
+    # ENTRYPOI
