@@ -1,13 +1,13 @@
 {
-  "generated_at_utc": "2026-01-14T20:05:12.643128Z",
+  "generated_at_utc": "2026-01-15T00:00:05.398309Z",
   "success_rate": 1.0,
   "min_success_rate": 0.9,
-  "tickers_total": 124,
-  "tickers_successful": 124,
+  "tickers_total": 10,
+  "tickers_successful": 10,
   "tickers_failed": 0,
-  "max_price_date": "2026-01-09",
-  "spy_max_date": "2026-01-09",
-  "overall_max_date": "2026-01-10",
-  "min_symbol_max_date": "2022-01-15",
+  "max_price_date": "2024-01-05",
+  "spy_max_date": "2024-01-05",
+  "overall_max_date": "2024-01-05",
+  "min_symbol_max_date": "2024-01-05",
   "cache_file": "data/cache/prices_cache.parquet"
 }
