@@ -22556,12 +22556,7 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
             
             with net_col2:
                 st.metric("Auto-Refresh", "ON" if auto_refresh_status else "OFF")
-    
-    except Exception as e:
-        st.error("⚠️ Executive Briefing encountered an error")
-        st.info("The system is being restored. Please refresh the page or contact support.")
-        if st.session_state.get("debug_mode", False):
-            st.exception(e)
+                
 
 # TEMPORARY SYNTAX GUARD
 if False:
