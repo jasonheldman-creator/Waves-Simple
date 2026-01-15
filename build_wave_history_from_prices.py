@@ -449,10 +449,23 @@ for wave, wdf in weights.groupby("wave"):
                     diag_df = result_df.attrs['diagnostics']
                     if diag_df is not None and not diag_df.empty:
                         # Align diagnostics with wave dates
-                        diag_aligned = diag_df.set_index('Date').reindex(df_wave["date"])
-                        df_wave["vix_level"] = diag_aligned["vix"].values if "vix" in diag_aligned.columns else np.nan
-                        df_wave["vix_regime"] = diag_aligned["regime"].values if "regime" in diag_aligned.columns else "neutral"
-                        df_wave["exposure_used"] = diag_aligned["exposure"].values if "exposure" in diag_aligned.columns else 1.0
+                        # Check if Date column exists, otherwise use index
+                        if 'Date' in diag_df.columns:
+                            diag_aligned = diag_df.set_index('Date').reindex(df_wave["date"])
+                        elif isinstance(diag_df.index, pd.DatetimeIndex):
+                            diag_aligned = diag_df.reindex(df_wave["date"])
+                        else:
+                            # Cannot align diagnostics, use defaults
+                            diag_aligned = None
+                        
+                        if diag_aligned is not None:
+                            df_wave["vix_level"] = diag_aligned["vix"].values if "vix" in diag_aligned.columns else np.nan
+                            df_wave["vix_regime"] = diag_aligned["regime"].values if "regime" in diag_aligned.columns else "neutral"
+                            df_wave["exposure_used"] = diag_aligned["exposure"].values if "exposure" in diag_aligned.columns else 1.0
+                        else:
+                            df_wave["vix_level"] = np.nan
+                            df_wave["vix_regime"] = "neutral"
+                            df_wave["exposure_used"] = 1.0
                     else:
                         # No diagnostics, use defaults
                         df_wave["vix_level"] = np.nan
@@ -467,9 +480,10 @@ for wave, wdf in weights.groupby("wave"):
                 df_wave["overlay_active"] = True
                 print(f"[SUCCESS] Full strategy pipeline applied for '{wave}' ({len(result_df)} days)")
             else:
-                # waves_engine failed, fall back to simplified VIX overlay
-                print(f"[WARN] waves_engine returned empty data for '{wave}', falling back to simplified VIX overlay")
-                raise ValueError("waves_engine returned empty data")
+                # waves_engine returned empty/invalid data, fall back to simplified VIX overlay
+                print(f"[WARN] waves_engine returned invalid data for '{wave}', falling back to simplified VIX overlay")
+                # Raise exception to trigger fallback logic
+                raise ValueError("waves_engine returned empty or invalid data")
                 
         except Exception as e:
             # If waves_engine fails, fall back to simplified VIX-only overlay
