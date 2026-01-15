@@ -86,6 +86,9 @@ REQUIRED_CASH_PROXIES = ['BIL', 'SHY']  # All required (used by pricing engine)
 # Freshness configuration - trading day aware
 MAX_STALE_CALENDAR_DAYS = 5  # Accept cache if max_date within last 5 calendar days
 
+# Logging configuration
+MAX_SAMPLE_TICKERS_LOG = 10  # Maximum number of tickers to show in log samples
+
 
 def get_last_trading_day():
     """
@@ -398,11 +401,11 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
                     
                     if tickers_missing_at_spy_end:
                         logger.info(f"Tickers missing data at SPY end date ({spy_max_date_str}): {len(tickers_missing_at_spy_end)}")
-                        # Log first 10 for visibility
-                        sample = sorted(tickers_missing_at_spy_end)[:10]
+                        # Log first MAX_SAMPLE_TICKERS_LOG for visibility
+                        sample = sorted(tickers_missing_at_spy_end)[:MAX_SAMPLE_TICKERS_LOG]
                         logger.info(f"  Sample: {sample}")
-                        if len(tickers_missing_at_spy_end) > 10:
-                            logger.info(f"  ... and {len(tickers_missing_at_spy_end) - 10} more")
+                        if len(tickers_missing_at_spy_end) > MAX_SAMPLE_TICKERS_LOG:
+                            logger.info(f"  ... and {len(tickers_missing_at_spy_end) - MAX_SAMPLE_TICKERS_LOG} more")
             
             # 2. Overall max date (diagnostic)
             overall_max_date = cache_df.index.max()
@@ -581,8 +584,9 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                         logger.info(f"    Date range: {spy_series.index.min().date()} to {spy_max_date.date()}")
                         logger.info(f"    SPY max date: {spy_max_date.date()} (canonical trading calendar)")
                         
-                        # Remove SPY from missing_tickers to avoid re-fetching
-                        missing_tickers = [t for t in missing_tickers if t != 'SPY']
+                        # Remove SPY from missing_tickers to avoid re-fetching (efficient for small lists)
+                        if 'SPY' in missing_tickers:
+                            missing_tickers.remove('SPY')
                         logger.info(f"  Removed SPY from batch fetch list ({len(missing_tickers)} tickers remaining)")
                     else:
                         logger.warning("⚠ SPY data is empty after dropna()")
