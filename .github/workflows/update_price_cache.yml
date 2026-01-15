@@ -155,6 +155,20 @@ jobs:
 
           echo "========================================================================"
 
+      - name: Validate cache metadata
+        run: |
+          echo "========================================================================"
+          echo "CACHE METADATA VALIDATION"
+          echo "========================================================================"
+          
+          # Run metadata validation script
+          python3 scripts/validate_cache_metadata.py
+          
+          # Script exits with code 1 if validation fails, which will fail the workflow
+          echo ""
+          echo "✓ Metadata validation passed"
+          echo "========================================================================"
+
       - name: Check for changes
         id: check_changes
         run: |
