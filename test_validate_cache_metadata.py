@@ -350,5 +350,104 @@ def run_all_tests():
         return 1
 
 
+def test_bootstrap_override():
+    """Test ALLOW_METADATA_BOOTSTRAP override functionality."""
+    print("\n" + "=" * 80)
+    print("TEST: Bootstrap Override (ALLOW_METADATA_BOOTSTRAP)")
+    print("=" * 80)
+    
+    # Create a stale metadata file with a date that's guaranteed to be old
+    stale_date = (date.today() - timedelta(days=30))
+    stale_date_str = stale_date.strftime('%Y-%m-%d')
+    stale_timestamp = stale_date.strftime('%Y-%m-%dT00:00:00Z')
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        metadata = {
+            "spy_max_date": stale_date_str,  # Intentionally stale (30 days old)
+            "tickers_total": 100,
+            "generated_at_utc": stale_timestamp
+        }
+        json.dump(metadata, f)
+        temp_path = f.name
+    
+    try:
+        # Test 1: Without override, should fail
+        print("\n1. Testing without override (should fail)...")
+        os.environ.pop('ALLOW_METADATA_BOOTSTRAP', None)
+        
+        with patch('validate_cache_metadata.fetch_spy_latest_trading_day') as mock_fetch:
+            # Mock a current trading day
+            today = date.today()
+            mock_fetch.return_value = (today, [today])
+            
+            result = validate_cache_metadata(temp_path, grace_period_days=1)
+            
+            if result is False:
+                print("   ✓ Validation correctly failed without override")
+            else:
+                print("   ✗ Validation should have failed but passed")
+                return False
+        
+        # Test 2: With override, should pass with warning
+        print("\n2. Testing with override (should pass with warning)...")
+        os.environ['ALLOW_METADATA_BOOTSTRAP'] = '1'
+        
+        with patch('validate_cache_metadata.fetch_spy_latest_trading_day') as mock_fetch:
+            # Mock a current trading day
+            today = date.today()
+            mock_fetch.return_value = (today, [today])
+            
+            result = validate_cache_metadata(temp_path, grace_period_days=1)
+            
+            if result is True:
+                print("   ✓ Validation correctly passed with override")
+            else:
+                print("   ✗ Validation should have passed with override but failed")
+                return False
+        
+        # Test 3: Other validations still enforced with override
+        print("\n3. Testing that other validations still fail with override...")
+        os.environ['ALLOW_METADATA_BOOTSTRAP'] = '1'
+        
+        # Use a recent timestamp for this test
+        recent_timestamp = date.today().strftime('%Y-%m-%dT00:00:00Z')
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            bad_metadata = {
+                "spy_max_date": None,  # Missing spy_max_date
+                "tickers_total": 100,
+                "generated_at_utc": recent_timestamp
+            }
+            json.dump(bad_metadata, f)
+            bad_path = f.name
+        
+        result = validate_cache_metadata(bad_path, grace_period_days=1)
+        
+        if result is False:
+            print("   ✓ Validation correctly failed on missing spy_max_date even with override")
+        else:
+            print("   ✗ Validation should have failed on missing spy_max_date")
+            return False
+        
+        os.unlink(bad_path)
+        
+        print("\n✅ ALL BOOTSTRAP OVERRIDE TESTS PASSED")
+        return True
+        
+    finally:
+        os.unlink(temp_path)
+        os.environ.pop('ALLOW_METADATA_BOOTSTRAP', None)
+
+
 if __name__ == '__main__':
-    sys.exit(run_all_tests())
+    # Run original tests
+    result = run_all_tests()
+    
+    # Run bootstrap override test
+    print("\n")
+    if test_bootstrap_override():
+        print("\n✅ ALL TESTS (INCLUDING BOOTSTRAP OVERRIDE) PASSED")
+        sys.exit(result)
+    else:
+        print("\n❌ BOOTSTRAP OVERRIDE TEST FAILED")
+        sys.exit(1)
