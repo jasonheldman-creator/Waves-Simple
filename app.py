@@ -18,16 +18,7 @@ Includes all analytics, monitoring, and governance features.
 """
 import streamlit as st
 # ================================
-# HARD OVERRIDE — DISABLE ALL SAFETY / DIAGNOSTICS MODES
-# ================================
-try:
-    st.session_state["diagnostics_mode"] = False
-    st.session_state["debug_mode"] = False
-    st.session_state["safe_mode"] = False
-    st.session_state["proof_mode"] = False
-    st.session_state["__render_lock__"] = False
-except Exception:
-    pass
+
 import logging
 
 logger = logging.getLogger("waves_app")
@@ -23107,13 +23098,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         # Reset the flag
         st.session_state["force_reload_universe"] = False
     else:
-        # Normal initialization - use cached universe
-        get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-    
-    # Display duplicate cleanup feedback in sidebar
-    try:
-        universe = st.session_state.get("wave_universe", {})
-        removed_duplicates = universe.get("removed_duplicates", [])
-        
-        if removed_duplicates:
-            # Show in
+        # Normal initializ
