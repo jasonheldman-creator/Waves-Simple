@@ -7754,9 +7754,9 @@ def render_sidebar_info():
         # Display current context using canonical resolver
         ctx = resolve_app_context()
         if ctx["selected_wave_id"] is None:
-            st.sidebar.info(f"{PORTFOLIO_VIEW_ICON} Portfolio View Active")
+            st.sidebar.info("ℹ️ Portfolio view")
         else:
-            st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {ctx['selected_wave_name']}")
+            st.sidebar.info("📈 Wave view")
         
         # Debug caption to prove persistence (only in debug mode)
         if st.session_state.get("debug_mode", False):
