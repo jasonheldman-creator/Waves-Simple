@@ -22563,7 +22563,9 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         if st.session_state.get("debug_mode", False):
             st.exception(e)
 
-
+# TEMPORARY SYNTAX GUARD
+if False:
+    pass
 # ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
