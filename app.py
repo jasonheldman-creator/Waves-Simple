@@ -1746,9 +1746,7 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
         elif normalized:
             removed.append(name)
     
-    return deduplicated, removed
-
-CACHE_BUSTER = "RESET_2026_01_15"
+CACHE_BUSTER = "RESET_2026_01_15_v2"
 
 @st.cache_data(ttl=15)
 def get_canonical_wave_universe(
@@ -23108,6 +23106,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         if removed_duplicates:
             # Show info message with duplicate count
-            st.sidebar.info(f"ℹ️ Removed {len(removed_duplicates)} duplicate wave(s) from universe")
-            
-            # Op
+            st.sidebar.info(f"ℹ️ Removed {len(removed_
