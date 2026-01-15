@@ -23106,4 +23106,12 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         if removed_duplicates:
             # Show info message with duplicate count
-            st.sidebar.info(f"ℹ️ Removed {len(removed_
+            st.sidebar.info(f"ℹ️ Removed {len(removed_duplicates)} duplicate wave(s) from universe")
+            
+            # Optionally show list of removed duplicates in expander
+            with st.sidebar.expander("View Removed Duplicates"):
+                st.write("**Duplicates removed during deduplication:**")
+                for dup in removed_duplicates:
+                    st.text(f"• {dup}")
+    except Exception:
+        pass
