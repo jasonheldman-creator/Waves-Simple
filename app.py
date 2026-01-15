@@ -22606,10 +22606,7 @@ def main():
     if st.session_state.run_count > 3:
         st.session_state.loop_detected = True
         # Log loop detection but continue rendering UI
-        try:
-            logger.warning(f"Loop detection triggered: {st.session_state.run_count} consecutive runs without user interaction")
-        except NameError:
-            print(f"[WARNING] Loop detection triggered: {st.session_state.run_count} consecutive runs without user interaction")
+        logger.warning(f"Loop detection triggered: {st.session_state.run_count} consecutive runs without user interaction")
         # Display warning banner but allow UI to continue
         if st.session_state.get("debug_mode", False):
             st.warning("⚠️ Loop detection: Multiple consecutive runs detected. Debug mode allows continued execution.")
@@ -22634,10 +22631,7 @@ def main():
             # If we've exceeded max rapid reruns, log but continue
             if st.session_state.rapid_rerun_count >= MAX_RAPID_RERUNS:
                 # Log rapid rerun detection but continue rendering UI
-                try:
-                    logger.warning(f"Rapid rerun detection triggered: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s")
-                except NameError:
-                    print(f"[WARNING] Rapid rerun detection triggered: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s")
+                logger.warning(f"Rapid rerun detection triggered: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s")
                 # Display warning banner but allow UI to continue
                 if st.session_state.get("debug_mode", False):
                     st.warning(f"⚠️ Rapid rerun detected: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s. Debug mode allows continued execution.")
@@ -22802,10 +22796,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     elapsed_time = time.time() - WATCHDOG_START_TIME
     if st.session_state.safe_mode_no_fetch and elapsed_time > 3.0:
         # Log watchdog timeout but continue rendering UI
-        try:
-            logger.warning(f"Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed (threshold: 3.0s)")
-        except NameError:
-            print(f"[WARNING] Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed (threshold: 3.0s)")
+        logger.warning(f"Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed (threshold: 3.0s)")
         # Display warning banner but allow UI to continue
         if st.session_state.get("debug_mode", False):
             st.warning(f"⏱️ Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed. Debug mode allows continued execution.")
