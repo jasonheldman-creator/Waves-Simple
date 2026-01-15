@@ -585,6 +585,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                         logger.info(f"    SPY max date: {spy_max_date.date()} (canonical trading calendar)")
                         
                         # Remove SPY from missing_tickers to avoid re-fetching
+                        # Note: SPY is guaranteed to be in the list at this point (checked at line 569)
                         missing_tickers.remove('SPY')
                         logger.info(f"  Removed SPY from batch fetch list ({len(missing_tickers)} tickers remaining)")
                     else:

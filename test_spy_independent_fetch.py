@@ -65,12 +65,13 @@ def test_spy_independent_fetch_logic():
     print("\n4. Testing detection of tickers missing at SPY end...")
     
     # Create cache where some tickers are missing at SPY's end date
+    MISSING_DAYS = 3  # Number of days AAPL data is missing at the end
     dates_full = pd.date_range(end=today, periods=10, freq='B')
-    dates_partial = dates_full[:-3]  # Missing last 3 business days
+    dates_partial = dates_full[:-MISSING_DAYS]  # Missing last 3 business days
     
     cache_df_partial = pd.DataFrame(index=dates_full)
     cache_df_partial['SPY'] = [100.0 + i for i in range(len(dates_full))]
-    cache_df_partial['AAPL'] = [150.0 + i for i in range(len(dates_partial))] + [float('nan')] * 3
+    cache_df_partial['AAPL'] = [150.0 + i for i in range(len(dates_partial))] + [float('nan')] * MISSING_DAYS
     
     # Detect tickers missing at SPY end
     spy_series = cache_df_partial['SPY'].dropna()
