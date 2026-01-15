@@ -118,7 +118,8 @@ def test_wave_has_multiple_tickers_for_tilting():
     
     print(f"\n  {wave_name} tickers:")
     for h in holdings:
-        print(f"    - {h.ticker}: {h.weight:.2%} ({h.name})")
+        name = h.name if hasattr(h, 'name') and h.name else "N/A"
+        print(f"    - {h.ticker}: {h.weight:.2%} ({name})")
     
     assert len(tickers) > 1, "Should have multiple tickers for momentum tilting"
     print(f"\n✓ Wave has {len(tickers)} tickers (momentum can tilt weights)")

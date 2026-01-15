@@ -13,12 +13,13 @@ Requirements from problem statement:
 
 import numpy as np
 import pandas as pd
+
 from waves_engine import (
-    compute_history_nav,
-    get_vix_regime_diagnostics,
+    WAVE_WEIGHTS,
     _is_crypto_wave,
     _is_income_wave,
-    WAVE_WEIGHTS,
+    compute_history_nav,
+    get_vix_regime_diagnostics,
 )
 
 

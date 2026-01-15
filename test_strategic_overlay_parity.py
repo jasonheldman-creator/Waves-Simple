@@ -6,11 +6,17 @@ to ensure they follow the same code paths.
 """
 
 import pandas as pd
+
 from waves_engine import (
+    REGIME_EXPOSURE,
+    REGIME_GATING,
+    WAVE_WEIGHTS,
     _compute_core,
     _is_crypto_wave,
     _is_income_wave,
-    WAVE_WEIGHTS,
+    _regime_from_return,
+    _vix_exposure_factor,
+    _vix_safe_fraction,
 )
 
 
@@ -89,8 +95,6 @@ def test_both_waves_get_same_overlays():
 
 def test_vix_exposure_calculation_parity():
     """Verify VIX exposure is calculated identically for both waves."""
-    from waves_engine import _vix_exposure_factor, _vix_safe_fraction
-    
     waves = ["S&P 500 Wave", "US MegaCap Core Wave"]
     vix_levels = [15.0, 20.0, 25.0, 30.0, 40.0]
     mode = "Standard"
@@ -132,8 +136,6 @@ def test_vix_exposure_calculation_parity():
 
 def test_regime_detection_parity():
     """Verify regime detection logic is identical for both waves."""
-    from waves_engine import _regime_from_return, REGIME_EXPOSURE, REGIME_GATING
-    
     test_returns = [-0.15, -0.08, -0.02, 0.03, 0.07]
     mode = "Standard"
     
