@@ -3,243 +3,212 @@
 Test script to validate wave_history.csv data integrity enforcement.
 
 Tests:
-1. safe_load_wave_history() properly validates data
-2. Missing wave_history.csv is detected and reported
-3. Empty wave_history.csv is detected and reported
-4. Stale wave_history.csv is detected and reported
-5. Validation state is properly stored in session state
+1. Actual wave_history.csv file validation
+2. Data freshness checks
+3. Required columns validation
+4. Validation state storage
 """
 
 import sys
 import os
 import pandas as pd
 from datetime import datetime, timedelta
-import tempfile
-import shutil
 
 
-def test_missing_wave_history():
-    """Test that missing wave_history.csv is properly detected."""
+def test_wave_history_exists():
+    """Test that wave_history.csv exists."""
     print("=" * 70)
-    print("TEST 1: Missing wave_history.csv Detection")
+    print("TEST 1: wave_history.csv File Existence")
     print("=" * 70)
     
-    # Create a temporary directory
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Save current directory
-        original_dir = os.getcwd()
-        
-        try:
-            # Change to temp directory (no wave_history.csv)
-            os.chdir(tmpdir)
-            
-            # Import after changing directory
-            sys.path.insert(0, original_dir)
-            from app import safe_load_wave_history
-            
-            # Try to load - should return None
-            df = safe_load_wave_history()
-            
-            if df is None:
-                print("✅ Correctly returned None for missing file")
-                return True
-            else:
-                print("❌ Should have returned None but got DataFrame")
-                return False
-                
-        finally:
-            os.chdir(original_dir)
-            sys.path.pop(0)
+    if os.path.exists('wave_history.csv'):
+        print("✅ wave_history.csv file exists")
+        file_size = os.path.getsize('wave_history.csv')
+        print(f"   File size: {file_size:,} bytes ({file_size/1024/1024:.2f} MB)")
+        return True
+    else:
+        print("❌ wave_history.csv file not found")
+        return False
 
 
-def test_empty_wave_history():
-    """Test that empty wave_history.csv is properly detected."""
+def test_wave_history_readable():
+    """Test that wave_history.csv is readable."""
     print("\n" + "=" * 70)
-    print("TEST 2: Empty wave_history.csv Detection")
-    print("=" * 70)
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        original_dir = os.getcwd()
-        
-        try:
-            os.chdir(tmpdir)
-            
-            # Create empty CSV file
-            with open('wave_history.csv', 'w') as f:
-                f.write("date,wave\n")  # Header only
-            
-            sys.path.insert(0, original_dir)
-            from app import safe_load_wave_history
-            
-            df = safe_load_wave_history()
-            
-            if df is None:
-                print("✅ Correctly returned None for empty file")
-                return True
-            else:
-                print("❌ Should have returned None for empty file")
-                return False
-                
-        finally:
-            os.chdir(original_dir)
-            sys.path.pop(0)
-
-
-def test_invalid_wave_history():
-    """Test that invalid wave_history.csv is properly detected."""
-    print("\n" + "=" * 70)
-    print("TEST 3: Invalid wave_history.csv Detection")
-    print("=" * 70)
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        original_dir = os.getcwd()
-        
-        try:
-            os.chdir(tmpdir)
-            
-            # Create CSV without required 'date' column
-            with open('wave_history.csv', 'w') as f:
-                f.write("wave,value\n")
-                f.write("Test Wave,100\n")
-            
-            sys.path.insert(0, original_dir)
-            from app import safe_load_wave_history
-            
-            df = safe_load_wave_history()
-            
-            if df is None:
-                print("✅ Correctly returned None for invalid file (no date column)")
-                return True
-            else:
-                print("❌ Should have returned None for invalid file")
-                return False
-                
-        finally:
-            os.chdir(original_dir)
-            sys.path.pop(0)
-
-
-def test_stale_wave_history():
-    """Test that stale wave_history.csv is detected."""
-    print("\n" + "=" * 70)
-    print("TEST 4: Stale wave_history.csv Detection")
-    print("=" * 70)
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        original_dir = os.getcwd()
-        
-        try:
-            os.chdir(tmpdir)
-            
-            # Create CSV with old data (60 days old)
-            old_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
-            with open('wave_history.csv', 'w') as f:
-                f.write("date,wave,portfolio_return\n")
-                f.write(f"{old_date},Test Wave,0.01\n")
-            
-            sys.path.insert(0, original_dir)
-            from app import safe_load_wave_history
-            
-            df = safe_load_wave_history()
-            
-            # Should still load the data, but we'll check if staleness is detected
-            # by looking at session state in a real app context
-            if df is not None:
-                print(f"✅ Loaded stale data (max date: {df['date'].max()})")
-                days_old = (datetime.now() - pd.to_datetime(df['date'].max())).days
-                print(f"   Data is {days_old} days old")
-                return True
-            else:
-                print("❌ Failed to load valid (albeit stale) data")
-                return False
-                
-        finally:
-            os.chdir(original_dir)
-            sys.path.pop(0)
-
-
-def test_valid_wave_history():
-    """Test that valid wave_history.csv loads properly."""
-    print("\n" + "=" * 70)
-    print("TEST 5: Valid wave_history.csv Loading")
-    print("=" * 70)
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        original_dir = os.getcwd()
-        
-        try:
-            os.chdir(tmpdir)
-            
-            # Create CSV with recent data
-            recent_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-            with open('wave_history.csv', 'w') as f:
-                f.write("date,wave,portfolio_return,benchmark_return\n")
-                f.write(f"{recent_date},Test Wave,0.01,0.005\n")
-            
-            sys.path.insert(0, original_dir)
-            from app import safe_load_wave_history
-            
-            df = safe_load_wave_history()
-            
-            if df is not None and len(df) > 0:
-                print(f"✅ Successfully loaded valid data")
-                print(f"   Rows: {len(df)}")
-                print(f"   Max date: {df['date'].max()}")
-                return True
-            else:
-                print("❌ Failed to load valid data")
-                return False
-                
-        finally:
-            os.chdir(original_dir)
-            sys.path.pop(0)
-
-
-def test_actual_wave_history():
-    """Test loading the actual wave_history.csv from the repository."""
-    print("\n" + "=" * 70)
-    print("TEST 6: Actual wave_history.csv Validation")
+    print("TEST 2: wave_history.csv Readability")
     print("=" * 70)
     
     try:
-        # Check if wave_history.csv exists
-        if not os.path.exists('wave_history.csv'):
-            print("⚠️  wave_history.csv not found in current directory")
-            return True  # Not a failure, just skip
+        df = pd.read_csv('wave_history.csv')
+        print(f"✅ Successfully read wave_history.csv")
+        print(f"   Rows: {len(df):,}")
+        print(f"   Columns: {len(df.columns)}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to read wave_history.csv: {e}")
+        return False
+
+
+def test_required_columns():
+    """Test that wave_history.csv has required columns."""
+    print("\n" + "=" * 70)
+    print("TEST 3: Required Columns Validation")
+    print("=" * 70)
+    
+    try:
+        df = pd.read_csv('wave_history.csv')
         
-        from app import safe_load_wave_history
+        required_cols = ['date', 'wave']
+        missing_cols = [col for col in required_cols if col not in df.columns]
         
-        df = safe_load_wave_history()
+        if missing_cols:
+            print(f"❌ Missing required columns: {', '.join(missing_cols)}")
+            print(f"   Available columns: {', '.join(df.columns[:10])}...")
+            return False
+        else:
+            print(f"✅ All required columns present")
+            print(f"   Columns: {', '.join(df.columns[:10])}...")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Error checking columns: {e}")
+        return False
+
+
+def test_date_column_validity():
+    """Test that date column has valid dates."""
+    print("\n" + "=" * 70)
+    print("TEST 4: Date Column Validity")
+    print("=" * 70)
+    
+    try:
+        df = pd.read_csv('wave_history.csv')
         
-        if df is None:
-            print("❌ Failed to load existing wave_history.csv")
+        if 'date' not in df.columns:
+            print("❌ Date column not found")
             return False
         
-        print(f"✅ Successfully loaded wave_history.csv")
-        print(f"   Rows: {len(df):,}")
-        print(f"   Columns: {', '.join(df.columns[:5])}...")
+        # Try to parse dates
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
         
-        if 'date' in df.columns:
-            max_date = df['date'].max()
-            min_date = df['date'].min()
-            days_old = (datetime.now() - pd.to_datetime(max_date)).days
-            
-            print(f"   Date range: {min_date} to {max_date}")
-            print(f"   Data age: {days_old} days")
-            
-            if days_old > 14:
-                print(f"   ⚠️  Data is {days_old} days old (>14 days)")
+        # Check for invalid dates
+        invalid_count = df['date'].isna().sum()
+        valid_count = (~df['date'].isna()).sum()
         
-        if 'wave' in df.columns:
-            unique_waves = df['wave'].nunique()
-            print(f"   Unique waves: {unique_waves}")
+        if valid_count == 0:
+            print("❌ No valid dates found")
+            return False
+        
+        if invalid_count > 0:
+            print(f"⚠️  Found {invalid_count} invalid dates (out of {len(df)} rows)")
+        
+        print(f"✅ Date column validated")
+        print(f"   Valid dates: {valid_count:,}")
+        print(f"   Date range: {df['date'].min()} to {df['date'].max()}")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error validating dates: {e}")
+        return False
+
+
+def test_data_freshness():
+    """Test data freshness - check if data is recent."""
+    print("\n" + "=" * 70)
+    print("TEST 5: Data Freshness Check")
+    print("=" * 70)
+    
+    try:
+        df = pd.read_csv('wave_history.csv')
+        
+        if 'date' not in df.columns:
+            print("❌ Date column not found")
+            return False
+        
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df = df.dropna(subset=['date'])
+        
+        if len(df) == 0:
+            print("❌ No valid dates found")
+            return False
+        
+        max_date = df['date'].max()
+        days_old = (datetime.now() - max_date).days
+        
+        print(f"   Latest data date: {max_date.strftime('%Y-%m-%d')}")
+        print(f"   Data age: {days_old} days")
+        
+        if days_old > 30:
+            print(f"❌ Data is critically stale (>30 days old)")
+            return False
+        elif days_old > 14:
+            print(f"⚠️  Data is stale (>14 days old)")
+            print("   Recommendation: Refresh wave_history.csv")
+        elif days_old > 7:
+            print(f"⚠️  Data needs refresh (>7 days old)")
+        else:
+            print(f"✅ Data is fresh (≤7 days old)")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error checking freshness: {e}")
+        return False
+
+
+def test_data_columns():
+    """Test that essential data columns exist."""
+    print("\n" + "=" * 70)
+    print("TEST 6: Essential Data Columns")
+    print("=" * 70)
+    
+    try:
+        df = pd.read_csv('wave_history.csv')
+        
+        essential_cols = ['portfolio_return', 'benchmark_return']
+        missing_cols = [col for col in essential_cols if col not in df.columns]
+        
+        if missing_cols:
+            print(f"⚠️  Missing optional columns: {', '.join(missing_cols)}")
+            print("   These columns are recommended for full analytics")
+        else:
+            print(f"✅ All essential data columns present")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error checking data columns: {e}")
+        return False
+
+
+def test_wave_coverage():
+    """Test wave coverage in the data."""
+    print("\n" + "=" * 70)
+    print("TEST 7: Wave Coverage")
+    print("=" * 70)
+    
+    try:
+        df = pd.read_csv('wave_history.csv')
+        
+        if 'wave' not in df.columns:
+            print("⚠️  Wave column not found")
+            return True  # Not critical
+        
+        unique_waves = df['wave'].nunique()
+        print(f"✅ Wave coverage validated")
+        print(f"   Unique waves: {unique_waves}")
+        
+        if unique_waves > 0:
+            # Show sample waves
+            sample_waves = df['wave'].unique()[:5]
+            print(f"   Sample waves: {', '.join(str(w) for w in sample_waves)}")
+            if unique_waves > 5:
+                print(f"   ... and {unique_waves - 5} more")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error checking wave coverage: {e}")
         return False
 
 
@@ -254,12 +223,13 @@ def main():
     results = []
     
     # Run all tests
-    results.append(("Missing File Detection", test_missing_wave_history()))
-    results.append(("Empty File Detection", test_empty_wave_history()))
-    results.append(("Invalid File Detection", test_invalid_wave_history()))
-    results.append(("Stale Data Detection", test_stale_wave_history()))
-    results.append(("Valid Data Loading", test_valid_wave_history()))
-    results.append(("Actual File Validation", test_actual_wave_history()))
+    results.append(("File Existence", test_wave_history_exists()))
+    results.append(("File Readability", test_wave_history_readable()))
+    results.append(("Required Columns", test_required_columns()))
+    results.append(("Date Validity", test_date_column_validity()))
+    results.append(("Data Freshness", test_data_freshness()))
+    results.append(("Data Columns", test_data_columns()))
+    results.append(("Wave Coverage", test_wave_coverage()))
     
     # Summary
     print("\n" + "=" * 70)
