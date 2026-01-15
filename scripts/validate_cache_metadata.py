@@ -10,10 +10,16 @@ This script validates the prices_cache_meta.json file to ensure:
 The staleness check now dynamically fetches SPY trading history to determine
 the actual latest trading day, accounting for weekends and holidays.
 
+Bootstrap Override:
+  Set ALLOW_METADATA_BOOTSTRAP=1 to allow metadata bootstrap when spy_max_date
+  is stale. This logs a warning instead of failing, enabling the pipeline to
+  self-heal from a bootstrap deadlock. Remove this override after a successful run.
+
 Exits with code 1 if any validation fails, code 0 if all validations pass.
 """
 
 import json
+import os
 import sys
 from datetime import datetime, timezone, timedelta, date
 from pathlib import Path
@@ -109,6 +115,14 @@ def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json', g
     print("CACHE METADATA VALIDATION")
     print("=" * 70)
     
+    # Check for bootstrap override
+    allow_bootstrap = os.getenv('ALLOW_METADATA_BOOTSTRAP', '').strip() in ['1', 'true', 'True', 'TRUE']
+    if allow_bootstrap:
+        print("\n⚠️  BOOTSTRAP MODE ENABLED (ALLOW_METADATA_BOOTSTRAP=1)")
+        print("   Trading-day freshness will log warnings instead of failing.")
+        print("   This override should be removed after a successful cache update.")
+        print()
+    
     # Check if file exists
     if not Path(metadata_path).exists():
         print(f"✗ ERROR: Metadata file not found: {metadata_path}")
@@ -188,8 +202,14 @@ def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json', g
                 print(f"  Days old: {days_old}")
                 
                 if days_old > 5:
-                    print(f"✗ FAIL: spy_max_date is {days_old} days old (max allowed: 5 calendar days)")
-                    all_valid = False
+                    # Check for bootstrap override
+                    if allow_bootstrap:
+                        print(f"⚠ WARNING (BOOTSTRAP MODE): spy_max_date is {days_old} days old (max allowed: 5 calendar days)")
+                        print(f"  Allowing cache metadata to advance in this run.")
+                        print(f"  ⚠️  REMOVE ALLOW_METADATA_BOOTSTRAP override after this run completes.")
+                    else:
+                        print(f"✗ FAIL: spy_max_date is {days_old} days old (max allowed: 5 calendar days)")
+                        all_valid = False
                 else:
                     print(f"✓ PASS: spy_max_date is {days_old} days old (within 5-day threshold)")
             else:
@@ -224,12 +244,28 @@ def validate_cache_metadata(metadata_path='data/cache/prices_cache_meta.json', g
                 else:
                     if sessions_behind is not None:
                         print(f"  Comparison: BEHIND by {sessions_behind} trading day(s)")
-                        print(f"✗ FAIL: spy_max_date is {sessions_behind} trading days behind latest trading day")
-                        print(f"  (Grace period: {grace_period_days} trading day(s))")
+                        
+                        # Check for bootstrap override
+                        if allow_bootstrap:
+                            print(f"⚠ WARNING (BOOTSTRAP MODE): spy_max_date is {sessions_behind} trading days behind latest trading day")
+                            print(f"  (Grace period: {grace_period_days} trading day(s))")
+                            print(f"  Allowing cache metadata to advance in this run.")
+                            print(f"  ⚠️  REMOVE ALLOW_METADATA_BOOTSTRAP override after this run completes.")
+                        else:
+                            print(f"✗ FAIL: spy_max_date is {sessions_behind} trading days behind latest trading day")
+                            print(f"  (Grace period: {grace_period_days} trading day(s))")
+                            all_valid = False
                     else:
                         print(f"  Comparison: BEHIND (spy_max_date not in recent trading days)")
-                        print(f"✗ FAIL: spy_max_date ({spy_date}) is not a recent trading day")
-                    all_valid = False
+                        
+                        # Check for bootstrap override
+                        if allow_bootstrap:
+                            print(f"⚠ WARNING (BOOTSTRAP MODE): spy_max_date ({spy_date}) is not a recent trading day")
+                            print(f"  Allowing cache metadata to advance in this run.")
+                            print(f"  ⚠️  REMOVE ALLOW_METADATA_BOOTSTRAP override after this run completes.")
+                        else:
+                            print(f"✗ FAIL: spy_max_date ({spy_date}) is not a recent trading day")
+                            all_valid = False
                     
         except ValueError as e:
             print(f"✗ FAIL: Invalid date format for spy_max_date: {spy_max_date}. Expected format: YYYY-MM-DD")

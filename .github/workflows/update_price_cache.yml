@@ -15,6 +15,11 @@ on:
         required: false
         default: false
         type: boolean
+      allow_bootstrap:
+        description: "Allow metadata bootstrap (temporary override for one run)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -156,10 +161,21 @@ jobs:
           echo "========================================================================"
 
       - name: Validate cache metadata
+        env:
+          ALLOW_METADATA_BOOTSTRAP: ${{ github.event.inputs.allow_bootstrap == 'true' && '1' || '' }}
         run: |
           echo "========================================================================"
           echo "CACHE METADATA VALIDATION"
           echo "========================================================================"
+          
+          # Log bootstrap override status
+          if [ "${{ github.event.inputs.allow_bootstrap }}" = "true" ]; then
+            echo "⚠️  BOOTSTRAP OVERRIDE ENABLED (allow_bootstrap=true)"
+            echo "   This is a TEMPORARY override for ONE run to break the bootstrap deadlock."
+            echo "   Trading-day freshness will log warnings instead of failing."
+            echo "   ⚠️  REMOVE this override in a follow-up PR after this run completes."
+            echo ""
+          fi
           
           # Run metadata validation script
           python3 scripts/validate_cache_metadata.py
