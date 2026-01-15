@@ -1,0 +1,306 @@
+name: Build Wave History
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wave_weights.csv'
+      - 'prices.csv'
+      - 'build_wave_history_from_prices.py'
+      - 'waves_engine.py'
+      - '.github/workflows/build_wave_history.yml'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force rebuild even if no changes detected"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+# Prevent overlapping runs
+concurrency:
+  group: build-wave-history
+  cancel-in-progress: true
+
+env:
+  MIN_ROW_THRESHOLD: 10000
+  MIN_WAVE_THRESHOLD: 5
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: UTC
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pre-build inspection
+        run: |
+          echo "========================================================================"
+          echo "PRE-BUILD INSPECTION"
+          echo "========================================================================"
+
+          if [ -f wave_history.csv ]; then
+            echo "✓ wave_history.csv exists"
+            FILE_SIZE=$(stat -c%s wave_history.csv 2>/dev/null || echo "0")
+            echo "  Size: ${FILE_SIZE} bytes"
+            
+            ROWS=$(wc -l < wave_history.csv)
+            echo "  Rows: ${ROWS}"
+            
+            if [ -f wave_coverage_snapshot.json ]; then
+              echo ""
+              echo "Existing Coverage Snapshot:"
+              cat wave_coverage_snapshot.json | python3 -m json.tool | head -20
+            fi
+          else
+            echo "✗ wave_history.csv does not exist yet"
+          fi
+
+          echo "========================================================================"
+
+      - name: Build wave history
+        run: |
+          echo "=== Building Wave History ==="
+          python build_wave_history_from_prices.py
+
+      - name: Validate wave_history.csv exists and is non-empty
+        run: |
+          echo "========================================================================"
+          echo "POST-BUILD VALIDATION"
+          echo "========================================================================"
+
+          if [ ! -f wave_history.csv ]; then
+            echo "✗ ERROR: wave_history.csv does not exist"
+            exit 1
+          fi
+
+          FILE_SIZE=$(stat -c%s wave_history.csv 2>/dev/null || echo "0")
+          if [ "$FILE_SIZE" -eq 0 ]; then
+            echo "✗ ERROR: wave_history.csv is empty"
+            exit 1
+          fi
+
+          echo "✓ wave_history.csv exists and is non-empty"
+          echo "  Size: ${FILE_SIZE} bytes"
+          
+          echo "========================================================================"
+
+      - name: Validate wave_history.csv content
+        run: |
+          echo "========================================================================"
+          echo "CONTENT VALIDATION"
+          echo "========================================================================"
+
+          python3 << 'EOF'
+          import pandas as pd
+          import sys
+          import os
+
+          # Load wave_history.csv
+          df = pd.read_csv("wave_history.csv")
+
+          # Check row count threshold
+          min_rows = int(os.environ.get("MIN_ROW_THRESHOLD", 10000))
+          row_count = len(df)
+          print(f"✓ Row count: {row_count}")
+          
+          if row_count < min_rows:
+              print(f"✗ ERROR: Row count {row_count} is below minimum threshold {min_rows}")
+              sys.exit(1)
+          
+          print(f"✓ Row count meets threshold ({min_rows})")
+
+          # Check wave count threshold
+          min_waves = int(os.environ.get("MIN_WAVE_THRESHOLD", 5))
+          wave_count = df['wave'].nunique()
+          print(f"✓ Unique waves: {wave_count}")
+          
+          if wave_count < min_waves:
+              print(f"✗ ERROR: Wave count {wave_count} is below minimum threshold {min_waves}")
+              sys.exit(1)
+          
+          print(f"✓ Wave count meets threshold ({min_waves})")
+
+          # Check required columns
+          required_cols = ['date', 'wave', 'portfolio_return', 'benchmark_return']
+          missing_cols = [col for col in required_cols if col not in df.columns]
+          
+          if missing_cols:
+              print(f"✗ ERROR: Missing required columns: {missing_cols}")
+              sys.exit(1)
+          
+          print(f"✓ All required columns present: {required_cols}")
+
+          # Get date range
+          df['date'] = pd.to_datetime(df['date'])
+          min_date = df['date'].min()
+          max_date = df['date'].max()
+          print(f"✓ Date range: {min_date.date()} to {max_date.date()}")
+
+          # List waves
+          waves = sorted(df['wave'].unique())
+          print(f"\nWaves in wave_history.csv ({len(waves)}):")
+          for i, wave in enumerate(waves, 1):
+              wave_rows = len(df[df['wave'] == wave])
+              print(f"  {i:2d}. {wave} ({wave_rows} rows)")
+
+          # Check for overlay information
+          if 'overlay_active' in df.columns:
+              overlay_count = df['overlay_active'].sum()
+              print(f"\n✓ Strategy overlay records: {overlay_count} ({100*overlay_count/len(df):.1f}%)")
+          
+          print("\n✓ All validations passed")
+          EOF
+
+          echo "========================================================================"
+
+      - name: Validate coverage snapshot
+        run: |
+          echo "========================================================================"
+          echo "COVERAGE SNAPSHOT VALIDATION"
+          echo "========================================================================"
+
+          if [ ! -f wave_coverage_snapshot.json ]; then
+            echo "⚠ WARNING: wave_coverage_snapshot.json not found"
+            exit 0
+          fi
+
+          python3 << 'EOF'
+          import json
+          import sys
+
+          with open("wave_coverage_snapshot.json", "r") as f:
+              snapshot = json.load(f)
+
+          print(f"Timestamp: {snapshot.get('timestamp', 'N/A')}")
+          print(f"Total waves processed: {snapshot.get('total_waves', 0)}")
+          print(f"Waves meeting threshold: {snapshot.get('waves_meeting_threshold', 0)}")
+          print(f"Waves below threshold: {snapshot.get('waves_below_threshold', 0)}")
+          print(f"Minimum coverage threshold: {snapshot.get('min_coverage_threshold', 0):.0%}")
+
+          # List waves below threshold if any
+          waves_below = [w for w in snapshot.get('waves', []) if not w.get('meets_threshold', True)]
+          if waves_below:
+              print("\nWaves below coverage threshold:")
+              for wave in waves_below:
+                  print(f"  - {wave['wave']}: {wave['coverage_pct']:.2%} coverage")
+                  print(f"    Missing tickers: {wave.get('missing_ticker_list', [])}")
+
+          print("\n✓ Coverage snapshot validated")
+          EOF
+
+          echo "========================================================================"
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          echo "========================================================================"
+          echo "CHANGE DETECTION"
+          echo "========================================================================"
+
+          # Check if wave_history.csv has been modified
+          if git diff --quiet wave_history.csv wave_coverage_snapshot.json 2>/dev/null; then
+            echo "status=no_changes" >> $GITHUB_OUTPUT
+            echo "ℹ No changes in wave history files"
+          else
+            echo "status=has_changes" >> $GITHUB_OUTPUT
+            echo "✓ Changes detected:"
+            git diff --stat wave_history.csv wave_coverage_snapshot.json 2>/dev/null || echo "  (new files)"
+          fi
+
+          echo "========================================================================"
+
+      # Only push on main branch for push events or manual dispatch
+      - name: Commit and push updated wave history
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          set -e
+
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Clean workspace to ensure pristine state
+          echo "Cleaning workspace..."
+          git reset --hard
+          git clean -fd
+
+          # Fetch and rebase onto latest main BEFORE staging any changes
+          echo "Fetching latest changes from origin/main..."
+          git fetch origin main
+          echo "Rebasing onto origin/main..."
+          git pull --rebase origin main
+
+          # Now stage the wave history files (after rebase is complete)
+          echo "Staging wave history files..."
+          git add wave_history.csv || true
+          git add wave_coverage_snapshot.json || true
+
+          # Check if there are any staged differences
+          if git diff --staged --quiet; then
+            # For workflow_dispatch, we still log completion even with no changes
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "⚠ Manual run completed but no changes detected after rebase."
+              echo "This can happen if wave_history.csv was just updated by another workflow."
+            else
+              echo "ℹ After rebase, nothing to commit."
+            fi
+            exit 0
+          fi
+
+          # Extract metadata for logging
+          echo ""
+          echo "========================================================================"
+          echo "COMMIT METADATA LOGGING"
+          echo "========================================================================"
+          
+          # Log wave history metadata
+          if [ -f wave_history.csv ]; then
+            echo "Wave History Metadata:"
+            python3 -c "import pandas as pd; df = pd.read_csv('wave_history.csv'); print(f\"  Total rows: {len(df)}\"); print(f\"  Unique waves: {df['wave'].nunique()}\"); df['date'] = pd.to_datetime(df['date']); print(f\"  Date range: {df['date'].min().date()} to {df['date'].max().date()}\")"
+          fi
+          
+          if [ -f wave_coverage_snapshot.json ]; then
+            echo ""
+            echo "Coverage Snapshot Metadata:"
+            python3 -c "import json; snapshot = json.load(open('wave_coverage_snapshot.json')); print(f\"  Timestamp: {snapshot.get('timestamp', 'N/A')}\"); print(f\"  Total waves: {snapshot.get('total_waves', 0)}\"); print(f\"  Waves meeting threshold: {snapshot.get('waves_meeting_threshold', 0)}\")"
+          fi
+
+          # Commit and push the changes
+          echo ""
+          echo "Committing changes..."
+          COMMIT_MSG="Update wave_history.csv (auto)"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            COMMIT_MSG="Update wave_history.csv (manual run)"
+          fi
+          git commit -m "$COMMIT_MSG"
+          
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "  Commit SHA: $COMMIT_SHA"
+          
+          echo "Pushing to origin/main..."
+          git push
+          
+          echo ""
+          echo "✓ Wave history files committed and pushed successfully"
+          echo "  Last commit SHA: $COMMIT_SHA"
+          echo "========================================================================"
