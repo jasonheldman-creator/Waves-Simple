@@ -424,7 +424,7 @@ for wave, wdf in weights.groupby("wave"):
         try:
             # Prepare price DataFrame for waves_engine (date index, ticker columns)
             # waves_engine expects prices, not returns
-            price_df_for_engine = prices_pivot.copy()
+            price_df_for_engine = price_wide.copy()
             
             # Call waves_engine with full strategy pipeline
             result_df = waves_engine.compute_history_nav(
