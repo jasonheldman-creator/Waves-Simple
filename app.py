@@ -10472,12 +10472,13 @@ def render_executive_brief_tab():
             
             try:
                 # ================================================================
-                # INLINE COMPUTATION FROM PRICE_BOOK
-                # All portfolio metrics computed directly in render path
-                # No dependencies on snapshots, caches, or external helpers
+                # RUNTIME DYNAMIC COMPUTATION FROM PRICE_BOOK
+                # All portfolio metrics computed directly in render path at runtime
+                # NO dependencies on live_snapshot.csv, caches, or snapshot ledger
+                # NO st.cache_data - pure runtime computation every render
                 # ================================================================
                 
-                # Fetch PRICE_BOOK (already loaded in app memory)
+                # Fetch PRICE_BOOK (canonical live market data source)
                 PRICE_BOOK = get_cached_price_book()
                 
                 if PRICE_BOOK is None or PRICE_BOOK.empty:
@@ -10496,6 +10497,11 @@ def render_executive_brief_tab():
                         # Note: This uses all tickers in PRICE_BOOK as an equal-weighted portfolio
                         portfolio_returns = returns_df.mean(axis=1)
                         
+                        # Get benchmark returns (SPY) for alpha computation
+                        benchmark_returns = None
+                        if 'SPY' in returns_df.columns:
+                            benchmark_returns = returns_df['SPY']
+                        
                         # Validate we have portfolio returns
                         if portfolio_returns.empty:
                             st.error("⚠️ No valid portfolio returns computed")
@@ -10505,12 +10511,17 @@ def render_executive_brief_tab():
                             last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
                             current_utc = datetime.utcnow().strftime('%H:%M:%S UTC')
                             
-                            # Display diagnostic line (mandatory)
+                            # Display comprehensive diagnostic overlay (mandatory)
                             st.markdown(
                                 f"""
                                 <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                                    <strong>Live portfolio metrics computed from PRICE_BOOK</strong><br>
-                                    Last trading date: {last_trading_date} | Rendered at: {current_utc}
+                                    <strong>✅ RUNTIME DYNAMIC COMPUTATION</strong><br>
+                                    <strong>Data Source:</strong> PRICE_BOOK (live market data, {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers)<br>
+                                    <strong>Last Trading Date:</strong> {last_trading_date}<br>
+                                    <strong>Render UTC:</strong> {current_utc}<br>
+                                    <strong>Benchmark:</strong> {'SPY ✅' if benchmark_returns is not None else 'SPY ❌ (Alpha unavailable)'}<br>
+                                    <strong>Snapshot Artifact:</strong> ❌ No live_snapshot.csv dependency<br>
+                                    <strong>Caching:</strong> ❌ No st.cache_data (pure runtime computation)
                                 </div>
                                 """,
                                 unsafe_allow_html=True
@@ -10534,7 +10545,10 @@ def render_executive_brief_tab():
                                 except (ValueError, RuntimeError):
                                     return None
                             
-                            # Compute metrics for each period
+                            # ================================================================
+                            # COMPUTE PORTFOLIO RETURNS FOR ALL TIMEFRAMES (RUNTIME DYNAMIC)
+                            # ================================================================
+                            
                             # 1D: Latest value
                             ret_1d = portfolio_returns.iloc[-1] if len(portfolio_returns) >= 1 else None
                             
@@ -10555,6 +10569,39 @@ def render_executive_brief_tab():
                                 ret_365d = safe_compounded_return(portfolio_returns.iloc[-TRADING_DAYS_PER_YEAR:])
                             else:
                                 ret_365d = None
+                            
+                            # ================================================================
+                            # COMPUTE BENCHMARK RETURNS FOR ALL TIMEFRAMES (RUNTIME DYNAMIC)
+                            # ================================================================
+                            bench_1d = None
+                            bench_30d = None
+                            bench_60d = None
+                            bench_365d = None
+                            
+                            if benchmark_returns is not None and not benchmark_returns.empty:
+                                # 1D: Latest value
+                                bench_1d = benchmark_returns.iloc[-1] if len(benchmark_returns) >= 1 else None
+                                
+                                # 30D: Compounded returns of last 30 rows
+                                if len(benchmark_returns) >= 30:
+                                    bench_30d = safe_compounded_return(benchmark_returns.iloc[-30:])
+                                
+                                # 60D: Compounded returns of last 60 rows
+                                if len(benchmark_returns) >= 60:
+                                    bench_60d = safe_compounded_return(benchmark_returns.iloc[-60:])
+                                
+                                # 365D: Compounded returns of last ~252 rows (one trading year)
+                                if len(benchmark_returns) >= TRADING_DAYS_PER_YEAR:
+                                    bench_365d = safe_compounded_return(benchmark_returns.iloc[-TRADING_DAYS_PER_YEAR:])
+                            
+                            # ================================================================
+                            # COMPUTE ALPHA METRICS (RUNTIME DYNAMIC)
+                            # Alpha = Portfolio Return - Benchmark Return
+                            # ================================================================
+                            alpha_1d = (ret_1d - bench_1d) if (ret_1d is not None and bench_1d is not None) else None
+                            alpha_30d = (ret_30d - bench_30d) if (ret_30d is not None and bench_30d is not None) else None
+                            alpha_60d = (ret_60d - bench_60d) if (ret_60d is not None and bench_60d is not None) else None
+                            alpha_365d = (ret_365d - bench_365d) if (ret_365d is not None and bench_365d is not None) else None
                         
                             # Display in blue box with computed metrics
                             st.markdown("""
@@ -10568,42 +10615,101 @@ def render_executive_brief_tab():
                             """, unsafe_allow_html=True)
                         
                             # Portfolio performance metrics display
-                            st.markdown("**📊 Portfolio Performance (Equal-Weighted)**")
-                            st.caption("Returns based on PRICE_BOOK data")
+                            st.markdown("**📊 Portfolio Performance (Equal-Weighted) - Runtime Dynamic Computation**")
+                            st.caption("All metrics computed live from PRICE_BOOK at render time (no caching, no snapshots)")
                         
+                            # Returns Row
+                            st.markdown("**📈 Returns**")
                             col1, col2, col3, col4 = st.columns(4)
                         
                             with col1:
                                 st.markdown("**1D**")
                                 if ret_1d is not None:
-                                    st.markdown(f"📈 **Return:** {ret_1d:+.2%}")
+                                    st.markdown(f"{ret_1d:+.2%}")
                                 else:
-                                    st.markdown("📈 **Return:** N/A")
+                                    st.markdown("N/A")
                                     st.caption("⚠️ Insufficient data")
                         
                             with col2:
                                 st.markdown("**30D**")
                                 if ret_30d is not None:
-                                    st.markdown(f"📈 **Return:** {ret_30d:+.2%}")
+                                    st.markdown(f"{ret_30d:+.2%}")
                                 else:
-                                    st.markdown("📈 **Return:** N/A")
+                                    st.markdown("N/A")
                                     st.caption("⚠️ Insufficient data")
                         
                             with col3:
                                 st.markdown("**60D**")
                                 if ret_60d is not None:
-                                    st.markdown(f"📈 **Return:** {ret_60d:+.2%}")
+                                    st.markdown(f"{ret_60d:+.2%}")
                                 else:
-                                    st.markdown("📈 **Return:** N/A")
+                                    st.markdown("N/A")
                                     st.caption("⚠️ Insufficient data")
                         
                             with col4:
                                 st.markdown("**365D**")
                                 if ret_365d is not None:
-                                    st.markdown(f"📈 **Return:** {ret_365d:+.2%}")
+                                    st.markdown(f"{ret_365d:+.2%}")
                                 else:
-                                    st.markdown("📈 **Return:** N/A")
+                                    st.markdown("N/A")
                                     st.caption("⚠️ Insufficient data")
+                            
+                            # Alpha Row
+                            st.markdown("---")
+                            st.markdown("**⚡ Alpha (vs SPY Benchmark)**")
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.markdown("**1D**")
+                                if alpha_1d is not None:
+                                    color = "green" if alpha_1d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_1d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            with col2:
+                                st.markdown("**30D**")
+                                if alpha_30d is not None:
+                                    color = "green" if alpha_30d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_30d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            with col3:
+                                st.markdown("**60D**")
+                                if alpha_60d is not None:
+                                    color = "green" if alpha_60d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_60d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            with col4:
+                                st.markdown("**365D**")
+                                if alpha_365d is not None:
+                                    color = "green" if alpha_365d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_365d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            # Attribution Summary (Basic)
+                            st.markdown("---")
+                            st.markdown("**🎯 Attribution Summary**")
+                            
+                            # Calculate basic attribution stats
+                            total_tickers = len(returns_df.columns)
+                            portfolio_size_display = f"{total_tickers} tickers (equal-weighted)"
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.caption(f"**Portfolio Composition:** {portfolio_size_display}")
+                                st.caption(f"**Benchmark:** SPY (S&P 500)")
+                            with col2:
+                                st.caption(f"**Computation Method:** Mean daily returns (equal-weighted)")
+                                st.caption(f"**Data Source:** PRICE_BOOK live market data")
                         
                             st.markdown("</div>", unsafe_allow_html=True)
         
