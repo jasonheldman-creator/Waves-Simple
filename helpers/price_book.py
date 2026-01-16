@@ -647,9 +647,9 @@ def _fetch_simulated_live_prices(tickers: Optional[List[str]] = None) -> tuple[p
             # Vary the last 5 rows with different random amounts
             for i in range(min(5, len(prices))):
                 idx = -(i + 1)
-                if not pd.isna(prices[col].iloc[idx]):
+                if not pd.isna(prices.loc[prices.index[idx], col]):
                     variation = random.uniform(-0.003, 0.003)  # ±0.3%
-                    prices[col].iloc[idx] = prices[col].iloc[idx] * (1 + variation)
+                    prices.loc[prices.index[idx], col] = prices.loc[prices.index[idx], col] * (1 + variation)
     
     logger.info(f"SIMULATED FETCH COMPLETE: {len(prices)} days × {len(prices.columns)} tickers")
     if not prices.empty:
