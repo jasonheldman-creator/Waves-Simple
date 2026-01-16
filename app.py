@@ -10509,7 +10509,7 @@ def render_executive_brief_tab():
                         else:
                             # Get latest trading date and current UTC time for diagnostics
                             last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
-                            current_utc = datetime.utcnow().strftime('%H:%M:%S UTC')
+                            current_utc = datetime.now(timezone.utc).strftime('%H:%M:%S UTC')
                             
                             # Display comprehensive diagnostic overlay (mandatory)
                             st.markdown(
