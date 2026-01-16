@@ -1,9 +1,4 @@
-"""
-Institutional Console v2 – Executive Layer v2
-Full implementation with advanced analytics
-...
-"""
-# ================================
+import streamlit as st
 import logging
 import subprocess
 import os
@@ -12,8 +7,8 @@ import time
 import itertools
 import html
 from datetime import datetime, timedelta
+
 import pandas as pd
-import streamlit as st
     
 """
 Institutional Console v2 - Executive Layer v2
@@ -23129,6 +23124,3 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.session_state.selected_wave_id = None
         
         # Initialize mode (default: Standard)
-        st.session_state.mode = "Standard"
-    
-    # =========
