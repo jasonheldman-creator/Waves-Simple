@@ -22750,10 +22750,10 @@ def main():
             raise ImportError("snapshot_ledger module is not available")
         
         # Load/generate snapshot (uses cache if fresh, generates if stale/missing)
-        # force_refresh=False ensures we use cached snapshot if available for performance
+        # force_refresh=True enforces one-time snapshot regeneration on app startup
         snapshot_df = generate_snapshot(
-            force_refresh=False,
-            generation_reason='app_startup_load'
+            force_refresh=True,
+            generation_reason="manual_forced_refresh"
         )
         
         # Store in session state for access by portfolio tabs
