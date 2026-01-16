@@ -11904,6 +11904,209 @@ def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
 
 def render_executive_tab():
     """
+    Compute portfolio metrics directly from live market data using yfinance.
+    
+    This function bypasses all cached data (snapshots, cached ledgers, prices_cache.parquet)
+    and fetches fresh market data at runtime. It implements a 60-second TTL cache to reduce
+    redundant API calls within the same session.
+    
+    Returns:
+        Dictionary with portfolio metrics for each period (1D, 30D, 60D, 365D), or None if unavailable.
+        Structure matches compute_portfolio_metrics_from_snapshot output format for compatibility.
+    """
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    from waves_engine import get_all_portfolio_tickers, WAVE_WEIGHTS
+    
+    # Check cache validity
+    if _LIVE_PORTFOLIO_CACHE['data'] is not None and _LIVE_PORTFOLIO_CACHE['timestamp'] is not None:
+        age_seconds = (datetime.now() - _LIVE_PORTFOLIO_CACHE['timestamp']).total_seconds()
+        if age_seconds < _LIVE_PORTFOLIO_CACHE['ttl_seconds']:
+            logging.info(f"Using cached live portfolio metrics (age: {age_seconds:.1f}s)")
+            return _LIVE_PORTFOLIO_CACHE['data']
+    
+    try:
+        logging.info("Fetching live market data for portfolio metrics...")
+        
+        # Extract all unique tickers from WAVE_WEIGHTS
+        all_tickers = get_all_portfolio_tickers()
+        
+        if not all_tickers:
+            return {
+                'success': False,
+                'failure_reason': 'No tickers found in portfolio',
+                'period_results': {}
+            }
+        
+        # Download at least 400 trading days of history (approximately 18 months)
+        # Using 600 calendar days to ensure we have enough trading days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=600)
+        
+        # Download data for all tickers in a single batch call
+        logging.info(f"Downloading {len(all_tickers)} tickers with 600 days of history...")
+        data = yf.download(
+            tickers=all_tickers,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d'),
+            interval='1d',
+            auto_adjust=True,
+            progress=False,
+            group_by='column'
+        )
+        
+        # Extract adjusted close prices
+        if isinstance(data.columns, pd.MultiIndex):
+            if 'Adj Close' in data.columns.get_level_values(0):
+                prices = data['Adj Close']
+            elif 'Close' in data.columns.get_level_values(0):
+                prices = data['Close']
+            else:
+                prices = data
+        else:
+            prices = data
+        
+        # Handle single ticker case
+        if isinstance(prices, pd.Series):
+            prices = prices.to_frame(name=all_tickers[0])
+        
+        # Forward fill and backward fill missing data
+        prices = prices.sort_index().ffill().bfill()
+        
+        if prices.empty:
+            return {
+                'success': False,
+                'failure_reason': 'No price data retrieved from yfinance',
+                'period_results': {}
+            }
+        
+        # Get latest available trading date
+        latest_date = prices.index[-1]
+        
+        # Compute equal-weighted portfolio returns for each wave, then average across waves
+        periods = {
+            '1D': 1,
+            '30D': 30,
+            '60D': 60,
+            '365D': 365
+        }
+        
+        period_results = {}
+        
+        # Build equal-weighted portfolio for each wave
+        wave_returns = {}
+        for wave_name, holdings in WAVE_WEIGHTS.items():
+            wave_tickers = [h.ticker for h in holdings]
+            wave_weights = {h.ticker: h.weight for h in holdings}
+            
+            # Normalize weights to sum to 1.0
+            total_weight = sum(wave_weights.values())
+            if total_weight > 0:
+                wave_weights = {t: w / total_weight for t, w in wave_weights.items()}
+            
+            # Get tickers available in price data
+            available_tickers = [t for t in wave_tickers if t in prices.columns]
+            
+            if not available_tickers:
+                continue
+            
+            # Compute wave returns for each period
+            wave_returns[wave_name] = {}
+            for period_key, days in periods.items():
+                try:
+                    if len(prices) < days + 1:
+                        continue
+                    
+                    # Get prices at start and end of period
+                    end_prices = prices.iloc[-1]
+                    start_prices = prices.iloc[-(days + 1)]
+                    
+                    # Compute weighted portfolio return for this wave
+                    wave_return = 0.0
+                    total_available_weight = 0.0
+                    
+                    for ticker in available_tickers:
+                        if ticker in end_prices and ticker in start_prices:
+                            if pd.notna(end_prices[ticker]) and pd.notna(start_prices[ticker]) and start_prices[ticker] > 0:
+                                ticker_return = (end_prices[ticker] - start_prices[ticker]) / start_prices[ticker]
+                                weight = wave_weights.get(ticker, 0)
+                                wave_return += ticker_return * weight
+                                total_available_weight += weight
+                    
+                    # Normalize by available weight
+                    if total_available_weight > 0:
+                        wave_return = wave_return / total_available_weight
+                        wave_returns[wave_name][period_key] = wave_return
+                
+                except Exception as e:
+                    logging.warning(f"Error computing {period_key} return for {wave_name}: {e}")
+                    continue
+        
+        # Aggregate across all waves (equal-weighted portfolio of waves)
+        for period_key in ['1D', '30D', '60D', '365D']:
+            returns_for_period = [
+                wave_rets[period_key] 
+                for wave_rets in wave_returns.values() 
+                if period_key in wave_rets
+            ]
+            
+            if not returns_for_period:
+                period_results[period_key] = {
+                    'available': False,
+                    'reason': f'No waves with valid {period_key} return data'
+                }
+                continue
+            
+            # Equal-weight average across waves
+            portfolio_return = np.mean(returns_for_period)
+            
+            period_results[period_key] = {
+                'available': True,
+                'cum_realized': portfolio_return,
+                'cum_benchmark': 0.0,  # Benchmark not computed in live mode
+                'total_alpha': portfolio_return,  # All return considered as alpha in live mode
+                'selection_alpha': portfolio_return,
+                'overlay_alpha': 0.0,
+                'residual': 0.0,
+                'n_waves_with_returns': len(returns_for_period),
+                'start_date': prices.index[0].strftime('%Y-%m-%d') if len(prices) > 0 else 'N/A',
+                'end_date': latest_date.strftime('%Y-%m-%d')
+            }
+        
+        result = {
+            'success': True,
+            'period_results': period_results,
+            'vix_ticker_used': None,
+            'safe_ticker_used': None,
+            'overlay_available': False,
+            'daily_realized_return': None,
+            'daily_exposure': None,
+            'warnings': [],
+            'data_timestamp': datetime.now().isoformat(),
+            'latest_trading_date': latest_date.strftime('%Y-%m-%d'),
+            'n_tickers_fetched': len(all_tickers),
+            'n_tickers_with_data': len([c for c in prices.columns if c in all_tickers])
+        }
+        
+        # Update cache
+        _LIVE_PORTFOLIO_CACHE['data'] = result
+        _LIVE_PORTFOLIO_CACHE['timestamp'] = datetime.now()
+        
+        logging.info(f"Successfully computed live portfolio metrics (latest date: {latest_date.strftime('%Y-%m-%d')})")
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error computing live portfolio metrics: {str(e)}")
+        return {
+            'success': False,
+            'failure_reason': f'Error fetching live market data: {str(e)}',
+            'period_results': {}
+        }
+
+
+def render_executive_tab():
+    """
     Render the Executive tab with enhanced visualizations.
     Includes: Leaderboard, Movers, Alerts, and Performance Charts.
     """
