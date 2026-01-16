@@ -10470,338 +10470,145 @@ def render_executive_brief_tab():
             st.markdown("### 💼 Portfolio Snapshot")
             st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
             
-            # ========================================================================
-            # DIAGNOSTIC DEBUG BLOCK
-            # Show critical system dates to diagnose frozen snapshot issue
-            # ========================================================================
-            with st.expander("🔍 Debug: Live Market Data Diagnostics", expanded=False):
-                from datetime import datetime
-                
-                # Show live metrics info
-                live_metrics = st.session_state.get("portfolio_live_metrics")
-                
-                if live_metrics and live_metrics.get('success'):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("**📊 Live Data Status**")
-                        st.metric("Latest Trading Date", live_metrics.get('latest_trading_date', 'N/A'))
-                        st.metric("Tickers Fetched", live_metrics.get('n_tickers_fetched', 0))
-                        st.metric("Tickers with Data", live_metrics.get('n_tickers_with_data', 0))
-                    
-                    with col2:
-                        st.markdown("**⏱️ Cache Status**")
-                        data_timestamp = live_metrics.get('data_timestamp', 'N/A')
-                        if data_timestamp != 'N/A':
-                            try:
-                                fetch_time = datetime.fromisoformat(data_timestamp)
-                                age_seconds = (datetime.now() - fetch_time).total_seconds()
-                                st.metric("Data Age (seconds)", f"{age_seconds:.1f}")
-                                st.caption(f"Fetched: {data_timestamp[:19]}")
-                                
-                                # Show cache TTL status
-                                ttl = 60
-                                if age_seconds < ttl:
-                                    st.success(f"✓ Cache valid ({ttl - age_seconds:.0f}s remaining)")
-                                else:
-                                    st.warning("Cache expired - will refresh on next render")
-                            except:
-                                st.caption(f"Timestamp: {data_timestamp[:19] if len(data_timestamp) > 19 else data_timestamp}")
-                        else:
-                            st.caption("No timestamp available")
-                    
-                    # Show waves with data for each period
-                    st.markdown("**👥 Waves with Valid Data**")
-                    period_results = live_metrics.get('period_results', {})
-                    for period_key in ['1D', '30D', '60D', '365D']:
-                        period_data = period_results.get(period_key, {})
-                        if period_data.get('available'):
-                            n_waves = period_data.get('n_waves_with_returns', 0)
-                            st.caption(f"{period_key}: {n_waves} waves")
-                        else:
-                            st.caption(f"{period_key}: No data")
-                else:
-                    st.warning("Live metrics not available or failed to compute")
-                    if live_metrics:
-                        st.caption(f"Reason: {live_metrics.get('failure_reason', 'Unknown')}")
-        
             try:
-                # UPDATED: Use live portfolio metrics from session state
-                # This computes metrics directly from live market data, bypassing all cached data
-                live_metrics = st.session_state.get("portfolio_live_metrics")
+                # ================================================================
+                # INLINE COMPUTATION FROM PRICE_BOOK
+                # All portfolio metrics computed directly in render path
+                # No dependencies on snapshots, caches, or external helpers
+                # ================================================================
                 
-                if live_metrics is None:
-                    # Compute live metrics if not available
-                    live_metrics = compute_live_portfolio_metrics()
-                    st.session_state["portfolio_live_metrics"] = live_metrics
+                # Fetch PRICE_BOOK (already loaded in app memory)
+                PRICE_BOOK = get_cached_price_book()
                 
-                # Extract ledger data from live metrics
-                ledger = live_metrics
-                
-                # Get diagnostic info
-                n_waves_used = ledger.get('n_waves_with_returns', 0)
-                end_date = ledger.get('latest_trading_date', 'N/A')
-                data_timestamp = ledger.get('data_timestamp', 'N/A')
-                n_tickers_fetched = ledger.get('n_tickers_fetched', 0)
-                n_tickers_with_data = ledger.get('n_tickers_with_data', 0)
-            
-                # Add diagnostic information
-                if ledger['success']:
-                    # Display live data status
-                    st.caption(f"📊 Portfolio: {n_waves_used} waves | {n_tickers_with_data}/{n_tickers_fetched} tickers with data")
-                    st.caption(f"📅 Latest Trading Date: {end_date} | ⏱️ Fetched: {data_timestamp[:19] if len(data_timestamp) > 19 else data_timestamp}")
+                if PRICE_BOOK is None or PRICE_BOOK.empty:
+                    st.error("⚠️ PRICE_BOOK is empty - cannot compute portfolio metrics")
+                    st.caption("Portfolio Snapshot requires PRICE_BOOK data. Please ensure the price cache is populated by running the data refresh workflow.")
                 else:
-                    # Display warning with failure reason
-                    failure_reason = ledger.get('failure_reason', 'Unknown error')
-                    st.warning(f"⚠️ Live Portfolio Metrics unavailable: {failure_reason}")
-                
-                    # Simplified diagnostics
-                    with st.expander("🔍 Show Diagnostic Details", expanded=False):
-                        st.markdown("**Error Details:**")
-                        st.code(failure_reason)
-            
-                if ledger['success']:
-                    # RENDERER PROOF LINE - Updated to show live data rendering
-                    build_id = os.environ.get('GIT_SHA', 'LIVE_2026_01_16')
-                
-                    st.markdown(
-                        f"""
-                        <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                            <strong>🔴 LIVE DATA:</strong> Real-time market data via yfinance | <strong>Latest Trading Date:</strong> {end_date} | <strong>Data Timestamp:</strong> {data_timestamp[:19] if len(data_timestamp) > 19 else data_timestamp}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                
-                    # Live data status
-                    st.markdown(
-                        f"""
-                        <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
-                            <strong>Data Source:</strong> Live Market Data (yfinance, 400+ trading days) | <strong>Aggregation:</strong> Equal-weight across waves | <strong>Cache TTL:</strong> 60 seconds
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                
-                    # Display in blue box with metrics from ledger
-                    st.markdown("""
-                    <div style="
-                        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-                        border: 2px solid #00d9ff;
-                        border-radius: 12px;
-                        padding: 20px;
-                        margin-bottom: 20px;
-                    ">
-                    """, unsafe_allow_html=True)
-                
-                    # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
-                    st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
-                    st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
-                
-                    col1, col2, col3, col4 = st.columns(4)
-                
-                    for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
-                        with col:
-                            period_data = ledger['period_results'].get(period_key, {})
-                        
-                            if period_data.get('available'):
-                                # Extract values
-                                cum_realized = period_data['cum_realized']
-                                cum_benchmark = period_data['cum_benchmark']
-                                total_alpha = period_data['total_alpha']
-                                start = period_data['start_date']
-                                end = period_data['end_date']
-                            
-                                # Display stacked format with header
-                                st.markdown(f"**{period_key}**")
-                                st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
-                                st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
-                            
-                                # Color-code alpha (green for positive, red for negative)
-                                alpha_color = "green" if total_alpha >= 0 else "red"
-                                st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
-                            
-                                st.caption(f"{start} to {end}")
-                            else:
-                                # Unavailable period - show N/A for all three lines with reason
-                                reason = period_data.get('reason', 'unknown')
-                                MAX_REASON_LENGTH = 60  # Configurable truncation length
-                                st.markdown(f"**{period_key}**")
-                                st.markdown(f"📈 **Portfolio:** N/A")
-                                st.markdown(f"📊 **Benchmark:** N/A")
-                                st.markdown(f"🎯 **Alpha:** N/A")
-                                # Truncate long reasons with ellipsis
-                                truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
-                                st.caption(f"⚠️ {truncated_reason}")
-                
-                    st.divider()
-                
-                    # Alpha Attribution Row (30D window for detailed attribution)
-                    st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
-                
-                    period_30d = ledger['period_results'].get('30D', {})
-                    if period_30d.get('available'):
-                        col1, col2, col3, col4 = st.columns(4)
+                    # Compute returns inline using pct_change
+                    returns_df = PRICE_BOOK.pct_change().dropna()
                     
-                        with col1:
-                            total_alpha = period_30d['total_alpha']
-                            st.metric(
-                                "Total Alpha", 
-                                f"{total_alpha:+.2%}",
-                                help="Realized return - Benchmark return"
-                            )
-                    
-                        with col2:
-                            selection_alpha = period_30d['selection_alpha']
-                            st.metric(
-                                "Selection Alpha", 
-                                f"{selection_alpha:+.2%}",
-                                help="Alpha from wave selection (unoverlay - benchmark)"
-                            )
-                    
-                        with col3:
-                            overlay_alpha = period_30d['overlay_alpha']
-                            overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
-                            st.metric(
-                                overlay_label, 
-                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
-                                help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
-                            )
-                    
-                        with col4:
-                            residual = period_30d['residual']
-                            # Color code residual based on tolerance
-                            residual_pct = abs(residual) * 100
-                            residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
-                            st.metric(
-                                f"{residual_color} Residual", 
-                                f"{residual:+.3%}",
-                                help="Attribution residual (should be near 0%)"
-                            )
-                    
-                        # Alpha Captured (if overlay available)
-                        if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
-                            st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
+                    # Validate we have returns data
+                    if returns_df.empty:
+                        st.error("⚠️ No valid returns data - PRICE_BOOK may have insufficient history")
+                        st.caption("Portfolio Snapshot requires at least 2 days of price data")
                     else:
-                        st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
-                
-                    # Warnings display
-                    if ledger.get('warnings'):
-                        st.caption("⚠️ " + " | ".join(ledger['warnings']))
-                
-                    # Download Debug Report button
-                    st.markdown("---")
-                    st.markdown("**📥 Download Debug Report**")
-                
-                    # Create debug report DataFrame
-                    try:
-                        import pandas as pd
-                    
-                        # Collect debug data from snapshot
-                        debug_data = []
-                    
-                        # Add snapshot summary
-                        if portfolio_snapshot is not None and not portfolio_snapshot.empty:
-                            debug_data.append({
-                                'Category': 'PORTFOLIO_SNAPSHOT',
-                                'Metric': 'Total Waves',
-                                'Value': str(len(portfolio_snapshot))
-                            })
-                            if 'status' in portfolio_snapshot.columns:
-                                valid_count = len(portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA'])
-                                debug_data.append({
-                                    'Category': 'PORTFOLIO_SNAPSHOT',
-                                    'Metric': 'Waves with Data',
-                                    'Value': str(valid_count)
-                                })
-                            if 'Date' in portfolio_snapshot.columns:
-                                debug_data.append({
-                                    'Category': 'PORTFOLIO_SNAPSHOT',
-                                    'Metric': 'Snapshot Date',
-                                    'Value': str(portfolio_snapshot['Date'].iloc[0])
-                                })
-                    
-                        # Add ledger info
-                        debug_data.append({
-                            'Category': 'Portfolio Metrics',
-                            'Metric': 'Success',
-                            'Value': str(ledger.get('success', False))
-                        })
-                        debug_data.append({
-                            'Category': 'Portfolio Metrics',
-                            'Metric': 'Failure Reason',
-                            'Value': str(ledger.get('failure_reason', 'N/A'))
-                        })
-                    
-                        # Add wave count
-                        debug_data.append({
-                            'Category': 'Portfolio Metrics',
-                            'Metric': 'Waves Processed',
-                            'Value': str(n_waves_used)
-                        })
-                    
-                        # Add period results
-                        for period_key, period_data in ledger.get('period_results', {}).items():
-                            debug_data.append({
-                                'Category': f'Period {period_key}',
-                                'Metric': 'Available',
-                                'Value': str(period_data.get('available', False))
-                            })
-                            debug_data.append({
-                                'Category': f'Period {period_key}',
-                                'Metric': 'Reason',
-                                'Value': str(period_data.get('reason', 'N/A'))
-                            })
-                            if period_data.get('available'):
-                                debug_data.append({
-                                    'Category': f'Period {period_key}',
-                                    'Metric': 'Total Alpha',
-                                    'Value': f"{period_data.get('total_alpha', 0):.4%}"
-                                })
-                    
-                        # Create DataFrame
-                        debug_df = pd.DataFrame(debug_data)
-                    
-                        # Convert to CSV
-                        csv_data = debug_df.to_csv(index=False)
-                    
-                        # Add download button
-                        st.download_button(
-                            label="📥 Download Debug Report (CSV)",
-                            data=csv_data,
-                            file_name=f"portfolio_snapshot_debug_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv",
-                            key="download_debug_report"
-                        )
-                    
-                    except Exception as download_err:
-                        st.warning(f"⚠️ Could not generate debug report: {str(download_err)}")
-                
-                    st.markdown("</div>", unsafe_allow_html=True)
-                
-                else:
-                    # Display error message
-                    st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
-                
-                    # Show explicit error (no placeholder data)
-                    st.markdown("""
-                    <div style="
-                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                        border: 2px solid #ff6b6b;
-                        border-radius: 12px;
-                        padding: 20px;
-                        margin-bottom: 20px;
-                    ">
-                    """, unsafe_allow_html=True)
-                
-                    st.markdown(f"**❌ Portfolio metrics unavailable**")
-                    st.markdown(f"Reason: {ledger['failure_reason']}")
-                    st.caption("No placeholder data will be displayed. Please check data availability.")
-                
-                    st.markdown("</div>", unsafe_allow_html=True)
+                        # Compute equal-weighted portfolio returns (mean across all tickers)
+                        # Note: This uses all tickers in PRICE_BOOK as an equal-weighted portfolio
+                        portfolio_returns = returns_df.mean(axis=1)
+                        
+                        # Validate we have portfolio returns
+                        if portfolio_returns.empty:
+                            st.error("⚠️ No valid portfolio returns computed")
+                            st.caption("Unable to compute portfolio metrics from available data")
+                        else:
+                            # Get latest trading date and current UTC time for diagnostics
+                            last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
+                            current_utc = datetime.utcnow().strftime('%H:%M:%S UTC')
+                            
+                            # Display diagnostic line (mandatory)
+                            st.markdown(
+                                f"""
+                                <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                                    <strong>Live portfolio metrics computed from PRICE_BOOK</strong><br>
+                                    Last trading date: {last_trading_date} | Rendered at: {current_utc}
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                        
+                            # Constants for period calculations
+                            TRADING_DAYS_PER_YEAR = 252  # Approximate trading days in one year
+                            
+                            # Helper function for safe compounded returns calculation
+                            def safe_compounded_return(returns_series):
+                                """
+                                Safely compute compounded returns with numerical stability.
+                                Returns None if data is invalid (e.g., returns <= -1).
+                                """
+                                try:
+                                    # Check for extreme negative returns that would cause log1p to fail
+                                    if (returns_series <= -1).any():
+                                        return None
+                                    # Use numerically stable formula: exp(sum(log(1+r))) - 1
+                                    return np.expm1(np.log1p(returns_series).sum())
+                                except (ValueError, RuntimeError):
+                                    return None
+                            
+                            # Compute metrics for each period
+                            # 1D: Latest value
+                            ret_1d = portfolio_returns.iloc[-1] if len(portfolio_returns) >= 1 else None
+                            
+                            # 30D: Compounded returns of last 30 rows
+                            if len(portfolio_returns) >= 30:
+                                ret_30d = safe_compounded_return(portfolio_returns.iloc[-30:])
+                            else:
+                                ret_30d = None
+                            
+                            # 60D: Compounded returns of last 60 rows
+                            if len(portfolio_returns) >= 60:
+                                ret_60d = safe_compounded_return(portfolio_returns.iloc[-60:])
+                            else:
+                                ret_60d = None
+                            
+                            # 365D: Compounded returns of last ~252 rows (one trading year)
+                            if len(portfolio_returns) >= TRADING_DAYS_PER_YEAR:
+                                ret_365d = safe_compounded_return(portfolio_returns.iloc[-TRADING_DAYS_PER_YEAR:])
+                            else:
+                                ret_365d = None
+                        
+                            # Display in blue box with computed metrics
+                            st.markdown("""
+                            <div style="
+                                background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+                                border: 2px solid #00d9ff;
+                                border-radius: 12px;
+                                padding: 20px;
+                                margin-bottom: 20px;
+                            ">
+                            """, unsafe_allow_html=True)
+                        
+                            # Portfolio performance metrics display
+                            st.markdown("**📊 Portfolio Performance (Equal-Weighted)**")
+                            st.caption("Returns based on PRICE_BOOK data")
+                        
+                            col1, col2, col3, col4 = st.columns(4)
+                        
+                            with col1:
+                                st.markdown("**1D**")
+                                if ret_1d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_1d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col2:
+                                st.markdown("**30D**")
+                                if ret_30d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_30d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col3:
+                                st.markdown("**60D**")
+                                if ret_60d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_60d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col4:
+                                st.markdown("**365D**")
+                                if ret_365d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_365d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            st.markdown("</div>", unsafe_allow_html=True)
         
             except Exception as e:
-                st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
+                st.error(f"⚠️ Portfolio Snapshot error: {str(e)}")
                 if st.session_state.get("debug_mode", False):
                     import traceback
                     st.code(traceback.format_exc())
@@ -12120,217 +11927,6 @@ def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
         return {
             'success': False,
             'failure_reason': f'Error computing portfolio metrics: {str(e)}',
-            'period_results': {}
-        }
-
-
-# Global cache for live portfolio metrics with TTL
-_LIVE_PORTFOLIO_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'ttl_seconds': 60
-}
-
-
-def compute_live_portfolio_metrics():
-    """
-    Compute portfolio metrics directly from live market data using yfinance.
-    
-    This function bypasses all cached data (snapshots, cached ledgers, prices_cache.parquet)
-    and fetches fresh market data at runtime. It implements a 60-second TTL cache to reduce
-    redundant API calls within the same session.
-    
-    Returns:
-        Dictionary with portfolio metrics for each period (1D, 30D, 60D, 365D), or None if unavailable.
-        Structure matches compute_portfolio_metrics_from_snapshot output format for compatibility.
-    """
-    import yfinance as yf
-    from datetime import datetime, timedelta
-    from waves_engine import get_all_portfolio_tickers, WAVE_WEIGHTS
-    
-    # Check cache validity
-    if _LIVE_PORTFOLIO_CACHE['data'] is not None and _LIVE_PORTFOLIO_CACHE['timestamp'] is not None:
-        age_seconds = (datetime.now() - _LIVE_PORTFOLIO_CACHE['timestamp']).total_seconds()
-        if age_seconds < _LIVE_PORTFOLIO_CACHE['ttl_seconds']:
-            logging.info(f"Using cached live portfolio metrics (age: {age_seconds:.1f}s)")
-            return _LIVE_PORTFOLIO_CACHE['data']
-    
-    try:
-        logging.info("Fetching live market data for portfolio metrics...")
-        
-        # Extract all unique tickers from WAVE_WEIGHTS
-        all_tickers = get_all_portfolio_tickers()
-        
-        if not all_tickers:
-            return {
-                'success': False,
-                'failure_reason': 'No tickers found in portfolio',
-                'period_results': {}
-            }
-        
-        # Download at least 400 trading days of history (approximately 18 months)
-        # Using 600 calendar days to ensure we have enough trading days
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=600)
-        
-        # Download data for all tickers in a single batch call
-        logging.info(f"Downloading {len(all_tickers)} tickers with 600 days of history...")
-        data = yf.download(
-            tickers=all_tickers,
-            start=start_date.strftime('%Y-%m-%d'),
-            end=end_date.strftime('%Y-%m-%d'),
-            interval='1d',
-            auto_adjust=True,
-            progress=False,
-            group_by='column'
-        )
-        
-        # Extract adjusted close prices
-        if isinstance(data.columns, pd.MultiIndex):
-            if 'Adj Close' in data.columns.get_level_values(0):
-                prices = data['Adj Close']
-            elif 'Close' in data.columns.get_level_values(0):
-                prices = data['Close']
-            else:
-                prices = data
-        else:
-            prices = data
-        
-        # Handle single ticker case
-        if isinstance(prices, pd.Series):
-            prices = prices.to_frame(name=all_tickers[0])
-        
-        # Forward fill and backward fill missing data
-        prices = prices.sort_index().ffill().bfill()
-        
-        if prices.empty:
-            return {
-                'success': False,
-                'failure_reason': 'No price data retrieved from yfinance',
-                'period_results': {}
-            }
-        
-        # Get latest available trading date
-        latest_date = prices.index[-1]
-        
-        # Compute equal-weighted portfolio returns for each wave, then average across waves
-        periods = {
-            '1D': 1,
-            '30D': 30,
-            '60D': 60,
-            '365D': 365
-        }
-        
-        period_results = {}
-        
-        # Build equal-weighted portfolio for each wave
-        wave_returns = {}
-        for wave_name, holdings in WAVE_WEIGHTS.items():
-            wave_tickers = [h.ticker for h in holdings]
-            wave_weights = {h.ticker: h.weight for h in holdings}
-            
-            # Normalize weights to sum to 1.0
-            total_weight = sum(wave_weights.values())
-            if total_weight > 0:
-                wave_weights = {t: w / total_weight for t, w in wave_weights.items()}
-            
-            # Get tickers available in price data
-            available_tickers = [t for t in wave_tickers if t in prices.columns]
-            
-            if not available_tickers:
-                continue
-            
-            # Compute wave returns for each period
-            wave_returns[wave_name] = {}
-            for period_key, days in periods.items():
-                try:
-                    if len(prices) < days + 1:
-                        continue
-                    
-                    # Get prices at start and end of period
-                    end_prices = prices.iloc[-1]
-                    start_prices = prices.iloc[-(days + 1)]
-                    
-                    # Compute weighted portfolio return for this wave
-                    wave_return = 0.0
-                    total_available_weight = 0.0
-                    
-                    for ticker in available_tickers:
-                        if ticker in end_prices and ticker in start_prices:
-                            if pd.notna(end_prices[ticker]) and pd.notna(start_prices[ticker]) and start_prices[ticker] > 0:
-                                ticker_return = (end_prices[ticker] - start_prices[ticker]) / start_prices[ticker]
-                                weight = wave_weights.get(ticker, 0)
-                                wave_return += ticker_return * weight
-                                total_available_weight += weight
-                    
-                    # Normalize by available weight
-                    if total_available_weight > 0:
-                        wave_return = wave_return / total_available_weight
-                        wave_returns[wave_name][period_key] = wave_return
-                
-                except Exception as e:
-                    logging.warning(f"Error computing {period_key} return for {wave_name}: {e}")
-                    continue
-        
-        # Aggregate across all waves (equal-weighted portfolio of waves)
-        for period_key in ['1D', '30D', '60D', '365D']:
-            returns_for_period = [
-                wave_rets[period_key] 
-                for wave_rets in wave_returns.values() 
-                if period_key in wave_rets
-            ]
-            
-            if not returns_for_period:
-                period_results[period_key] = {
-                    'available': False,
-                    'reason': f'No waves with valid {period_key} return data'
-                }
-                continue
-            
-            # Equal-weight average across waves
-            portfolio_return = np.mean(returns_for_period)
-            
-            period_results[period_key] = {
-                'available': True,
-                'cum_realized': portfolio_return,
-                'cum_benchmark': 0.0,  # Benchmark not computed in live mode
-                'total_alpha': portfolio_return,  # All return considered as alpha in live mode
-                'selection_alpha': portfolio_return,
-                'overlay_alpha': 0.0,
-                'residual': 0.0,
-                'n_waves_with_returns': len(returns_for_period),
-                'start_date': prices.index[0].strftime('%Y-%m-%d') if len(prices) > 0 else 'N/A',
-                'end_date': latest_date.strftime('%Y-%m-%d')
-            }
-        
-        result = {
-            'success': True,
-            'period_results': period_results,
-            'vix_ticker_used': None,
-            'safe_ticker_used': None,
-            'overlay_available': False,
-            'daily_realized_return': None,
-            'daily_exposure': None,
-            'warnings': [],
-            'data_timestamp': datetime.now().isoformat(),
-            'latest_trading_date': latest_date.strftime('%Y-%m-%d'),
-            'n_tickers_fetched': len(all_tickers),
-            'n_tickers_with_data': len([c for c in prices.columns if c in all_tickers])
-        }
-        
-        # Update cache
-        _LIVE_PORTFOLIO_CACHE['data'] = result
-        _LIVE_PORTFOLIO_CACHE['timestamp'] = datetime.now()
-        
-        logging.info(f"Successfully computed live portfolio metrics (latest date: {latest_date.strftime('%Y-%m-%d')})")
-        
-        return result
-        
-    except Exception as e:
-        logging.error(f"Error computing live portfolio metrics: {str(e)}")
-        return {
-            'success': False,
-            'failure_reason': f'Error fetching live market data: {str(e)}',
             'period_results': {}
         }
 
@@ -22887,51 +22483,6 @@ def main():
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
     print("[ENTRYPOINT] Running app.py")
-    
-    # ========================================================================
-    # STEP -0.1: Compute Live Portfolio Metrics (ALWAYS - Required for Portfolio Data Rendering)
-    # ========================================================================
-    # NOTE: This block computes portfolio metrics directly from live market data on every app run,
-    # bypassing all cached data (snapshots, cached ledgers, prices_cache.parquet).
-    # 
-    # The live computation fetches fresh market data using yfinance with 400+ trading days of history,
-    # computes equal-weighted portfolio returns across all waves, and caches results for 60 seconds
-    # to reduce redundant API calls within the same session.
-    #
-    # CRITICAL: This must run unconditionally on every page load, NOT inside buttons or
-    # conditional logic, to ensure portfolio data is always available during normal rendering.
-    try:
-        # Compute live portfolio metrics from market data
-        live_metrics = compute_live_portfolio_metrics()
-        
-        # Store in session state for access by portfolio tabs
-        st.session_state["portfolio_live_metrics"] = live_metrics
-        
-        if live_metrics.get('success'):
-            latest_date = live_metrics.get('latest_trading_date', 'N/A')
-            n_tickers = live_metrics.get('n_tickers_fetched', 0)
-            print(f"✓ Live portfolio metrics computed successfully (latest date: {latest_date}, {n_tickers} tickers)")
-        else:
-            print(f"⚠ Live portfolio metrics computation failed: {live_metrics.get('failure_reason', 'Unknown error')}")
-        
-    except Exception as e:
-        # If live metrics computation fails, create empty result but don't stop execution
-        # This allows the app to continue running with degraded functionality
-        logging.error(f"Error computing live portfolio metrics: {str(e)}")
-        st.session_state["portfolio_live_metrics"] = {
-            'success': False,
-            'failure_reason': f'Error computing live metrics: {str(e)}',
-            'period_results': {}
-        }
-        st.warning(f"""
-        ⚠️ **Warning: Live Portfolio Metrics Computation Failed**
-        
-        The live portfolio metrics could not be computed from market data.
-        
-        **Error:** {str(e)}
-        
-        The application will continue to run, but portfolio metrics may be unavailable.
-        """)
     
     # ========================================================================
     # STEP 0: Initialize Safe Mode (Default ON)
