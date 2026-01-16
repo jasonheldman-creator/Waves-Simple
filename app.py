@@ -1,3 +1,9 @@
+import streamlit as st
+
+st.markdown("### 🟢 APP BOOTED — PRE-INIT CHECKPOINT")
+st.write("If you see this, the UI thread is alive.")
+st.stop()
+
 """
 Institutional Console v2 - Executive Layer v2
 Full implementation with advanced analytics and visualization
@@ -23117,34 +23123,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # Auto-Refresh Logic with Error Handling
     # ========================================================================
-    # Streamlit Cloud rerun stability hotfix: disable auto-refresh and protect sidebar state.
-    # Hard-disable all auto-refresh execution to prevent rerun loops
-    
-    # Set count to None to completely disable auto-refresh
-    # Note: count is used internally by Streamlit's rerun logic. Setting it to None
-    # ensures no auto-refresh timer is triggered, preventing automatic reruns.
-    count = None
-    
-    # Skip all auto-refresh logic to prevent reruns
-    # Note: DEFAULT_AUTO_REFRESH_ENABLED constant is False (set in auto_refresh_config.py or fallback)
-    
-    # ========================================================================
-    # Wave Universe Initialization and Force Reload Handling
-    # ========================================================================
-    
-    # Check for force reload flag and rebuild universe if needed
-    force_reload = st.session_state.get("force_reload_universe", False)
-    wave_universe_version = st.session_state.get("wave_universe_version", 1)
-    
-    if force_reload:
-        # Rebuild wave universe
-        get_canonical_wave_universe(force_reload=True, _wave_universe_version=wave_universe_version)
-        # Reset the flag
-        st.session_state["force_reload_universe"] = False
-    else:
-        # Normal initialization - use cached universe
-        get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-
-
-if __name__ == "__main__":
-    main()
+    # Streamlit Cloud rerun stability hotfix: disable a
