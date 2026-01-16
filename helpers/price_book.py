@@ -84,6 +84,9 @@ CRITICAL_MISSING_THRESHOLD = 0.5  # 50% - More than this triggers STALE status
 STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS  # Alias for Option B STALE threshold (>30 days)
 DEGRADED_DAYS_THRESHOLD = PRICE_CACHE_OK_DAYS  # Alias for Option B DEGRADED threshold (>14 days)
 
+# Simulated price variation configuration
+SIMULATED_PRICE_VARIATION_PCT = 0.003  # ±0.3% random variation for simulated live prices
+
 # Environment variable to control fetching
 # IMPORTANT: Set to False in production/cloud to prevent automatic fetching
 PRICE_FETCH_ENABLED = os.environ.get('PRICE_FETCH_ENABLED', 'false').lower() in ('true', '1', 'yes')
@@ -497,18 +500,19 @@ def _fetch_simulated_live_prices(tickers: Optional[List[str]] = None) -> tuple[p
     
     # Add small random variations to simulate live market movement
     # This ensures values change between renders
-    # Use current microsecond as seed for variation
-    seed = datetime.now(timezone.utc).microsecond
+    # Use current time with nanosecond precision + id() for better entropy
+    now = datetime.now(timezone.utc)
+    seed = now.microsecond + (now.second * 1000000) + id(prices)
     random.seed(seed)
     
-    # Apply random variation to last few rows (±0.3%)
+    # Apply random variation to last few rows using configured percentage
     for col in prices.columns:
         if len(prices) > 0:
             # Vary the last 5 rows with different random amounts
             for i in range(min(5, len(prices))):
                 idx = -(i + 1)
                 if not pd.isna(prices.loc[prices.index[idx], col]):
-                    variation = random.uniform(-0.003, 0.003)  # ±0.3%
+                    variation = random.uniform(-SIMULATED_PRICE_VARIATION_PCT, SIMULATED_PRICE_VARIATION_PCT)
                     prices.loc[prices.index[idx], col] = prices.loc[prices.index[idx], col] * (1 + variation)
     
     logger.info(f"SIMULATED FETCH COMPLETE: {len(prices)} days × {len(prices.columns)} tickers")
