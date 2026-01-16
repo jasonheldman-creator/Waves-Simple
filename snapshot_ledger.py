@@ -200,6 +200,23 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
     Returns:
         Date string in YYYY-MM-DD format (SPY-based trading date)
     """
+    import os
+    
+    # PRIORITY 1: Try to get spy_max_date from prices_cache_meta.json (authoritative source)
+    try:
+        cache_meta_path = "data/cache/prices_cache_meta.json"
+        if os.path.exists(cache_meta_path):
+            with open(cache_meta_path, 'r') as f:
+                cache_meta = json.load(f)
+            spy_max_date = cache_meta.get("spy_max_date")
+            if spy_max_date and isinstance(spy_max_date, str) and spy_max_date.strip():
+                # Validate format
+                pd.to_datetime(spy_max_date)  # Will raise if invalid
+                return spy_max_date
+    except Exception as e:
+        print(f"  ⚠ Could not read spy_max_date from cache metadata: {e}")
+    
+    # PRIORITY 2: Extract from provided price_df
     if TRADING_CALENDAR_AVAILABLE and price_df is not None:
         # Try SPY-based calendar first (canonical)
         try:
@@ -211,16 +228,27 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
             pass
         
         # Fallback to legacy get_asof_date_str if SPY not available
-        return get_asof_date_str(price_df, fmt='%Y-%m-%d')
+        try:
+            return get_asof_date_str(price_df, fmt='%Y-%m-%d')
+        except Exception:
+            pass
     
-    # If price_df not provided, try to load from canonical price cache
+    # PRIORITY 3: Load prices_cache.parquet and extract SPY date
     try:
-        import os
         cache_path = "data/cache/prices_cache.parquet"
         if os.path.exists(cache_path):
             cached_prices = pd.read_parquet(cache_path)
+            
+            # Try to get SPY column directly
+            if 'SPY' in cached_prices.columns:
+                spy_series = cached_prices['SPY'].dropna()
+                if not spy_series.empty:
+                    spy_max_date = spy_series.index.max()
+                    if isinstance(spy_max_date, pd.Timestamp):
+                        return spy_max_date.strftime('%Y-%m-%d')
+            
+            # Fallback to trading_calendar methods
             if TRADING_CALENDAR_AVAILABLE:
-                # Try SPY-based calendar
                 try:
                     from helpers.trading_calendar import get_trading_calendar_dates
                     asof_date, _ = get_trading_calendar_dates(cached_prices)
@@ -229,17 +257,25 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
                 except Exception:
                     pass
                 
-                # Fallback to legacy
-                return get_asof_date_str(cached_prices, fmt='%Y-%m-%d')
-    except Exception:
-        pass
+                # Legacy fallback
+                try:
+                    return get_asof_date_str(cached_prices, fmt='%Y-%m-%d')
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"  ⚠ Could not load SPY date from prices_cache.parquet: {e}")
     
-    # Last resort fallback - should rarely reach here
-    # Note: This violates the "no datetime.now()" requirement but is a safety net
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.warning("Unable to determine SPY-based snapshot date, falling back to datetime.now()")
-    return datetime.now().strftime("%Y-%m-%d")
+    # CRITICAL ERROR: Should never reach here in production
+    # This means both metadata and price cache are unavailable
+    error_msg = (
+        "CRITICAL ERROR: Unable to determine SPY-based snapshot date.\n"
+        "Both prices_cache_meta.json and prices_cache.parquet are unavailable or invalid.\n"
+        "Snapshot generation cannot proceed without authoritative price data."
+    )
+    print(f"\n{'=' * 80}")
+    print(error_msg)
+    print(f"{'=' * 80}\n")
+    raise RuntimeError(error_msg)
 
 
 def _safe_return(nav_series: pd.Series, days: int) -> float:
@@ -1546,47 +1582,72 @@ def generate_snapshot(
     print("=" * 80)
     print("WAVE SNAPSHOT LEDGER - Generating Daily Snapshot")
     print("=" * 80)
+    print(f"Generation Reason: {generation_reason}")
+    print(f"Force Refresh: {force_refresh}")
     
     # Check if cached snapshot exists and is recent
     if not force_refresh and os.path.exists(SNAPSHOT_FILE):
         try:
             cached_df = pd.read_csv(SNAPSHOT_FILE)
             
-            # Check if snapshot is recent enough AND engine version matches
+            # Check if snapshot is recent enough AND engine version matches AND price data hasn't advanced
             if "Date" in cached_df.columns and not cached_df.empty:
-                snapshot_date = pd.to_datetime(cached_df["Date"].iloc[0])
-                age_hours = (datetime.now() - snapshot_date).total_seconds() / 3600
+                snapshot_date_str = cached_df["Date"].iloc[0]
+                snapshot_date = pd.to_datetime(snapshot_date_str).date()
+                age_hours = (datetime.now() - pd.to_datetime(snapshot_date_str)).total_seconds() / 3600
                 
-                # Get engine version from cached metadata
-                cache_valid = False
-                if os.path.exists(SNAPSHOT_METADATA_FILE):
-                    try:
-                        with open(SNAPSHOT_METADATA_FILE, 'r') as f:
-                            metadata = json.load(f)
-                        cached_engine_version = metadata.get('engine_version', 'unknown')
-                        current_engine_version = get_engine_version() if WAVES_ENGINE_AVAILABLE else 'unknown'
-                        
-                        # Cache is valid if:
-                        # 1. Age is within threshold AND
-                        # 2. Engine version matches current version
-                        if age_hours < MAX_SNAPSHOT_AGE_HOURS and cached_engine_version == current_engine_version:
-                            cache_valid = True
-                            print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, engine v{current_engine_version})")
+                # CRITICAL: Check if price cache has newer data
+                prices_cache_max_date = None
+                try:
+                    cache_meta_path = "data/cache/prices_cache_meta.json"
+                    if os.path.exists(cache_meta_path):
+                        with open(cache_meta_path, 'r') as f:
+                            cache_meta = json.load(f)
+                        spy_max_date_str = cache_meta.get("spy_max_date")
+                        if spy_max_date_str and isinstance(spy_max_date_str, str):
+                            prices_cache_max_date = pd.to_datetime(spy_max_date_str).date()
+                except Exception as e:
+                    print(f"⚠ Could not load price cache max date: {e}")
+                
+                # If price cache has newer data, MUST regenerate regardless of age or version
+                if prices_cache_max_date is not None and prices_cache_max_date > snapshot_date:
+                    print(f"⚠ Cache invalidated: price data is newer")
+                    print(f"  Snapshot date: {snapshot_date}")
+                    print(f"  Price cache max date (SPY): {prices_cache_max_date}")
+                    print(f"  → Regenerating snapshot with fresh price data")
+                    # Fall through to regenerate
+                else:
+                    # Price data is current, check engine version and age
+                    cache_valid = False
+                    if os.path.exists(SNAPSHOT_METADATA_FILE):
+                        try:
+                            with open(SNAPSHOT_METADATA_FILE, 'r') as f:
+                                metadata = json.load(f)
+                            cached_engine_version = metadata.get('engine_version', 'unknown')
+                            current_engine_version = get_engine_version() if WAVES_ENGINE_AVAILABLE else 'unknown'
+                            
+                            # Cache is valid if:
+                            # 1. Age is within threshold AND
+                            # 2. Engine version matches current version AND
+                            # 3. Price data is current (already checked above)
+                            if age_hours < MAX_SNAPSHOT_AGE_HOURS and cached_engine_version == current_engine_version:
+                                cache_valid = True
+                                print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, engine v{current_engine_version}, price data current)")
+                                return cached_df
+                            elif cached_engine_version != current_engine_version:
+                                print(f"⚠ Cache invalidated: engine version changed from {cached_engine_version} to {current_engine_version}")
+                            else:
+                                print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
+                        except Exception as e:
+                            print(f"⚠ Failed to load snapshot metadata, will regenerate: {e}")
+                            # If metadata file doesn't exist or is invalid, fall through to regenerate
+                    else:
+                        # No metadata file - check age only and price freshness
+                        if age_hours < MAX_SNAPSHOT_AGE_HOURS:
+                            print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, no version tracking, price data current)")
                             return cached_df
-                        elif cached_engine_version != current_engine_version:
-                            print(f"⚠ Cache invalidated: engine version changed from {cached_engine_version} to {current_engine_version}")
                         else:
                             print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
-                    except Exception as e:
-                        print(f"⚠ Failed to load snapshot metadata, will regenerate: {e}")
-                        # If metadata file doesn't exist or is invalid, fall through to regenerate
-                else:
-                    # No metadata file - check age only (backward compatibility)
-                    if age_hours < MAX_SNAPSHOT_AGE_HOURS:
-                        print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, no version tracking)")
-                        return cached_df
-                    else:
-                        print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
         except Exception as e:
             print(f"⚠ Failed to load cached snapshot: {e}")
     
@@ -1850,6 +1911,12 @@ def load_snapshot(force_refresh: bool = False) -> Optional[pd.DataFrame]:
     """
     Load snapshot from cache, or generate if not available.
     
+    Automatically triggers rebuild if:
+    - force_refresh is True, OR
+    - Snapshot doesn't exist, OR
+    - Snapshot is stale (older than MAX_SNAPSHOT_AGE_HOURS), OR
+    - **NEW: Price cache has newer data than snapshot** (prices_cache_max_date > snapshot_date)
+    
     Args:
         force_refresh: If True, regenerate snapshot even if cached
         
@@ -1858,7 +1925,8 @@ def load_snapshot(force_refresh: bool = False) -> Optional[pd.DataFrame]:
     """
     try:
         if force_refresh:
-            return generate_snapshot(force_refresh=True)
+            print("\n📊 Snapshot rebuild: FORCED (force_refresh=True)")
+            return generate_snapshot(force_refresh=True, generation_reason='force_refresh')
         
         # Try to load from cache
         if os.path.exists(SNAPSHOT_FILE):
@@ -1866,17 +1934,75 @@ def load_snapshot(force_refresh: bool = False) -> Optional[pd.DataFrame]:
             
             # Validate snapshot
             if "Date" in snapshot_df.columns and not snapshot_df.empty:
-                snapshot_date = pd.to_datetime(snapshot_df["Date"].iloc[0])
-                age_hours = (datetime.now() - snapshot_date).total_seconds() / 3600
+                snapshot_date_str = snapshot_df["Date"].iloc[0]
+                snapshot_date = pd.to_datetime(snapshot_date_str).date()
                 
-                if age_hours < MAX_SNAPSHOT_AGE_HOURS:
-                    return snapshot_df
+                # Get age in hours (using datetime.now() is OK for age calculation, not for snapshot date)
+                age_hours = (datetime.now() - pd.to_datetime(snapshot_date_str)).total_seconds() / 3600
+                
+                # Get max SPY price date from cache metadata
+                prices_cache_max_date = None
+                rebuild_reason = None
+                
+                try:
+                    cache_meta_path = "data/cache/prices_cache_meta.json"
+                    if os.path.exists(cache_meta_path):
+                        with open(cache_meta_path, 'r') as f:
+                            cache_meta = json.load(f)
+                        spy_max_date_str = cache_meta.get("spy_max_date")
+                        if spy_max_date_str and isinstance(spy_max_date_str, str):
+                            prices_cache_max_date = pd.to_datetime(spy_max_date_str).date()
+                except Exception as e:
+                    print(f"  ⚠ Could not load price cache max date: {e}")
+                
+                # CRITICAL CHECK: Compare price cache date vs snapshot date
+                # If price cache has newer data, FORCE rebuild regardless of age
+                if prices_cache_max_date is not None and prices_cache_max_date > snapshot_date:
+                    rebuild_reason = f"Price data updated (SPY max: {prices_cache_max_date}, Snapshot: {snapshot_date})"
+                    print(f"\n{'=' * 80}")
+                    print("📊 SNAPSHOT FRESHNESS CHECK")
+                    print(f"{'=' * 80}")
+                    print(f"Max SPY Price Date:    {prices_cache_max_date}")
+                    print(f"Current Snapshot Date: {snapshot_date}")
+                    print(f"Snapshot Rebuild:      YES")
+                    print(f"Rebuild Justification: {rebuild_reason}")
+                    print(f"{'=' * 80}\n")
+                    return generate_snapshot(force_refresh=True, generation_reason='newer_price_data')
+                
+                # Check age-based staleness
+                if age_hours >= MAX_SNAPSHOT_AGE_HOURS:
+                    rebuild_reason = f"Snapshot is stale (age: {age_hours:.1f} hours, max: {MAX_SNAPSHOT_AGE_HOURS} hours)"
+                    print(f"\n{'=' * 80}")
+                    print("📊 SNAPSHOT FRESHNESS CHECK")
+                    print(f"{'=' * 80}")
+                    print(f"Max SPY Price Date:    {prices_cache_max_date if prices_cache_max_date else 'N/A'}")
+                    print(f"Current Snapshot Date: {snapshot_date}")
+                    print(f"Snapshot Age:          {age_hours:.1f} hours")
+                    print(f"Snapshot Rebuild:      YES")
+                    print(f"Rebuild Justification: {rebuild_reason}")
+                    print(f"{'=' * 80}\n")
+                    return generate_snapshot(generation_reason='stale_by_age')
+                
+                # Snapshot is fresh and up-to-date
+                print(f"\n{'=' * 80}")
+                print("📊 SNAPSHOT FRESHNESS CHECK")
+                print(f"{'=' * 80}")
+                print(f"Max SPY Price Date:    {prices_cache_max_date if prices_cache_max_date else 'N/A'}")
+                print(f"Current Snapshot Date: {snapshot_date}")
+                print(f"Snapshot Age:          {age_hours:.1f} hours")
+                print(f"Snapshot Rebuild:      NO")
+                print(f"Rebuild Justification: Snapshot is current (dates match and age < {MAX_SNAPSHOT_AGE_HOURS} hours)")
+                print(f"{'=' * 80}\n")
+                return snapshot_df
         
-        # Generate new snapshot
-        return generate_snapshot()
+        # Snapshot doesn't exist - generate new one
+        print("\n📊 Snapshot rebuild: Required (snapshot file doesn't exist)")
+        return generate_snapshot(generation_reason='missing_snapshot')
         
     except Exception as e:
         print(f"Failed to load snapshot: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 

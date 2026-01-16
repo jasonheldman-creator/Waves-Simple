@@ -595,8 +595,54 @@ def generate_live_snapshot_csv(
     wave_returns = compute_wave_returns(weights_df, prices_cache)
     print(f"✓ Computed returns for {len(wave_returns)} waves")
     
-    # Step 5: Build snapshot DataFrame
-    print("\n[5/5] Building snapshot DataFrame...")
+    # Step 4.5: Determine snapshot date from SPY price data (authoritative source)
+    print("\n[4.5/5] Determining snapshot date from SPY price data...")
+    snapshot_date = None
+    snapshot_date_str = None
+    snapshot_utc = None
+    
+    # Try to get SPY date from prices_cache
+    if 'SPY' in prices_cache:
+        spy_series = prices_cache['SPY']
+        if not spy_series.empty:
+            spy_max_date = spy_series.index.max()
+            if isinstance(spy_max_date, pd.Timestamp):
+                snapshot_date = spy_max_date
+                snapshot_date_str = spy_max_date.strftime('%Y-%m-%d')
+                # For UTC timestamp, combine date with current time (only time portion from now())
+                snapshot_utc = spy_max_date.isoformat()
+                print(f"✓ Using SPY max date as snapshot date: {snapshot_date_str}")
+    
+    # Fallback: Try to load from prices_cache_meta.json
+    if snapshot_date_str is None:
+        try:
+            cache_meta_path = "data/cache/prices_cache_meta.json"
+            if os.path.exists(cache_meta_path):
+                with open(cache_meta_path, 'r') as f:
+                    cache_meta = json.load(f)
+                spy_max_date_str = cache_meta.get("spy_max_date")
+                if spy_max_date_str and isinstance(spy_max_date_str, str):
+                    snapshot_date_str = spy_max_date_str
+                    snapshot_date = pd.to_datetime(spy_max_date_str)
+                    snapshot_utc = snapshot_date.isoformat()
+                    print(f"✓ Using SPY max date from cache metadata: {snapshot_date_str}")
+        except Exception as e:
+            print(f"⚠️ Could not load SPY max date from cache metadata: {e}")
+    
+    # CRITICAL: Snapshot date must be determined from price data, not datetime.now()
+    if snapshot_date_str is None:
+        error_msg = (
+            "CRITICAL ERROR: Unable to determine snapshot date from price data.\n"
+            "SPY ticker is missing from prices_cache and prices_cache_meta.json is unavailable.\n"
+            "Snapshot generation cannot proceed without authoritative price data date."
+        )
+        print(f"\n{'=' * 80}")
+        print(error_msg)
+        print(f"{'=' * 80}\n")
+        raise RuntimeError(error_msg)
+    
+    # Step 6: Build snapshot DataFrame
+    print("\n[6/6] Building snapshot DataFrame...")
     
     # Load wave registry to get status for each wave
     wave_status_map = {}
@@ -613,9 +659,6 @@ def generate_live_snapshot_csv(
         print(f"⚠️ Could not load wave registry status: {e}")
     
     rows = []
-    current_time = datetime.now()
-    current_date = current_time.strftime("%Y-%m-%d")
-    current_utc = current_time.isoformat()
     
     for wave_name in waves:
         # Get wave_id (slugified)
@@ -641,7 +684,7 @@ def generate_live_snapshot_csv(
             'missing_tickers': ', '.join(returns_data.get('missing_tickers', [])),
             'tickers_ok': len(returns_data.get('tickers_ok', [])),
             'tickers_total': returns_data.get('tickers_total', 0),
-            'asof_utc': current_utc
+            'asof_utc': snapshot_utc  # Use SPY-based date, not datetime.now()
         }
         
         rows.append(row)
@@ -721,7 +764,7 @@ def generate_live_snapshot_csv(
 
     # Optional: give the loader a canonical date field if it expects it
     if "date" not in df.columns:
-        df["date"] = current_date
+        df["date"] = snapshot_date_str  # Use SPY-based date, not datetime.now()
     # --- end normalization ---
 
     df.to_csv(out_path, index=False)
