@@ -5644,8 +5644,11 @@ def get_wavescore_leaderboard(portfolio_snapshot=None):
                 if len(valid_waves) == 0:
                     return None
                 
-                # Calculate WaveScore from Alpha_30D (simplified formula)
-                # WaveScore = (Alpha_30D * 1000) + 50, clamped to 0-100
+                # Use Alpha_30D column from snapshot for WaveScore calculation
+                # WaveScore formula: (Alpha_30D * 1000) + 50, clamped to 0-100
+                # Multiplier of 1000 converts alpha decimal (e.g., 0.05) to points (50)
+                # Base of 50 centers the score around mid-range
+                # Range [0,100] provides intuitive percentage-like score
                 valid_waves['WaveScore'] = (valid_waves['Alpha_30D'] * 1000) + 50
                 valid_waves['WaveScore'] = valid_waves['WaveScore'].clip(0, 100)
                 
@@ -10577,12 +10580,12 @@ def render_executive_brief_tab():
                     period_1d = ledger['period_results'].get('1D', {})
                     if period_1d.get('available'):
                         end_date = period_1d.get('end_date', 'N/A')
-                        n_dates = 'N/A'  # Not available from snapshot
+                        n_dates = None  # Not available from snapshot (no time series)
                         start_date = 'N/A'  # Not available from snapshot
                     else:
                         end_date = 'N/A'
                         start_date = 'N/A'
-                        n_dates = 0
+                        n_dates = None
                 
                     # Display simplified status (no VIX overlay info from snapshot)
                     st.caption(f"📊 Portfolio: waves={n_waves_used} (from snapshot)")
@@ -12096,6 +12099,12 @@ def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
             }
         
         # Calculate equal-weight portfolio metrics for each period
+        # NOTE: This uses equal-weight averaging across all waves with valid data.
+        # This differs from compute_portfolio_alpha_ledger which may use different weighting.
+        # Equal-weight is appropriate here because:
+        # 1. Portfolio snapshot represents a balanced view across all strategies
+        # 2. WAVE_WEIGHTS from waves_engine are typically equal-weight
+        # 3. Simplifies aggregation from pre-computed per-wave metrics
         periods = ['1D', '30D', '60D', '365D']
         period_results = {}
         
@@ -12131,7 +12140,12 @@ def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
             cum_benchmark = period_data[benchmark_col].mean()
             total_alpha = period_data[alpha_col].mean() if alpha_col in period_data.columns else (cum_realized - cum_benchmark)
             
-            # For attribution, use simplified model (no VIX overlay data in snapshot)
+            # For attribution, use simplified model (no VIX overlay data available in snapshot)
+            # LIMITATION: The portfolio snapshot only contains aggregate period returns,
+            # not daily time-series, so we cannot compute precise overlay alpha.
+            # This simplified model attributes all alpha to selection.
+            # For detailed attribution with overlay alpha, use compute_portfolio_alpha_ledger
+            # which has access to daily exposure series.
             selection_alpha = total_alpha  # All alpha attributed to selection
             overlay_alpha = 0.0  # No overlay attribution available from snapshot
             residual = 0.0  # No residual in simplified model
