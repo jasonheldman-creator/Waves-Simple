@@ -271,6 +271,78 @@ def render_overview_tab(df):
         return
     
     # ========================================================================
+    # RUNTIME DIAGNOSTICS - Portfolio Snapshot Data Truth
+    # ========================================================================
+    with st.expander("🔍 Runtime Diagnostics - Portfolio Snapshot Data Truth", expanded=False):
+        st.markdown("### 📋 Runtime Instrumentation")
+        st.markdown("Exposing the runtime data truth at the point of rendering Portfolio Snapshot numbers.")
+        
+        # Current UTC timestamp
+        utc_timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        st.markdown(f"**🕐 Render Timestamp (UTC):** `{utc_timestamp}`")
+        
+        st.markdown("---")
+        
+        # DataFrame Shape
+        st.markdown("### 📊 DataFrame Shape")
+        rows, cols = df.shape
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Rows", rows)
+        with col2:
+            st.metric("Columns", cols)
+        
+        st.markdown("---")
+        
+        # Column Names
+        st.markdown("### 📝 Column Names")
+        st.write("Available columns in the dataframe:")
+        st.code(", ".join(df.columns.tolist()))
+        
+        st.markdown("---")
+        
+        # Key Metrics - Exact Numeric Values
+        st.markdown("### 🎯 Key Return Metrics - Exact Numeric Values")
+        st.markdown("Showing the raw numeric values for Return columns before formatting:")
+        
+        # Display table with exact numeric values for each wave
+        if all(col in df.columns for col in ['Wave_ID', 'Return_1D', 'Return_30D', 'Return_60D', 'Return_365D']):
+            metrics_df = df[['Wave_ID', 'Return_1D', 'Return_30D', 'Return_60D', 'Return_365D']].copy()
+            
+            # Display raw values
+            st.dataframe(
+                metrics_df,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Summary statistics for return columns
+            st.markdown("#### 📈 Summary Statistics for Return Metrics")
+            
+            stats_data = []
+            for col in ['Return_1D', 'Return_30D', 'Return_60D', 'Return_365D']:
+                if col in df.columns:
+                    values = df[col].dropna()
+                    if not values.empty:
+                        stats_data.append({
+                            'Metric': col,
+                            'Count (Non-NA)': len(values),
+                            'Mean': f"{values.mean():.6f}",
+                            'Min': f"{values.min():.6f}",
+                            'Max': f"{values.max():.6f}",
+                            'Std Dev': f"{values.std():.6f}"
+                        })
+            
+            if stats_data:
+                stats_df = pd.DataFrame(stats_data)
+                st.dataframe(stats_df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Some key return columns are missing from the dataframe.")
+        
+        st.markdown("---")
+        st.caption(f"💡 Diagnostics rendered at: {utc_timestamp}")
+    
+    # ========================================================================
     # A) EXECUTIVE OVERVIEW TABLE
     # ========================================================================
     st.subheader("Executive Overview")
