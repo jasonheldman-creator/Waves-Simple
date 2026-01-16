@@ -10487,99 +10487,125 @@ def render_executive_brief_tab():
                     # Compute returns inline using pct_change
                     returns_df = PRICE_BOOK.pct_change().dropna()
                     
-                    # Compute equal-weighted portfolio returns (mean across all tickers)
-                    portfolio_returns = returns_df.mean(axis=1)
-                    
-                    # Get latest trading date and current UTC time for diagnostics
-                    last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
-                    current_utc = datetime.utcnow().strftime('%H:%M:%S UTC')
-                    
-                    # Display diagnostic line (mandatory)
-                    st.markdown(
-                        f"""
-                        <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                            <strong>Live portfolio metrics computed from PRICE_BOOK</strong><br>
-                            Last trading date: {last_trading_date} | Rendered at: {current_utc}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                
-                    # Constants for period calculations
-                    TRADING_DAYS_PER_YEAR = 252  # Approximate trading days in one year
-                    
-                    # Compute metrics for each period
-                    # 1D: Latest value
-                    ret_1d = portfolio_returns.iloc[-1] if len(portfolio_returns) >= 1 else None
-                    
-                    # 30D: Compounded returns of last 30 rows
-                    if len(portfolio_returns) >= 30:
-                        ret_30d = np.expm1(np.log1p(portfolio_returns.iloc[-30:]).sum())
+                    # Validate we have returns data
+                    if returns_df.empty:
+                        st.error("⚠️ No valid returns data - PRICE_BOOK may have insufficient history")
+                        st.caption("Portfolio Snapshot requires at least 2 days of price data")
                     else:
-                        ret_30d = None
-                    
-                    # 60D: Compounded returns of last 60 rows
-                    if len(portfolio_returns) >= 60:
-                        ret_60d = np.expm1(np.log1p(portfolio_returns.iloc[-60:]).sum())
-                    else:
-                        ret_60d = None
-                    
-                    # 365D: Compounded returns of last ~252 rows (one trading year)
-                    if len(portfolio_returns) >= TRADING_DAYS_PER_YEAR:
-                        ret_365d = np.expm1(np.log1p(portfolio_returns.iloc[-TRADING_DAYS_PER_YEAR:]).sum())
-                    else:
-                        ret_365d = None
-                
-                    # Display in blue box with computed metrics
-                    st.markdown("""
-                    <div style="
-                        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-                        border: 2px solid #00d9ff;
-                        border-radius: 12px;
-                        padding: 20px;
-                        margin-bottom: 20px;
-                    ">
-                    """, unsafe_allow_html=True)
-                
-                    # Portfolio performance metrics display
-                    st.markdown("**📊 Portfolio Performance (Equal-Weighted)**")
-                    st.caption("Returns based on PRICE_BOOK data")
-                
-                    col1, col2, col3, col4 = st.columns(4)
-                
-                    with col1:
-                        st.markdown("**1D**")
-                        if ret_1d is not None:
-                            st.markdown(f"📈 **Return:** {ret_1d:+.2%}")
+                        # Compute equal-weighted portfolio returns (mean across all tickers)
+                        # Note: This uses all tickers in PRICE_BOOK as an equal-weighted portfolio
+                        portfolio_returns = returns_df.mean(axis=1)
+                        
+                        # Validate we have portfolio returns
+                        if portfolio_returns.empty:
+                            st.error("⚠️ No valid portfolio returns computed")
+                            st.caption("Unable to compute portfolio metrics from available data")
                         else:
-                            st.markdown("📈 **Return:** N/A")
-                            st.caption("⚠️ Insufficient data")
-                
-                    with col2:
-                        st.markdown("**30D**")
-                        if ret_30d is not None:
-                            st.markdown(f"📈 **Return:** {ret_30d:+.2%}")
-                        else:
-                            st.markdown("📈 **Return:** N/A")
-                            st.caption("⚠️ Insufficient data")
-                
-                    with col3:
-                        st.markdown("**60D**")
-                        if ret_60d is not None:
-                            st.markdown(f"📈 **Return:** {ret_60d:+.2%}")
-                        else:
-                            st.markdown("📈 **Return:** N/A")
-                            st.caption("⚠️ Insufficient data")
-                
-                    with col4:
-                        st.markdown("**365D**")
-                        if ret_365d is not None:
-                            st.markdown(f"📈 **Return:** {ret_365d:+.2%}")
-                        else:
-                            st.markdown("📈 **Return:** N/A")
-                            st.caption("⚠️ Insufficient data")
-                
-                    st.markdown("</div>", unsafe_allow_html=True)
+                            # Get latest trading date and current UTC time for diagnostics
+                            last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
+                            current_utc = datetime.utcnow().strftime('%H:%M:%S UTC')
+                            
+                            # Display diagnostic line (mandatory)
+                            st.markdown(
+                                f"""
+                                <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                                    <strong>Live portfolio metrics computed from PRICE_BOOK</strong><br>
+                                    Last trading date: {last_trading_date} | Rendered at: {current_utc}
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                        
+                            # Constants for period calculations
+                            TRADING_DAYS_PER_YEAR = 252  # Approximate trading days in one year
+                            
+                            # Helper function for safe compounded returns calculation
+                            def safe_compounded_return(returns_series):
+                                """
+                                Safely compute compounded returns with numerical stability.
+                                Returns None if data is invalid (e.g., returns <= -1).
+                                """
+                                try:
+                                    # Check for extreme negative returns that would cause log1p to fail
+                                    if (returns_series <= -1).any():
+                                        return None
+                                    # Use numerically stable formula: exp(sum(log(1+r))) - 1
+                                    return np.expm1(np.log1p(returns_series).sum())
+                                except (ValueError, RuntimeError):
+                                    return None
+                            
+                            # Compute metrics for each period
+                            # 1D: Latest value
+                            ret_1d = portfolio_returns.iloc[-1] if len(portfolio_returns) >= 1 else None
+                            
+                            # 30D: Compounded returns of last 30 rows
+                            if len(portfolio_returns) >= 30:
+                                ret_30d = safe_compounded_return(portfolio_returns.iloc[-30:])
+                            else:
+                                ret_30d = None
+                            
+                            # 60D: Compounded returns of last 60 rows
+                            if len(portfolio_returns) >= 60:
+                                ret_60d = safe_compounded_return(portfolio_returns.iloc[-60:])
+                            else:
+                                ret_60d = None
+                            
+                            # 365D: Compounded returns of last ~252 rows (one trading year)
+                            if len(portfolio_returns) >= TRADING_DAYS_PER_YEAR:
+                                ret_365d = safe_compounded_return(portfolio_returns.iloc[-TRADING_DAYS_PER_YEAR:])
+                            else:
+                                ret_365d = None
+                        
+                            # Display in blue box with computed metrics
+                            st.markdown("""
+                            <div style="
+                                background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+                                border: 2px solid #00d9ff;
+                                border-radius: 12px;
+                                padding: 20px;
+                                margin-bottom: 20px;
+                            ">
+                            """, unsafe_allow_html=True)
+                        
+                            # Portfolio performance metrics display
+                            st.markdown("**📊 Portfolio Performance (Equal-Weighted)**")
+                            st.caption("Returns based on PRICE_BOOK data")
+                        
+                            col1, col2, col3, col4 = st.columns(4)
+                        
+                            with col1:
+                                st.markdown("**1D**")
+                                if ret_1d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_1d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col2:
+                                st.markdown("**30D**")
+                                if ret_30d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_30d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col3:
+                                st.markdown("**60D**")
+                                if ret_60d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_60d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col4:
+                                st.markdown("**365D**")
+                                if ret_365d is not None:
+                                    st.markdown(f"📈 **Return:** {ret_365d:+.2%}")
+                                else:
+                                    st.markdown("📈 **Return:** N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            st.markdown("</div>", unsafe_allow_html=True)
         
             except Exception as e:
                 st.error(f"⚠️ Portfolio Snapshot error: {str(e)}")
