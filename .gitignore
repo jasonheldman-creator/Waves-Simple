@@ -8,4 +8,5 @@
 # Python cache files
 __pycache__/
 *.pyc
-*.pyo
+*.pyo*.log
+backup/app_last_good_*.py
