@@ -19,6 +19,7 @@ Key Features:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 import uuid
@@ -345,7 +346,6 @@ def create_snapshot_metadata(
     # Get max_price_date from cache metadata for audit trail
     max_price_date = None
     try:
-        import json
         cache_meta_path = "data/cache/prices_cache_meta.json"
         if os.path.exists(cache_meta_path):
             with open(cache_meta_path, 'r') as f:
