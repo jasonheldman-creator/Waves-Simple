@@ -25,7 +25,7 @@ FULL MULTI-TAB CONSOLE UI - Post PR #336
 Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
 Includes all analytics, monitoring, and governance features.
 """
-import streamlit as st
+
 # ================================
 import logging
 import subprocess
@@ -23123,5 +23123,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         # Initialize mode (default: Standard)
         st.session_state.mode = "Standard"
     
-    # ========================================================================
-    # Auto-Refresh Logic with Er
+    # =======================
