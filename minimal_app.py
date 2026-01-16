@@ -23,7 +23,7 @@ import streamlit as st
 import pandas as pd
 import os
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from streamlit_autorefresh import st_autorefresh
 
 # ============================================================================
@@ -278,7 +278,7 @@ def render_overview_tab(df):
         st.markdown("Exposing the runtime data truth at the point of rendering Portfolio Snapshot numbers.")
         
         # Current UTC timestamp
-        utc_timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        utc_timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         st.markdown(f"**🕐 Render Timestamp (UTC):** `{utc_timestamp}`")
         
         st.markdown("---")
