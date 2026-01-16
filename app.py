@@ -10511,17 +10511,21 @@ def render_executive_brief_tab():
                             last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
                             current_utc = datetime.now(timezone.utc).strftime('%H:%M:%S UTC')
                             
+                            # Get PRICE_BOOK memory reference for runtime verification
+                            price_book_id = hex(id(PRICE_BOOK))
+                            
                             # Display comprehensive diagnostic overlay (mandatory)
                             st.markdown(
                                 f"""
                                 <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
                                     <strong>✅ RUNTIME DYNAMIC COMPUTATION</strong><br>
+                                    <strong>PRICE_BOOK Memory Reference:</strong> {price_book_id}<br>
                                     <strong>Data Source:</strong> PRICE_BOOK (live market data, {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers)<br>
                                     <strong>Last Trading Date:</strong> {last_trading_date}<br>
                                     <strong>Render UTC:</strong> {current_utc}<br>
                                     <strong>Benchmark:</strong> {'SPY ✅' if benchmark_returns is not None else 'SPY ❌ (Alpha unavailable)'}<br>
-                                    <strong>Snapshot Artifact:</strong> ❌ No live_snapshot.csv dependency<br>
-                                    <strong>Caching:</strong> ❌ No st.cache_data (pure runtime computation)
+                                    <strong>live_snapshot.csv:</strong> <span style="color: #ff0000; font-weight: bold;">NOT USED</span><br>
+                                    <strong>metrics caching:</strong> <span style="color: #ff0000; font-weight: bold;">DISABLED</span>
                                 </div>
                                 """,
                                 unsafe_allow_html=True
