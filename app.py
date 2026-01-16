@@ -10549,93 +10549,58 @@ def render_executive_brief_tab():
                     st.caption(f"Error: {e}")
         
             try:
-                # UPDATED: Use portfolio_snapshot from session state instead of recomputing from price_book
-                # This avoids unnecessary computation and reads from pre-loaded snapshot data
-                portfolio_snapshot = st.session_state.get("portfolio_snapshot")
+                # UPDATED: Use live portfolio metrics from session state
+                # This computes metrics directly from live market data, bypassing all cached data
+                live_metrics = st.session_state.get("portfolio_live_metrics")
                 
-                # Compute portfolio metrics from snapshot (replaces compute_portfolio_alpha_ledger)
-                ledger = compute_portfolio_metrics_from_snapshot(portfolio_snapshot)
+                if live_metrics is None:
+                    # Compute live metrics if not available
+                    live_metrics = compute_live_portfolio_metrics()
+                    st.session_state["portfolio_live_metrics"] = live_metrics
                 
-                # Get wave count for diagnostics
-                if portfolio_snapshot is not None and not portfolio_snapshot.empty:
-                    # Filter to waves with valid data
-                    if 'status' in portfolio_snapshot.columns:
-                        valid_waves = portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA']
-                        n_waves_used = len(valid_waves)
-                    else:
-                        n_waves_used = len(portfolio_snapshot)
-                    
-                    # Get snapshot date
-                    if 'Date' in portfolio_snapshot.columns and not portfolio_snapshot.empty:
-                        end_date = portfolio_snapshot['Date'].iloc[0]
-                    else:
-                        end_date = 'N/A'
-                else:
-                    n_waves_used = 0
-                    end_date = 'N/A'
+                # Extract ledger data from live metrics
+                ledger = live_metrics
+                
+                # Get diagnostic info
+                n_waves_used = ledger.get('n_waves_with_returns', 0)
+                end_date = ledger.get('latest_trading_date', 'N/A')
+                data_timestamp = ledger.get('data_timestamp', 'N/A')
+                n_tickers_fetched = ledger.get('n_tickers_fetched', 0)
+                n_tickers_with_data = ledger.get('n_tickers_with_data', 0)
             
                 # Add diagnostic information
                 if ledger['success']:
-                    # Get date range from period results
-                    period_1d = ledger['period_results'].get('1D', {})
-                    if period_1d.get('available'):
-                        end_date = period_1d.get('end_date', 'N/A')
-                        n_dates = None  # Not available from snapshot (no time series)
-                        start_date = 'N/A'  # Not available from snapshot
-                    else:
-                        end_date = 'N/A'
-                        start_date = 'N/A'
-                        n_dates = None
-                
-                    # Display simplified status (no VIX overlay info from snapshot)
-                    st.caption(f"📊 Portfolio: waves={n_waves_used} (from snapshot)")
-                    st.caption(f"📅 Snapshot Date: {end_date}")
+                    # Display live data status
+                    st.caption(f"📊 Portfolio: {n_waves_used} waves | {n_tickers_with_data}/{n_tickers_fetched} tickers with data")
+                    st.caption(f"📅 Latest Trading Date: {end_date} | ⏱️ Fetched: {data_timestamp[:19] if len(data_timestamp) > 19 else data_timestamp}")
                 else:
                     # Display warning with failure reason
                     failure_reason = ledger.get('failure_reason', 'Unknown error')
-                    st.warning(f"⚠️ Portfolio Snapshot unavailable: {failure_reason}")
+                    st.warning(f"⚠️ Live Portfolio Metrics unavailable: {failure_reason}")
                 
-                    # Simplified diagnostics for snapshot-based approach
+                    # Simplified diagnostics
                     with st.expander("🔍 Show Diagnostic Details", expanded=False):
                         st.markdown("**Error Details:**")
                         st.code(failure_reason)
-                        
-                        # Show snapshot info
-                        st.markdown("**Snapshot Info:**")
-                        if portfolio_snapshot is not None and not portfolio_snapshot.empty:
-                            st.metric("Snapshot Rows", len(portfolio_snapshot))
-                            if 'status' in portfolio_snapshot.columns:
-                                valid_count = len(portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA'])
-                                st.metric("Waves with Data", valid_count)
-                        else:
-                            st.caption("Portfolio snapshot not loaded in session state")
             
                 if ledger['success']:
-                    # RENDERER PROOF LINE - Updated to show snapshot-based rendering
-                    build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
-                
-                    # Get snapshot info for proof label
-                    snapshot_date = "N/A"
-                    snapshot_rows = 0
-                    if portfolio_snapshot is not None and not portfolio_snapshot.empty:
-                        snapshot_rows = len(portfolio_snapshot)
-                        if 'Date' in portfolio_snapshot.columns:
-                            snapshot_date = portfolio_snapshot['Date'].iloc[0]
+                    # RENDERER PROOF LINE - Updated to show live data rendering
+                    build_id = os.environ.get('GIT_SHA', 'LIVE_2026_01_16')
                 
                     st.markdown(
                         f"""
-                        <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                            <strong>Renderer:</strong> Snapshot | <strong>Source:</strong> st.session_state["portfolio_snapshot"] | <strong>Snapshot Date:</strong> {snapshot_date} | <strong>Waves:</strong> {snapshot_rows}
+                        <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                            <strong>🔴 LIVE DATA:</strong> Real-time market data via yfinance | <strong>Latest Trading Date:</strong> {end_date} | <strong>Data Timestamp:</strong> {data_timestamp[:19] if len(data_timestamp) > 19 else data_timestamp}
                         </div>
                         """,
                         unsafe_allow_html=True
                     )
                 
-                    # Simplified status (no VIX/Exposure info from snapshot)
+                    # Live data status
                     st.markdown(
                         f"""
-                        <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
-                            <strong>Data Source:</strong> Portfolio Snapshot (pre-computed wave metrics) | <strong>Aggregation:</strong> Equal-weight across waves
+                        <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
+                            <strong>Data Source:</strong> Live Market Data (yfinance, 400+ trading days) | <strong>Aggregation:</strong> Equal-weight across waves | <strong>Cache TTL:</strong> 60 seconds
                         </div>
                         """,
                         unsafe_allow_html=True
@@ -12178,6 +12143,217 @@ def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
         return {
             'success': False,
             'failure_reason': f'Error computing portfolio metrics: {str(e)}',
+            'period_results': {}
+        }
+
+
+# Global cache for live portfolio metrics with TTL
+_LIVE_PORTFOLIO_CACHE = {
+    'data': None,
+    'timestamp': None,
+    'ttl_seconds': 60
+}
+
+
+def compute_live_portfolio_metrics():
+    """
+    Compute portfolio metrics directly from live market data using yfinance.
+    
+    This function bypasses all cached data (snapshots, cached ledgers, prices_cache.parquet)
+    and fetches fresh market data at runtime. It implements a 60-second TTL cache to reduce
+    redundant API calls within the same session.
+    
+    Returns:
+        Dictionary with portfolio metrics for each period (1D, 30D, 60D, 365D), or None if unavailable.
+        Structure matches compute_portfolio_metrics_from_snapshot output format for compatibility.
+    """
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    from waves_engine import get_all_portfolio_tickers, WAVE_WEIGHTS
+    
+    # Check cache validity
+    if _LIVE_PORTFOLIO_CACHE['data'] is not None and _LIVE_PORTFOLIO_CACHE['timestamp'] is not None:
+        age_seconds = (datetime.now() - _LIVE_PORTFOLIO_CACHE['timestamp']).total_seconds()
+        if age_seconds < _LIVE_PORTFOLIO_CACHE['ttl_seconds']:
+            logging.info(f"Using cached live portfolio metrics (age: {age_seconds:.1f}s)")
+            return _LIVE_PORTFOLIO_CACHE['data']
+    
+    try:
+        logging.info("Fetching live market data for portfolio metrics...")
+        
+        # Extract all unique tickers from WAVE_WEIGHTS
+        all_tickers = get_all_portfolio_tickers()
+        
+        if not all_tickers:
+            return {
+                'success': False,
+                'failure_reason': 'No tickers found in portfolio',
+                'period_results': {}
+            }
+        
+        # Download at least 400 trading days of history (approximately 18 months)
+        # Using 600 calendar days to ensure we have enough trading days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=600)
+        
+        # Download data for all tickers in a single batch call
+        logging.info(f"Downloading {len(all_tickers)} tickers with 600 days of history...")
+        data = yf.download(
+            tickers=all_tickers,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d'),
+            interval='1d',
+            auto_adjust=True,
+            progress=False,
+            group_by='column'
+        )
+        
+        # Extract adjusted close prices
+        if isinstance(data.columns, pd.MultiIndex):
+            if 'Adj Close' in data.columns.get_level_values(0):
+                prices = data['Adj Close']
+            elif 'Close' in data.columns.get_level_values(0):
+                prices = data['Close']
+            else:
+                prices = data
+        else:
+            prices = data
+        
+        # Handle single ticker case
+        if isinstance(prices, pd.Series):
+            prices = prices.to_frame(name=all_tickers[0])
+        
+        # Forward fill and backward fill missing data
+        prices = prices.sort_index().ffill().bfill()
+        
+        if prices.empty:
+            return {
+                'success': False,
+                'failure_reason': 'No price data retrieved from yfinance',
+                'period_results': {}
+            }
+        
+        # Get latest available trading date
+        latest_date = prices.index[-1]
+        
+        # Compute equal-weighted portfolio returns for each wave, then average across waves
+        periods = {
+            '1D': 1,
+            '30D': 30,
+            '60D': 60,
+            '365D': 365
+        }
+        
+        period_results = {}
+        
+        # Build equal-weighted portfolio for each wave
+        wave_returns = {}
+        for wave_name, holdings in WAVE_WEIGHTS.items():
+            wave_tickers = [h.ticker for h in holdings]
+            wave_weights = {h.ticker: h.weight for h in holdings}
+            
+            # Normalize weights to sum to 1.0
+            total_weight = sum(wave_weights.values())
+            if total_weight > 0:
+                wave_weights = {t: w / total_weight for t, w in wave_weights.items()}
+            
+            # Get tickers available in price data
+            available_tickers = [t for t in wave_tickers if t in prices.columns]
+            
+            if not available_tickers:
+                continue
+            
+            # Compute wave returns for each period
+            wave_returns[wave_name] = {}
+            for period_key, days in periods.items():
+                try:
+                    if len(prices) < days + 1:
+                        continue
+                    
+                    # Get prices at start and end of period
+                    end_prices = prices.iloc[-1]
+                    start_prices = prices.iloc[-(days + 1)]
+                    
+                    # Compute weighted portfolio return for this wave
+                    wave_return = 0.0
+                    total_available_weight = 0.0
+                    
+                    for ticker in available_tickers:
+                        if ticker in end_prices and ticker in start_prices:
+                            if pd.notna(end_prices[ticker]) and pd.notna(start_prices[ticker]) and start_prices[ticker] > 0:
+                                ticker_return = (end_prices[ticker] - start_prices[ticker]) / start_prices[ticker]
+                                weight = wave_weights.get(ticker, 0)
+                                wave_return += ticker_return * weight
+                                total_available_weight += weight
+                    
+                    # Normalize by available weight
+                    if total_available_weight > 0:
+                        wave_return = wave_return / total_available_weight
+                        wave_returns[wave_name][period_key] = wave_return
+                
+                except Exception as e:
+                    logging.warning(f"Error computing {period_key} return for {wave_name}: {e}")
+                    continue
+        
+        # Aggregate across all waves (equal-weighted portfolio of waves)
+        for period_key in ['1D', '30D', '60D', '365D']:
+            returns_for_period = [
+                wave_rets[period_key] 
+                for wave_rets in wave_returns.values() 
+                if period_key in wave_rets
+            ]
+            
+            if not returns_for_period:
+                period_results[period_key] = {
+                    'available': False,
+                    'reason': f'No waves with valid {period_key} return data'
+                }
+                continue
+            
+            # Equal-weight average across waves
+            portfolio_return = np.mean(returns_for_period)
+            
+            period_results[period_key] = {
+                'available': True,
+                'cum_realized': portfolio_return,
+                'cum_benchmark': 0.0,  # Benchmark not computed in live mode
+                'total_alpha': portfolio_return,  # All return considered as alpha in live mode
+                'selection_alpha': portfolio_return,
+                'overlay_alpha': 0.0,
+                'residual': 0.0,
+                'n_waves_with_returns': len(returns_for_period),
+                'start_date': prices.index[0].strftime('%Y-%m-%d') if len(prices) > 0 else 'N/A',
+                'end_date': latest_date.strftime('%Y-%m-%d')
+            }
+        
+        result = {
+            'success': True,
+            'period_results': period_results,
+            'vix_ticker_used': None,
+            'safe_ticker_used': None,
+            'overlay_available': False,
+            'daily_realized_return': None,
+            'daily_exposure': None,
+            'warnings': [],
+            'data_timestamp': datetime.now().isoformat(),
+            'latest_trading_date': latest_date.strftime('%Y-%m-%d'),
+            'n_tickers_fetched': len(all_tickers),
+            'n_tickers_with_data': len([c for c in prices.columns if c in all_tickers])
+        }
+        
+        # Update cache
+        _LIVE_PORTFOLIO_CACHE['data'] = result
+        _LIVE_PORTFOLIO_CACHE['timestamp'] = datetime.now()
+        
+        logging.info(f"Successfully computed live portfolio metrics (latest date: {latest_date.strftime('%Y-%m-%d')})")
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error computing live portfolio metrics: {str(e)}")
+        return {
+            'success': False,
+            'failure_reason': f'Error fetching live market data: {str(e)}',
             'period_results': {}
         }
 
@@ -22736,47 +22912,49 @@ def main():
     print("[ENTRYPOINT] Running app.py")
     
     # ========================================================================
-    # STEP -0.1: Load Portfolio Snapshot (ALWAYS - Required for Portfolio Data Rendering)
+    # STEP -0.1: Compute Live Portfolio Metrics (ALWAYS - Required for Portfolio Data Rendering)
     # ========================================================================
-    # NOTE: This block ensures the portfolio snapshot is loaded into memory on every app run.
-    # Without this, portfolio tabs receive no data as snapshot generation is only triggered
-    # inside button handlers. This loads the existing snapshot from disk (or generates if missing)
-    # and stores it in session state for use by all tabs that display portfolio metrics.
+    # NOTE: This block computes portfolio metrics directly from live market data on every app run,
+    # bypassing all cached data (snapshots, cached ledgers, prices_cache.parquet).
+    # 
+    # The live computation fetches fresh market data using yfinance with 400+ trading days of history,
+    # computes equal-weighted portfolio returns across all waves, and caches results for 60 seconds
+    # to reduce redundant API calls within the same session.
     #
     # CRITICAL: This must run unconditionally on every page load, NOT inside buttons or
     # conditional logic, to ensure portfolio data is always available during normal rendering.
     try:
-        if not SNAPSHOT_LEDGER_AVAILABLE or generate_snapshot is None:
-            raise ImportError("snapshot_ledger module is not available")
-        
-        # Load/generate snapshot (uses cache if fresh, generates if stale/missing)
-        # force_refresh=True enforces one-time snapshot regeneration on app startup
-        snapshot_df = generate_snapshot(
-            force_refresh=True,
-            generation_reason="manual_forced_refresh"
-        )
+        # Compute live portfolio metrics from market data
+        live_metrics = compute_live_portfolio_metrics()
         
         # Store in session state for access by portfolio tabs
-        st.session_state["portfolio_snapshot"] = snapshot_df
+        st.session_state["portfolio_live_metrics"] = live_metrics
         
-        print(f"✓ Portfolio snapshot loaded successfully ({len(snapshot_df)} rows)")
+        if live_metrics.get('success'):
+            latest_date = live_metrics.get('latest_trading_date', 'N/A')
+            n_tickers = live_metrics.get('n_tickers_fetched', 0)
+            print(f"✓ Live portfolio metrics computed successfully (latest date: {latest_date}, {n_tickers} tickers)")
+        else:
+            print(f"⚠ Live portfolio metrics computation failed: {live_metrics.get('failure_reason', 'Unknown error')}")
         
     except Exception as e:
-        # If snapshot loading fails, show error and stop execution
-        # This prevents tabs from rendering with no data
-        st.error(f"""
-        ⚠️ **Critical Error: Portfolio Snapshot Failed to Load**
+        # If live metrics computation fails, create empty result but don't stop execution
+        # This allows the app to continue running with degraded functionality
+        logging.error(f"Error computing live portfolio metrics: {str(e)}")
+        st.session_state["portfolio_live_metrics"] = {
+            'success': False,
+            'failure_reason': f'Error computing live metrics: {str(e)}',
+            'period_results': {}
+        }
+        st.warning(f"""
+        ⚠️ **Warning: Live Portfolio Metrics Computation Failed**
         
-        The portfolio snapshot could not be loaded, which will prevent portfolio data from rendering.
+        The live portfolio metrics could not be computed from market data.
         
         **Error:** {str(e)}
         
-        **Resolution:** 
-        - Check that data/live_snapshot.csv exists and is valid
-        - Try manually rebuilding the snapshot using the button in the sidebar
-        - If the issue persists, contact support
+        The application will continue to run, but portfolio metrics may be unavailable.
         """)
-        st.stop()
     
     # ========================================================================
     # STEP 0: Initialize Safe Mode (Default ON)
