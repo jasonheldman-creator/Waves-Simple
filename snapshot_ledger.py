@@ -25,6 +25,8 @@ import os
 import re  # For VIX adjustment pattern parsing
 import time
 import json
+import logging
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -248,12 +250,10 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
                     if pd.notna(spy_max_date):
                         return pd.to_datetime(spy_max_date).strftime('%Y-%m-%d')
     except Exception as e:
-        import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to extract SPY date from price cache: {e}")
     
     # ERROR: Cannot determine SPY-based date - raise error instead of falling back to datetime.now()
-    import logging
     logger = logging.getLogger(__name__)
     error_msg = (
         "Unable to determine SPY-based snapshot date from price cache. "
@@ -1602,7 +1602,6 @@ def generate_snapshot(
                 print(f"⚠ Price cache file not found at {PRICE_CACHE_FILE}")
     except Exception as e:
         print(f"⚠ Failed to determine price cache max date: {e}")
-        import traceback
         traceback.print_exc()
     
     # Check if cached snapshot exists and is recent
@@ -1879,7 +1878,6 @@ def generate_snapshot(
     except Exception as e:
         print(f"⚠ Warning: Failed to validate trading-day freshness (non-fatal): {e}")
         # Continue with save - this is a warning, not a fatal error
-        import traceback
         traceback.print_exc()
     
     # Persist snapshot
