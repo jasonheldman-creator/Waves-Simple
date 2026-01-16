@@ -27,6 +27,8 @@ Usage:
 
 import os
 import logging
+import random
+import traceback
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 import pandas as pd
@@ -250,7 +252,7 @@ def fetch_live_prices(tickers: Optional[List[str]] = None, period: str = "1y", a
         
         If live API fetch fails (e.g., network issues) and allow_fallback=True, it will:
         1. Load prices from cache
-        2. Add small random variations (±0.1%) to simulate live market movement
+        2. Add small random variations (±0.3%) to simulate live market movement
         3. Update the most recent date to current date/time
         This ensures Portfolio Snapshot values still change between renders even without API access.
     """
@@ -416,7 +418,6 @@ def fetch_live_prices(tickers: Optional[List[str]] = None, period: str = "1y", a
         
     except Exception as e:
         logger.error(f"Error fetching live prices from yfinance: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         if allow_fallback:
             logger.warning("Falling back to cache with simulated live variation")
@@ -441,7 +442,7 @@ def _fetch_simulated_live_prices(tickers: Optional[List[str]] = None) -> tuple[p
     
     This function:
     1. Loads prices from cache
-    2. Adds small random variations (±0.1%) to simulate market movement
+    2. Adds small random variations (±0.3%) to simulate market movement
     3. Updates timestamps to show current time
     
     This ensures Portfolio Snapshot values change between renders even without API access,
@@ -497,11 +498,10 @@ def _fetch_simulated_live_prices(tickers: Optional[List[str]] = None) -> tuple[p
     # Add small random variations to simulate live market movement
     # This ensures values change between renders
     # Use current microsecond as seed for variation
-    import random
     seed = datetime.now(timezone.utc).microsecond
     random.seed(seed)
     
-    # Apply random variation to last few rows (±0.1% to ±0.3%)
+    # Apply random variation to last few rows (±0.3%)
     for col in prices.columns:
         if len(prices) > 0:
             # Vary the last 5 rows with different random amounts
