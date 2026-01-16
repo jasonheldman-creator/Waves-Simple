@@ -1746,7 +1746,47 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
         elif normalized:
             removed.append(name)
     
+    return deduplicated, removed
+
 CACHE_BUSTER = "RESET_2026_01_15_v2"
+
+
+def _normalize_wave_universe(universe):
+    """
+    Normalize wave universe dictionary to ensure all expected keys are present.
+    
+    This defensive function guarantees schema consistency by providing defaults
+    for any missing keys, preventing potential runtime errors from incomplete data.
+    
+    Args:
+        universe: Dictionary that may or may not have all expected keys
+        
+    Returns:
+        Normalized dictionary with guaranteed schema:
+        - waves: list (default: [])
+        - removed_duplicates: list (default: [])
+        - source: str (default: "unknown")
+        - timestamp: str (preserved or default: "")
+        - enabled_flags: dict (preserved or default: {})
+    """
+    if not isinstance(universe, dict):
+        universe = {}
+    
+    # Use .get() with defaults, and handle None values explicitly
+    waves = universe.get("waves", [])
+    removed_duplicates = universe.get("removed_duplicates", [])
+    source = universe.get("source", "unknown")
+    timestamp = universe.get("timestamp", "")
+    enabled_flags = universe.get("enabled_flags", {})
+    
+    return {
+        "waves": waves if waves is not None else [],
+        "removed_duplicates": removed_duplicates if removed_duplicates is not None else [],
+        "source": source if source is not None else "unknown",
+        "timestamp": timestamp if timestamp is not None else "",
+        "enabled_flags": enabled_flags if enabled_flags is not None else {}
+    }
+
 
 @st.cache_data(ttl=15)
 def get_canonical_wave_universe(
@@ -1779,7 +1819,9 @@ def get_canonical_wave_universe(
     
     # Check cache unless force reload
     if not force_reload and "wave_universe" in st.session_state:
-        return st.session_state["wave_universe"]
+        cached = st.session_state["wave_universe"]
+        # Normalize cached data to ensure schema consistency
+        return _normalize_wave_universe(cached)
     
     # Build wave universe
     wave_list = []
