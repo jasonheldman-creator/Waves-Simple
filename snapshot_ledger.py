@@ -1597,6 +1597,7 @@ def generate_snapshot(
                 age_hours = (datetime.now() - pd.to_datetime(snapshot_date_str)).total_seconds() / 3600
                 
                 # CRITICAL: Check if price cache has newer data
+                # This ensures snapshot is always rebuilt when new trading day data is available
                 prices_cache_max_date = None
                 try:
                     cache_meta_path = "data/cache/prices_cache_meta.json"
@@ -1609,14 +1610,21 @@ def generate_snapshot(
                 except Exception as e:
                     print(f"⚠ Could not load price cache max date: {e}")
                 
+                # DECISION POINT 1: Trading-day freshness check
                 # If price cache has newer data, MUST regenerate regardless of age or version
                 if prices_cache_max_date is not None and prices_cache_max_date > snapshot_date:
-                    print(f"⚠ Cache invalidated: price data is newer")
-                    print(f"  Snapshot date: {snapshot_date}")
-                    print(f"  Price cache max date (SPY): {prices_cache_max_date}")
-                    print(f"  → Regenerating snapshot with fresh price data")
-                    # Fall through to regenerate
-                else:
+                    print("\n" + "=" * 80)
+                    print("SNAPSHOT FRESHNESS DECISION")
+                    print("=" * 80)
+                    print(f"Snapshot Date:        {snapshot_date}")
+                    print(f"Latest Trading Date:  {prices_cache_max_date}")
+                    print(f"Decision:             REBUILD (snapshot is stale - behind latest trading day)")
+                    print(f"Reason:               Price data advanced to new trading day")
+                    print("=" * 80 + "\n")
+                    # Exit the cache check block and proceed to regeneration
+                    pass  # Will fall through to regeneration below
+                elif prices_cache_max_date is not None and prices_cache_max_date == snapshot_date:
+                    # DECISION POINT 2: Dates match, check engine version and age
                     # Price data is current, check engine version and age
                     cache_valid = False
                     if os.path.exists(SNAPSHOT_METADATA_FILE):
@@ -1627,27 +1635,79 @@ def generate_snapshot(
                             current_engine_version = get_engine_version() if WAVES_ENGINE_AVAILABLE else 'unknown'
                             
                             # Cache is valid if:
-                            # 1. Age is within threshold AND
-                            # 2. Engine version matches current version AND
-                            # 3. Price data is current (already checked above)
+                            # 1. Snapshot date matches latest trading date AND
+                            # 2. Age is within threshold AND
+                            # 3. Engine version matches current version
                             if age_hours < MAX_SNAPSHOT_AGE_HOURS and cached_engine_version == current_engine_version:
                                 cache_valid = True
-                                print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, engine v{current_engine_version}, price data current)")
+                                print("\n" + "=" * 80)
+                                print("SNAPSHOT FRESHNESS DECISION")
+                                print("=" * 80)
+                                print(f"Snapshot Date:        {snapshot_date}")
+                                print(f"Latest Trading Date:  {prices_cache_max_date}")
+                                print(f"Snapshot Age:         {age_hours:.1f} hours")
+                                print(f"Engine Version:       {current_engine_version}")
+                                print(f"Decision:             REUSE (snapshot is fresh and current)")
+                                print(f"Reason:               Dates match, age < {MAX_SNAPSHOT_AGE_HOURS}h, version matches")
+                                print("=" * 80 + "\n")
                                 return cached_df
                             elif cached_engine_version != current_engine_version:
-                                print(f"⚠ Cache invalidated: engine version changed from {cached_engine_version} to {current_engine_version}")
+                                print("\n" + "=" * 80)
+                                print("SNAPSHOT FRESHNESS DECISION")
+                                print("=" * 80)
+                                print(f"Snapshot Date:        {snapshot_date}")
+                                print(f"Latest Trading Date:  {prices_cache_max_date}")
+                                print(f"Cached Engine:        {cached_engine_version}")
+                                print(f"Current Engine:       {current_engine_version}")
+                                print(f"Decision:             REBUILD (engine version changed)")
+                                print(f"Reason:               Engine version mismatch")
+                                print("=" * 80 + "\n")
                             else:
-                                print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
+                                print("\n" + "=" * 80)
+                                print("SNAPSHOT FRESHNESS DECISION")
+                                print("=" * 80)
+                                print(f"Snapshot Date:        {snapshot_date}")
+                                print(f"Latest Trading Date:  {prices_cache_max_date}")
+                                print(f"Snapshot Age:         {age_hours:.1f} hours")
+                                print(f"Decision:             REBUILD (snapshot is stale by age)")
+                                print(f"Reason:               Age {age_hours:.1f}h exceeds threshold {MAX_SNAPSHOT_AGE_HOURS}h")
+                                print("=" * 80 + "\n")
                         except Exception as e:
                             print(f"⚠ Failed to load snapshot metadata, will regenerate: {e}")
                             # If metadata file doesn't exist or is invalid, fall through to regenerate
                     else:
                         # No metadata file - check age only and price freshness
                         if age_hours < MAX_SNAPSHOT_AGE_HOURS:
-                            print(f"✓ Using cached snapshot (age: {age_hours:.1f} hours, no version tracking, price data current)")
+                            print("\n" + "=" * 80)
+                            print("SNAPSHOT FRESHNESS DECISION")
+                            print("=" * 80)
+                            print(f"Snapshot Date:        {snapshot_date}")
+                            print(f"Latest Trading Date:  {prices_cache_max_date}")
+                            print(f"Snapshot Age:         {age_hours:.1f} hours")
+                            print(f"Decision:             REUSE (snapshot is fresh, no version tracking)")
+                            print(f"Reason:               Dates match, age < {MAX_SNAPSHOT_AGE_HOURS}h")
+                            print("=" * 80 + "\n")
                             return cached_df
                         else:
-                            print(f"⚠ Cached snapshot is stale (age: {age_hours:.1f} hours), regenerating...")
+                            print("\n" + "=" * 80)
+                            print("SNAPSHOT FRESHNESS DECISION")
+                            print("=" * 80)
+                            print(f"Snapshot Date:        {snapshot_date}")
+                            print(f"Latest Trading Date:  {prices_cache_max_date}")
+                            print(f"Snapshot Age:         {age_hours:.1f} hours")
+                            print(f"Decision:             REBUILD (snapshot is stale by age)")
+                            print(f"Reason:               Age {age_hours:.1f}h exceeds threshold {MAX_SNAPSHOT_AGE_HOURS}h")
+                            print("=" * 80 + "\n")
+                else:
+                    # DECISION POINT 3: No price date available - treat snapshot as missing/invalid
+                    print("\n" + "=" * 80)
+                    print("SNAPSHOT FRESHNESS DECISION")
+                    print("=" * 80)
+                    print(f"Snapshot Date:        {snapshot_date}")
+                    print(f"Latest Trading Date:  UNKNOWN (metadata not available)")
+                    print(f"Decision:             REBUILD (cannot verify trading-day freshness)")
+                    print(f"Reason:               Price metadata missing or unreadable")
+                    print("=" * 80 + "\n")
         except Exception as e:
             print(f"⚠ Failed to load cached snapshot: {e}")
     
