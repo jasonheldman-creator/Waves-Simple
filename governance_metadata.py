@@ -342,12 +342,25 @@ def create_snapshot_metadata(
     # Get snapshot timestamp
     snapshot_time = datetime.now()
     
+    # Get max_price_date from cache metadata for audit trail
+    max_price_date = None
+    try:
+        import json
+        cache_meta_path = "data/cache/prices_cache_meta.json"
+        if os.path.exists(cache_meta_path):
+            with open(cache_meta_path, 'r') as f:
+                cache_meta = json.load(f)
+            max_price_date = cache_meta.get("spy_max_date")
+    except Exception:
+        pass
+    
     metadata = {
         # Snapshot identification
         'snapshot_id': snapshot_id,
         'snapshot_hash': snapshot_hash,
         'generation_reason': generation_reason,
         'timestamp': snapshot_time.isoformat(),
+        'max_price_date': max_price_date,  # NEW: SPY last trading date for audit trail
         
         # Version information
         'software_version': software_version,
