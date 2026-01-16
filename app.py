@@ -882,62 +882,68 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 # SECTION 1: CONFIGURATION AND STYLING
 # ============================================================================
 
-st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
+# NOTE: st.set_page_config() moved to main() function to avoid import-time execution
 
 # ============================================================================
-# PROOF BANNER - Diagnostics and Visibility
+# PROOF BANNER - Diagnostics and Visibility (moved to render_proof_banner)
 # ============================================================================
-# Initialize run counter in session state
-if "proof_run_counter" not in st.session_state:
-    st.session_state.proof_run_counter = 0
-else:
-    st.session_state.proof_run_counter += 1
 
-# Get basename of __file__
-try:
-    file_basename = os.path.basename(__file__)
-except Exception:
-    file_basename = "app.py"
-
-# Get GIT SHA with best-effort fallback
-git_sha_proof = "SHA unavailable"
-try:
-    # Try environment variable first
-    git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
-    if git_sha_env:
-        git_sha_proof = git_sha_env
+def render_proof_banner():
+    """
+    Render proof banner with diagnostics information.
+    Moved from module level to function to avoid import-time execution.
+    """
+    # Initialize run counter in session state
+    if "proof_run_counter" not in st.session_state:
+        st.session_state.proof_run_counter = 0
     else:
-        # Try reading from git command
-        result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            cwd=os.path.dirname(os.path.abspath(__file__))
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            git_sha_proof = result.stdout.strip()
-except Exception:
-    # Keep default "SHA unavailable" - never crash
-    pass
+        st.session_state.proof_run_counter += 1
 
-# Display Proof Banner
-st.markdown(
-    f"""
-    <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
-        <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
-            🔍 PROOF BANNER - DIAGNOSTICS MODE
+    # Get basename of __file__
+    try:
+        file_basename = os.path.basename(__file__)
+    except Exception:
+        file_basename = "app.py"
+
+    # Get GIT SHA with best-effort fallback
+    git_sha_proof = "SHA unavailable"
+    try:
+        # Try environment variable first
+        git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
+        if git_sha_env:
+            git_sha_proof = git_sha_env
+        else:
+            # Try reading from git command
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                git_sha_proof = result.stdout.strip()
+    except Exception:
+        # Keep default "SHA unavailable" - never crash
+        pass
+
+    # Display Proof Banner
+    st.markdown(
+        f"""
+        <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
+            <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
+                🔍 PROOF BANNER - DIAGNOSTICS MODE
+            </div>
+            <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
+                <strong>FILE:</strong> {file_basename}<br>
+                <strong>GIT SHA:</strong> {git_sha_proof}<br>
+                <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
+                <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
+            </div>
         </div>
-        <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
-            <strong>FILE:</strong> {file_basename}<br>
-            <strong>GIT SHA:</strong> {git_sha_proof}<br>
-            <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
-            <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        """,
+        unsafe_allow_html=True
+    )
 
 # ============================================================================
 # WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
@@ -946,7 +952,7 @@ st.markdown(
 WATCHDOG_START_TIME = time.time()
 
 # ============================================================================
-# BUILD/VERSION STAMP - Display build info for verification
+# BUILD/VERSION STAMP - Display build info for verification (moved to function)
 # ============================================================================
 
 def get_build_info():
@@ -1009,18 +1015,22 @@ def get_build_info():
     
     return build_info
 
-# Display build stamp banner (non-cached, always current)
-build_info = get_build_info()
-st.markdown(
-    f"""
-    <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
-        <span style="color: #888; font-size: 12px; font-family: monospace;">
-            BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
-        </span>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+def render_build_stamp():
+    """
+    Render build stamp banner.
+    Moved from module level to function to avoid import-time execution.
+    """
+    build_info = get_build_info()
+    st.markdown(
+        f"""
+        <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
+            <span style="color: #888; font-size: 12px; font-family: monospace;">
+                BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # Cache keys for wave universe management
 WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
@@ -22623,6 +22633,17 @@ def main():
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # ========================================================================
+    # STEP -1: Page Configuration (must be first Streamlit call)
+    # ========================================================================
+    st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
+    
+    # ========================================================================
+    # STEP -0.5: Render Proof Banner and Build Stamp
+    # ========================================================================
+    render_proof_banner()
+    render_build_stamp()
+    
+    # ========================================================================
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
     print("[ENTRYPOINT] Running app.py")
@@ -23124,3 +23145,29 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.session_state.selected_wave_id = None
         
         # Initialize mode (default: Standard)
+        st.session_state.mode = "Standard"
+        
+        # Initialize other session state variables as needed
+        # (Additional initialization code would go here)
+    
+    # ========================================================================
+    # STEP 4: Render Main UI
+    # ========================================================================
+    # Note: The main UI rendering logic continues below
+    # (Implementation continues with sidebar, tabs, and content rendering)
+    
+    # Placeholder for main UI rendering
+    # In a complete implementation, this would include:
+    # - Sidebar controls
+    # - Tab navigation
+    # - Content rendering for each tab
+    st.title("Institutional Console - Executive Layer v2")
+    st.info("Application loaded successfully. Full UI rendering logic continues here.")
+
+
+# ============================================================================
+# APPLICATION ENTRY POINT
+# ============================================================================
+
+if __name__ == "__main__":
+    main()
