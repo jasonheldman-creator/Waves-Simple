@@ -3,10 +3,10 @@ import streamlit as st
 st.markdown("### 🟢 APP BOOTED — PRE-INIT CHECKPOINT")
 st.write("If you see this, the UI thread is alive.")
 
-if "BOOT_OK" not in st.session_state:
-    st.session_state["BOOT_OK"] = True
-    st.stop()
-
+if "_BOOT_RERUN_DONE" not in st.session_state:
+    st.session_state["_BOOT_RERUN_DONE"] = True
+    st.experimental_rerun()
+    
 """
 Institutional Console v2 - Executive Layer v2
 Full implementation with advanced analytics and visualization
