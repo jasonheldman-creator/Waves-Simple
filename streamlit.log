@@ -1,0 +1,1923 @@
+nohup: ignoring input
+
+Collecting usage statistics. To deactivate, set browser.gatherUsageStats to false.
+
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://localhost:8503
+
+INFO:wave_registry_manager:🔍 Auto-healing wave registry CSV...
+INFO:wave_registry_manager:Validating wave registry CSV...
+WARNING:wave_registry_manager:⚠️  CSV contains wave_ids not in canonical source: ['russell_3000_wave']
+INFO:wave_registry_manager:✅ Wave registry CSV validation passed (6 checks)
+INFO:wave_registry_manager:✅ Wave registry CSV is valid, no rebuild needed
+INFO:wave_registry_manager:Loaded 27 active waves out of 28 total waves
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=clean_transit_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning: Wave 'Crypto AI Growth Wave' has 1 invalid tickers: ['TAO-USD']
+  warnings.warn(warning_msg)
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning: Wave 'Crypto AI Growth Wave' degraded: 5/6 tickers available. Missing: ['TAO-USD']
+  warnings.warn(
+WARNING:analytics_pipeline:Wave 'crypto_ai_growth_wave' degraded: 5/6 tickers validated. Missing: ['TAO-USD']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 5
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 5 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 5 tickers
+INFO:helpers.price_loader:Coverage: 2914 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 6
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 6 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 6 tickers
+INFO:helpers.price_loader:Coverage: 2914 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_ai_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 8
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 8 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 8 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 6
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 6 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 6 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_broad_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning: Wave 'Crypto DeFi Growth Wave' has 1 invalid tickers: ['COMP-USD']
+  warnings.warn(warning_msg)
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning: Wave 'Crypto DeFi Growth Wave' degraded: 7/8 tickers available. Missing: ['COMP-USD']
+  warnings.warn(
+WARNING:analytics_pipeline:Wave 'crypto_defi_growth_wave' degraded: 7/8 tickers validated. Missing: ['COMP-USD']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 7
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 7 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 7 tickers
+INFO:helpers.price_loader:Coverage: 2985 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 7
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 7 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 7 tickers
+INFO:helpers.price_loader:Coverage: 2860 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_defi_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 8
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 8 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 8 tickers
+INFO:helpers.price_loader:Coverage: 2985 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 6
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 6 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 6 tickers
+INFO:helpers.price_loader:Coverage: 2985 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_income_wave ready=true reasons=['OPERATIONAL', 'STALE_DATA'] missing_tickers=['stETH-USD']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 8
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 8 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 8 tickers
+INFO:helpers.price_loader:Coverage: 2985 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 9
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 9 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 9 tickers
+INFO:helpers.price_loader:Coverage: 2985 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l1_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning: Wave 'Crypto L2 Growth Wave' has 2 invalid tickers: ['IMX-USD', 'MNT-USD']
+  warnings.warn(warning_msg)
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning: Wave 'Crypto L2 Growth Wave' degraded: 4/6 tickers available. Missing: ['IMX-USD', 'MNT-USD']
+  warnings.warn(
+WARNING:analytics_pipeline:Wave 'crypto_l2_growth_wave' degraded: 4/6 tickers validated. Missing: ['IMX-USD', 'MNT-USD']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 4
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 4 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 4 tickers
+INFO:helpers.price_loader:Coverage: 2985 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 6
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 6 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 6 tickers
+INFO:helpers.price_loader:Coverage: 2985 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l2_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=demas_fund_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=ev_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_energy_ev_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_power_energy_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=gold_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 5
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 5 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 5 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=income_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 9
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 9 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 9 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 3
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 3 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 3 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=infinity_multi_asset_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=next_gen_compute_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 8
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 8 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 8 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=quantum_computing_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 4
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 4 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 4 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 5
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 5 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 5 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 2
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 2 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 2 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_to_mid_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_tax_free_money_market_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_treasury_cash_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 1
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 1 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 1 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=sp500_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 10
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 10 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 10 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_megacap_core_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 4
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 4 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 4 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_mid_small_growth_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 6
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 6 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 6 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_small_cap_disruptors_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 5
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 5 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 5 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 3
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 3 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 3 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_muni_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 5
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 5 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 5 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE LOADER: Starting load_or_fetch_prices
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Requested tickers: 4
+INFO:helpers.price_loader:Date range: 2021-01-17 to 2026-01-16
+INFO:helpers.price_loader:Implicit fetching disabled - loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:CANONICAL PRICE GETTER: Loading from cache only
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Loaded from cache: 3650 days, 4 tickers
+INFO:helpers.price_loader:======================================================================
+INFO:helpers.price_loader:Returning: 3650 days, 4 tickers
+INFO:helpers.price_loader:Coverage: 3650 days with data, 0 tickers fully missing
+INFO:helpers.price_loader:======================================================================
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_treasury_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:waves_app:PRICE_BOOK loaded (cached) - this message appears only on cache miss
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_book:PRICE_BOOK loaded: 3650 days × 124 tickers
+INFO:helpers.price_book:Date range: 2016-01-14 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=49, factor=1.000633
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=17, factor=0.999567
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=17, factor=0.999567
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=17, factor=0.999567
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=17, factor=0.999567
+INFO:helpers.wave_performance:Using safe asset: BIL
+INFO:helpers.wave_performance:Using VIX proxy: ^VIX
+2026-01-16 14:52:17.702 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_engine:Loading 25 tickers from canonical PRICE_BOOK for AI & Cloud MegaCap Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+WARNING:helpers.price_book:Ticker ^TNX not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 345 days × 25 tickers
+INFO:helpers.price_book:Date range: 2025-01-31 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 29 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+2026-01-16 14:52:18.155 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:wave_registry_manager:Loaded 27 active waves out of 28 total waves
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=18, factor=0.999600
+INFO:price_book:======================================================================
+INFO:price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:price_book:Source: data/cache/prices_cache.parquet
+INFO:price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:price_book:PRICE_BOOK loaded: 3650 days × 124 tickers
+INFO:price_book:Date range: 2016-01-14 to 2026-01-10
+INFO:price_book:======================================================================
+INFO:price_book:======================================================================
+INFO:price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:price_book:Source: data/cache/prices_cache.parquet
+INFO:price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:price_book:PRICE_BOOK loaded: 3650 days × 124 tickers
+INFO:price_book:Date range: 2016-01-14 to 2026-01-10
+INFO:price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto Income Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=AI & Cloud MegaCap Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Infinity Multi-Asset Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Demas Fund Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=EV & Infrastructure Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto DeFi Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=SmartSafe Treasury Cash Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Gold Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto L2 Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=US Mid/Small Growth & Semis Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto AI Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=US Small-Cap Disruptors Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto L1 Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Future Power & Energy Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Next-Gen Compute & Semis Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Future Energy & EV Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Income Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Small Cap Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Clean Transit-Infrastructure Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=S&P 500 Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Quantum Computing Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto Broad Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Vector Treasury Ladder Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Vector Muni Ladder Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=US MegaCap Core Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=SmartSafe Tax-Free Money Market Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Small to Mid Cap Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+2026-01-16 14:52:18.730 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:18.735 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:wave_registry_manager:Loaded 27 active waves out of 28 total waves
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=18, factor=0.999600
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:waves_app:✓ Entering UI rendering phase - portfolio data loaded, diagnostics complete
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=18, factor=0.999600
+INFO:helpers.wave_performance:Validating 27 waves with strict criteria...
+INFO:helpers.wave_performance:  min_coverage_pct: 100.0%
+INFO:helpers.wave_performance:  min_history_days: 30
+INFO:helpers.wave_performance:Validation complete: 13/27 waves passed
+WARNING:helpers.wave_performance:14 waves failed validation and will be excluded from performance table
+WARNING:helpers.wave_performance:  - Clean Transit-Infrastructure Wave: Cannot compute returns: No valid returns computed (insufficient date overlap or all NaN)
+WARNING:helpers.wave_performance:  - Crypto AI Growth Wave: Cannot compute returns: No valid prices on first day
+WARNING:helpers.wave_performance:  - Crypto Broad Growth Wave: Cannot compute returns: No valid returns computed (insufficient date overlap or all NaN)
+WARNING:helpers.wave_performance:  - Crypto DeFi Growth Wave: Cannot compute returns: No valid prices on first day
+WARNING:helpers.wave_performance:  - Crypto Income Wave: Insufficient ticker coverage: 87.5% (found 7/8 tickers, missing: stETH-USD)
+WARNING:helpers.wave_performance:  ... and 9 more
+2026-01-16 14:52:18.973 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:18.977 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/runner/work/Waves-Simple/Waves-Simple/app.py:22473: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  utc_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto Income Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=AI & Cloud MegaCap Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Infinity Multi-Asset Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Demas Fund Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=EV & Infrastructure Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto DeFi Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=SmartSafe Treasury Cash Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Gold Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto L2 Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=US Mid/Small Growth & Semis Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto AI Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=US Small-Cap Disruptors Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto L1 Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Future Power & Energy Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Next-Gen Compute & Semis Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Future Energy & EV Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Income Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Small Cap Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Clean Transit-Infrastructure Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=S&P 500 Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Quantum Computing Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Crypto Broad Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Vector Treasury Ladder Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Vector Muni Ladder Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=US MegaCap Core Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=SmartSafe Tax-Free Money Market Wave ready=false reasons=['WAVE_NOT_FOUND']
+WARNING:analytics_pipeline:[DATA_READY] wave_id=Small to Mid Cap Growth Wave ready=false reasons=['WAVE_NOT_FOUND']
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=19, factor=0.999633
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ret_df = price_df.pct_change().fillna(0.0)
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=50, factor=1.000667
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=50, factor=1.000667
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=50, factor=1.000667
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=50, factor=1.000667
+/home/runner/work/Waves-Simple/Waves-Simple/app.py:10532: FutureWarning: The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  returns_df = PRICE_BOOK.pct_change().dropna()
+2026-01-16 14:52:52.509 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=52, factor=1.000733
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=52, factor=1.000733
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=52, factor=1.000733
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+2026-01-16 14:52:53.650 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:53.651 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=53, factor=1.000767
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=53, factor=1.000767
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=53, factor=1.000767
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=54, factor=1.000800
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=54, factor=1.000800
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=54, factor=1.000800
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+2026-01-16 14:52:54.918 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:54.921 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:54.965 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:54.967 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:55.076 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+2026-01-16 14:52:55.138 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:55.140 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:55.143 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:57.216 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=clean_transit_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto AI Growth Wave' has 1 invalid tickers: ['TAO-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto AI Growth Wave' degraded: 5/6 tickers available. Missing: ['TAO-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_ai_growth_wave' degraded: 5/6 tickers validated. Missing: ['TAO-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_ai_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_broad_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' has 1 invalid tickers: ['COMP-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' degraded: 7/8 tickers available. Missing: ['COMP-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_defi_growth_wave' degraded: 7/8 tickers validated. Missing: ['COMP-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_defi_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_income_wave ready=true reasons=['OPERATIONAL', 'STALE_DATA'] missing_tickers=['stETH-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l1_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' has 2 invalid tickers: ['IMX-USD', 'MNT-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' degraded: 4/6 tickers available. Missing: ['IMX-USD', 'MNT-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_l2_growth_wave' degraded: 4/6 tickers validated. Missing: ['IMX-USD', 'MNT-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l2_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=demas_fund_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=ev_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_energy_ev_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_power_energy_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=gold_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=income_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=infinity_multi_asset_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=next_gen_compute_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=quantum_computing_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_to_mid_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_tax_free_money_market_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_treasury_cash_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=sp500_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_megacap_core_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_mid_small_growth_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_small_cap_disruptors_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_muni_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_treasury_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=clean_transit_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto AI Growth Wave' has 1 invalid tickers: ['TAO-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto AI Growth Wave' degraded: 5/6 tickers available. Missing: ['TAO-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_ai_growth_wave' degraded: 5/6 tickers validated. Missing: ['TAO-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_ai_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_broad_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' has 1 invalid tickers: ['COMP-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' degraded: 7/8 tickers available. Missing: ['COMP-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_defi_growth_wave' degraded: 7/8 tickers validated. Missing: ['COMP-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_defi_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_income_wave ready=true reasons=['OPERATIONAL', 'STALE_DATA'] missing_tickers=['stETH-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l1_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' has 2 invalid tickers: ['IMX-USD', 'MNT-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' degraded: 4/6 tickers available. Missing: ['IMX-USD', 'MNT-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_l2_growth_wave' degraded: 4/6 tickers validated. Missing: ['IMX-USD', 'MNT-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l2_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=demas_fund_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=ev_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_energy_ev_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_power_energy_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=gold_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=income_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=infinity_multi_asset_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=next_gen_compute_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=quantum_computing_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_to_mid_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_tax_free_money_market_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_treasury_cash_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=sp500_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_megacap_core_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_mid_small_growth_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_small_cap_disruptors_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_muni_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_treasury_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+2026-01-16 14:52:57.449 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:57.451 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=clean_transit_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto AI Growth Wave' has 1 invalid tickers: ['TAO-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto AI Growth Wave' degraded: 5/6 tickers available. Missing: ['TAO-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_ai_growth_wave' degraded: 5/6 tickers validated. Missing: ['TAO-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_ai_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_broad_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' has 1 invalid tickers: ['COMP-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' degraded: 7/8 tickers available. Missing: ['COMP-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_defi_growth_wave' degraded: 7/8 tickers validated. Missing: ['COMP-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_defi_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_income_wave ready=true reasons=['OPERATIONAL', 'STALE_DATA'] missing_tickers=['stETH-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l1_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' has 2 invalid tickers: ['IMX-USD', 'MNT-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' degraded: 4/6 tickers available. Missing: ['IMX-USD', 'MNT-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_l2_growth_wave' degraded: 4/6 tickers validated. Missing: ['IMX-USD', 'MNT-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l2_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=demas_fund_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=ev_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_energy_ev_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_power_energy_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=gold_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=income_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=infinity_multi_asset_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=next_gen_compute_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=quantum_computing_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_to_mid_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_tax_free_money_market_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_treasury_cash_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=sp500_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_megacap_core_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_mid_small_growth_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_small_cap_disruptors_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_muni_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_treasury_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+2026-01-16 14:52:57.560 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:57.564 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=clean_transit_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto AI Growth Wave' has 1 invalid tickers: ['TAO-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto AI Growth Wave' degraded: 5/6 tickers available. Missing: ['TAO-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_ai_growth_wave' degraded: 5/6 tickers validated. Missing: ['TAO-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_ai_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_broad_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' has 1 invalid tickers: ['COMP-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' degraded: 7/8 tickers available. Missing: ['COMP-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_defi_growth_wave' degraded: 7/8 tickers validated. Missing: ['COMP-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_defi_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_income_wave ready=true reasons=['OPERATIONAL', 'STALE_DATA'] missing_tickers=['stETH-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l1_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' has 2 invalid tickers: ['IMX-USD', 'MNT-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' degraded: 4/6 tickers available. Missing: ['IMX-USD', 'MNT-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_l2_growth_wave' degraded: 4/6 tickers validated. Missing: ['IMX-USD', 'MNT-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l2_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=demas_fund_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=ev_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_energy_ev_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_power_energy_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=gold_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=income_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=infinity_multi_asset_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=next_gen_compute_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=quantum_computing_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_to_mid_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_tax_free_money_market_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_treasury_cash_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=sp500_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_megacap_core_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_mid_small_growth_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_small_cap_disruptors_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_muni_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_treasury_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+2026-01-16 14:52:57.660 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:52:57.661 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:53:00.270 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_engine:Loading 12 tickers from canonical PRICE_BOOK for S&P 500 Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+WARNING:helpers.price_book:Ticker ^TNX not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 270 days × 12 tickers
+INFO:helpers.price_book:Date range: 2025-04-16 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 16 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning:
+
+The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning:
+
+The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+2026-01-16 14:53:00.406 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:53:00.472 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:53:00.476 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:53:00.483 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:53:00.487 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=0, factor=0.999000
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=0, factor=0.999000
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=0, factor=0.999000
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+2026-01-16 14:53:00.630 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=0, factor=0.999000
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=0, factor=0.999000
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=0, factor=0.999000
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+2026-01-16 14:53:01.301 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:53:01.492 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_engine:Loading 25 tickers from canonical PRICE_BOOK for AI & Cloud MegaCap Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+WARNING:helpers.price_book:Ticker ^TNX not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 270 days × 25 tickers
+INFO:helpers.price_book:Date range: 2025-04-16 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 29 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning:
+
+The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning:
+
+The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+2026-01-16 14:53:01.548 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=1, factor=0.999033
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=2, factor=0.999067
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+INFO:helpers.price_loader:Filtered to 27 active waves
+INFO:helpers.price_loader:First 10 active wave IDs: ['ai_cloud_megacap_wave', 'clean_transit_infrastructure_wave', 'crypto_ai_growth_wave', 'crypto_broad_growth_wave', 'crypto_defi_growth_wave', 'crypto_income_wave', 'crypto_l1_growth_wave', 'crypto_l2_growth_wave', 'demas_fund_wave', 'ev_infrastructure_wave']
+INFO:helpers.price_loader:Ticker counts for first 10 waves: [('ai_cloud_megacap_wave', 12), ('clean_transit_infrastructure_wave', 10), ('crypto_ai_growth_wave', 6), ('crypto_broad_growth_wave', 8), ('crypto_defi_growth_wave', 9), ('crypto_income_wave', 2), ('crypto_l1_growth_wave', 4), ('crypto_l2_growth_wave', 5), ('demas_fund_wave', 11), ('ev_infrastructure_wave', 3)]
+INFO:helpers.price_loader:Collected 120 required tickers from 27 active waves
+2026-01-16 14:53:05.122 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_engine:Loading 16 tickers from canonical PRICE_BOOK for Crypto AI Growth Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 285 days × 16 tickers
+INFO:helpers.price_book:Date range: 2025-04-01 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 20 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning:
+
+The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3751: FutureWarning:
+
+The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+2026-01-16 14:53:05.250 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:waves_engine:Loading 25 tickers from canonical PRICE_BOOK for AI & Cloud MegaCap Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+WARNING:helpers.price_book:Ticker ^TNX not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 256 days × 25 tickers
+INFO:helpers.price_book:Date range: 2025-04-30 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 29 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning:
+
+The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning:
+
+The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+INFO:waves_engine:Loading 25 tickers from canonical PRICE_BOOK for AI & Cloud MegaCap Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+WARNING:helpers.price_book:Ticker ^TNX not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 285 days × 25 tickers
+INFO:helpers.price_book:Date range: 2025-04-01 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 29 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning:
+
+The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning:
+
+The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+INFO:waves_engine:Loading 25 tickers from canonical PRICE_BOOK for AI & Cloud MegaCap Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+WARNING:helpers.price_book:Ticker ^TNX not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 315 days × 25 tickers
+INFO:helpers.price_book:Date range: 2025-03-02 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 29 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning:
+
+The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning:
+
+The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+INFO:waves_engine:Loading 25 tickers from canonical PRICE_BOOK for AI & Cloud MegaCap Wave
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_book:PRICE_BOOK: Loading canonical price data (cache-only)
+INFO:helpers.price_book:Source: data/cache/prices_cache.parquet
+INFO:helpers.price_book:======================================================================
+INFO:helpers.price_loader:PRICE_BOOK Cache Check: File exists=True, Path=data/cache/prices_cache.parquet
+INFO:helpers.price_loader:PRICE_BOOK Cache File: Size=1.94 MB (2,032,240 bytes)
+INFO:helpers.price_loader:PRICE_BOOK Loaded: shape=(3650 rows, 124 cols), date_range=2016-01-14 to 2026-01-10
+WARNING:helpers.price_book:Ticker HYG not found in PRICE_BOOK
+WARNING:helpers.price_book:Ticker ^TNX not found in PRICE_BOOK
+INFO:helpers.price_book:PRICE_BOOK loaded: 620 days × 25 tickers
+INFO:helpers.price_book:Date range: 2024-05-01 to 2026-01-10
+INFO:helpers.price_book:======================================================================
+INFO:waves_engine:Loaded 29 tickers from PRICE_BOOK (0 missing)
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:3691: FutureWarning:
+
+The default fill_method='pad' in DataFrame.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+/home/runner/work/Waves-Simple/Waves-Simple/waves_engine.py:2295: FutureWarning:
+
+The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+
+2026-01-16 14:53:06.729 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 14:53:06.761 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=6, factor=0.999200
+INFO:waves_app:PRICE_BOOK perturbation applied: UTC seconds=6, factor=0.999200
+INFO:helpers.wave_performance:compute_volatility_regime_and_exposure: Using VIX proxy ^VIX
+INFO:helpers.wave_performance:Using safe asset: BIL
+INFO:helpers.wave_performance:Using VIX proxy: ^VIX
+INFO:analytics_pipeline:[DATA_READY] wave_id=ai_cloud_megacap_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=clean_transit_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto AI Growth Wave' has 1 invalid tickers: ['TAO-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto AI Growth Wave' degraded: 5/6 tickers available. Missing: ['TAO-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_ai_growth_wave' degraded: 5/6 tickers validated. Missing: ['TAO-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_ai_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_broad_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' has 1 invalid tickers: ['COMP-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto DeFi Growth Wave' degraded: 7/8 tickers available. Missing: ['COMP-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_defi_growth_wave' degraded: 7/8 tickers validated. Missing: ['COMP-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_defi_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_income_wave ready=true reasons=['OPERATIONAL', 'STALE_DATA'] missing_tickers=['stETH-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l1_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:183: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' has 2 invalid tickers: ['IMX-USD', 'MNT-USD']
+
+/home/runner/work/Waves-Simple/Waves-Simple/helpers/universal_universe.py:291: UserWarning:
+
+Wave 'Crypto L2 Growth Wave' degraded: 4/6 tickers available. Missing: ['IMX-USD', 'MNT-USD']
+
+WARNING:analytics_pipeline:Wave 'crypto_l2_growth_wave' degraded: 4/6 tickers validated. Missing: ['IMX-USD', 'MNT-USD']
+INFO:analytics_pipeline:[DATA_READY] wave_id=crypto_l2_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=demas_fund_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=ev_infrastructure_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_energy_ev_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=future_power_energy_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=gold_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=income_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=infinity_multi_asset_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=next_gen_compute_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=quantum_computing_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=sp500_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=small_to_mid_cap_growth_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_tax_free_money_market_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=smartsafe_treasury_cash_wave ready=true reasons=['EXEMPT', 'SMARTSAFE_CASH']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_megacap_core_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_mid_small_growth_semis_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=us_small_cap_disruptors_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_muni_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+INFO:analytics_pipeline:[DATA_READY] wave_id=vector_treasury_ladder_wave ready=true reasons=['READY', 'STALE_DATA']
+2026-01-16 14:53:10.702 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.

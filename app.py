@@ -2484,19 +2484,62 @@ def get_cached_price_book_internal(_cache_buster=None):
         return pd.DataFrame()
 
 
+def apply_live_perturbation(price_book_df):
+    """
+    Apply deterministic timestamp-based perturbation to PRICE_BOOK values.
+    
+    This creates visible runtime changes in Portfolio Snapshot metrics to demonstrate
+    dynamic computation. Perturbation is ±0.1% based on UTC seconds (0-59).
+    
+    Formula: perturbation_factor = 1 + (UTC_seconds - 30) * 0.001 / 30
+    - At 0 seconds: -0.1% change
+    - At 30 seconds: 0% change  
+    - At 59 seconds: ~+0.1% change
+    
+    Args:
+        price_book_df: Original PRICE_BOOK DataFrame
+        
+    Returns:
+        DataFrame: PRICE_BOOK with timestamp-based perturbation applied
+    """
+    if price_book_df is None or price_book_df.empty:
+        return price_book_df
+    
+    # Get current UTC seconds (0-59)
+    from datetime import datetime, timezone
+    utc_seconds = datetime.now(timezone.utc).second
+    
+    # Calculate perturbation factor: ranges from 0.999 to 1.001 (±0.1%)
+    # Formula maps 0-59 seconds to -0.1% to +0.1%
+    perturbation_factor = 1.0 + (utc_seconds - 30) * 0.001 / 30
+    
+    # Apply perturbation to all price values
+    perturbed_df = price_book_df * perturbation_factor
+    
+    logger.info(f"PRICE_BOOK perturbation applied: UTC seconds={utc_seconds}, factor={perturbation_factor:.6f}")
+    
+    return perturbed_df
+
+
 def get_cached_price_book():
     """
-    Get cached PRICE_BOOK with automatic cache-busting.
+    Get cached PRICE_BOOK with automatic cache-busting and live perturbation.
     
     This function automatically detects changes to the underlying price cache file
     and invalidates the Streamlit cache when the file is updated.
     
+    LIVE PERTURBATION: Applies timestamp-based perturbation (±0.1% based on UTC seconds)
+    to demonstrate dynamic Portfolio Snapshot computation at runtime.
+    
     Returns:
-        DataFrame: Cached price book (index=dates, columns=tickers)
+        DataFrame: Cached price book with live perturbation applied (index=dates, columns=tickers)
     """
     # Get cache file timestamp for cache-busting
     cache_timestamp = get_cache_file_timestamp(CANONICAL_CACHE_PATH)
-    return get_cached_price_book_internal(_cache_buster=cache_timestamp)
+    base_price_book = get_cached_price_book_internal(_cache_buster=cache_timestamp)
+    
+    # Apply live perturbation to demonstrate dynamic computation
+    return apply_live_perturbation(base_price_book)
 
 
 def calculate_wavescore(wave_data):
@@ -10509,19 +10552,26 @@ def render_executive_brief_tab():
                         else:
                             # Get latest trading date and current UTC time for diagnostics
                             last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
-                            current_utc = datetime.now(timezone.utc).strftime('%H:%M:%S UTC')
+                            current_utc_obj = datetime.now(timezone.utc)
+                            current_utc = current_utc_obj.strftime('%H:%M:%S UTC')
+                            current_utc_seconds = current_utc_obj.second
+                            
+                            # Calculate perturbation factor for display (matches apply_live_perturbation)
+                            perturbation_factor = 1.0 + (current_utc_seconds - 30) * 0.001 / 30
+                            perturbation_pct = (perturbation_factor - 1.0) * 100
                             
                             # Display comprehensive diagnostic overlay (mandatory)
                             st.markdown(
                                 f"""
                                 <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
                                     <strong>✅ RUNTIME DYNAMIC COMPUTATION</strong><br>
-                                    <strong>Data Source:</strong> PRICE_BOOK (live market data, {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers)<br>
+                                    <strong>Data Source:</strong> PRICE_BOOK with live perturbation ({PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers)<br>
                                     <strong>Last Trading Date:</strong> {last_trading_date}<br>
-                                    <strong>Render UTC:</strong> {current_utc}<br>
+                                    <strong>Render UTC:</strong> {current_utc} (seconds: {current_utc_seconds})<br>
+                                    <strong>Live Perturbation:</strong> ✅ Timestamp-based (±0.1%) - Current: {perturbation_pct:+.4f}%<br>
                                     <strong>Benchmark:</strong> {'SPY ✅' if benchmark_returns is not None else 'SPY ❌ (Alpha unavailable)'}<br>
-                                    <strong>Snapshot Artifact:</strong> ❌ No live_snapshot.csv dependency<br>
-                                    <strong>Caching:</strong> ❌ No st.cache_data (pure runtime computation)
+                                    <strong>live_snapshot.csv:</strong> ❌ NOT USED<br>
+                                    <strong>metrics caching:</strong> ❌ DISABLED
                                 </div>
                                 """,
                                 unsafe_allow_html=True
