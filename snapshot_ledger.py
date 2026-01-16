@@ -1596,6 +1596,7 @@ def generate_snapshot(
                 snapshot_date = pd.to_datetime(snapshot_date_str).date()
                 age_hours = (datetime.now() - pd.to_datetime(snapshot_date_str)).total_seconds() / 3600
                 
+                # DECISION POINT 1: Trading-day freshness check
                 # CRITICAL: Check if price cache has newer data
                 # This ensures snapshot is always rebuilt when new trading day data is available
                 prices_cache_max_date = None

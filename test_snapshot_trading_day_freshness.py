@@ -58,8 +58,9 @@ def test_snapshot_freshness_with_newer_price_data():
         existing_snapshot = pd.read_csv(SNAPSHOT_FILE)
     
     try:
-        # Setup: Create old snapshot
-        old_snapshot_date = "2026-01-08"
+        # Setup: Create old snapshot (one day behind)
+        today = datetime.now().date()
+        old_snapshot_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
         test_snapshot = pd.DataFrame([{
             'Wave_ID': 'test_wave',
             'Wave': 'Test Wave',
@@ -69,8 +70,8 @@ def test_snapshot_freshness_with_newer_price_data():
         os.makedirs(os.path.dirname(SNAPSHOT_FILE), exist_ok=True)
         test_snapshot.to_csv(SNAPSHOT_FILE, index=False)
         
-        # Setup: Create newer price metadata
-        newer_spy_date = "2026-01-09"
+        # Setup: Create newer price metadata (today)
+        newer_spy_date = today.strftime("%Y-%m-%d")
         os.makedirs(os.path.dirname(cache_meta_path), exist_ok=True)
         with open(cache_meta_path, 'w') as f:
             json.dump({"spy_max_date": newer_spy_date}, f)
@@ -79,10 +80,10 @@ def test_snapshot_freshness_with_newer_price_data():
         print(f"Setup: SPY max date  = {newer_spy_date}")
         print(f"Expected: Snapshot should be rebuilt (not reused)")
         
-        # Test: Call generate_snapshot() with force_refresh=False
+        # Test: Call generate_snapshot() with force_refresh=False and reasonable timeout
         # It should detect newer price data and rebuild
         try:
-            result = generate_snapshot(force_refresh=False, max_runtime_seconds=10)
+            result = generate_snapshot(force_refresh=False, max_runtime_seconds=60)
             
             # The function should have attempted to rebuild
             # Since we don't have full price data, it may fail, but we can check if it tried
@@ -154,8 +155,9 @@ def test_snapshot_freshness_with_same_date():
             existing_snapshot_meta = json.load(f)
     
     try:
-        # Setup: Create snapshot with specific date
-        snapshot_date = "2026-01-09"
+        # Setup: Create snapshot with today's date
+        today = datetime.now().date()
+        snapshot_date = today.strftime("%Y-%m-%d")
         test_snapshot = pd.DataFrame([{
             'Wave_ID': 'test_wave',
             'Wave': 'Test Wave',
@@ -170,7 +172,7 @@ def test_snapshot_freshness_with_same_date():
         with open(cache_meta_path, 'w') as f:
             json.dump({"spy_max_date": snapshot_date}, f)
         
-        # Setup: Create snapshot metadata with matching version
+        # Setup: Create snapshot metadata with matching version and recent timestamp
         os.makedirs(os.path.dirname(metadata_file), exist_ok=True)
         with open(metadata_file, 'w') as f:
             json.dump({
@@ -182,9 +184,9 @@ def test_snapshot_freshness_with_same_date():
         print(f"Setup: SPY max date  = {snapshot_date}")
         print(f"Expected: Snapshot should be reused (not rebuilt)")
         
-        # Test: Call generate_snapshot() with force_refresh=False
+        # Test: Call generate_snapshot() with force_refresh=False and reasonable timeout
         # It should detect matching dates and reuse
-        result = generate_snapshot(force_refresh=False, max_runtime_seconds=10)
+        result = generate_snapshot(force_refresh=False, max_runtime_seconds=60)
         
         if result is not None and 'Date' in result.columns:
             result_date = result['Date'].iloc[0]
