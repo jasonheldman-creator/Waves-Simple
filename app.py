@@ -23123,4 +23123,6 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         # Initialize mode (default: Standard)
         st.session_state.mode = "Standard"
     
-    # =======================
+    # =========
+    
+    st.success("🧪 END OF FILE REACHED — UI SHOULD BE RENDERING")
