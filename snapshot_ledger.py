@@ -25,6 +25,8 @@ import os
 import re  # For VIX adjustment pattern parsing
 import time
 import json
+import logging
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -91,6 +93,8 @@ SNAPSHOT_METADATA_FILE = "data/snapshot_metadata.json"
 BROKEN_TICKERS_FILE = "data/broken_tickers.csv"
 WAVE_HISTORY_FILE = "wave_history.csv"
 WAVE_WEIGHTS_FILE = "wave_weights.csv"
+PRICE_CACHE_FILE = "data/cache/prices_cache.parquet"
+PRICE_CACHE_METADATA_FILE = "data/cache/prices_cache_meta.json"
 TRADING_DAYS_PER_YEAR = 252
 MAX_SNAPSHOT_AGE_HOURS = 24  # Regenerate snapshot after 24 hours
 MAX_SNAPSHOT_RUNTIME_SECONDS = 300  # Maximum runtime for snapshot generation
@@ -199,6 +203,9 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
         
     Returns:
         Date string in YYYY-MM-DD format (SPY-based trading date)
+        
+    Raises:
+        ValueError: If SPY-based date cannot be determined from price cache
     """
     if TRADING_CALENDAR_AVAILABLE and price_df is not None:
         # Try SPY-based calendar first (canonical)
@@ -211,14 +218,15 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
             pass
         
         # Fallback to legacy get_asof_date_str if SPY not available
-        return get_asof_date_str(price_df, fmt='%Y-%m-%d')
+        date_str = get_asof_date_str(price_df, fmt='%Y-%m-%d')
+        if date_str and date_str != 'N/A':
+            return date_str
     
     # If price_df not provided, try to load from canonical price cache
     try:
         import os
-        cache_path = "data/cache/prices_cache.parquet"
-        if os.path.exists(cache_path):
-            cached_prices = pd.read_parquet(cache_path)
+        if os.path.exists(PRICE_CACHE_FILE):
+            cached_prices = pd.read_parquet(PRICE_CACHE_FILE)
             if TRADING_CALENDAR_AVAILABLE:
                 # Try SPY-based calendar
                 try:
@@ -230,16 +238,30 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
                     pass
                 
                 # Fallback to legacy
-                return get_asof_date_str(cached_prices, fmt='%Y-%m-%d')
-    except Exception:
-        pass
+                date_str = get_asof_date_str(cached_prices, fmt='%Y-%m-%d')
+                if date_str and date_str != 'N/A':
+                    return date_str
+            
+            # If trading_calendar not available, extract SPY date directly
+            if 'SPY' in cached_prices.columns:
+                spy_series = cached_prices['SPY'].dropna()
+                if not spy_series.empty:
+                    spy_max_date = spy_series.index.max()
+                    if pd.notna(spy_max_date):
+                        return pd.to_datetime(spy_max_date).strftime('%Y-%m-%d')
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to extract SPY date from price cache: {e}")
     
-    # Last resort fallback - should rarely reach here
-    # Note: This violates the "no datetime.now()" requirement but is a safety net
-    import logging
+    # ERROR: Cannot determine SPY-based date - raise error instead of falling back to datetime.now()
     logger = logging.getLogger(__name__)
-    logger.warning("Unable to determine SPY-based snapshot date, falling back to datetime.now()")
-    return datetime.now().strftime("%Y-%m-%d")
+    error_msg = (
+        "Unable to determine SPY-based snapshot date from price cache. "
+        "This is required to prevent stale data issues. "
+        "Ensure data/cache/prices_cache.parquet exists and contains SPY data."
+    )
+    logger.error(error_msg)
+    raise ValueError(error_msg)
 
 
 def _safe_return(nav_series: pd.Series, days: int) -> float:
@@ -1547,6 +1569,41 @@ def generate_snapshot(
     print("WAVE SNAPSHOT LEDGER - Generating Daily Snapshot")
     print("=" * 80)
     
+    # STEP 0: Determine price cache freshness date (SPY max date)
+    # This is used to validate cached snapshots and ensure no stale data
+    price_cache_max_date = None
+    price_cache_max_date_str = None
+    
+    try:
+        # Try to get from metadata file first (if it exists)
+        if os.path.exists(PRICE_CACHE_METADATA_FILE):
+            with open(PRICE_CACHE_METADATA_FILE, 'r') as f:
+                cache_meta = json.load(f)
+            price_cache_max_date_str = cache_meta.get("spy_max_date")
+            if price_cache_max_date_str:
+                price_cache_max_date = pd.to_datetime(price_cache_max_date_str).date()
+                print(f"✓ Price cache SPY max date (from metadata): {price_cache_max_date}")
+        
+        # If metadata doesn't exist or doesn't have spy_max_date, extract directly from cache
+        if price_cache_max_date is None:
+            if os.path.exists(PRICE_CACHE_FILE):
+                print(f"⚠ Metadata file not found, extracting SPY date from {PRICE_CACHE_FILE}")
+                cached_prices = pd.read_parquet(PRICE_CACHE_FILE)
+                if 'SPY' in cached_prices.columns:
+                    spy_series = cached_prices['SPY'].dropna()
+                    if not spy_series.empty:
+                        spy_max_date = spy_series.index.max()
+                        price_cache_max_date = pd.to_datetime(spy_max_date).date()
+                        price_cache_max_date_str = price_cache_max_date.strftime('%Y-%m-%d')
+                        print(f"✓ Price cache SPY max date (extracted): {price_cache_max_date}")
+                else:
+                    print("⚠ SPY column not found in price cache")
+            else:
+                print(f"⚠ Price cache file not found at {PRICE_CACHE_FILE}")
+    except Exception as e:
+        print(f"⚠ Failed to determine price cache max date: {e}")
+        traceback.print_exc()
+    
     # Check if cached snapshot exists and is recent
     if not force_refresh and os.path.exists(SNAPSHOT_FILE):
         try:
@@ -1555,7 +1612,35 @@ def generate_snapshot(
             # Check if snapshot is recent enough AND engine version matches
             if "Date" in cached_df.columns and not cached_df.empty:
                 snapshot_date = pd.to_datetime(cached_df["Date"].iloc[0])
+                snapshot_date_only = snapshot_date.date()
                 age_hours = (datetime.now() - snapshot_date).total_seconds() / 3600
+                
+                # CRITICAL: Check if snapshot date is ahead of price cache date (stale data detection)
+                if price_cache_max_date is not None:
+                    print("\n" + "=" * 80)
+                    print("SNAPSHOT FRESHNESS VALIDATION")
+                    print("=" * 80)
+                    print(f"Cached snapshot date:     {snapshot_date_only}")
+                    print(f"Price cache SPY max date: {price_cache_max_date}")
+                    
+                    if snapshot_date_only > price_cache_max_date:
+                        days_ahead = (snapshot_date_only - price_cache_max_date).days
+                        print(f"❌ STALE DATA DETECTED: Snapshot date is {days_ahead} day(s) AHEAD of price cache!")
+                        print(f"   This indicates snapshot is using outdated price data.")
+                        print(f"   Forcing snapshot rebuild to use fresh market data.")
+                        print("=" * 80 + "\n")
+                        force_refresh = True
+                        generation_reason = 'stale_data_detected'
+                    elif snapshot_date_only < price_cache_max_date:
+                        days_behind = (price_cache_max_date - snapshot_date_only).days
+                        print(f"⚠ Snapshot date is {days_behind} day(s) BEHIND price cache")
+                        print(f"   Forcing snapshot rebuild to incorporate new market data.")
+                        print("=" * 80 + "\n")
+                        force_refresh = True
+                        generation_reason = 'new_market_data_available'
+                    else:
+                        print(f"✓ Snapshot date MATCHES price cache (both on {snapshot_date_only})")
+                        print("=" * 80 + "\n")
                 
                 # Get engine version from cached metadata
                 cache_valid = False
@@ -1736,48 +1821,55 @@ def generate_snapshot(
             snapshot_date_str = snapshot_df["Date"].iloc[0]
             snapshot_date = pd.to_datetime(snapshot_date_str).date()
             
-            # Get last trading day from prices_cache_meta.json
-            cache_meta_path = "data/cache/prices_cache_meta.json"
-            if os.path.exists(cache_meta_path):
-                with open(cache_meta_path, 'r') as f:
-                    cache_meta = json.load(f)
+            # Use the price_cache_max_date we determined earlier
+            # Fall back to metadata file if not already determined
+            last_trading_date = price_cache_max_date
+            
+            if last_trading_date is None:
+                # Try to get from prices_cache_meta.json as fallback
+                if os.path.exists(PRICE_CACHE_METADATA_FILE):
+                    with open(PRICE_CACHE_METADATA_FILE, 'r') as f:
+                        cache_meta = json.load(f)
+                    
+                    spy_max_date_str = cache_meta.get("spy_max_date")
+                    if spy_max_date_str:
+                        last_trading_date = pd.to_datetime(spy_max_date_str).date()
+            
+            if last_trading_date is not None:
+                print("\n" + "=" * 80)
+                print("TRADING-DAY FRESHNESS VALIDATION")
+                print("=" * 80)
+                print(f"Snapshot Date:        {snapshot_date}")
+                print(f"Last SPY Trading Day: {last_trading_date}")
                 
-                spy_max_date_str = cache_meta.get("spy_max_date")
-                if spy_max_date_str:
-                    last_trading_date = pd.to_datetime(spy_max_date_str).date()
-                    
-                    print("\n" + "=" * 80)
-                    print("TRADING-DAY FRESHNESS VALIDATION")
+                if snapshot_date < last_trading_date:
+                    error_msg = (
+                        f"\n❌ STALE DATA DETECTED ❌\n"
+                        f"Snapshot date ({snapshot_date}) is BEHIND the last SPY trading day ({last_trading_date}).\n"
+                        f"This indicates the snapshot is using stale price data.\n\n"
+                        f"Required actions:\n"
+                        f"1. Run 'Update Price Cache' workflow to fetch latest prices\n"
+                        f"2. Run 'Build Wave History' workflow to update wave_history.csv\n"
+                        f"3. Then re-run 'Rebuild Snapshot' workflow\n"
+                        f"\n"
+                        f"The snapshot will NOT be saved with stale data."
+                    )
+                    print(error_msg)
                     print("=" * 80)
-                    print(f"Snapshot Date:        {snapshot_date}")
-                    print(f"Last SPY Trading Day: {last_trading_date}")
-                    
-                    if snapshot_date < last_trading_date:
-                        error_msg = (
-                            f"\n❌ STALE DATA DETECTED ❌\n"
-                            f"Snapshot date ({snapshot_date}) is BEHIND the last SPY trading day ({last_trading_date}).\n"
-                            f"This indicates the snapshot is using stale price data.\n\n"
-                            f"Required actions:\n"
-                            f"1. Run 'Update Price Cache' workflow to fetch latest prices\n"
-                            f"2. Run 'Build Wave History' workflow to update wave_history.csv\n"
-                            f"3. Then re-run 'Rebuild Snapshot' workflow\n"
-                            f"\n"
-                            f"The snapshot will NOT be saved with stale data."
-                        )
-                        print(error_msg)
-                        print("=" * 80)
-                        raise ValueError(error_msg)
-                    elif snapshot_date == last_trading_date:
-                        print("✓ Snapshot is FRESH (matches last trading day)")
-                    else:
-                        # Snapshot date is ahead of last trading day (possible on weekends/holidays)
-                        print(f"⚠ Snapshot date is ahead of last trading day (acceptable during non-trading days)")
-                    
-                    print("=" * 80)
+                    raise ValueError(error_msg)
+                elif snapshot_date == last_trading_date:
+                    print("✓ Snapshot is FRESH (matches last trading day)")
                 else:
-                    print("⚠ Warning: spy_max_date not found in cache metadata, skipping freshness check")
+                    # Snapshot date is ahead of last trading day
+                    # This should NOT happen with the fix, but log it if it does
+                    days_ahead = (snapshot_date - last_trading_date).days
+                    print(f"⚠ WARNING: Snapshot date is {days_ahead} day(s) AHEAD of price cache!")
+                    print(f"   This suggests a logic error in _get_snapshot_date().")
+                    print(f"   Snapshot will be saved but should be investigated.")
+                
+                print("=" * 80)
             else:
-                print(f"⚠ Warning: Cache metadata file not found at {cache_meta_path}, skipping freshness check")
+                print("\n⚠ Warning: Could not determine price cache SPY max date, skipping freshness validation")
         else:
             print("⚠ Warning: Snapshot has no Date column, skipping freshness check")
     except ValueError:
@@ -1786,7 +1878,6 @@ def generate_snapshot(
     except Exception as e:
         print(f"⚠ Warning: Failed to validate trading-day freshness (non-fatal): {e}")
         # Continue with save - this is a warning, not a fatal error
-        import traceback
         traceback.print_exc()
     
     # Persist snapshot
