@@ -1359,6 +1359,30 @@ def get_all_waves_universe() -> dict:
     }
 
 
+def get_all_portfolio_tickers() -> list[str]:
+    """
+    Extract all unique tickers from all waves in WAVE_WEIGHTS.
+    
+    This function aggregates tickers across all waves to create a complete
+    portfolio universe for live market data fetching.
+    
+    Returns:
+        List of unique ticker symbols sorted alphabetically
+    
+    Example:
+        >>> tickers = get_all_portfolio_tickers()
+        >>> print(f"Total unique tickers: {len(tickers)}")
+        >>> print(f"First 5 tickers: {tickers[:5]}")
+    """
+    all_tickers = set()
+    
+    for wave_name, holdings in WAVE_WEIGHTS.items():
+        for holding in holdings:
+            all_tickers.add(holding.ticker)
+    
+    return sorted(list(all_tickers))
+
+
 def get_wave_id_from_display_name(display_name: str) -> Optional[str]:
     """
     Convert display_name to wave_id.
