@@ -1,14 +1,14 @@
 {
-  "timestamp": "2026-01-16T06:46:19.145170",
-  "snapshot_build_time": "2026-01-16 06:46:19",
+  "timestamp": "2026-01-16T07:28:13.746557",
+  "snapshot_build_time": "2026-01-16 07:28:13",
   "waves_processed": 28,
   "status_counts": {
-    "Full": 27,
+    "Full": 3,
     "Partial": 0,
     "Operational": 0,
-    "Unavailable": 1
+    "Unavailable": 25
   },
   "top_failure_reasons": [],
   "broken_tickers": [],
-  "summary": "28 waves processed, 27 Full (96%), 0 Partial (0%), 0 Operational (0%), 1 Unavailable (4%)"
+  "summary": "28 waves processed, 3 Full (11%), 0 Partial (0%), 0 Operational (0%), 25 Unavailable (89%)"
 }
