@@ -10482,7 +10482,7 @@ def render_executive_brief_tab():
                 
                 if PRICE_BOOK is None or PRICE_BOOK.empty:
                     st.error("⚠️ PRICE_BOOK is empty - cannot compute portfolio metrics")
-                    st.caption("Portfolio Snapshot requires PRICE_BOOK data")
+                    st.caption("Portfolio Snapshot requires PRICE_BOOK data. Please ensure the price cache is populated by running the data refresh workflow.")
                 else:
                     # Compute returns inline using pct_change
                     returns_df = PRICE_BOOK.pct_change().dropna()
@@ -10505,25 +10505,28 @@ def render_executive_brief_tab():
                         unsafe_allow_html=True
                     )
                 
+                    # Constants for period calculations
+                    TRADING_DAYS_PER_YEAR = 252  # Approximate trading days in one year
+                    
                     # Compute metrics for each period
                     # 1D: Latest value
                     ret_1d = portfolio_returns.iloc[-1] if len(portfolio_returns) >= 1 else None
                     
                     # 30D: Compounded returns of last 30 rows
                     if len(portfolio_returns) >= 30:
-                        ret_30d = (1 + portfolio_returns.iloc[-30:]).prod() - 1
+                        ret_30d = np.expm1(np.log1p(portfolio_returns.iloc[-30:]).sum())
                     else:
                         ret_30d = None
                     
                     # 60D: Compounded returns of last 60 rows
                     if len(portfolio_returns) >= 60:
-                        ret_60d = (1 + portfolio_returns.iloc[-60:]).prod() - 1
+                        ret_60d = np.expm1(np.log1p(portfolio_returns.iloc[-60:]).sum())
                     else:
                         ret_60d = None
                     
                     # 365D: Compounded returns of last ~252 rows (one trading year)
-                    if len(portfolio_returns) >= 252:
-                        ret_365d = (1 + portfolio_returns.iloc[-252:]).prod() - 1
+                    if len(portfolio_returns) >= TRADING_DAYS_PER_YEAR:
+                        ret_365d = np.expm1(np.log1p(portfolio_returns.iloc[-TRADING_DAYS_PER_YEAR:]).sum())
                     else:
                         ret_365d = None
                 
