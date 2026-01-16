@@ -1,11 +1,19 @@
+"""
+Institutional Console v2 – Executive Layer v2
+Full implementation with advanced analytics
+...
+"""
+# ================================
+import logging
+import subprocess
+import os
+import traceback
+import time
+import itertools
+import html
+from datetime import datetime, timedelta
+import pandas as pd
 import streamlit as st
-
-st.markdown("### 🟢 APP BOOTED — PRE-INIT CHECKPOINT")
-st.write("If you see this, the UI thread is alive.")
-
-if "_BOOT_RERUN_DONE" not in st.session_state:
-    st.session_state["_BOOT_RERUN_DONE"] = True
-    st.rerun()
     
 """
 Institutional Console v2 - Executive Layer v2
