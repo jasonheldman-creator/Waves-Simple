@@ -233,7 +233,9 @@ def validate_function_signature():
                 # Check docstring
                 if func.__doc__:
                     logger.info("✓ Function has documentation")
-                    logger.info(f"\n  Docstring preview:\n  {func.__doc__.split(chr(10))[0:3]}")
+                    # Show first 3 lines of docstring
+                    docstring_lines = func.__doc__.split('\n')
+                    logger.info(f"\n  Docstring preview:\n  {docstring_lines[0:3]}")
                 
                 return True
             else:
