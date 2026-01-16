@@ -91,6 +91,8 @@ SNAPSHOT_METADATA_FILE = "data/snapshot_metadata.json"
 BROKEN_TICKERS_FILE = "data/broken_tickers.csv"
 WAVE_HISTORY_FILE = "wave_history.csv"
 WAVE_WEIGHTS_FILE = "wave_weights.csv"
+PRICE_CACHE_FILE = "data/cache/prices_cache.parquet"
+PRICE_CACHE_METADATA_FILE = "data/cache/prices_cache_meta.json"
 TRADING_DAYS_PER_YEAR = 252
 MAX_SNAPSHOT_AGE_HOURS = 24  # Regenerate snapshot after 24 hours
 MAX_SNAPSHOT_RUNTIME_SECONDS = 300  # Maximum runtime for snapshot generation
@@ -221,9 +223,8 @@ def _get_snapshot_date(price_df: Optional[pd.DataFrame] = None) -> str:
     # If price_df not provided, try to load from canonical price cache
     try:
         import os
-        cache_path = "data/cache/prices_cache.parquet"
-        if os.path.exists(cache_path):
-            cached_prices = pd.read_parquet(cache_path)
+        if os.path.exists(PRICE_CACHE_FILE):
+            cached_prices = pd.read_parquet(PRICE_CACHE_FILE)
             if TRADING_CALENDAR_AVAILABLE:
                 # Try SPY-based calendar
                 try:
@@ -1575,9 +1576,8 @@ def generate_snapshot(
     
     try:
         # Try to get from metadata file first (if it exists)
-        cache_meta_path = "data/cache/prices_cache_meta.json"
-        if os.path.exists(cache_meta_path):
-            with open(cache_meta_path, 'r') as f:
+        if os.path.exists(PRICE_CACHE_METADATA_FILE):
+            with open(PRICE_CACHE_METADATA_FILE, 'r') as f:
                 cache_meta = json.load(f)
             price_cache_max_date_str = cache_meta.get("spy_max_date")
             if price_cache_max_date_str:
@@ -1586,10 +1586,9 @@ def generate_snapshot(
         
         # If metadata doesn't exist or doesn't have spy_max_date, extract directly from cache
         if price_cache_max_date is None:
-            cache_path = "data/cache/prices_cache.parquet"
-            if os.path.exists(cache_path):
-                print(f"⚠ Metadata file not found, extracting SPY date from {cache_path}")
-                cached_prices = pd.read_parquet(cache_path)
+            if os.path.exists(PRICE_CACHE_FILE):
+                print(f"⚠ Metadata file not found, extracting SPY date from {PRICE_CACHE_FILE}")
+                cached_prices = pd.read_parquet(PRICE_CACHE_FILE)
                 if 'SPY' in cached_prices.columns:
                     spy_series = cached_prices['SPY'].dropna()
                     if not spy_series.empty:
@@ -1600,7 +1599,7 @@ def generate_snapshot(
                 else:
                     print("⚠ SPY column not found in price cache")
             else:
-                print(f"⚠ Price cache file not found at {cache_path}")
+                print(f"⚠ Price cache file not found at {PRICE_CACHE_FILE}")
     except Exception as e:
         print(f"⚠ Failed to determine price cache max date: {e}")
         import traceback
@@ -1646,7 +1645,7 @@ def generate_snapshot(
                 
                 # Get engine version from cached metadata
                 cache_valid = False
-                if not force_refresh and os.path.exists(SNAPSHOT_METADATA_FILE):
+                if os.path.exists(SNAPSHOT_METADATA_FILE):
                     try:
                         with open(SNAPSHOT_METADATA_FILE, 'r') as f:
                             metadata = json.load(f)
@@ -1829,9 +1828,8 @@ def generate_snapshot(
             
             if last_trading_date is None:
                 # Try to get from prices_cache_meta.json as fallback
-                cache_meta_path = "data/cache/prices_cache_meta.json"
-                if os.path.exists(cache_meta_path):
-                    with open(cache_meta_path, 'r') as f:
+                if os.path.exists(PRICE_CACHE_METADATA_FILE):
+                    with open(PRICE_CACHE_METADATA_FILE, 'r') as f:
                         cache_meta = json.load(f)
                     
                     spy_max_date_str = cache_meta.get("spy_max_date")
