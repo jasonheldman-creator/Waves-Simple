@@ -5,7 +5,7 @@ st.write("If you see this, the UI thread is alive.")
 
 if "_BOOT_RERUN_DONE" not in st.session_state:
     st.session_state["_BOOT_RERUN_DONE"] = True
-    st.experimental_rerun()
+    st.rerun()
     
 """
 Institutional Console v2 - Executive Layer v2
@@ -23124,5 +23124,3 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.session_state.mode = "Standard"
     
     # =========
-    
-    st.success("🧪 END OF FILE REACHED — UI SHOULD BE RENDERING")
