@@ -211,6 +211,14 @@ except ImportError:
     WAVE_PERFORMANCE_AVAILABLE = False
     compute_portfolio_snapshot = None
 
+# Import snapshot ledger for portfolio snapshot loading
+try:
+    from snapshot_ledger import generate_snapshot
+    SNAPSHOT_LEDGER_AVAILABLE = True
+except ImportError:
+    SNAPSHOT_LEDGER_AVAILABLE = False
+    generate_snapshot = None
+
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
 # ============================================================================
@@ -22659,7 +22667,8 @@ def main():
     # CRITICAL: This must run unconditionally on every page load, NOT inside buttons or
     # conditional logic, to ensure portfolio data is always available during normal rendering.
     try:
-        from snapshot_ledger import generate_snapshot
+        if not SNAPSHOT_LEDGER_AVAILABLE or generate_snapshot is None:
+            raise ImportError("snapshot_ledger module is not available")
         
         # Load/generate snapshot (uses cache if fresh, generates if stale/missing)
         # force_refresh=False ensures we use cached snapshot if available for performance
