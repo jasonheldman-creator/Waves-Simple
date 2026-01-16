@@ -55,22 +55,15 @@ def test_cached_incomplete_universe():
         "source": None,  # Corrupted
     }
     
-    # The .get() method will return None for these, and we need defaults
-    waves = corrupted_cache.get("waves", [])
-    removed = corrupted_cache.get("removed_duplicates", [])
-    source = corrupted_cache.get("source", "unknown")
-    
-    # Verify defensive access patterns handle this
-    assert waves == ["Wave X"]
-    assert removed is None  # .get() returns the None value
-    # This is why normalization is important - to ensure clean defaults
-    
     normalized = _normalize_wave_universe(corrupted_cache)
-    # Now the None values should be replaced with proper defaults
-    # Note: Our normalize function uses .get() which will get None, not the default
-    # So we need to handle None explicitly
+    # None values should be replaced with proper defaults
+    assert normalized["waves"] == ["Wave X"]
+    assert normalized["removed_duplicates"] == []  # None replaced with []
+    assert normalized["source"] == "unknown"  # None replaced with "unknown"
+    assert normalized["timestamp"] == ""
+    assert normalized["enabled_flags"] == {}
     
-    print("✓ Corrupted cache handled (demonstrates importance of normalization)")
+    print("✓ Corrupted cache with None values successfully normalized")
     
     # Scenario 3: Completely empty cache
     empty_cache = {}

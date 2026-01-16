@@ -78,6 +78,22 @@ def test_normalize_wave_universe():
     assert result["waves"] == [], "Invalid input should get defaults"
     print("✓ Invalid input normalization works")
     
+    # Test 5: Explicit None values in dict (corrupted cache)
+    none_values = {
+        "waves": None,
+        "removed_duplicates": None,
+        "source": None,
+        "timestamp": None,
+        "enabled_flags": None
+    }
+    result = _normalize_wave_universe(none_values)
+    assert result["waves"] == [], "None waves should become []"
+    assert result["removed_duplicates"] == [], "None removed_duplicates should become []"
+    assert result["source"] == "unknown", "None source should become 'unknown'"
+    assert result["timestamp"] == "", "None timestamp should become ''"
+    assert result["enabled_flags"] == {}, "None enabled_flags should become {}"
+    print("✓ Explicit None values normalization works")
+    
     print("\n✓ _normalize_wave_universe() test PASSED!")
     return True
 
