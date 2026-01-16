@@ -10482,13 +10482,20 @@ def render_executive_brief_tab():
                 
                 # Fetch live prices from yfinance API (NO CACHING)
                 fetch_start_utc = datetime.now(timezone.utc)
-                PRICE_BOOK = fetch_live_prices(tickers=None, period="1y")
+                PRICE_BOOK, fetch_metadata = fetch_live_prices(tickers=None, period="1y")
                 fetch_end_utc = datetime.now(timezone.utc)
                 fetch_duration_ms = (fetch_end_utc - fetch_start_utc).total_seconds() * 1000
+                
+                # Determine data source for diagnostics
+                data_source = fetch_metadata.get("source", "UNKNOWN")
+                is_live_api = (data_source == "LIVE_API")
+                is_simulated = (data_source == "SIMULATED")
                 
                 if PRICE_BOOK is None or PRICE_BOOK.empty:
                     st.error("⚠️ Live price fetch failed - cannot compute portfolio metrics")
                     st.caption("Portfolio Snapshot requires live market data from yfinance API. Please check network connectivity and API availability.")
+                    if fetch_metadata.get("reason"):
+                        st.caption(f"Reason: {fetch_metadata['reason']}")
                 else:
                     # Compute returns inline using pct_change
                     returns_df = PRICE_BOOK.pct_change().dropna()
@@ -10516,12 +10523,22 @@ def render_executive_brief_tab():
                             last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
                             current_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                             
+                            # Build diagnostic message based on data source
+                            if is_live_api:
+                                source_msg = f"<strong>Data Source:</strong> ✅ LIVE yfinance API (fetched {fetch_duration_ms:.0f}ms ago)"
+                            elif is_simulated:
+                                source_msg = f"<strong>Data Source:</strong> ⚠️ SIMULATED (cache + random variation - API unavailable)"
+                                if "variation_seed" in fetch_metadata:
+                                    source_msg += f"<br><strong>Variation Seed:</strong> {fetch_metadata['variation_seed']} (changes every render)"
+                            else:
+                                source_msg = f"<strong>Data Source:</strong> ❓ UNKNOWN"
+                            
                             # Display comprehensive diagnostic overlay (mandatory)
                             st.markdown(
                                 f"""
                                 <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                                    <strong>✅ LIVE API DATA FETCH - NO CACHING</strong><br>
-                                    <strong>Data Source:</strong> LIVE yfinance API (fetched {fetch_duration_ms:.0f}ms ago)<br>
+                                    <strong>✅ DYNAMIC COMPUTATION - NO CACHING</strong><br>
+                                    {source_msg}<br>
                                     <strong>Most Recent Price Timestamp:</strong> {last_trading_date}<br>
                                     <strong>Render UTC Timestamp:</strong> {current_utc}<br>
                                     <strong>Price Data:</strong> {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers<br>
