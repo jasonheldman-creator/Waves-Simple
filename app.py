@@ -9934,32 +9934,47 @@ def render_executive_brief_tab():
     
     try:
         # ========================================================================
-        # TRUTHFRAME INTEGRATION - Load TruthFrame for 28/28 coverage
+        # PORTFOLIO SNAPSHOT FROM SESSION STATE - Use pre-loaded snapshot
         # ========================================================================
-        snapshot_df = None
+        # UPDATED: Use portfolio_snapshot from session state instead of reloading/recomputing
+        # The snapshot is already loaded at app startup and stored in st.session_state["portfolio_snapshot"]
+        snapshot_df = st.session_state.get("portfolio_snapshot")
         snapshot_metadata = None
         
-        try:
-            from analytics_truth import get_truth_frame
-            from truth_frame_helpers import convert_truthframe_to_snapshot_format
-            from snapshot_ledger import get_snapshot_metadata
-            
-            # Debug trace marker
+        if snapshot_df is None or snapshot_df.empty:
+            # Fallback: Try loading from TruthFrame if session state is empty
+            try:
+                from analytics_truth import get_truth_frame
+                from truth_frame_helpers import convert_truthframe_to_snapshot_format
+                from snapshot_ledger import get_snapshot_metadata
+                
+                # Debug trace marker
+                if st.session_state.get("debug_mode", False):
+                    st.caption("🔍 Trace: Fallback to TruthFrame (portfolio_snapshot not in session state)")
+                
+                # Get TruthFrame (respects Safe Mode)
+                safe_mode = st.session_state.get("safe_mode_enabled", False)
+                truth_df = get_truth_frame(safe_mode=safe_mode)
+                
+                # Convert to snapshot_df format for backward compatibility
+                snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
+                
+                snapshot_metadata = get_snapshot_metadata()
+            except ImportError:
+                st.warning("⚠️ TruthFrame module not available and portfolio_snapshot not in session state.")
+            except Exception as e:
+                st.warning(f"⚠️ TruthFrame fallback error: {str(e)}")
+        else:
+            # Successfully loaded from session state
             if st.session_state.get("debug_mode", False):
-                st.caption("🔍 Trace: Entering engine compute (ExecutiveBrief - get_truth_frame)")
+                st.caption(f"✓ Loaded portfolio_snapshot from session state ({len(snapshot_df)} rows)")
             
-            # Get TruthFrame (respects Safe Mode)
-            safe_mode = st.session_state.get("safe_mode_enabled", False)
-            truth_df = get_truth_frame(safe_mode=safe_mode)
-            
-            # Convert to snapshot_df format for backward compatibility
-            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
-            
-            snapshot_metadata = get_snapshot_metadata()
-        except ImportError:
-            st.warning("⚠️ TruthFrame module not available. Using fallback data.")
-        except Exception as e:
-            st.warning(f"⚠️ TruthFrame error: {str(e)}")
+            # Try to get metadata
+            try:
+                from snapshot_ledger import get_snapshot_metadata
+                snapshot_metadata = get_snapshot_metadata()
+            except:
+                pass
         
         # ========================================================================
         # WAVE STATUS FILTERING - Add UI toggle for staging waves
