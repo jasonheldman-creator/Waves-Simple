@@ -10474,79 +10474,56 @@ def render_executive_brief_tab():
             # DIAGNOSTIC DEBUG BLOCK
             # Show critical system dates to diagnose frozen snapshot issue
             # ========================================================================
-            with st.expander("🔍 Debug: SPY Trading Calendar & Cache Dates", expanded=False):
-                import json
-                from helpers.trading_calendar import get_trading_calendar_dates
+            with st.expander("🔍 Debug: Live Market Data Diagnostics", expanded=False):
+                from datetime import datetime
                 
-                col1, col2 = st.columns(2)
+                # Show live metrics info
+                live_metrics = st.session_state.get("portfolio_live_metrics")
                 
-                with col1:
-                    st.markdown("**📅 SPY Trading Calendar**")
-                    try:
-                        # Get price_book to extract SPY calendar
-                        from helpers.price_book import get_price_book
-                        price_book_debug = get_price_book()
-                        
-                        if price_book_debug is not None and 'SPY' in price_book_debug.columns:
-                            asof_date, prev_date = get_trading_calendar_dates(price_book_debug)
-                            if asof_date and prev_date:
-                                st.metric("SPY asof_date", asof_date.strftime('%Y-%m-%d'))
-                                st.metric("SPY prev_date", prev_date.strftime('%Y-%m-%d'))
-                            else:
-                                st.warning("Unable to extract SPY calendar dates")
+                if live_metrics and live_metrics.get('success'):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**📊 Live Data Status**")
+                        st.metric("Latest Trading Date", live_metrics.get('latest_trading_date', 'N/A'))
+                        st.metric("Tickers Fetched", live_metrics.get('n_tickers_fetched', 0))
+                        st.metric("Tickers with Data", live_metrics.get('n_tickers_with_data', 0))
+                    
+                    with col2:
+                        st.markdown("**⏱️ Cache Status**")
+                        data_timestamp = live_metrics.get('data_timestamp', 'N/A')
+                        if data_timestamp != 'N/A':
+                            try:
+                                fetch_time = datetime.fromisoformat(data_timestamp)
+                                age_seconds = (datetime.now() - fetch_time).total_seconds()
+                                st.metric("Data Age (seconds)", f"{age_seconds:.1f}")
+                                st.caption(f"Fetched: {data_timestamp[:19]}")
+                                
+                                # Show cache TTL status
+                                ttl = 60
+                                if age_seconds < ttl:
+                                    st.success(f"✓ Cache valid ({ttl - age_seconds:.0f}s remaining)")
+                                else:
+                                    st.warning("Cache expired - will refresh on next render")
+                            except:
+                                st.caption(f"Timestamp: {data_timestamp[:19] if len(data_timestamp) > 19 else data_timestamp}")
                         else:
-                            st.warning("SPY not available in price_book")
-                    except Exception as e:
-                        st.error(f"Error extracting SPY dates: {e}")
-                
-                with col2:
-                    st.markdown("**📊 Cache Metadata**")
-                    try:
-                        # Load prices_cache_meta.json
-                        meta_path = "data/cache/prices_cache_meta.json"
-                        if os.path.exists(meta_path):
-                            with open(meta_path, 'r') as f:
-                                meta = json.load(f)
-                            
-                            st.metric("max_price_date", meta.get('max_price_date', 'N/A'))
-                            st.metric("spy_max_date", meta.get('spy_max_date', 'N/A'))
-                            if meta.get('overall_max_date'):
-                                st.caption(f"overall_max_date: {meta.get('overall_max_date')}")
-                            if meta.get('min_symbol_max_date'):
-                                st.caption(f"min_symbol_max_date: {meta.get('min_symbol_max_date')}")
+                            st.caption("No timestamp available")
+                    
+                    # Show waves with data for each period
+                    st.markdown("**👥 Waves with Valid Data**")
+                    period_results = live_metrics.get('period_results', {})
+                    for period_key in ['1D', '30D', '60D', '365D']:
+                        period_data = period_results.get(period_key, {})
+                        if period_data.get('available'):
+                            n_waves = period_data.get('n_waves_with_returns', 0)
+                            st.caption(f"{period_key}: {n_waves} waves")
                         else:
-                            st.warning("prices_cache_meta.json not found")
-                    except Exception as e:
-                        st.error(f"Error loading cache metadata: {e}")
-                
-                # Show portfolio snapshot date
-                st.markdown("**📈 Portfolio Snapshot Date**")
-                try:
-                    if portfolio_snapshot is not None and not portfolio_snapshot.empty:
-                        if 'Date' in portfolio_snapshot.columns:
-                            snapshot_date = portfolio_snapshot['Date'].iloc[0]
-                            st.metric("Snapshot Date", snapshot_date)
-                        else:
-                            st.warning("Date column not found in snapshot")
-                    else:
-                        st.warning("Portfolio snapshot not loaded")
-                except Exception as e:
-                    st.error(f"Error accessing snapshot date: {e}")
-                
-                # Show portfolio contributors from snapshot
-                st.markdown("**👥 Portfolio Contributors**")
-                try:
-                    if portfolio_snapshot is not None and not portfolio_snapshot.empty:
-                        # Count waves with valid data for each period
-                        for period_key in ['1D', '30D', '60D']:
-                            return_col = f'Return_{period_key}'
-                            if return_col in portfolio_snapshot.columns:
-                                n_contributors = portfolio_snapshot[return_col].notna().sum()
-                                st.caption(f"{period_key} contributors: {n_contributors}")
-                    else:
-                        st.caption("Portfolio snapshot not loaded")
-                except Exception as e:
-                    st.caption(f"Error: {e}")
+                            st.caption(f"{period_key}: No data")
+                else:
+                    st.warning("Live metrics not available or failed to compute")
+                    if live_metrics:
+                        st.caption(f"Reason: {live_metrics.get('failure_reason', 'Unknown')}")
         
             try:
                 # UPDATED: Use live portfolio metrics from session state
