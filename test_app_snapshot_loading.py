@@ -31,7 +31,7 @@ def test_snapshot_loading_on_startup():
     
     This simulates what happens in the app startup:
     1. Import generate_snapshot from snapshot_ledger
-    2. Call generate_snapshot with force_refresh=False
+    2. Call generate_snapshot with force_refresh=True
     3. Store result in session state
     4. Verify the snapshot is valid
     """
@@ -43,8 +43,8 @@ def test_snapshot_loading_on_startup():
     try:
         # This is what app.py does at startup in the STEP -0.1 block
         snapshot_df = generate_snapshot(
-            force_refresh=False,
-            generation_reason='app_startup_load'
+            force_refresh=True,
+            generation_reason="manual_forced_refresh"
         )
         
         # Simulate storing in session state
