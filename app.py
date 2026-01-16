@@ -22649,6 +22649,48 @@ def main():
     print("[ENTRYPOINT] Running app.py")
     
     # ========================================================================
+    # STEP -0.1: Load Portfolio Snapshot (ALWAYS - Required for Portfolio Data Rendering)
+    # ========================================================================
+    # NOTE: This block ensures the portfolio snapshot is loaded into memory on every app run.
+    # Without this, portfolio tabs receive no data as snapshot generation is only triggered
+    # inside button handlers. This loads the existing snapshot from disk (or generates if missing)
+    # and stores it in session state for use by all tabs that display portfolio metrics.
+    #
+    # CRITICAL: This must run unconditionally on every page load, NOT inside buttons or
+    # conditional logic, to ensure portfolio data is always available during normal rendering.
+    try:
+        from snapshot_ledger import generate_snapshot
+        
+        # Load/generate snapshot (uses cache if fresh, generates if stale/missing)
+        # force_refresh=False ensures we use cached snapshot if available for performance
+        snapshot_df = generate_snapshot(
+            force_refresh=False,
+            generation_reason='app_startup_load'
+        )
+        
+        # Store in session state for access by portfolio tabs
+        st.session_state["portfolio_snapshot"] = snapshot_df
+        
+        print(f"✓ Portfolio snapshot loaded successfully ({len(snapshot_df)} rows)")
+        
+    except Exception as e:
+        # If snapshot loading fails, show error and stop execution
+        # This prevents tabs from rendering with no data
+        st.error(f"""
+        ⚠️ **Critical Error: Portfolio Snapshot Failed to Load**
+        
+        The portfolio snapshot could not be loaded, which will prevent portfolio data from rendering.
+        
+        **Error:** {str(e)}
+        
+        **Resolution:** 
+        - Check that data/live_snapshot.csv exists and is valid
+        - Try manually rebuilding the snapshot using the button in the sidebar
+        - If the issue persists, contact support
+        """)
+        st.stop()
+    
+    # ========================================================================
     # STEP 0: Initialize Safe Mode (Default ON)
     # ========================================================================
     
