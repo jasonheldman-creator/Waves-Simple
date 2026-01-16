@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 LIVE_DATA_PROVIDER = os.environ.get('LIVE_DATA_PROVIDER', 'yahoo').lower()
 LIVE_DATA_ENABLED = os.environ.get('LIVE_DATA_ENABLED', 'true').lower() in ('true', '1', 'yes')
 
+# Validate LIVE_DATA_PROVIDER
+SUPPORTED_PROVIDERS = ['yahoo', 'alpaca']
+if LIVE_DATA_PROVIDER not in SUPPORTED_PROVIDERS:
+    logger.warning(f"Invalid LIVE_DATA_PROVIDER '{LIVE_DATA_PROVIDER}'. Supported providers: {SUPPORTED_PROVIDERS}. Falling back to 'yahoo'.")
+    LIVE_DATA_PROVIDER = 'yahoo'
+
 # Import data providers
 try:
     import yfinance as yf
@@ -51,8 +57,10 @@ try:
     from helpers.price_book import CANONICAL_CACHE_PATH
     CACHE_PATH_AVAILABLE = True
 except ImportError:
+    # If import fails, use hardcoded fallback path
     CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"
-    CACHE_PATH_AVAILABLE = True
+    CACHE_PATH_AVAILABLE = True  # Still available, just using fallback path
+    logger.warning(f"Could not import CANONICAL_CACHE_PATH from helpers.price_book, using fallback: {CANONICAL_CACHE_PATH}")
 
 
 def fetch_live_prices_yahoo(tickers: List[str], period: str = "2y", interval: str = "1d") -> Tuple[pd.DataFrame, Dict[str, Any]]:
@@ -116,6 +124,12 @@ def fetch_live_prices_yahoo(tickers: List[str], period: str = "2y", interval: st
                 logger.warning(f"No 'Close' column for {ticker}")
                 failed_tickers[ticker] = "Missing 'Close' column"
                 
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"Network error fetching {ticker}: {e}")
+            failed_tickers[ticker] = f"Network error: {str(e)}"
+        except ValueError as e:
+            logger.error(f"Invalid ticker symbol {ticker}: {e}")
+            failed_tickers[ticker] = f"Invalid ticker: {str(e)}"
         except Exception as e:
             logger.error(f"Failed to fetch {ticker}: {e}")
             failed_tickers[ticker] = str(e)
