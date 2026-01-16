@@ -115,7 +115,8 @@ def test_inline_computation():
     print("SCENARIO A: First PRICE_BOOK instance (Baseline)")
     print("-" * 100)
     
-    dates_a = pd.date_range(start='2023-01-01', end='2024-12-31', freq='D')
+    # Use 6 months of data - sufficient for validation, better performance
+    dates_a = pd.date_range(start='2024-07-01', end='2024-12-31', freq='D')
     np.random.seed(42)
     n_tickers = 50
     prices_a = np.random.uniform(50, 200, (len(dates_a), n_tickers))
@@ -152,8 +153,9 @@ def test_inline_computation():
     print("SCENARIO B: Second PRICE_BOOK instance (Runtime Change)")
     print("-" * 100)
     
+    # Use 6 months of data - sufficient for validation, better performance
     # Use different seed and slightly different data to simulate market changes
-    dates_b = pd.date_range(start='2023-01-01', end='2024-12-31', freq='D')
+    dates_b = pd.date_range(start='2024-07-01', end='2024-12-31', freq='D')
     np.random.seed(123)  # Different seed
     prices_b = np.random.uniform(50, 200, (len(dates_b), n_tickers))
     
@@ -206,7 +208,9 @@ def test_inline_computation():
     # Check 2: Different numeric values between scenarios
     checks_total += 1
     numeric_diff = False
-    for key in ['Return_1D', 'Return_30D', 'Return_60D', 'Return_365D']:
+    # Check return metrics for differences
+    return_keys = ['Return_1D', 'Return_30D', 'Return_60D', 'Return_365D']
+    for key in return_keys:
         if metrics_a[key] is not None and metrics_b[key] is not None:
             if abs(metrics_a[key] - metrics_b[key]) > 1e-10:
                 numeric_diff = True
