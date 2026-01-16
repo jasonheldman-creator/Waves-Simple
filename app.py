@@ -2455,48 +2455,67 @@ def get_cache_file_timestamp(file_path):
         return 0.0
 
 
-@st.cache_resource(show_spinner=False)
 def get_cached_price_book_internal(_cache_buster=None):
     """
-    Internal function to get cached PRICE_BOOK.
+    Internal function to get PRICE_BOOK with live data integration.
     
-    This function wraps helpers.price_book.get_price_book() with Streamlit's
-    @st.cache_resource decorator to ensure it loads only once per session,
-    preventing repeated "PRICE_BOOK: Loading canonical price data" log spam.
+    This function now builds PRICE_BOOK dynamically from live market data on each call,
+    replacing the previous cached approach. This ensures Portfolio Snapshot values
+    are truly dynamic and reflect current market conditions.
     
-    Uses cache-busting via file modification timestamp to detect when the
-    underlying cache file has been updated.
+    NO CACHING - pure runtime data fetching on every render.
     
     Args:
-        _cache_buster: File modification timestamp (prefixed with _ to exclude from hash)
+        _cache_buster: File modification timestamp (kept for compatibility but not used)
     
     Returns:
-        DataFrame: Cached price book (index=dates, columns=tickers)
+        DataFrame: Live price book (index=dates, columns=tickers)
     """
-    # Import here to avoid circular dependencies
-    if PRICE_BOOK_CONSTANTS_AVAILABLE and get_price_book is not None:
-        # Log only on cache miss (first load)
-        logger.info("PRICE_BOOK loaded (cached) - this message appears only on cache miss")
-        return get_price_book(active_tickers=None)
+    # Import live data engine
+    try:
+        from helpers.live_data_engine import build_live_price_book, get_required_tickers_from_cache
+        LIVE_ENGINE_AVAILABLE = True
+    except ImportError as e:
+        logger.error(f"Live data engine not available: {e}")
+        LIVE_ENGINE_AVAILABLE = False
+    
+    if LIVE_ENGINE_AVAILABLE:
+        # Get tickers from cache to know what to fetch
+        tickers = get_required_tickers_from_cache()
+        
+        # Build PRICE_BOOK from live data (NO CACHING)
+        price_book, metadata = build_live_price_book(tickers=tickers, use_cache_fallback=True)
+        
+        # Log diagnostics
+        logger.info(f"PRICE_BOOK built from live data: {metadata.get('data_source', 'Unknown')}")
+        logger.info(f"Memory ID: {metadata.get('memory_id', 'N/A')}")
+        logger.info(f"Render UTC: {metadata.get('render_utc', 'N/A')}")
+        
+        return price_book
     else:
-        # Fallback if price_book module not available
-        logger.warning("PRICE_BOOK unavailable - price_book module not loaded")
-        return pd.DataFrame()
+        # Fallback to original cached approach if live engine unavailable
+        if PRICE_BOOK_CONSTANTS_AVAILABLE and get_price_book is not None:
+            logger.warning("Live engine unavailable - falling back to cached PRICE_BOOK")
+            return get_price_book(active_tickers=None)
+        else:
+            logger.warning("PRICE_BOOK unavailable - price_book module not loaded")
+            return pd.DataFrame()
 
 
 def get_cached_price_book():
     """
-    Get cached PRICE_BOOK with automatic cache-busting.
+    Get PRICE_BOOK with live data - NO CACHING.
     
-    This function automatically detects changes to the underlying price cache file
-    and invalidates the Streamlit cache when the file is updated.
+    This function now builds PRICE_BOOK from live market data on every call,
+    ensuring Portfolio Snapshot values are truly dynamic and change with market conditions.
+    
+    Previous caching mechanism has been removed to enable runtime dynamic computation.
     
     Returns:
-        DataFrame: Cached price book (index=dates, columns=tickers)
+        DataFrame: Live price book (index=dates, columns=tickers)
     """
-    # Get cache file timestamp for cache-busting
-    cache_timestamp = get_cache_file_timestamp(CANONICAL_CACHE_PATH)
-    return get_cached_price_book_internal(_cache_buster=cache_timestamp)
+    # Call internal function directly (no cache-busting needed since we're not caching)
+    return get_cached_price_book_internal(_cache_buster=None)
 
 
 def calculate_wavescore(wave_data):
@@ -10472,14 +10491,33 @@ def render_executive_brief_tab():
             
             try:
                 # ================================================================
-                # RUNTIME DYNAMIC COMPUTATION FROM PRICE_BOOK
-                # All portfolio metrics computed directly in render path at runtime
+                # RUNTIME DYNAMIC COMPUTATION FROM LIVE DATA ENGINE
+                # All portfolio metrics computed directly from live market data at runtime
                 # NO dependencies on live_snapshot.csv, caches, or snapshot ledger
-                # NO st.cache_data - pure runtime computation every render
+                # NO st.cache_data or st.cache_resource - pure runtime computation every render
                 # ================================================================
                 
-                # Fetch PRICE_BOOK (canonical live market data source)
-                PRICE_BOOK = get_cached_price_book()
+                # Import live data engine for metadata
+                try:
+                    from helpers.live_data_engine import build_live_price_book, get_required_tickers_from_cache
+                    LIVE_ENGINE_AVAILABLE = True
+                except ImportError:
+                    LIVE_ENGINE_AVAILABLE = False
+                
+                # Build PRICE_BOOK from live data with full metadata
+                if LIVE_ENGINE_AVAILABLE:
+                    tickers = get_required_tickers_from_cache()
+                    PRICE_BOOK, price_book_meta = build_live_price_book(tickers=tickers, use_cache_fallback=True)
+                else:
+                    # Fallback to regular get_cached_price_book
+                    PRICE_BOOK = get_cached_price_book()
+                    price_book_meta = {
+                        'data_source': 'Legacy Cache (Live Engine Unavailable)',
+                        'memory_id': hex(id(PRICE_BOOK)),
+                        'render_utc': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
+                        'latest_price_date': PRICE_BOOK.index[-1].strftime('%Y-%m-%d') if not PRICE_BOOK.empty else None,
+                        'success': not PRICE_BOOK.empty
+                    }
                 
                 if PRICE_BOOK is None or PRICE_BOOK.empty:
                     st.error("⚠️ PRICE_BOOK is empty - cannot compute portfolio metrics")
@@ -10509,19 +10547,31 @@ def render_executive_brief_tab():
                         else:
                             # Get latest trading date and current UTC time for diagnostics
                             last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
-                            current_utc = datetime.now(timezone.utc).strftime('%H:%M:%S UTC')
+                            current_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                             
-                            # Display comprehensive diagnostic overlay (mandatory)
+                            # Display comprehensive diagnostic overlay (mandatory - with live data metadata)
+                            data_source_display = price_book_meta.get('data_source', 'Unknown')
+                            memory_id = price_book_meta.get('memory_id', hex(id(PRICE_BOOK)))
+                            render_utc = price_book_meta.get('render_utc', current_utc)
+                            latest_price_date = price_book_meta.get('latest_price_date', last_trading_date)
+                            
                             st.markdown(
                                 f"""
-                                <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                                    <strong>✅ RUNTIME DYNAMIC COMPUTATION</strong><br>
-                                    <strong>Data Source:</strong> PRICE_BOOK (live market data, {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers)<br>
-                                    <strong>Last Trading Date:</strong> {last_trading_date}<br>
-                                    <strong>Render UTC:</strong> {current_utc}<br>
+                                <div style="background-color: #1a1a1a; padding: 10px 14px; border-left: 4px solid #00ff00; margin-bottom: 10px; font-family: monospace; font-size: 12px; color: #00ff00;">
+                                    <strong style="color: #00ff00;">✅ LIVE DATA ENGINE - RUNTIME DYNAMIC COMPUTATION</strong><br>
+                                    <span style="color: #a0a0a0;">
+                                    <strong>Data Source:</strong> {data_source_display}<br>
+                                    <strong>PRICE_BOOK Memory ID:</strong> {memory_id}<br>
+                                    <strong>Latest Price Date:</strong> {latest_price_date}<br>
+                                    <strong>Render UTC Timestamp:</strong> {render_utc}<br>
+                                    <strong>PRICE_BOOK Shape:</strong> {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers<br>
                                     <strong>Benchmark:</strong> {'SPY ✅' if benchmark_returns is not None else 'SPY ❌ (Alpha unavailable)'}<br>
-                                    <strong>Snapshot Artifact:</strong> ❌ No live_snapshot.csv dependency<br>
-                                    <strong>Caching:</strong> ❌ No st.cache_data (pure runtime computation)
+                                    <br>
+                                    <strong style="color: #ff4444;">⛔ live_snapshot.csv: NOT USED</strong><br>
+                                    <strong style="color: #ff4444;">⛔ metrics caching: DISABLED</strong><br>
+                                    <strong style="color: #ff4444;">⛔ st.cache_data: NOT APPLIED</strong><br>
+                                    <strong style="color: #ff4444;">⛔ st.cache_resource: REMOVED</strong>
+                                    </span>
                                 </div>
                                 """,
                                 unsafe_allow_html=True
