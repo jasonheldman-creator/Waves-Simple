@@ -351,7 +351,8 @@ def create_snapshot_metadata(
             with open(cache_meta_path, 'r') as f:
                 cache_meta = json.load(f)
             max_price_date = cache_meta.get("spy_max_date")
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        # Cache metadata not available or invalid - not critical for snapshot metadata
         pass
     
     metadata = {

@@ -210,5 +210,6 @@ finally:
     # Cleanup
     try:
         shutil.rmtree(test_dir)
-    except:
+    except OSError:
+        # Cleanup failed - not critical for test results
         pass
