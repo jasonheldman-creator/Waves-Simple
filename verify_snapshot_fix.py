@@ -55,7 +55,7 @@ def verify_snapshot_ledger_fixes():
     # 2. Check that _get_snapshot_date() prioritizes metadata
     all_passed &= check_file_for_pattern(
         'snapshot_ledger.py',
-        r'cache_meta_path = "data/cache/prices_cache_meta\.json".*spy_max_date',
+        r'cache_meta_path = "data/cache/prices_cache_meta.json".*spy_max_date',
         should_exist=True,
         description="_get_snapshot_date() reads spy_max_date from metadata"
     )
