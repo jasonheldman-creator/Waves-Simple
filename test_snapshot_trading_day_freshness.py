@@ -19,6 +19,13 @@ import pandas as pd
 # Import the module we're testing
 from snapshot_ledger import generate_snapshot, SNAPSHOT_FILE
 
+# Get actual engine version for tests
+try:
+    from waves_engine import get_engine_version
+    CURRENT_ENGINE_VERSION = get_engine_version()
+except (ImportError, Exception):
+    CURRENT_ENGINE_VERSION = "unknown"
+
 
 def test_snapshot_freshness_with_newer_price_data():
     """
@@ -167,7 +174,7 @@ def test_snapshot_freshness_with_same_date():
         os.makedirs(os.path.dirname(metadata_file), exist_ok=True)
         with open(metadata_file, 'w') as f:
             json.dump({
-                "engine_version": "17.5",
+                "engine_version": CURRENT_ENGINE_VERSION,
                 "timestamp": datetime.now().isoformat()
             }, f)
         
