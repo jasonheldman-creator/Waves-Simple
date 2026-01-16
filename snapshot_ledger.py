@@ -1618,12 +1618,13 @@ def generate_snapshot(
                     print("SNAPSHOT FRESHNESS DECISION")
                     print("=" * 80)
                     print(f"Snapshot Date:        {snapshot_date}")
-                    print(f"Latest Trading Date:  {prices_cache_max_date}")
+                    print(f"SPY Last Trading Day: {prices_cache_max_date}")
                     print(f"Decision:             REBUILD (snapshot is stale - behind latest trading day)")
-                    print(f"Reason:               Price data advanced to new trading day")
+                    print(f"Reason:               SPY price data advanced to new trading day")
                     print("=" * 80 + "\n")
-                    # Exit the cache check block and proceed to regeneration
-                    pass  # Will fall through to regeneration below
+                    # Skip the rest of cache validation - must regenerate
+                    # DO NOT fall through to elif checks below
+                    cached_df = None  # Invalidate cache to force regeneration
                 elif prices_cache_max_date is not None and prices_cache_max_date == snapshot_date:
                     # DECISION POINT 2: Dates match, check engine version and age
                     # Price data is current, check engine version and age
@@ -1645,7 +1646,7 @@ def generate_snapshot(
                                 print("SNAPSHOT FRESHNESS DECISION")
                                 print("=" * 80)
                                 print(f"Snapshot Date:        {snapshot_date}")
-                                print(f"Latest Trading Date:  {prices_cache_max_date}")
+                                print(f"SPY Last Trading Day: {prices_cache_max_date}")
                                 print(f"Snapshot Age:         {age_hours:.1f} hours")
                                 print(f"Engine Version:       {current_engine_version}")
                                 print(f"Decision:             REUSE (snapshot is fresh and current)")
@@ -1657,7 +1658,7 @@ def generate_snapshot(
                                 print("SNAPSHOT FRESHNESS DECISION")
                                 print("=" * 80)
                                 print(f"Snapshot Date:        {snapshot_date}")
-                                print(f"Latest Trading Date:  {prices_cache_max_date}")
+                                print(f"SPY Last Trading Day: {prices_cache_max_date}")
                                 print(f"Cached Engine:        {cached_engine_version}")
                                 print(f"Current Engine:       {current_engine_version}")
                                 print(f"Decision:             REBUILD (engine version changed)")
@@ -1668,7 +1669,7 @@ def generate_snapshot(
                                 print("SNAPSHOT FRESHNESS DECISION")
                                 print("=" * 80)
                                 print(f"Snapshot Date:        {snapshot_date}")
-                                print(f"Latest Trading Date:  {prices_cache_max_date}")
+                                print(f"SPY Last Trading Day: {prices_cache_max_date}")
                                 print(f"Snapshot Age:         {age_hours:.1f} hours")
                                 print(f"Decision:             REBUILD (snapshot is stale by age)")
                                 print(f"Reason:               Age {age_hours:.1f}h exceeds threshold {MAX_SNAPSHOT_AGE_HOURS}h")
@@ -1683,7 +1684,7 @@ def generate_snapshot(
                             print("SNAPSHOT FRESHNESS DECISION")
                             print("=" * 80)
                             print(f"Snapshot Date:        {snapshot_date}")
-                            print(f"Latest Trading Date:  {prices_cache_max_date}")
+                            print(f"SPY Last Trading Day: {prices_cache_max_date}")
                             print(f"Snapshot Age:         {age_hours:.1f} hours")
                             print(f"Decision:             REUSE (snapshot is fresh, no version tracking)")
                             print(f"Reason:               Dates match, age < {MAX_SNAPSHOT_AGE_HOURS}h")
@@ -1694,7 +1695,7 @@ def generate_snapshot(
                             print("SNAPSHOT FRESHNESS DECISION")
                             print("=" * 80)
                             print(f"Snapshot Date:        {snapshot_date}")
-                            print(f"Latest Trading Date:  {prices_cache_max_date}")
+                            print(f"SPY Last Trading Day: {prices_cache_max_date}")
                             print(f"Snapshot Age:         {age_hours:.1f} hours")
                             print(f"Decision:             REBUILD (snapshot is stale by age)")
                             print(f"Reason:               Age {age_hours:.1f}h exceeds threshold {MAX_SNAPSHOT_AGE_HOURS}h")
@@ -1705,7 +1706,7 @@ def generate_snapshot(
                     print("SNAPSHOT FRESHNESS DECISION")
                     print("=" * 80)
                     print(f"Snapshot Date:        {snapshot_date}")
-                    print(f"Latest Trading Date:  UNKNOWN (metadata not available)")
+                    print(f"SPY Last Trading Day: UNKNOWN (metadata not available)")
                     print(f"Decision:             REBUILD (cannot verify trading-day freshness)")
                     print(f"Reason:               Price metadata missing or unreadable")
                     print("=" * 80 + "\n")
