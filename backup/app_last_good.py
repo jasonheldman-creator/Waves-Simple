@@ -1,3 +1,15 @@
+import streamlit as st
+import logging
+import subprocess
+import os
+import traceback
+import time
+import itertools
+import html
+from datetime import datetime, timedelta
+
+import pandas as pd
+    
 """
 Institutional Console v2 - Executive Layer v2
 Full implementation with advanced analytics and visualization
@@ -16,16 +28,9 @@ FULL MULTI-TAB CONSOLE UI - Post PR #336
 Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
 Includes all analytics, monitoring, and governance features.
 """
-import streamlit as st
 
-# GLOBAL RENDER LOCK (prevents infinite reruns)
-if "__render_lock__" not in st.session_state:
-    st.session_state["__render_lock__"] = True   
+# ================================
 import logging
-
-logger = logging.getLogger("waves_app")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
 import subprocess
 import os
 import traceback
@@ -33,11 +38,18 @@ import time
 import itertools
 import html
 from datetime import datetime, timedelta, timezone
+
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+
 
 # Import alpha attribution module
 try:
@@ -171,7 +183,8 @@ try:
         PRICE_CACHE_DEGRADED_DAYS,
         CANONICAL_CACHE_PATH,
         compute_system_health,
-        get_price_book
+        get_price_book,
+        fetch_live_prices
     )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
     # Legacy aliases for backward compatibility - mapping to canonical names:
@@ -198,6 +211,14 @@ try:
 except ImportError:
     WAVE_PERFORMANCE_AVAILABLE = False
     compute_portfolio_snapshot = None
+
+# Import snapshot ledger for portfolio snapshot loading
+try:
+    from snapshot_ledger import generate_snapshot
+    SNAPSHOT_LEDGER_AVAILABLE = True
+except ImportError:
+    SNAPSHOT_LEDGER_AVAILABLE = False
+    generate_snapshot = None
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
@@ -870,62 +891,68 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 # SECTION 1: CONFIGURATION AND STYLING
 # ============================================================================
 
-st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
+# NOTE: st.set_page_config() moved to main() function to avoid import-time execution
 
 # ============================================================================
-# PROOF BANNER - Diagnostics and Visibility
+# PROOF BANNER - Diagnostics and Visibility (moved to render_proof_banner)
 # ============================================================================
-# Initialize run counter in session state
-if "proof_run_counter" not in st.session_state:
-    st.session_state.proof_run_counter = 0
-else:
-    st.session_state.proof_run_counter += 1
 
-# Get basename of __file__
-try:
-    file_basename = os.path.basename(__file__)
-except Exception:
-    file_basename = "app.py"
-
-# Get GIT SHA with best-effort fallback
-git_sha_proof = "SHA unavailable"
-try:
-    # Try environment variable first
-    git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
-    if git_sha_env:
-        git_sha_proof = git_sha_env
+def render_proof_banner():
+    """
+    Render proof banner with diagnostics information.
+    Moved from module level to function to avoid import-time execution.
+    """
+    # Initialize run counter in session state
+    if "proof_run_counter" not in st.session_state:
+        st.session_state.proof_run_counter = 0
     else:
-        # Try reading from git command
-        result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            cwd=os.path.dirname(os.path.abspath(__file__))
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            git_sha_proof = result.stdout.strip()
-except Exception:
-    # Keep default "SHA unavailable" - never crash
-    pass
+        st.session_state.proof_run_counter += 1
 
-# Display Proof Banner
-st.markdown(
-    f"""
-    <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
-        <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
-            🔍 PROOF BANNER - DIAGNOSTICS MODE
+    # Get basename of __file__
+    try:
+        file_basename = os.path.basename(__file__)
+    except Exception:
+        file_basename = "app.py"
+
+    # Get GIT SHA with best-effort fallback
+    git_sha_proof = "SHA unavailable"
+    try:
+        # Try environment variable first
+        git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
+        if git_sha_env:
+            git_sha_proof = git_sha_env
+        else:
+            # Try reading from git command
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                git_sha_proof = result.stdout.strip()
+    except Exception:
+        # Keep default "SHA unavailable" - never crash
+        pass
+
+    # Display Proof Banner
+    st.markdown(
+        f"""
+        <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
+            <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
+                🔍 PROOF BANNER - DIAGNOSTICS MODE
+            </div>
+            <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
+                <strong>FILE:</strong> {file_basename}<br>
+                <strong>GIT SHA:</strong> {git_sha_proof}<br>
+                <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
+                <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
+            </div>
         </div>
-        <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
-            <strong>FILE:</strong> {file_basename}<br>
-            <strong>GIT SHA:</strong> {git_sha_proof}<br>
-            <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
-            <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        """,
+        unsafe_allow_html=True
+    )
 
 # ============================================================================
 # WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
@@ -934,7 +961,7 @@ st.markdown(
 WATCHDOG_START_TIME = time.time()
 
 # ============================================================================
-# BUILD/VERSION STAMP - Display build info for verification
+# BUILD/VERSION STAMP - Display build info for verification (moved to function)
 # ============================================================================
 
 def get_build_info():
@@ -997,18 +1024,22 @@ def get_build_info():
     
     return build_info
 
-# Display build stamp banner (non-cached, always current)
-build_info = get_build_info()
-st.markdown(
-    f"""
-    <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
-        <span style="color: #888; font-size: 12px; font-family: monospace;">
-            BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
-        </span>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+def render_build_stamp():
+    """
+    Render build stamp banner.
+    Moved from module level to function to avoid import-time execution.
+    """
+    build_info = get_build_info()
+    st.markdown(
+        f"""
+        <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
+            <span style="color: #888; font-size: 12px; font-family: monospace;">
+                BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # Cache keys for wave universe management
 WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
@@ -1748,9 +1779,52 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
     
     return deduplicated, removed
 
+CACHE_BUSTER = "RESET_2026_01_15_v2"
+
+
+def _normalize_wave_universe(universe):
+    """
+    Normalize wave universe dictionary to ensure all expected keys are present.
+    
+    This defensive function guarantees schema consistency by providing defaults
+    for any missing keys, preventing potential runtime errors from incomplete data.
+    
+    Args:
+        universe: Dictionary that may or may not have all expected keys
+        
+    Returns:
+        Normalized dictionary with guaranteed schema:
+        - waves: list (default: [])
+        - removed_duplicates: list (default: [])
+        - source: str (default: "unknown")
+        - timestamp: str (preserved or default: "")
+        - enabled_flags: dict (preserved or default: {})
+    """
+    if not isinstance(universe, dict):
+        universe = {}
+    
+    # Use .get() with defaults, and handle None values explicitly
+    waves = universe.get("waves", [])
+    removed_duplicates = universe.get("removed_duplicates", [])
+    source = universe.get("source", "unknown")
+    timestamp = universe.get("timestamp", "")
+    enabled_flags = universe.get("enabled_flags", {})
+    
+    return {
+        "waves": waves if waves is not None else [],
+        "removed_duplicates": removed_duplicates if removed_duplicates is not None else [],
+        "source": source if source is not None else "unknown",
+        "timestamp": timestamp if timestamp is not None else "",
+        "enabled_flags": enabled_flags if enabled_flags is not None else {}
+    }
+
 
 @st.cache_data(ttl=15)
-def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1) -> dict:
+def get_canonical_wave_universe(
+    force_reload: bool = False,
+    _wave_universe_version: int = 0,
+    _cache_buster: str = CACHE_BUSTER,
+):
     """
     Fetch, deduplicate, and return canonical wave universe data.
     
@@ -1776,7 +1850,9 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     
     # Check cache unless force reload
     if not force_reload and "wave_universe" in st.session_state:
-        return st.session_state["wave_universe"]
+        cached = st.session_state["wave_universe"]
+        # Normalize cached data to ensure schema consistency
+        return _normalize_wave_universe(cached)
     
     # Build wave universe
     wave_list = []
@@ -5542,12 +5618,51 @@ def get_mission_control_data():
     return mc_data
 
 
-def get_wavescore_leaderboard():
+def get_wavescore_leaderboard(portfolio_snapshot=None):
     """
     Get top 10 waves by WaveScore (30-day cumulative alpha).
+    
+    UPDATED: Now uses portfolio_snapshot from session state instead of reloading wave_history.csv
+    This avoids unnecessary CSV reads and uses pre-computed snapshot data.
+    
+    Args:
+        portfolio_snapshot: DataFrame from st.session_state["portfolio_snapshot"] with Alpha_30D column
+                           If None, falls back to legacy wave_history loading
+    
     Returns a DataFrame with wave names and scores, or None if unavailable.
     """
     try:
+        # UPDATED: Use portfolio_snapshot if available
+        if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+            # Use Alpha_30D column from snapshot for WaveScore calculation
+            if 'Alpha_30D' not in portfolio_snapshot.columns or 'Wave' not in portfolio_snapshot.columns:
+                # Fall back to legacy method if required columns missing
+                portfolio_snapshot = None
+            else:
+                # Filter to waves with valid Alpha_30D data
+                valid_waves = portfolio_snapshot[portfolio_snapshot['Alpha_30D'].notna()].copy()
+                
+                if len(valid_waves) == 0:
+                    return None
+                
+                # Use Alpha_30D column from snapshot for WaveScore calculation
+                # WaveScore formula: (Alpha_30D * 1000) + 50, clamped to 0-100
+                # Multiplier of 1000 converts alpha decimal (e.g., 0.05) to points (50)
+                # Base of 50 centers the score around mid-range
+                # Range [0,100] provides intuitive percentage-like score
+                valid_waves['WaveScore'] = (valid_waves['Alpha_30D'] * 1000) + 50
+                valid_waves['WaveScore'] = valid_waves['WaveScore'].clip(0, 100)
+                
+                # Sort and get top 10
+                leaderboard_df = valid_waves[['Wave', 'WaveScore']].sort_values(
+                    'WaveScore', ascending=False
+                ).head(10).copy()
+                leaderboard_df['Rank'] = range(1, len(leaderboard_df) + 1)
+                leaderboard_df = leaderboard_df[['Rank', 'Wave', 'WaveScore']]
+                
+                return leaderboard_df
+        
+        # LEGACY PATH: Fall back to wave_history if portfolio_snapshot not provided
         df = get_wave_data_filtered(wave_name=None, days=30)
         
         if df is None:
@@ -6788,6 +6903,147 @@ def render_reality_panel():
         st.code(traceback.format_exc(), language="python")
 
 
+def render_snapshot_authority_banner():
+    """
+    Render Snapshot Authority Banner - Data Freshness & Staleness Warning
+    
+    This banner enforces data freshness by displaying:
+    - Snapshot date from live_snapshot.csv
+    - SPY last trading date from prices_cache_meta.json
+    - Cache max date from prices_cache_meta.json
+    - STALE DATA warning if snapshot_date < last_trading_date
+    
+    This prevents the app from silently rendering stale data and provides
+    visibility into the data pipeline status.
+    """
+    try:
+        # Load snapshot date from live_snapshot.csv
+        snapshot_date_str = "N/A"
+        snapshot_rows = "N/A"
+        snapshot_exists = False
+        
+        snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(snapshot_path):
+            try:
+                snapshot_df = pd.read_csv(snapshot_path)
+                snapshot_exists = True
+                snapshot_rows = len(snapshot_df)
+                if "Date" in snapshot_df.columns and not snapshot_df.empty:
+                    snapshot_date_str = snapshot_df["Date"].iloc[0]
+                else:
+                    snapshot_date_str = "Missing Date column"
+            except Exception as e:
+                snapshot_date_str = f"Error: {e}"
+        
+        # Load SPY trading date and cache max date from prices_cache_meta.json
+        spy_max_date_str = "N/A"
+        cache_max_date_str = "N/A"
+        cache_generated_at = "N/A"
+        
+        cache_meta_path = "data/cache/prices_cache_meta.json"
+        if os.path.exists(cache_meta_path):
+            try:
+                with open(cache_meta_path, 'r') as f:
+                    cache_meta = json.load(f)
+                
+                spy_max_date_str = cache_meta.get("spy_max_date", "N/A")
+                cache_max_date_str = cache_meta.get("max_price_date", "N/A")
+                cache_generated_at = cache_meta.get("generated_at_utc", "N/A")
+            except Exception as e:
+                spy_max_date_str = f"Error: {e}"
+                cache_max_date_str = f"Error: {e}"
+        
+        # Determine if data is stale
+        is_stale = False
+        stale_message = ""
+        
+        if snapshot_date_str != "N/A" and spy_max_date_str != "N/A":
+            try:
+                snapshot_date = pd.to_datetime(snapshot_date_str).date()
+                spy_trading_date = pd.to_datetime(spy_max_date_str).date()
+                
+                if snapshot_date < spy_trading_date:
+                    is_stale = True
+                    days_behind = (spy_trading_date - snapshot_date).days
+                    stale_message = f"STALE DATA: Snapshot is {days_behind} trading day(s) behind!"
+            except Exception as e:
+                stale_message = f"Date comparison error: {e}"
+        
+        # Render banner
+        if is_stale:
+            # STALE DATA - Red alert banner
+            st.error(f"🚨 {stale_message}")
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, #8B0000 0%, #DC143C 50%, #FF6347 100%);
+                border: 4px solid #FF0000;
+                border-radius: 12px;
+                padding: 20px 30px;
+                margin: 20px 0;
+                box-shadow: 0 6px 12px rgba(255, 0, 0, 0.5);
+            ">
+                <h3 style="color: #FFFFFF; margin: 0 0 15px 0; text-align: center;">
+                    ⚠️ SNAPSHOT AUTHORITY BANNER - STALE DATA DETECTED ⚠️
+                </h3>
+                <div style="color: #FFFFFF; font-size: 16px; line-height: 1.8;">
+                    <div style="display: grid; grid-template-columns: 200px auto; gap: 10px;">
+                        <div><strong>📅 Snapshot Date:</strong></div>
+                        <div>{snapshot_date_str} <span style="color: #FFD700; font-weight: bold;">⚠️ BEHIND</span></div>
+                        
+                        <div><strong>📊 SPY Last Trading Day:</strong></div>
+                        <div>{spy_max_date_str} <span style="color: #00FF00; font-weight: bold;">✓ CURRENT</span></div>
+                        
+                        <div><strong>💾 Cache Max Date:</strong></div>
+                        <div>{cache_max_date_str}</div>
+                        
+                        <div><strong>📦 Snapshot Rows:</strong></div>
+                        <div>{snapshot_rows}</div>
+                    </div>
+                    <div style="margin-top: 20px; padding: 15px; background: rgba(0, 0, 0, 0.3); border-radius: 8px;">
+                        <strong>⚠️ ACTION REQUIRED:</strong><br/>
+                        1. Run "Update Price Cache" workflow<br/>
+                        2. Run "Build Wave History" workflow<br/>
+                        3. Run "Rebuild Snapshot" workflow<br/>
+                        <br/>
+                        <strong>The app is displaying STALE data. Do not make decisions based on this data.</strong>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # FRESH DATA - Green success banner
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, #1a472a 0%, #2d5f3d 50%, #4a7c59 100%);
+                border: 3px solid #00FF88;
+                border-radius: 12px;
+                padding: 15px 25px;
+                margin: 15px 0;
+                box-shadow: 0 4px 8px rgba(0, 255, 136, 0.3);
+            ">
+                <h4 style="color: #00FF88; margin: 0 0 10px 0; text-align: center;">
+                    ✅ Snapshot Authority - Data Status
+                </h4>
+                <div style="color: #FFFFFF; font-size: 14px; display: grid; grid-template-columns: 180px auto; gap: 8px;">
+                    <div><strong>📅 Snapshot Date:</strong></div>
+                    <div>{snapshot_date_str}</div>
+                    
+                    <div><strong>📊 SPY Last Trading Day:</strong></div>
+                    <div>{spy_max_date_str}</div>
+                    
+                    <div><strong>💾 Cache Max Date:</strong></div>
+                    <div>{cache_max_date_str}</div>
+                    
+                    <div><strong>📦 Snapshot Rows:</strong></div>
+                    <div>{snapshot_rows}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"⚠️ Failed to render Snapshot Authority Banner: {e}")
+
+
 def render_mission_control():
     """
     Render the Mission Control summary strip at the top of the page.
@@ -7610,9 +7866,9 @@ def render_sidebar_info():
         # Display current context using canonical resolver
         ctx = resolve_app_context()
         if ctx["selected_wave_id"] is None:
-            st.sidebar.info(f"{PORTFOLIO_VIEW_ICON} Portfolio View Active")
+            st.sidebar.info("ℹ️ Portfolio view")
         else:
-            st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {ctx['selected_wave_name']}")
+            st.sidebar.info("📈 Wave view")
         
         # Debug caption to prove persistence (only in debug mode)
         if st.session_state.get("debug_mode", False):
@@ -9682,32 +9938,47 @@ def render_executive_brief_tab():
     
     try:
         # ========================================================================
-        # TRUTHFRAME INTEGRATION - Load TruthFrame for 28/28 coverage
+        # PORTFOLIO SNAPSHOT FROM SESSION STATE - Use pre-loaded snapshot
         # ========================================================================
-        snapshot_df = None
+        # UPDATED: Use portfolio_snapshot from session state instead of reloading/recomputing
+        # The snapshot is already loaded at app startup and stored in st.session_state["portfolio_snapshot"]
+        snapshot_df = st.session_state.get("portfolio_snapshot")
         snapshot_metadata = None
         
-        try:
-            from analytics_truth import get_truth_frame
-            from truth_frame_helpers import convert_truthframe_to_snapshot_format
-            from snapshot_ledger import get_snapshot_metadata
-            
-            # Debug trace marker
+        if snapshot_df is None or snapshot_df.empty:
+            # Fallback: Try loading from TruthFrame if session state is empty
+            try:
+                from analytics_truth import get_truth_frame
+                from truth_frame_helpers import convert_truthframe_to_snapshot_format
+                from snapshot_ledger import get_snapshot_metadata
+                
+                # Debug trace marker
+                if st.session_state.get("debug_mode", False):
+                    st.caption("🔍 Trace: Fallback to TruthFrame (portfolio_snapshot not in session state)")
+                
+                # Get TruthFrame (respects Safe Mode)
+                safe_mode = st.session_state.get("safe_mode_enabled", False)
+                truth_df = get_truth_frame(safe_mode=safe_mode)
+                
+                # Convert to snapshot_df format for backward compatibility
+                snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
+                
+                snapshot_metadata = get_snapshot_metadata()
+            except ImportError:
+                st.warning("⚠️ TruthFrame module not available and portfolio_snapshot not in session state.")
+            except Exception as e:
+                st.warning(f"⚠️ TruthFrame fallback error: {str(e)}")
+        else:
+            # Successfully loaded from session state
             if st.session_state.get("debug_mode", False):
-                st.caption("🔍 Trace: Entering engine compute (ExecutiveBrief - get_truth_frame)")
+                st.caption(f"✓ Loaded portfolio_snapshot from session state ({len(snapshot_df)} rows)")
             
-            # Get TruthFrame (respects Safe Mode)
-            safe_mode = st.session_state.get("safe_mode_enabled", False)
-            truth_df = get_truth_frame(safe_mode=safe_mode)
-            
-            # Convert to snapshot_df format for backward compatibility
-            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
-            
-            snapshot_metadata = get_snapshot_metadata()
-        except ImportError:
-            st.warning("⚠️ TruthFrame module not available. Using fallback data.")
-        except Exception as e:
-            st.warning(f"⚠️ TruthFrame error: {str(e)}")
+            # Try to get metadata
+            try:
+                from snapshot_ledger import get_snapshot_metadata
+                snapshot_metadata = get_snapshot_metadata()
+            except:
+                pass
         
         # ========================================================================
         # WAVE STATUS FILTERING - Add UI toggle for staging waves
@@ -10200,494 +10471,273 @@ def render_executive_brief_tab():
             st.markdown("### 💼 Portfolio Snapshot")
             st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
             
-            # ========================================================================
-            # DIAGNOSTIC DEBUG BLOCK
-            # Show critical system dates to diagnose frozen snapshot issue
-            # ========================================================================
-            with st.expander("🔍 Debug: SPY Trading Calendar & Cache Dates", expanded=False):
-                import json
-                from helpers.trading_calendar import get_trading_calendar_dates
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**📅 SPY Trading Calendar**")
-                    try:
-                        # Get price_book to extract SPY calendar
-                        from helpers.price_book import get_price_book
-                        price_book_debug = get_price_book()
-                        
-                        if price_book_debug is not None and 'SPY' in price_book_debug.columns:
-                            asof_date, prev_date = get_trading_calendar_dates(price_book_debug)
-                            if asof_date and prev_date:
-                                st.metric("SPY asof_date", asof_date.strftime('%Y-%m-%d'))
-                                st.metric("SPY prev_date", prev_date.strftime('%Y-%m-%d'))
-                            else:
-                                st.warning("Unable to extract SPY calendar dates")
-                        else:
-                            st.warning("SPY not available in price_book")
-                    except Exception as e:
-                        st.error(f"Error extracting SPY dates: {e}")
-                
-                with col2:
-                    st.markdown("**📊 Cache Metadata**")
-                    try:
-                        # Load prices_cache_meta.json
-                        meta_path = "data/cache/prices_cache_meta.json"
-                        if os.path.exists(meta_path):
-                            with open(meta_path, 'r') as f:
-                                meta = json.load(f)
-                            
-                            st.metric("max_price_date", meta.get('max_price_date', 'N/A'))
-                            st.metric("spy_max_date", meta.get('spy_max_date', 'N/A'))
-                            if meta.get('overall_max_date'):
-                                st.caption(f"overall_max_date: {meta.get('overall_max_date')}")
-                            if meta.get('min_symbol_max_date'):
-                                st.caption(f"min_symbol_max_date: {meta.get('min_symbol_max_date')}")
-                        else:
-                            st.warning("prices_cache_meta.json not found")
-                    except Exception as e:
-                        st.error(f"Error loading cache metadata: {e}")
-                
-                # Show live_snapshot.csv max date
-                st.markdown("**📈 Live Snapshot Date**")
-                try:
-                    snapshot_path = "data/live_snapshot.csv"
-                    if os.path.exists(snapshot_path):
-                        snapshot_df_debug = pd.read_csv(snapshot_path)
-                        if 'Date' in snapshot_df_debug.columns and not snapshot_df_debug.empty:
-                            snapshot_date = snapshot_df_debug['Date'].iloc[0]
-                            st.metric("Snapshot Date", snapshot_date)
-                        else:
-                            st.warning("Date column not found in snapshot")
-                    else:
-                        st.warning("live_snapshot.csv not found")
-                except Exception as e:
-                    st.error(f"Error loading snapshot date: {e}")
-                
-                # Show portfolio contributors (if ledger available)
-                st.markdown("**👥 Portfolio Contributors**")
-                try:
-                    if 'portfolio_alpha_ledger' in st.session_state:
-                        ledger_debug = st.session_state['portfolio_alpha_ledger']
-                        if ledger_debug.get('success'):
-                            # Count contributors from period_results
-                            for period_label in ['1D', '30D', '60D']:
-                                period_result = ledger_debug['period_results'].get(period_label, {})
-                                n_contributors = period_result.get('n_waves_with_returns', 0)
-                                st.caption(f"{period_label} contributors: {n_contributors}")
-                        else:
-                            st.caption("Ledger computation failed")
-                    else:
-                        st.caption("Ledger not yet computed")
-                except Exception as e:
-                    st.caption(f"Error: {e}")
-        
             try:
-                from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
-                from helpers.price_book import get_price_book
-                from waves_engine import get_all_waves_universe
-            
-                # Load PRICE_BOOK
-                price_book = get_cached_price_book()
-            
-                # Use canonical ledger from session state if available (single source of truth)
-                # Only compute if not already in session state
-                if 'portfolio_alpha_ledger' in st.session_state:
-                    ledger = st.session_state['portfolio_alpha_ledger']
-                else:
-                    # Compute portfolio alpha ledger (canonical implementation)
-                    ledger = compute_portfolio_alpha_ledger(
-                        price_book, 
-                        periods=[1, 30, 60, 365],
-                        benchmark_ticker='SPY',
-                        mode='Standard',
-                        vix_exposure_enabled=True
-                    )
-                    # Only cache successful ledger computations to allow retry on failure
-                    if ledger['success']:
-                        st.session_state['portfolio_alpha_ledger'] = ledger
-            
-                # Add diagnostic information
-                if ledger['success']:
-                    # Count waves from daily_risk_return computation (efficient set intersection)
-                    all_waves = set(get_all_waves_universe().get('waves', []))
-                    wave_weights_keys = set(WAVE_WEIGHTS.keys())
-                    n_waves_used = len(all_waves & wave_weights_keys)
+                # ================================================================
+                # LIVE MARKET DATA FETCHING - NO CACHING
+                # All portfolio metrics computed from fresh yfinance API data
+                # NO dependencies on live_snapshot.csv, caches, or snapshot ledger
+                # NO st.cache_data - pure runtime computation every render
+                # Fetches live market data on EVERY render to prove dynamic behavior
+                # ================================================================
                 
-                    # Get date range from period results
-                    period_1d = ledger['period_results'].get('1D', {})
-                    if period_1d.get('available'):
-                        end_date = period_1d.get('end_date', 'N/A')
-                        n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
-                        start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
+                # Fetch live prices from yfinance API (NO CACHING)
+                fetch_start_utc = datetime.now(timezone.utc)
+                PRICE_BOOK, fetch_metadata = fetch_live_prices(tickers=None, period="1y")
+                fetch_end_utc = datetime.now(timezone.utc)
+                fetch_duration_ms = (fetch_end_utc - fetch_start_utc).total_seconds() * 1000
+                
+                # Determine data source for diagnostics
+                data_source = fetch_metadata.get("source", "UNKNOWN")
+                is_live_api = (data_source == "LIVE_API")
+                is_simulated = (data_source == "SIMULATED")
+                
+                if PRICE_BOOK is None or PRICE_BOOK.empty:
+                    st.error("⚠️ Live price fetch failed - cannot compute portfolio metrics")
+                    st.caption("Portfolio Snapshot requires live market data from yfinance API. Please check network connectivity and API availability.")
+                    if fetch_metadata.get("reason"):
+                        st.caption(f"Reason: {fetch_metadata['reason']}")
+                else:
+                    # Compute returns inline using pct_change
+                    returns_df = PRICE_BOOK.pct_change().dropna()
+                    
+                    # Validate we have returns data
+                    if returns_df.empty:
+                        st.error("⚠️ No valid returns data - PRICE_BOOK may have insufficient history")
+                        st.caption("Portfolio Snapshot requires at least 2 days of price data")
                     else:
-                        end_date = 'N/A'
-                        start_date = 'N/A'
-                        n_dates = 0
-                
-                    # Display VIX overlay status
-                    vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
-                    safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
-                
-                    st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
-                    st.caption(f"📅 Period: {start_date} to {end_date}")
-                else:
-                    # Check for empty result condition
-                    n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
-                    st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
-                
-                    # Display warning with failure reason
-                    failure_reason = ledger.get('failure_reason', 'Unknown error')
-                    st.warning(f"⚠️ Portfolio Snapshot empty because: {failure_reason}")
-                
-                    # Enhanced diagnostics with collapsible details
-                    debug = ledger.get('debug', {})
-                    if debug:
-                        with st.expander("🔍 Show Diagnostic Details", expanded=False):
-                            st.markdown("**Error Details:**")
-                            st.code(failure_reason)
+                        # Compute equal-weighted portfolio returns (mean across all tickers)
+                        # Note: This uses all tickers in PRICE_BOOK as an equal-weighted portfolio
+                        portfolio_returns = returns_df.mean(axis=1)
+                        
+                        # Get benchmark returns (SPY) for alpha computation
+                        benchmark_returns = None
+                        if 'SPY' in returns_df.columns:
+                            benchmark_returns = returns_df['SPY']
+                        
+                        # Validate we have portfolio returns
+                        if portfolio_returns.empty:
+                            st.error("⚠️ No valid portfolio returns computed")
+                            st.caption("Unable to compute portfolio metrics from available data")
+                        else:
+                            # Get latest trading date and current UTC time for diagnostics
+                            last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
+                            current_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                             
-                            # Show exception traceback if available
-                            if debug.get('exception_traceback'):
-                                st.markdown("**Exception Traceback:**")
-                                st.code(debug['exception_traceback'], language='python')
+                            # Build diagnostic message based on data source
+                            if is_live_api:
+                                source_msg = f"<strong>Data Source:</strong> ✅ LIVE yfinance API (fetched {fetch_duration_ms:.0f}ms ago)"
+                            elif is_simulated:
+                                source_msg = f"<strong>Data Source:</strong> ⚠️ SIMULATED (cache + random variation - API unavailable)"
+                                if "variation_seed" in fetch_metadata:
+                                    source_msg += f"<br><strong>Variation Seed:</strong> {fetch_metadata['variation_seed']} (changes every render)"
+                            else:
+                                source_msg = f"<strong>Data Source:</strong> ❓ UNKNOWN"
                             
-                            # Show key input summaries
-                            st.markdown("**Input Summary:**")
+                            # Display comprehensive diagnostic overlay (mandatory)
+                            st.markdown(
+                                f"""
+                                <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                                    <strong>✅ DYNAMIC COMPUTATION - NO CACHING</strong><br>
+                                    {source_msg}<br>
+                                    <strong>Most Recent Price Timestamp:</strong> {last_trading_date}<br>
+                                    <strong>Render UTC Timestamp:</strong> {current_utc}<br>
+                                    <strong>Price Data:</strong> {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers<br>
+                                    <strong>Benchmark:</strong> {'SPY ✅' if benchmark_returns is not None else 'SPY ❌ (Alpha unavailable)'}<br>
+                                    <strong>live_snapshot.csv:</strong> ❌ NOT USED<br>
+                                    <strong>metrics caching:</strong> ❌ DISABLED (fresh computation every render)
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                        
+                            # Constants for period calculations
+                            TRADING_DAYS_PER_YEAR = 252  # Approximate trading days in one year
+                            
+                            # Helper function for safe compounded returns calculation
+                            def safe_compounded_return(returns_series):
+                                """
+                                Safely compute compounded returns with numerical stability.
+                                Returns None if data is invalid (e.g., returns <= -1).
+                                """
+                                try:
+                                    # Check for extreme negative returns that would cause log1p to fail
+                                    if (returns_series <= -1).any():
+                                        return None
+                                    # Use numerically stable formula: exp(sum(log(1+r))) - 1
+                                    return np.expm1(np.log1p(returns_series).sum())
+                                except (ValueError, RuntimeError):
+                                    return None
+                            
+                            # ================================================================
+                            # COMPUTE PORTFOLIO RETURNS FOR ALL TIMEFRAMES (RUNTIME DYNAMIC)
+                            # ================================================================
+                            
+                            # 1D: Latest value
+                            ret_1d = portfolio_returns.iloc[-1] if len(portfolio_returns) >= 1 else None
+                            
+                            # 30D: Compounded returns of last 30 rows
+                            if len(portfolio_returns) >= 30:
+                                ret_30d = safe_compounded_return(portfolio_returns.iloc[-30:])
+                            else:
+                                ret_30d = None
+                            
+                            # 60D: Compounded returns of last 60 rows
+                            if len(portfolio_returns) >= 60:
+                                ret_60d = safe_compounded_return(portfolio_returns.iloc[-60:])
+                            else:
+                                ret_60d = None
+                            
+                            # 365D: Compounded returns of last ~252 rows (one trading year)
+                            if len(portfolio_returns) >= TRADING_DAYS_PER_YEAR:
+                                ret_365d = safe_compounded_return(portfolio_returns.iloc[-TRADING_DAYS_PER_YEAR:])
+                            else:
+                                ret_365d = None
+                            
+                            # ================================================================
+                            # COMPUTE BENCHMARK RETURNS FOR ALL TIMEFRAMES (RUNTIME DYNAMIC)
+                            # ================================================================
+                            bench_1d = None
+                            bench_30d = None
+                            bench_60d = None
+                            bench_365d = None
+                            
+                            if benchmark_returns is not None and not benchmark_returns.empty:
+                                # 1D: Latest value
+                                bench_1d = benchmark_returns.iloc[-1] if len(benchmark_returns) >= 1 else None
+                                
+                                # 30D: Compounded returns of last 30 rows
+                                if len(benchmark_returns) >= 30:
+                                    bench_30d = safe_compounded_return(benchmark_returns.iloc[-30:])
+                                
+                                # 60D: Compounded returns of last 60 rows
+                                if len(benchmark_returns) >= 60:
+                                    bench_60d = safe_compounded_return(benchmark_returns.iloc[-60:])
+                                
+                                # 365D: Compounded returns of last ~252 rows (one trading year)
+                                if len(benchmark_returns) >= TRADING_DAYS_PER_YEAR:
+                                    bench_365d = safe_compounded_return(benchmark_returns.iloc[-TRADING_DAYS_PER_YEAR:])
+                            
+                            # ================================================================
+                            # COMPUTE ALPHA METRICS (RUNTIME DYNAMIC)
+                            # Alpha = Portfolio Return - Benchmark Return
+                            # ================================================================
+                            alpha_1d = (ret_1d - bench_1d) if (ret_1d is not None and bench_1d is not None) else None
+                            alpha_30d = (ret_30d - bench_30d) if (ret_30d is not None and bench_30d is not None) else None
+                            alpha_60d = (ret_60d - bench_60d) if (ret_60d is not None and bench_60d is not None) else None
+                            alpha_365d = (ret_365d - bench_365d) if (ret_365d is not None and bench_365d is not None) else None
+                        
+                            # Display in blue box with computed metrics
+                            st.markdown("""
+                            <div style="
+                                background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+                                border: 2px solid #00d9ff;
+                                border-radius: 12px;
+                                padding: 20px;
+                                margin-bottom: 20px;
+                            ">
+                            """, unsafe_allow_html=True)
+                        
+                            # Portfolio performance metrics display
+                            st.markdown("**📊 Portfolio Performance (Equal-Weighted) - Runtime Dynamic Computation**")
+                            st.caption("All metrics computed live from PRICE_BOOK at render time (no caching, no snapshots)")
+                        
+                            # Returns Row
+                            st.markdown("**📈 Returns**")
+                            col1, col2, col3, col4 = st.columns(4)
+                        
+                            with col1:
+                                st.markdown("**1D**")
+                                if ret_1d is not None:
+                                    st.markdown(f"{ret_1d:+.2%}")
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col2:
+                                st.markdown("**30D**")
+                                if ret_30d is not None:
+                                    st.markdown(f"{ret_30d:+.2%}")
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col3:
+                                st.markdown("**60D**")
+                                if ret_60d is not None:
+                                    st.markdown(f"{ret_60d:+.2%}")
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Insufficient data")
+                        
+                            with col4:
+                                st.markdown("**365D**")
+                                if ret_365d is not None:
+                                    st.markdown(f"{ret_365d:+.2%}")
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Insufficient data")
+                            
+                            # Alpha Row
+                            st.markdown("---")
+                            st.markdown("**⚡ Alpha (vs SPY Benchmark)**")
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.markdown("**1D**")
+                                if alpha_1d is not None:
+                                    color = "green" if alpha_1d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_1d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            with col2:
+                                st.markdown("**30D**")
+                                if alpha_30d is not None:
+                                    color = "green" if alpha_30d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_30d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            with col3:
+                                st.markdown("**60D**")
+                                if alpha_60d is not None:
+                                    color = "green" if alpha_60d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_60d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            with col4:
+                                st.markdown("**365D**")
+                                if alpha_365d is not None:
+                                    color = "green" if alpha_365d > 0 else "red"
+                                    st.markdown(f"<span style='color:{color}'>{alpha_365d:+.2%}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("N/A")
+                                    st.caption("⚠️ Benchmark unavailable")
+                            
+                            # Attribution Summary (Basic)
+                            st.markdown("---")
+                            st.markdown("**🎯 Attribution Summary**")
+                            
+                            # Calculate basic attribution stats
+                            total_tickers = len(returns_df.columns)
+                            portfolio_size_display = f"{total_tickers} tickers (equal-weighted)"
+                            
                             col1, col2 = st.columns(2)
                             with col1:
-                                st.metric("Price Book Shape", debug.get('price_book_shape', 'N/A'))
-                                st.metric("SPY Present", "✓" if debug.get('spy_present') else "✗")
-                                st.metric("Active Waves", debug.get('active_waves_count', 'N/A'))
+                                st.caption(f"**Portfolio Composition:** {portfolio_size_display}")
+                                st.caption(f"**Benchmark:** SPY (S&P 500)")
                             with col2:
-                                st.metric("Date Range", f"{debug.get('price_book_index_min', 'N/A')} to {debug.get('price_book_index_max', 'N/A')}")
-                                st.metric("Tickers Requested", debug.get('tickers_requested_count', 'N/A'))
-                                st.metric("Tickers Found", debug.get('tickers_intersection_count', 'N/A'))
-                            
-                            # Show missing tickers sample if available
-                            missing_tickers = debug.get('tickers_missing_sample', [])
-                            if missing_tickers:
-                                st.markdown("**Missing Tickers (sample):**")
-                                st.caption(', '.join(missing_tickers))
-                
-                    # Check for specific error conditions
-                    if n_dates < 2:
-                        st.error(f"❌ Portfolio ledger unavailable: {failure_reason}")
-            
-                if ledger['success']:
-                    # RENDERER PROOF LINE - Enhanced with data source info
-                    build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
-                
-                    # Get price_book info for proof label
-                    price_max_date = "N/A"
-                    price_rows = 0
-                    price_cols = 0
-                    if price_book is not None and not price_book.empty:
-                        price_max_date = price_book.index.max().strftime('%Y-%m-%d')
-                        price_rows, price_cols = price_book.shape
-                
-                    st.markdown(
-                        f"""
-                        <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                            <strong>Renderer:</strong> Ledger | <strong>Source:</strong> compute_portfolio_alpha_ledger | <strong>Price max date:</strong> {price_max_date} | <strong>Rows:</strong> {price_rows} | <strong>Cols:</strong> {price_cols}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                
-                    # VIX/Exposure Status Line
-                    vix_proxy_used = ledger.get('vix_ticker_used', 'none found')
-                    if not vix_proxy_used:
-                        vix_proxy_used = 'none found'
-                
-                    # Determine exposure mode
-                    exposure_mode = "computed" if ledger.get('overlay_available', False) else "fallback 1.0"
-                
-                    # Calculate exposure min/max over last 60 rows if available
-                    exposure_min_max = ""
-                    if ledger.get('daily_exposure') is not None:
-                        try:
-                            exposure_series = ledger['daily_exposure']
-                            if len(exposure_series) > 0:
-                                # Get last 60 rows
-                                last_60 = exposure_series.tail(60)
-                                exp_min = last_60.min()
-                                exp_max = last_60.max()
-                                exposure_min_max = f" | Exposure min/max (60D): {exp_min:.2f} - {exp_max:.2f}"
-                        except Exception:
-                            pass
-                
-                    st.markdown(
-                        f"""
-                        <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
-                            <strong>VIX Proxy:</strong> {vix_proxy_used} | <strong>Exposure Mode:</strong> {exposure_mode}{exposure_min_max}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                
-                    # Display in blue box with metrics from ledger
-                    st.markdown("""
-                    <div style="
-                        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-                        border: 2px solid #00d9ff;
-                        border-radius: 12px;
-                        padding: 20px;
-                        margin-bottom: 20px;
-                    ">
-                    """, unsafe_allow_html=True)
-                
-                    # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
-                    st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
-                    st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
-                
-                    col1, col2, col3, col4 = st.columns(4)
-                
-                    for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
-                        with col:
-                            period_data = ledger['period_results'].get(period_key, {})
+                                st.caption(f"**Computation Method:** Mean daily returns (equal-weighted)")
+                                st.caption(f"**Data Source:** PRICE_BOOK live market data")
                         
-                            if period_data.get('available'):
-                                # Extract values
-                                cum_realized = period_data['cum_realized']
-                                cum_benchmark = period_data['cum_benchmark']
-                                total_alpha = period_data['total_alpha']
-                                start = period_data['start_date']
-                                end = period_data['end_date']
-                            
-                                # Display stacked format with header
-                                st.markdown(f"**{period_key}**")
-                                st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
-                                st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
-                            
-                                # Color-code alpha (green for positive, red for negative)
-                                alpha_color = "green" if total_alpha >= 0 else "red"
-                                st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
-                            
-                                st.caption(f"{start} to {end}")
-                            else:
-                                # Unavailable period - show N/A for all three lines with reason
-                                reason = period_data.get('reason', 'unknown')
-                                MAX_REASON_LENGTH = 60  # Configurable truncation length
-                                st.markdown(f"**{period_key}**")
-                                st.markdown(f"📈 **Portfolio:** N/A")
-                                st.markdown(f"📊 **Benchmark:** N/A")
-                                st.markdown(f"🎯 **Alpha:** N/A")
-                                # Truncate long reasons with ellipsis
-                                truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
-                                st.caption(f"⚠️ {truncated_reason}")
-                
-                    st.divider()
-                
-                    # Alpha Attribution Row (30D window for detailed attribution)
-                    st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
-                
-                    period_30d = ledger['period_results'].get('30D', {})
-                    if period_30d.get('available'):
-                        col1, col2, col3, col4 = st.columns(4)
-                    
-                        with col1:
-                            total_alpha = period_30d['total_alpha']
-                            st.metric(
-                                "Total Alpha", 
-                                f"{total_alpha:+.2%}",
-                                help="Realized return - Benchmark return"
-                            )
-                    
-                        with col2:
-                            selection_alpha = period_30d['selection_alpha']
-                            st.metric(
-                                "Selection Alpha", 
-                                f"{selection_alpha:+.2%}",
-                                help="Alpha from wave selection (unoverlay - benchmark)"
-                            )
-                    
-                        with col3:
-                            overlay_alpha = period_30d['overlay_alpha']
-                            overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
-                            st.metric(
-                                overlay_label, 
-                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
-                                help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
-                            )
-                    
-                        with col4:
-                            residual = period_30d['residual']
-                            # Color code residual based on tolerance
-                            residual_pct = abs(residual) * 100
-                            residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
-                            st.metric(
-                                f"{residual_color} Residual", 
-                                f"{residual:+.3%}",
-                                help="Attribution residual (should be near 0%)"
-                            )
-                    
-                        # Alpha Captured (if overlay available)
-                        if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
-                            st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
-                    else:
-                        st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
-                
-                    # Warnings display
-                    if ledger.get('warnings'):
-                        st.caption("⚠️ " + " | ".join(ledger['warnings']))
-                
-                    # Download Debug Report button
-                    st.markdown("---")
-                    st.markdown("**📥 Download Debug Report**")
-                
-                    # Create debug report DataFrame
-                    try:
-                        import pandas as pd
-                        from helpers.price_loader import get_price_book_debug_summary
-                    
-                        # Get price_book debug summary
-                        price_book_summary = get_price_book_debug_summary(price_book)
-                    
-                        # Collect debug data
-                        debug_data = []
-                    
-                        # Add price_book summary
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Rows (Trading Days)',
-                            'Value': str(price_book_summary['rows'])
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Cols (Tickers)',
-                            'Value': str(price_book_summary['cols'])
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Start Date',
-                            'Value': str(price_book_summary['start_date']) if price_book_summary['start_date'] else 'N/A'
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'End Date',
-                            'Value': str(price_book_summary['end_date']) if price_book_summary['end_date'] else 'N/A'
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Non-null Cells',
-                            'Value': str(price_book_summary['non_null_cells'])
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Is Empty',
-                            'Value': str(price_book_summary['is_empty'])
-                        })
-                    
-                        # Add ledger info
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Success',
-                            'Value': str(ledger.get('success', False))
-                        })
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Failure Reason',
-                            'Value': str(ledger.get('failure_reason', 'N/A'))
-                        })
-                    
-                        # Add wave count (efficient set intersection)
-                        all_waves = set(get_all_waves_universe().get('waves', []))
-                        wave_weights_keys = set(WAVE_WEIGHTS.keys())
-                        n_waves_used = len(all_waves & wave_weights_keys)
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Waves Processed',
-                            'Value': str(n_waves_used)
-                        })
-                    
-                        # Add ticker count (from price_book)
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Tickers Available',
-                            'Value': str(price_book_summary['num_tickers'])
-                        })
-                    
-                        # Add VIX and safe asset info
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'VIX Ticker Used',
-                            'Value': str(ledger.get('vix_ticker_used', 'N/A'))
-                        })
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Safe Ticker Used',
-                            'Value': str(ledger.get('safe_ticker_used', 'N/A'))
-                        })
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Overlay Available',
-                            'Value': str(ledger.get('overlay_available', False))
-                        })
-                    
-                        # Add period results
-                        for period_key, period_data in ledger.get('period_results', {}).items():
-                            debug_data.append({
-                                'Category': f'Period {period_key}',
-                                'Metric': 'Available',
-                                'Value': str(period_data.get('available', False))
-                            })
-                            debug_data.append({
-                                'Category': f'Period {period_key}',
-                                'Metric': 'Reason',
-                                'Value': str(period_data.get('reason', 'N/A'))
-                            })
-                            if period_data.get('available'):
-                                debug_data.append({
-                                    'Category': f'Period {period_key}',
-                                    'Metric': 'Total Alpha',
-                                    'Value': f"{period_data.get('total_alpha', 0):.4%}"
-                                })
-                    
-                        # Create DataFrame
-                        debug_df = pd.DataFrame(debug_data)
-                    
-                        # Convert to CSV
-                        csv_data = debug_df.to_csv(index=False)
-                    
-                        # Add download button
-                        st.download_button(
-                            label="📥 Download Debug Report (CSV)",
-                            data=csv_data,
-                            file_name=f"portfolio_snapshot_debug_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv",
-                            key="download_debug_report"
-                        )
-                    
-                    except Exception as download_err:
-                        st.warning(f"⚠️ Could not generate debug report: {str(download_err)}")
-                
-                    st.markdown("</div>", unsafe_allow_html=True)
-                
-                else:
-                    # Display error message
-                    st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
-                
-                    # Show explicit error (no placeholder data)
-                    st.markdown("""
-                    <div style="
-                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                        border: 2px solid #ff6b6b;
-                        border-radius: 12px;
-                        padding: 20px;
-                        margin-bottom: 20px;
-                    ">
-                    """, unsafe_allow_html=True)
-                
-                    st.markdown(f"**❌ Portfolio metrics unavailable**")
-                    st.markdown(f"Reason: {ledger['failure_reason']}")
-                    st.caption("No placeholder data will be displayed. Please check data availability.")
-                
-                    st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
         
             except Exception as e:
-                st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
+                st.error(f"⚠️ Portfolio Snapshot error: {str(e)}")
                 if st.session_state.get("debug_mode", False):
                     import traceback
                     st.code(traceback.format_exc())
@@ -11889,6 +11939,127 @@ def render_wave_intelligence_center_tab():
         st.error(f"Error generating market context: {str(e)}")
 
 
+def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
+    """
+    Compute portfolio-level metrics from portfolio_snapshot DataFrame.
+    
+    UPDATED: This function replaces compute_portfolio_alpha_ledger for portfolio-level aggregation.
+    Instead of recomputing from price_book, it aggregates pre-computed per-wave metrics from
+    the portfolio_snapshot (live_snapshot.csv loaded into session state).
+    
+    Args:
+        portfolio_snapshot: DataFrame with columns Wave, Return_1D, Return_30D, Return_60D, 
+                           Return_365D, Benchmark_Return_1D, etc., Alpha_1D, etc.
+    
+    Returns:
+        Dictionary with portfolio metrics for each period, or None if unavailable.
+        Structure matches compute_portfolio_alpha_ledger output format for compatibility.
+    """
+    try:
+        if portfolio_snapshot is None or portfolio_snapshot.empty:
+            return {
+                'success': False,
+                'failure_reason': 'Portfolio snapshot is empty',
+                'period_results': {}
+            }
+        
+        # Filter to waves with valid data (exclude waves with status='NO DATA')
+        if 'status' in portfolio_snapshot.columns:
+            valid_waves = portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA'].copy()
+        else:
+            valid_waves = portfolio_snapshot.copy()
+        
+        if len(valid_waves) == 0:
+            return {
+                'success': False,
+                'failure_reason': 'No waves with valid data',
+                'period_results': {}
+            }
+        
+        # Calculate equal-weight portfolio metrics for each period
+        # NOTE: This uses equal-weight averaging across all waves with valid data.
+        # This differs from compute_portfolio_alpha_ledger which may use different weighting.
+        # Equal-weight is appropriate here because:
+        # 1. Portfolio snapshot represents a balanced view across all strategies
+        # 2. WAVE_WEIGHTS from waves_engine are typically equal-weight
+        # 3. Simplifies aggregation from pre-computed per-wave metrics
+        periods = ['1D', '30D', '60D', '365D']
+        period_results = {}
+        
+        # Get snapshot date
+        snapshot_date = valid_waves['Date'].iloc[0] if 'Date' in valid_waves.columns else 'N/A'
+        
+        for period in periods:
+            return_col = f'Return_{period}'
+            benchmark_col = f'Benchmark_Return_{period}'
+            alpha_col = f'Alpha_{period}'
+            
+            # Check if columns exist
+            if return_col not in valid_waves.columns or benchmark_col not in valid_waves.columns:
+                period_results[period] = {
+                    'available': False,
+                    'reason': f'Missing {return_col} or {benchmark_col} columns'
+                }
+                continue
+            
+            # Filter to waves with non-null return data for this period
+            period_data = valid_waves[valid_waves[return_col].notna()].copy()
+            
+            if len(period_data) == 0:
+                period_results[period] = {
+                    'available': False,
+                    'reason': f'No waves with valid {period} return data'
+                }
+                continue
+            
+            # Calculate equal-weight portfolio metrics
+            # Portfolio return = average of all wave returns
+            cum_realized = period_data[return_col].mean()
+            cum_benchmark = period_data[benchmark_col].mean()
+            total_alpha = period_data[alpha_col].mean() if alpha_col in period_data.columns else (cum_realized - cum_benchmark)
+            
+            # For attribution, use simplified model (no VIX overlay data available in snapshot)
+            # LIMITATION: The portfolio snapshot only contains aggregate period returns,
+            # not daily time-series, so we cannot compute precise overlay alpha.
+            # This simplified model attributes all alpha to selection.
+            # For detailed attribution with overlay alpha, use compute_portfolio_alpha_ledger
+            # which has access to daily exposure series.
+            selection_alpha = total_alpha  # All alpha attributed to selection
+            overlay_alpha = 0.0  # No overlay attribution available from snapshot
+            residual = 0.0  # No residual in simplified model
+            
+            period_results[period] = {
+                'available': True,
+                'cum_realized': cum_realized,
+                'cum_benchmark': cum_benchmark,
+                'total_alpha': total_alpha,
+                'selection_alpha': selection_alpha,
+                'overlay_alpha': overlay_alpha,
+                'residual': residual,
+                'n_waves_with_returns': len(period_data),
+                'start_date': 'N/A',  # Not available from snapshot
+                'end_date': snapshot_date
+            }
+        
+        return {
+            'success': True,
+            'period_results': period_results,
+            'vix_ticker_used': None,
+            'safe_ticker_used': None,
+            'overlay_available': False,
+            'daily_realized_return': None,  # Not available from snapshot
+            'daily_exposure': None,  # Not available from snapshot
+            'warnings': []
+        }
+    
+    except Exception as e:
+        return {
+            'success': False,
+            'failure_reason': f'Error computing portfolio metrics: {str(e)}',
+            'period_results': {}
+        }
+
+
 def render_executive_tab():
     """
     Render the Executive tab with enhanced visualizations.
@@ -11905,7 +12076,9 @@ def render_executive_tab():
     with col1:
         st.markdown("#### 🏆 Top Performers")
         
-        leaderboard = get_wavescore_leaderboard()
+        # UPDATED: Pass portfolio_snapshot from session state to avoid reloading wave_history.csv
+        portfolio_snapshot = st.session_state.get("portfolio_snapshot")
+        leaderboard = get_wavescore_leaderboard(portfolio_snapshot=portfolio_snapshot)
         if leaderboard is not None and len(leaderboard) > 0:
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
@@ -22410,8 +22583,7 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                 st.metric("Auto-Refresh", "ON" if auto_refresh_status else "OFF")
     
     except Exception as e:
-        st.error("⚠️ Executive Briefing encountered an error")
-        st.info("The system is being restored. Please refresh the page or contact support.")
+        st.error("Unable to render executive dashboard")
         if st.session_state.get("debug_mode", False):
             st.exception(e)
 
@@ -22425,6 +22597,17 @@ def main():
     Main application entry point - Executive Layer v2.
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
+    # ========================================================================
+    # STEP -1: Page Configuration (must be first Streamlit call)
+    # ========================================================================
+    st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
+    
+    # ========================================================================
+    # STEP -0.5: Render Proof Banner and Build Stamp
+    # ========================================================================
+    render_proof_banner()
+    render_build_stamp()
+    
     # ========================================================================
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
@@ -22465,10 +22648,12 @@ def main():
     # Check run_count threshold (max 3 iterations without user action)
     if st.session_state.run_count > 3:
         st.session_state.loop_detected = True
-        st.error("⚠️ **LOOP DETECTION: Automatic execution halted**")
-        st.warning("The application detected more than 3 consecutive runs without user interaction. This indicates a potential infinite loop.")
-        st.info("Please refresh the page manually or click a button to continue.")
-        st.stop()
+        # Log loop detection but continue rendering UI
+        logger.warning(f"Loop detection triggered: {st.session_state.run_count} consecutive runs without user interaction")
+        # Display warning banner but allow UI to continue
+        if st.session_state.get("debug_mode", False):
+            st.warning("⚠️ Loop detection: Multiple consecutive runs detected. Debug mode allows continued execution.")
+        # st.stop()  # REMOVED: Allow UI to render instead of halting
     
     # ========================================================================
     # STEP 1.5: Rerun Throttle Safety Fuse (Prevent Rapid Reruns)
@@ -22486,15 +22671,14 @@ def main():
         if time_since_last_rerun < RERUN_THROTTLE_THRESHOLD:
             st.session_state.rapid_rerun_count += 1
             
-            # If we've exceeded max rapid reruns, halt execution
+            # If we've exceeded max rapid reruns, log but continue
             if st.session_state.rapid_rerun_count >= MAX_RAPID_RERUNS:
-                st.error("⚠️ **RAPID RERUN DETECTED: Application halted for safety**")
-                st.warning(f"The application detected {st.session_state.rapid_rerun_count} consecutive reruns within {RERUN_THROTTLE_THRESHOLD} seconds. This indicates a rerun loop.")
-                st.info("**What to do:**")
-                st.info("1. Refresh the page manually (F5 or Ctrl+R)")
-                st.info("2. If the problem persists, check for auto-refresh settings or report this issue")
-                st.caption(f"Debug info: Last rerun was {time_since_last_rerun:.3f}s ago (threshold: {RERUN_THROTTLE_THRESHOLD}s)")
-                st.stop()
+                # Log rapid rerun detection but continue rendering UI
+                logger.warning(f"Rapid rerun detection triggered: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s")
+                # Display warning banner but allow UI to continue
+                if st.session_state.get("debug_mode", False):
+                    st.warning(f"⚠️ Rapid rerun detected: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s. Debug mode allows continued execution.")
+                # st.stop()  # REMOVED: Allow UI to render instead of halting
         else:
             # Reset rapid rerun counter if enough time has passed
             st.session_state.rapid_rerun_count = 0
@@ -22654,9 +22838,12 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     elapsed_time = time.time() - WATCHDOG_START_TIME
     if st.session_state.safe_mode_no_fetch and elapsed_time > 3.0:
-        st.error("⏱️ **Safe Mode watchdog stopped long-running execution.** (Exceeded 3-second timeout)")
-        st.info("Turn OFF Safe Mode to enable full functionality, or use manual buttons to trigger specific operations.")
-        st.stop()
+        # Log watchdog timeout but continue rendering UI
+        logger.warning(f"Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed (threshold: 3.0s)")
+        # Display warning banner but allow UI to continue
+        if st.session_state.get("debug_mode", False):
+            st.warning(f"⏱️ Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed. Debug mode allows continued execution.")
+        # st.stop()  # REMOVED: Allow UI to render instead of halting
     
     # Debug trace: Mark that we passed the watchdog
     if st.session_state.get("debug_mode", False):
@@ -22863,6 +23050,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             # Store exception for debug panel
             if "data_load_exceptions" not in st.session_state:
                 st.session_state.data_load_exceptions = []
+                st.session_state.data_load_exceptions.append(str(e))
             st.session_state.data_load_exceptions.append({
                 "component": "Readiness Report",
                 "error": str(e),
@@ -22923,85 +23111,12 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Initialize mode (default: Standard)
         st.session_state.mode = "Standard"
-    
-    # ========================================================================
-    # Auto-Refresh Logic with Error Handling
-    # ========================================================================
-    # Streamlit Cloud rerun stability hotfix: disable auto-refresh and protect sidebar state.
-    # Hard-disable all auto-refresh execution to prevent rerun loops
-    
-    # Set count to None to completely disable auto-refresh
-    # Note: count is used internally by Streamlit's rerun logic. Setting it to None
-    # ensures no auto-refresh timer is triggered, preventing automatic reruns.
-    count = None
-    
-    # Skip all auto-refresh logic to prevent reruns
-    # Note: DEFAULT_AUTO_REFRESH_ENABLED constant is False (set in auto_refresh_config.py or fallback)
-    
-    # ========================================================================
-    # Wave Universe Initialization and Force Reload Handling
-    # ========================================================================
-    
-    # Check for force reload flag and rebuild universe if needed
-    force_reload = st.session_state.get("force_reload_universe", False)
-    wave_universe_version = st.session_state.get("wave_universe_version", 1)
-    
-    if force_reload:
-        # Rebuild wave universe
-        get_canonical_wave_universe(force_reload=True, _wave_universe_version=wave_universe_version)
-        # Reset the flag
-        st.session_state["force_reload_universe"] = False
-    else:
-        # Normal initialization - use cached universe
-        get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-    
-    # Display duplicate cleanup feedback in sidebar
-    try:
-        universe = st.session_state.get("wave_universe", {})
-        removed_duplicates = universe.get("removed_duplicates", [])
         
-        if removed_duplicates:
-            # Show info message with duplicate count
-            st.sidebar.info(f"ℹ️ Removed {len(removed_duplicates)} duplicate wave(s) from universe")
-            
-            # Optionally show list of removed duplicates in expander
-            with st.sidebar.expander("View Removed Duplicates"):
-                st.write("**Duplicates removed during deduplication:**")
-                for dup in removed_duplicates:
-                    st.text(f"• {dup}")
-    except Exception:
-        pass
+        # Initialize other session state variables as needed
+        # (Additional initialization code would go here)
     
     # ========================================================================
-    # Global Price Cache Initialization - DISABLED (now using canonical cache)
-    # ========================================================================
-    # NOTE: Global price cache initialization has been disabled to prevent
-    # implicit background downloads. All price data now comes from the
-    # canonical cache at data/cache/prices_cache.parquet.
-    # 
-    # Users should explicitly refresh the cache using:
-    # 1. "Refresh Prices Cache" button in sidebar
-    # 2. FORCE_CACHE_REFRESH=1 environment variable
-    #
-    # The canonical cache can be accessed via:
-    #   from helpers.price_loader import get_canonical_prices
-    #   prices = get_canonical_prices(tickers=['AAPL', 'MSFT'])
-    
-    # Initialize price cache TTL setting if not present (kept for backward compatibility)
-    if "price_cache_ttl_seconds" not in st.session_state:
-        st.session_state.price_cache_ttl_seconds = 7200
-    
-    # Initialize force rebuild flag if not present (kept for backward compatibility)
-    if "force_price_cache_rebuild" not in st.session_state:
-        st.session_state.force_price_cache_rebuild = False
-    
-    # REMOVED: Automatic price cache prefetching on startup
-    # This was causing implicit background downloads which violated the
-    # single source of truth principle. All price loading now goes through
-    # the canonical cache which only downloads on explicit user request.
-    
-    # ========================================================================
-    # Main Application UI
+    # STEP 4: Render Main UI
     # ========================================================================
     
     # Resolve canonical app context (single source of truth)
@@ -23046,6 +23161,13 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     render_reality_panel()
     
     st.markdown("---")
+    
+    # ========================================================================
+    # UI RENDERING PHASE CONFIRMATION
+    # ========================================================================
+    # Log message confirming that we've reached the UI rendering phase
+    logger.info("✓ Entering UI rendering phase - portfolio data loaded, diagnostics complete")
+    print("✓ UI RENDERING PHASE: Beginning tab rendering with portfolio data")
     
     # ========================================================================
     # ROUND 7 Phase 1: Wave Universe Validation Banner
@@ -23373,42 +23495,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         safe_component("Bottom Ticker", render_bottom_ticker_bar, show_error=False)
 
 
-# Run the application
+# ============================================================================
+# APPLICATION ENTRY POINT
+# ============================================================================
+
 if __name__ == "__main__":
-    # Initialize safe_mode_enabled if not present
-    if "safe_mode_enabled" not in st.session_state:
-        st.session_state.safe_mode_enabled = False
-    
-    # Wrap main execution in try-except to capture errors into Safe Mode
-    # but continue rendering the UI with degraded functionality
-    try:
-        main()
-    except Exception as e:
-        # ========================================================================
-        # SAFE MODE ERROR HANDLING - NO FULL-PAGE TAKEOVER
-        # ========================================================================
-        # Errors are captured and stored in session state for display in the
-        # Diagnostics tab. The main UI continues to render with degraded
-        # functionality rather than showing a full-page error screen.
-        # ========================================================================
-        
-        # Store error in session state for Diagnostics tab
-        st.session_state.safe_mode_enabled = True
-        st.session_state.safe_mode_error_message = str(e)
-        st.session_state.safe_mode_error_traceback = traceback.format_exc()
-        
-        # Show a small, non-intrusive notification
-        # (only at the very top - not taking over the whole page)
-        if not st.session_state.get("safe_mode_error_shown", False):
-            st.toast("⚠️ An error occurred. Check Diagnostics tab for details.", icon="⚠️")
-            st.session_state.safe_mode_error_shown = True
-        
-        # Try to run main() again - this time it will run with safe_mode_enabled=True
-        # which causes graceful degradation in components
-        try:
-            main()
-        except Exception as retry_error:
-            # If main() fails even in safe mode, show minimal error
-            st.error("Critical Error: Unable to render application.")
-            st.code(f"Error: {str(retry_error)}\n\n{traceback.format_exc()}", language="python")
-            # mobile commit trigger
+    main()
