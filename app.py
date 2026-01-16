@@ -5617,12 +5617,51 @@ def get_mission_control_data():
     return mc_data
 
 
-def get_wavescore_leaderboard():
+def get_wavescore_leaderboard(portfolio_snapshot=None):
     """
     Get top 10 waves by WaveScore (30-day cumulative alpha).
+    
+    UPDATED: Now uses portfolio_snapshot from session state instead of reloading wave_history.csv
+    This avoids unnecessary CSV reads and uses pre-computed snapshot data.
+    
+    Args:
+        portfolio_snapshot: DataFrame from st.session_state["portfolio_snapshot"] with Alpha_30D column
+                           If None, falls back to legacy wave_history loading
+    
     Returns a DataFrame with wave names and scores, or None if unavailable.
     """
     try:
+        # UPDATED: Use portfolio_snapshot if available
+        if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+            # Use Alpha_30D column from snapshot for WaveScore calculation
+            if 'Alpha_30D' not in portfolio_snapshot.columns or 'Wave' not in portfolio_snapshot.columns:
+                # Fall back to legacy method if required columns missing
+                portfolio_snapshot = None
+            else:
+                # Filter to waves with valid Alpha_30D data
+                valid_waves = portfolio_snapshot[portfolio_snapshot['Alpha_30D'].notna()].copy()
+                
+                if len(valid_waves) == 0:
+                    return None
+                
+                # Use Alpha_30D column from snapshot for WaveScore calculation
+                # WaveScore formula: (Alpha_30D * 1000) + 50, clamped to 0-100
+                # Multiplier of 1000 converts alpha decimal (e.g., 0.05) to points (50)
+                # Base of 50 centers the score around mid-range
+                # Range [0,100] provides intuitive percentage-like score
+                valid_waves['WaveScore'] = (valid_waves['Alpha_30D'] * 1000) + 50
+                valid_waves['WaveScore'] = valid_waves['WaveScore'].clip(0, 100)
+                
+                # Sort and get top 10
+                leaderboard_df = valid_waves[['Wave', 'WaveScore']].sort_values(
+                    'WaveScore', ascending=False
+                ).head(10).copy()
+                leaderboard_df['Rank'] = range(1, len(leaderboard_df) + 1)
+                leaderboard_df = leaderboard_df[['Rank', 'Wave', 'WaveScore']]
+                
+                return leaderboard_df
+        
+        # LEGACY PATH: Fall back to wave_history if portfolio_snapshot not provided
         df = get_wave_data_filtered(wave_name=None, days=30)
         
         if df is None:
@@ -9898,32 +9937,47 @@ def render_executive_brief_tab():
     
     try:
         # ========================================================================
-        # TRUTHFRAME INTEGRATION - Load TruthFrame for 28/28 coverage
+        # PORTFOLIO SNAPSHOT FROM SESSION STATE - Use pre-loaded snapshot
         # ========================================================================
-        snapshot_df = None
+        # UPDATED: Use portfolio_snapshot from session state instead of reloading/recomputing
+        # The snapshot is already loaded at app startup and stored in st.session_state["portfolio_snapshot"]
+        snapshot_df = st.session_state.get("portfolio_snapshot")
         snapshot_metadata = None
         
-        try:
-            from analytics_truth import get_truth_frame
-            from truth_frame_helpers import convert_truthframe_to_snapshot_format
-            from snapshot_ledger import get_snapshot_metadata
-            
-            # Debug trace marker
+        if snapshot_df is None or snapshot_df.empty:
+            # Fallback: Try loading from TruthFrame if session state is empty
+            try:
+                from analytics_truth import get_truth_frame
+                from truth_frame_helpers import convert_truthframe_to_snapshot_format
+                from snapshot_ledger import get_snapshot_metadata
+                
+                # Debug trace marker
+                if st.session_state.get("debug_mode", False):
+                    st.caption("🔍 Trace: Fallback to TruthFrame (portfolio_snapshot not in session state)")
+                
+                # Get TruthFrame (respects Safe Mode)
+                safe_mode = st.session_state.get("safe_mode_enabled", False)
+                truth_df = get_truth_frame(safe_mode=safe_mode)
+                
+                # Convert to snapshot_df format for backward compatibility
+                snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
+                
+                snapshot_metadata = get_snapshot_metadata()
+            except ImportError:
+                st.warning("⚠️ TruthFrame module not available and portfolio_snapshot not in session state.")
+            except Exception as e:
+                st.warning(f"⚠️ TruthFrame fallback error: {str(e)}")
+        else:
+            # Successfully loaded from session state
             if st.session_state.get("debug_mode", False):
-                st.caption("🔍 Trace: Entering engine compute (ExecutiveBrief - get_truth_frame)")
+                st.caption(f"✓ Loaded portfolio_snapshot from session state ({len(snapshot_df)} rows)")
             
-            # Get TruthFrame (respects Safe Mode)
-            safe_mode = st.session_state.get("safe_mode_enabled", False)
-            truth_df = get_truth_frame(safe_mode=safe_mode)
-            
-            # Convert to snapshot_df format for backward compatibility
-            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
-            
-            snapshot_metadata = get_snapshot_metadata()
-        except ImportError:
-            st.warning("⚠️ TruthFrame module not available. Using fallback data.")
-        except Exception as e:
-            st.warning(f"⚠️ TruthFrame error: {str(e)}")
+            # Try to get metadata
+            try:
+                from snapshot_ledger import get_snapshot_metadata
+                snapshot_metadata = get_snapshot_metadata()
+            except:
+                pass
         
         # ========================================================================
         # WAVE STATUS FILTERING - Add UI toggle for staging waves
@@ -10465,179 +10519,123 @@ def render_executive_brief_tab():
                     except Exception as e:
                         st.error(f"Error loading cache metadata: {e}")
                 
-                # Show live_snapshot.csv max date
-                st.markdown("**📈 Live Snapshot Date**")
+                # Show portfolio snapshot date
+                st.markdown("**📈 Portfolio Snapshot Date**")
                 try:
-                    snapshot_path = "data/live_snapshot.csv"
-                    if os.path.exists(snapshot_path):
-                        snapshot_df_debug = pd.read_csv(snapshot_path)
-                        if 'Date' in snapshot_df_debug.columns and not snapshot_df_debug.empty:
-                            snapshot_date = snapshot_df_debug['Date'].iloc[0]
+                    if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+                        if 'Date' in portfolio_snapshot.columns:
+                            snapshot_date = portfolio_snapshot['Date'].iloc[0]
                             st.metric("Snapshot Date", snapshot_date)
                         else:
                             st.warning("Date column not found in snapshot")
                     else:
-                        st.warning("live_snapshot.csv not found")
+                        st.warning("Portfolio snapshot not loaded")
                 except Exception as e:
-                    st.error(f"Error loading snapshot date: {e}")
+                    st.error(f"Error accessing snapshot date: {e}")
                 
-                # Show portfolio contributors (if ledger available)
+                # Show portfolio contributors from snapshot
                 st.markdown("**👥 Portfolio Contributors**")
                 try:
-                    if 'portfolio_alpha_ledger' in st.session_state:
-                        ledger_debug = st.session_state['portfolio_alpha_ledger']
-                        if ledger_debug.get('success'):
-                            # Count contributors from period_results
-                            for period_label in ['1D', '30D', '60D']:
-                                period_result = ledger_debug['period_results'].get(period_label, {})
-                                n_contributors = period_result.get('n_waves_with_returns', 0)
-                                st.caption(f"{period_label} contributors: {n_contributors}")
-                        else:
-                            st.caption("Ledger computation failed")
+                    if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+                        # Count waves with valid data for each period
+                        for period_key in ['1D', '30D', '60D']:
+                            return_col = f'Return_{period_key}'
+                            if return_col in portfolio_snapshot.columns:
+                                n_contributors = portfolio_snapshot[return_col].notna().sum()
+                                st.caption(f"{period_key} contributors: {n_contributors}")
                     else:
-                        st.caption("Ledger not yet computed")
+                        st.caption("Portfolio snapshot not loaded")
                 except Exception as e:
                     st.caption(f"Error: {e}")
         
             try:
-                from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
-                from helpers.price_book import get_price_book
-                from waves_engine import get_all_waves_universe
-            
-                # Load PRICE_BOOK
-                price_book = get_cached_price_book()
-            
-                # Use canonical ledger from session state if available (single source of truth)
-                # Only compute if not already in session state
-                if 'portfolio_alpha_ledger' in st.session_state:
-                    ledger = st.session_state['portfolio_alpha_ledger']
+                # UPDATED: Use portfolio_snapshot from session state instead of recomputing from price_book
+                # This avoids unnecessary computation and reads from pre-loaded snapshot data
+                portfolio_snapshot = st.session_state.get("portfolio_snapshot")
+                
+                # Compute portfolio metrics from snapshot (replaces compute_portfolio_alpha_ledger)
+                ledger = compute_portfolio_metrics_from_snapshot(portfolio_snapshot)
+                
+                # Get wave count for diagnostics
+                if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+                    # Filter to waves with valid data
+                    if 'status' in portfolio_snapshot.columns:
+                        valid_waves = portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA']
+                        n_waves_used = len(valid_waves)
+                    else:
+                        n_waves_used = len(portfolio_snapshot)
+                    
+                    # Get snapshot date
+                    if 'Date' in portfolio_snapshot.columns and not portfolio_snapshot.empty:
+                        end_date = portfolio_snapshot['Date'].iloc[0]
+                    else:
+                        end_date = 'N/A'
                 else:
-                    # Compute portfolio alpha ledger (canonical implementation)
-                    ledger = compute_portfolio_alpha_ledger(
-                        price_book, 
-                        periods=[1, 30, 60, 365],
-                        benchmark_ticker='SPY',
-                        mode='Standard',
-                        vix_exposure_enabled=True
-                    )
-                    # Only cache successful ledger computations to allow retry on failure
-                    if ledger['success']:
-                        st.session_state['portfolio_alpha_ledger'] = ledger
+                    n_waves_used = 0
+                    end_date = 'N/A'
             
                 # Add diagnostic information
                 if ledger['success']:
-                    # Count waves from daily_risk_return computation (efficient set intersection)
-                    all_waves = set(get_all_waves_universe().get('waves', []))
-                    wave_weights_keys = set(WAVE_WEIGHTS.keys())
-                    n_waves_used = len(all_waves & wave_weights_keys)
-                
                     # Get date range from period results
                     period_1d = ledger['period_results'].get('1D', {})
                     if period_1d.get('available'):
                         end_date = period_1d.get('end_date', 'N/A')
-                        n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
-                        start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
+                        n_dates = None  # Not available from snapshot (no time series)
+                        start_date = 'N/A'  # Not available from snapshot
                     else:
                         end_date = 'N/A'
                         start_date = 'N/A'
-                        n_dates = 0
+                        n_dates = None
                 
-                    # Display VIX overlay status
-                    vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
-                    safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
-                
-                    st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
-                    st.caption(f"📅 Period: {start_date} to {end_date}")
+                    # Display simplified status (no VIX overlay info from snapshot)
+                    st.caption(f"📊 Portfolio: waves={n_waves_used} (from snapshot)")
+                    st.caption(f"📅 Snapshot Date: {end_date}")
                 else:
-                    # Check for empty result condition
-                    n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
-                    st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
-                
                     # Display warning with failure reason
                     failure_reason = ledger.get('failure_reason', 'Unknown error')
-                    st.warning(f"⚠️ Portfolio Snapshot empty because: {failure_reason}")
+                    st.warning(f"⚠️ Portfolio Snapshot unavailable: {failure_reason}")
                 
-                    # Enhanced diagnostics with collapsible details
-                    debug = ledger.get('debug', {})
-                    if debug:
-                        with st.expander("🔍 Show Diagnostic Details", expanded=False):
-                            st.markdown("**Error Details:**")
-                            st.code(failure_reason)
-                            
-                            # Show exception traceback if available
-                            if debug.get('exception_traceback'):
-                                st.markdown("**Exception Traceback:**")
-                                st.code(debug['exception_traceback'], language='python')
-                            
-                            # Show key input summaries
-                            st.markdown("**Input Summary:**")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("Price Book Shape", debug.get('price_book_shape', 'N/A'))
-                                st.metric("SPY Present", "✓" if debug.get('spy_present') else "✗")
-                                st.metric("Active Waves", debug.get('active_waves_count', 'N/A'))
-                            with col2:
-                                st.metric("Date Range", f"{debug.get('price_book_index_min', 'N/A')} to {debug.get('price_book_index_max', 'N/A')}")
-                                st.metric("Tickers Requested", debug.get('tickers_requested_count', 'N/A'))
-                                st.metric("Tickers Found", debug.get('tickers_intersection_count', 'N/A'))
-                            
-                            # Show missing tickers sample if available
-                            missing_tickers = debug.get('tickers_missing_sample', [])
-                            if missing_tickers:
-                                st.markdown("**Missing Tickers (sample):**")
-                                st.caption(', '.join(missing_tickers))
-                
-                    # Check for specific error conditions
-                    if n_dates < 2:
-                        st.error(f"❌ Portfolio ledger unavailable: {failure_reason}")
+                    # Simplified diagnostics for snapshot-based approach
+                    with st.expander("🔍 Show Diagnostic Details", expanded=False):
+                        st.markdown("**Error Details:**")
+                        st.code(failure_reason)
+                        
+                        # Show snapshot info
+                        st.markdown("**Snapshot Info:**")
+                        if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+                            st.metric("Snapshot Rows", len(portfolio_snapshot))
+                            if 'status' in portfolio_snapshot.columns:
+                                valid_count = len(portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA'])
+                                st.metric("Waves with Data", valid_count)
+                        else:
+                            st.caption("Portfolio snapshot not loaded in session state")
             
                 if ledger['success']:
-                    # RENDERER PROOF LINE - Enhanced with data source info
+                    # RENDERER PROOF LINE - Updated to show snapshot-based rendering
                     build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
                 
-                    # Get price_book info for proof label
-                    price_max_date = "N/A"
-                    price_rows = 0
-                    price_cols = 0
-                    if price_book is not None and not price_book.empty:
-                        price_max_date = price_book.index.max().strftime('%Y-%m-%d')
-                        price_rows, price_cols = price_book.shape
+                    # Get snapshot info for proof label
+                    snapshot_date = "N/A"
+                    snapshot_rows = 0
+                    if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+                        snapshot_rows = len(portfolio_snapshot)
+                        if 'Date' in portfolio_snapshot.columns:
+                            snapshot_date = portfolio_snapshot['Date'].iloc[0]
                 
                     st.markdown(
                         f"""
                         <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                            <strong>Renderer:</strong> Ledger | <strong>Source:</strong> compute_portfolio_alpha_ledger | <strong>Price max date:</strong> {price_max_date} | <strong>Rows:</strong> {price_rows} | <strong>Cols:</strong> {price_cols}
+                            <strong>Renderer:</strong> Snapshot | <strong>Source:</strong> st.session_state["portfolio_snapshot"] | <strong>Snapshot Date:</strong> {snapshot_date} | <strong>Waves:</strong> {snapshot_rows}
                         </div>
                         """,
                         unsafe_allow_html=True
                     )
                 
-                    # VIX/Exposure Status Line
-                    vix_proxy_used = ledger.get('vix_ticker_used', 'none found')
-                    if not vix_proxy_used:
-                        vix_proxy_used = 'none found'
-                
-                    # Determine exposure mode
-                    exposure_mode = "computed" if ledger.get('overlay_available', False) else "fallback 1.0"
-                
-                    # Calculate exposure min/max over last 60 rows if available
-                    exposure_min_max = ""
-                    if ledger.get('daily_exposure') is not None:
-                        try:
-                            exposure_series = ledger['daily_exposure']
-                            if len(exposure_series) > 0:
-                                # Get last 60 rows
-                                last_60 = exposure_series.tail(60)
-                                exp_min = last_60.min()
-                                exp_max = last_60.max()
-                                exposure_min_max = f" | Exposure min/max (60D): {exp_min:.2f} - {exp_max:.2f}"
-                        except Exception:
-                            pass
-                
+                    # Simplified status (no VIX/Exposure info from snapshot)
                     st.markdown(
                         f"""
                         <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
-                            <strong>VIX Proxy:</strong> {vix_proxy_used} | <strong>Exposure Mode:</strong> {exposure_mode}{exposure_min_max}
+                            <strong>Data Source:</strong> Portfolio Snapshot (pre-computed wave metrics) | <strong>Aggregation:</strong> Equal-weight across waves
                         </div>
                         """,
                         unsafe_allow_html=True
@@ -10756,90 +10754,48 @@ def render_executive_brief_tab():
                     # Create debug report DataFrame
                     try:
                         import pandas as pd
-                        from helpers.price_loader import get_price_book_debug_summary
                     
-                        # Get price_book debug summary
-                        price_book_summary = get_price_book_debug_summary(price_book)
-                    
-                        # Collect debug data
+                        # Collect debug data from snapshot
                         debug_data = []
                     
-                        # Add price_book summary
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Rows (Trading Days)',
-                            'Value': str(price_book_summary['rows'])
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Cols (Tickers)',
-                            'Value': str(price_book_summary['cols'])
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Start Date',
-                            'Value': str(price_book_summary['start_date']) if price_book_summary['start_date'] else 'N/A'
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'End Date',
-                            'Value': str(price_book_summary['end_date']) if price_book_summary['end_date'] else 'N/A'
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Non-null Cells',
-                            'Value': str(price_book_summary['non_null_cells'])
-                        })
-                        debug_data.append({
-                            'Category': 'PRICE_BOOK',
-                            'Metric': 'Is Empty',
-                            'Value': str(price_book_summary['is_empty'])
-                        })
+                        # Add snapshot summary
+                        if portfolio_snapshot is not None and not portfolio_snapshot.empty:
+                            debug_data.append({
+                                'Category': 'PORTFOLIO_SNAPSHOT',
+                                'Metric': 'Total Waves',
+                                'Value': str(len(portfolio_snapshot))
+                            })
+                            if 'status' in portfolio_snapshot.columns:
+                                valid_count = len(portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA'])
+                                debug_data.append({
+                                    'Category': 'PORTFOLIO_SNAPSHOT',
+                                    'Metric': 'Waves with Data',
+                                    'Value': str(valid_count)
+                                })
+                            if 'Date' in portfolio_snapshot.columns:
+                                debug_data.append({
+                                    'Category': 'PORTFOLIO_SNAPSHOT',
+                                    'Metric': 'Snapshot Date',
+                                    'Value': str(portfolio_snapshot['Date'].iloc[0])
+                                })
                     
                         # Add ledger info
                         debug_data.append({
-                            'Category': 'Portfolio Ledger',
+                            'Category': 'Portfolio Metrics',
                             'Metric': 'Success',
                             'Value': str(ledger.get('success', False))
                         })
                         debug_data.append({
-                            'Category': 'Portfolio Ledger',
+                            'Category': 'Portfolio Metrics',
                             'Metric': 'Failure Reason',
                             'Value': str(ledger.get('failure_reason', 'N/A'))
                         })
                     
-                        # Add wave count (efficient set intersection)
-                        all_waves = set(get_all_waves_universe().get('waves', []))
-                        wave_weights_keys = set(WAVE_WEIGHTS.keys())
-                        n_waves_used = len(all_waves & wave_weights_keys)
+                        # Add wave count
                         debug_data.append({
-                            'Category': 'Portfolio Ledger',
+                            'Category': 'Portfolio Metrics',
                             'Metric': 'Waves Processed',
                             'Value': str(n_waves_used)
-                        })
-                    
-                        # Add ticker count (from price_book)
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Tickers Available',
-                            'Value': str(price_book_summary['num_tickers'])
-                        })
-                    
-                        # Add VIX and safe asset info
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'VIX Ticker Used',
-                            'Value': str(ledger.get('vix_ticker_used', 'N/A'))
-                        })
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Safe Ticker Used',
-                            'Value': str(ledger.get('safe_ticker_used', 'N/A'))
-                        })
-                        debug_data.append({
-                            'Category': 'Portfolio Ledger',
-                            'Metric': 'Overlay Available',
-                            'Value': str(ledger.get('overlay_available', False))
                         })
                     
                         # Add period results
@@ -12105,6 +12061,127 @@ def render_wave_intelligence_center_tab():
         st.error(f"Error generating market context: {str(e)}")
 
 
+def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
+    """
+    Compute portfolio-level metrics from portfolio_snapshot DataFrame.
+    
+    UPDATED: This function replaces compute_portfolio_alpha_ledger for portfolio-level aggregation.
+    Instead of recomputing from price_book, it aggregates pre-computed per-wave metrics from
+    the portfolio_snapshot (live_snapshot.csv loaded into session state).
+    
+    Args:
+        portfolio_snapshot: DataFrame with columns Wave, Return_1D, Return_30D, Return_60D, 
+                           Return_365D, Benchmark_Return_1D, etc., Alpha_1D, etc.
+    
+    Returns:
+        Dictionary with portfolio metrics for each period, or None if unavailable.
+        Structure matches compute_portfolio_alpha_ledger output format for compatibility.
+    """
+    try:
+        if portfolio_snapshot is None or portfolio_snapshot.empty:
+            return {
+                'success': False,
+                'failure_reason': 'Portfolio snapshot is empty',
+                'period_results': {}
+            }
+        
+        # Filter to waves with valid data (exclude waves with status='NO DATA')
+        if 'status' in portfolio_snapshot.columns:
+            valid_waves = portfolio_snapshot[portfolio_snapshot['status'] != 'NO DATA'].copy()
+        else:
+            valid_waves = portfolio_snapshot.copy()
+        
+        if len(valid_waves) == 0:
+            return {
+                'success': False,
+                'failure_reason': 'No waves with valid data',
+                'period_results': {}
+            }
+        
+        # Calculate equal-weight portfolio metrics for each period
+        # NOTE: This uses equal-weight averaging across all waves with valid data.
+        # This differs from compute_portfolio_alpha_ledger which may use different weighting.
+        # Equal-weight is appropriate here because:
+        # 1. Portfolio snapshot represents a balanced view across all strategies
+        # 2. WAVE_WEIGHTS from waves_engine are typically equal-weight
+        # 3. Simplifies aggregation from pre-computed per-wave metrics
+        periods = ['1D', '30D', '60D', '365D']
+        period_results = {}
+        
+        # Get snapshot date
+        snapshot_date = valid_waves['Date'].iloc[0] if 'Date' in valid_waves.columns else 'N/A'
+        
+        for period in periods:
+            return_col = f'Return_{period}'
+            benchmark_col = f'Benchmark_Return_{period}'
+            alpha_col = f'Alpha_{period}'
+            
+            # Check if columns exist
+            if return_col not in valid_waves.columns or benchmark_col not in valid_waves.columns:
+                period_results[period] = {
+                    'available': False,
+                    'reason': f'Missing {return_col} or {benchmark_col} columns'
+                }
+                continue
+            
+            # Filter to waves with non-null return data for this period
+            period_data = valid_waves[valid_waves[return_col].notna()].copy()
+            
+            if len(period_data) == 0:
+                period_results[period] = {
+                    'available': False,
+                    'reason': f'No waves with valid {period} return data'
+                }
+                continue
+            
+            # Calculate equal-weight portfolio metrics
+            # Portfolio return = average of all wave returns
+            cum_realized = period_data[return_col].mean()
+            cum_benchmark = period_data[benchmark_col].mean()
+            total_alpha = period_data[alpha_col].mean() if alpha_col in period_data.columns else (cum_realized - cum_benchmark)
+            
+            # For attribution, use simplified model (no VIX overlay data available in snapshot)
+            # LIMITATION: The portfolio snapshot only contains aggregate period returns,
+            # not daily time-series, so we cannot compute precise overlay alpha.
+            # This simplified model attributes all alpha to selection.
+            # For detailed attribution with overlay alpha, use compute_portfolio_alpha_ledger
+            # which has access to daily exposure series.
+            selection_alpha = total_alpha  # All alpha attributed to selection
+            overlay_alpha = 0.0  # No overlay attribution available from snapshot
+            residual = 0.0  # No residual in simplified model
+            
+            period_results[period] = {
+                'available': True,
+                'cum_realized': cum_realized,
+                'cum_benchmark': cum_benchmark,
+                'total_alpha': total_alpha,
+                'selection_alpha': selection_alpha,
+                'overlay_alpha': overlay_alpha,
+                'residual': residual,
+                'n_waves_with_returns': len(period_data),
+                'start_date': 'N/A',  # Not available from snapshot
+                'end_date': snapshot_date
+            }
+        
+        return {
+            'success': True,
+            'period_results': period_results,
+            'vix_ticker_used': None,
+            'safe_ticker_used': None,
+            'overlay_available': False,
+            'daily_realized_return': None,  # Not available from snapshot
+            'daily_exposure': None,  # Not available from snapshot
+            'warnings': []
+        }
+    
+    except Exception as e:
+        return {
+            'success': False,
+            'failure_reason': f'Error computing portfolio metrics: {str(e)}',
+            'period_results': {}
+        }
+
+
 def render_executive_tab():
     """
     Render the Executive tab with enhanced visualizations.
@@ -12121,7 +12198,9 @@ def render_executive_tab():
     with col1:
         st.markdown("#### 🏆 Top Performers")
         
-        leaderboard = get_wavescore_leaderboard()
+        # UPDATED: Pass portfolio_snapshot from session state to avoid reloading wave_history.csv
+        portfolio_snapshot = st.session_state.get("portfolio_snapshot")
+        leaderboard = get_wavescore_leaderboard(portfolio_snapshot=portfolio_snapshot)
         if leaderboard is not None and len(leaderboard) > 0:
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
