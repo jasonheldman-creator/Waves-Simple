@@ -183,7 +183,8 @@ try:
         PRICE_CACHE_DEGRADED_DAYS,
         CANONICAL_CACHE_PATH,
         compute_system_health,
-        get_price_book
+        get_price_book,
+        fetch_live_prices
     )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
     # Legacy aliases for backward compatibility - mapping to canonical names:
@@ -10472,18 +10473,22 @@ def render_executive_brief_tab():
             
             try:
                 # ================================================================
-                # RUNTIME DYNAMIC COMPUTATION FROM PRICE_BOOK
-                # All portfolio metrics computed directly in render path at runtime
+                # LIVE MARKET DATA FETCHING - NO CACHING
+                # All portfolio metrics computed from fresh yfinance API data
                 # NO dependencies on live_snapshot.csv, caches, or snapshot ledger
                 # NO st.cache_data - pure runtime computation every render
+                # Fetches live market data on EVERY render to prove dynamic behavior
                 # ================================================================
                 
-                # Fetch PRICE_BOOK (canonical live market data source)
-                PRICE_BOOK = get_cached_price_book()
+                # Fetch live prices from yfinance API (NO CACHING)
+                fetch_start_utc = datetime.now(timezone.utc)
+                PRICE_BOOK = fetch_live_prices(tickers=None, period="1y")
+                fetch_end_utc = datetime.now(timezone.utc)
+                fetch_duration_ms = (fetch_end_utc - fetch_start_utc).total_seconds() * 1000
                 
                 if PRICE_BOOK is None or PRICE_BOOK.empty:
-                    st.error("⚠️ PRICE_BOOK is empty - cannot compute portfolio metrics")
-                    st.caption("Portfolio Snapshot requires PRICE_BOOK data. Please ensure the price cache is populated by running the data refresh workflow.")
+                    st.error("⚠️ Live price fetch failed - cannot compute portfolio metrics")
+                    st.caption("Portfolio Snapshot requires live market data from yfinance API. Please check network connectivity and API availability.")
                 else:
                     # Compute returns inline using pct_change
                     returns_df = PRICE_BOOK.pct_change().dropna()
@@ -10509,19 +10514,20 @@ def render_executive_brief_tab():
                         else:
                             # Get latest trading date and current UTC time for diagnostics
                             last_trading_date = portfolio_returns.index[-1].strftime('%Y-%m-%d')
-                            current_utc = datetime.now(timezone.utc).strftime('%H:%M:%S UTC')
+                            current_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                             
                             # Display comprehensive diagnostic overlay (mandatory)
                             st.markdown(
                                 f"""
                                 <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00ff00; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                                    <strong>✅ RUNTIME DYNAMIC COMPUTATION</strong><br>
-                                    <strong>Data Source:</strong> PRICE_BOOK (live market data, {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers)<br>
-                                    <strong>Last Trading Date:</strong> {last_trading_date}<br>
-                                    <strong>Render UTC:</strong> {current_utc}<br>
+                                    <strong>✅ LIVE API DATA FETCH - NO CACHING</strong><br>
+                                    <strong>Data Source:</strong> LIVE yfinance API (fetched {fetch_duration_ms:.0f}ms ago)<br>
+                                    <strong>Most Recent Price Timestamp:</strong> {last_trading_date}<br>
+                                    <strong>Render UTC Timestamp:</strong> {current_utc}<br>
+                                    <strong>Price Data:</strong> {PRICE_BOOK.shape[0]} rows × {PRICE_BOOK.shape[1]} tickers<br>
                                     <strong>Benchmark:</strong> {'SPY ✅' if benchmark_returns is not None else 'SPY ❌ (Alpha unavailable)'}<br>
-                                    <strong>Snapshot Artifact:</strong> ❌ No live_snapshot.csv dependency<br>
-                                    <strong>Caching:</strong> ❌ No st.cache_data (pure runtime computation)
+                                    <strong>live_snapshot.csv:</strong> ❌ NOT USED<br>
+                                    <strong>metrics caching:</strong> ❌ DISABLED (fresh computation every render)
                                 </div>
                                 """,
                                 unsafe_allow_html=True

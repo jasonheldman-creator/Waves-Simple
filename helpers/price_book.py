@@ -27,12 +27,21 @@ Usage:
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 import pandas as pd
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Try to import yfinance for live fetching
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+except ImportError:
+    YFINANCE_AVAILABLE = False
+    yf = None
+    logger.warning("yfinance not available - live price fetching disabled")
 
 # Canonical cache configuration
 CACHE_DIR = "data/cache"
@@ -213,6 +222,121 @@ def get_price_book(
     logger.info("=" * 70)
     
     return result
+
+
+def fetch_live_prices(tickers: Optional[List[str]] = None, period: str = "1y") -> pd.DataFrame:
+    """
+    Fetch live prices from yfinance API WITHOUT any caching.
+    
+    This function fetches fresh market data on every call and returns a DataFrame
+    in the same format as get_price_book() for compatibility.
+    
+    Args:
+        tickers: List of ticker symbols to fetch. If None, uses active tickers from price_loader.
+        period: yfinance period string (e.g., "1y", "6mo", "3mo", "1mo")
+        
+    Returns:
+        DataFrame with:
+        - Index: DatetimeIndex (trading days)
+        - Columns: Ticker symbols
+        - Values: Close prices (NaN for missing data)
+        
+    Note:
+        This function is intended for live portfolio metrics that must refresh on every render.
+        It does NOT cache results and will make API calls on every invocation.
+    """
+    logger.info("=" * 70)
+    logger.info("LIVE PRICE FETCH: Fetching fresh market data from yfinance API")
+    logger.info(f"Period: {period}")
+    logger.info("=" * 70)
+    
+    if not YFINANCE_AVAILABLE:
+        logger.error("yfinance not available - cannot fetch live prices")
+        return pd.DataFrame()
+    
+    # Get tickers to fetch
+    if tickers is None:
+        if collect_required_tickers is not None:
+            tickers = collect_required_tickers(active_only=True)
+            logger.info(f"Using {len(tickers)} active tickers from price_loader")
+        else:
+            logger.error("No tickers provided and collect_required_tickers not available")
+            return pd.DataFrame()
+    
+    if not tickers:
+        logger.warning("No tickers to fetch")
+        return pd.DataFrame()
+    
+    # Deduplicate and normalize tickers
+    dedupe_func = deduplicate_tickers if deduplicate_tickers is not None else lambda x: sorted(list(set(x)))
+    tickers = dedupe_func(tickers)
+    
+    logger.info(f"Fetching live prices for {len(tickers)} tickers...")
+    
+    try:
+        # Fetch data using yfinance
+        # Note: Using download for batch efficiency, but this is still a live fetch
+        data = yf.download(
+            tickers=" ".join(tickers),
+            period=period,
+            group_by='ticker',
+            auto_adjust=True,
+            threads=True,
+            progress=False
+        )
+        
+        if data.empty:
+            logger.warning("yfinance returned empty DataFrame")
+            return pd.DataFrame()
+        
+        # Extract close prices and reshape to standard format
+        if len(tickers) == 1:
+            # Single ticker case - yfinance returns different structure
+            if 'Close' in data.columns:
+                prices = pd.DataFrame({tickers[0]: data['Close']})
+            else:
+                logger.warning(f"No Close prices for {tickers[0]}")
+                return pd.DataFrame()
+        else:
+            # Multiple tickers - extract Close prices
+            close_prices = []
+            for ticker in tickers:
+                if ticker in data.columns.get_level_values(0):
+                    ticker_data = data[ticker]
+                    if 'Close' in ticker_data.columns:
+                        close_prices.append(ticker_data['Close'].rename(ticker))
+                    else:
+                        logger.warning(f"No Close prices for {ticker}")
+                        close_prices.append(pd.Series(name=ticker, dtype=float))
+                else:
+                    logger.warning(f"Ticker {ticker} not in yfinance response")
+                    close_prices.append(pd.Series(name=ticker, dtype=float))
+            
+            prices = pd.concat(close_prices, axis=1)
+        
+        # Ensure index is datetime
+        prices.index = pd.to_datetime(prices.index)
+        prices.index.name = 'Date'
+        
+        # Sort by date
+        prices = prices.sort_index()
+        
+        # Get fetch timestamp
+        fetch_timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        logger.info(f"LIVE FETCH COMPLETE: {len(prices)} days × {len(prices.columns)} tickers")
+        if not prices.empty:
+            logger.info(f"Date range: {prices.index[0].date()} to {prices.index[-1].date()}")
+        logger.info(f"Fetch timestamp: {fetch_timestamp}")
+        logger.info("=" * 70)
+        
+        return prices
+        
+    except Exception as e:
+        logger.error(f"Error fetching live prices from yfinance: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return pd.DataFrame()
 
 
 def get_price_book_meta(price_book: pd.DataFrame) -> Dict[str, Any]:
