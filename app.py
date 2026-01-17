@@ -22213,12 +22213,12 @@ def render_control_center_tab():
                         'cluster_name': cluster_name,
                         'decision': decision,
                         'notes': notes,
-                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        'timestamp': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
                     }
                     
                     # Add to audit log
                     st.session_state['control_center_audit_log'].append({
-                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'timestamp': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
                         'insight': cluster_name,
                         'decision': decision,
                         'notes': notes,
@@ -22258,7 +22258,7 @@ def render_control_center_tab():
             st.download_button(
                 label="Download CSV",
                 data=csv,
-                file_name=f"control_center_audit_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"control_center_audit_log_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
     else:
@@ -22268,10 +22268,6 @@ def render_control_center_tab():
     if st.session_state['control_center_audit_log']:
         st.markdown("---")
         
-        # Initialize confirmation state
-        if 'confirm_clear_audit_log' not in st.session_state:
-            st.session_state['confirm_clear_audit_log'] = False
-        
         # Show confirmation checkbox first
         confirm = st.checkbox("Confirm: I want to clear the audit log", key="clear_audit_confirm")
         
@@ -22280,7 +22276,6 @@ def render_control_center_tab():
             if st.button("🗑️ Clear Audit Log", type="secondary", key="clear_audit_button"):
                 st.session_state['control_center_audit_log'] = []
                 st.session_state['control_center_decisions'] = {}
-                st.session_state['confirm_clear_audit_log'] = False
                 st.success("✓ Audit log cleared.")
                 st.rerun()
         else:
