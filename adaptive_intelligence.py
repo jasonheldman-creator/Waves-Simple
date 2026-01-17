@@ -104,6 +104,12 @@ REGIME_MULTIPLIER_NORMAL = 1.0  # LIVE regime
 REGIME_MULTIPLIER_VOLATILE = 1.3  # HYBRID regime
 REGIME_MULTIPLIER_RISK_OFF = 1.5  # SANDBOX or UNAVAILABLE regime
 
+# Stage 3: Normalization constants for clustering
+MAX_BETA_DRIFT_NORMALIZATION = 0.30  # Maximum beta drift for normalization (30% drift is extreme)
+MAX_ALPHA_NORMALIZATION = 0.05  # Maximum alpha for normalization (5% is extreme)
+MAX_DRAWDOWN_NORMALIZATION = 0.40  # Maximum drawdown for normalization (-40% is extreme)
+MAX_EXPOSURE_DRIFT_NORMALIZATION = 0.02  # Maximum exposure drift for normalization (2% from threshold)
+
 
 # ============================================================================
 # WAVE HEALTH MONITORING
@@ -345,7 +351,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         if alpha_30d is not None and alpha_60d is not None:
             if alpha_30d < ALPHA_DECAY_THRESHOLD and alpha_60d < ALPHA_DECAY_THRESHOLD:  # Both worse than -1%
                 # Calculate magnitude: how negative is the alpha?
-                magnitude = min(1.0, abs(alpha_60d) / 0.05)  # Normalize to 5% as extreme
+                magnitude = min(1.0, abs(alpha_60d) / MAX_ALPHA_NORMALIZATION)
                 
                 # Calculate persistence: both 30d and 60d negative indicates persistence
                 persistence = 0.8  # High persistence since both periods are negative
@@ -384,7 +390,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         
         if beta_drift is not None and beta_drift > BETA_DRIFT_WARNING_THRESHOLD:
             # Calculate magnitude: how large is the drift?
-            magnitude = min(1.0, beta_drift / 0.30)  # Normalize to 0.30 as extreme
+            magnitude = min(1.0, beta_drift / MAX_BETA_DRIFT_NORMALIZATION)
             
             # Persistence: can't easily determine from single point, use moderate
             persistence = 0.5
@@ -423,7 +429,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         if exposure_pct is not None:
             if exposure_pct > HIGH_EXPOSURE_THRESHOLD:
                 # High exposure is informational, low severity
-                magnitude = min(1.0, (exposure_pct - HIGH_EXPOSURE_THRESHOLD) / 0.02)
+                magnitude = min(1.0, (exposure_pct - HIGH_EXPOSURE_THRESHOLD) / MAX_EXPOSURE_DRIFT_NORMALIZATION)
                 persistence = 0.3
                 data_coverage = 1.0
                 metric_agreement = 0.9
@@ -448,7 +454,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
                 })
             elif exposure_pct < LOW_EXPOSURE_THRESHOLD:
                 # Low exposure may indicate issues
-                magnitude = min(1.0, (LOW_EXPOSURE_THRESHOLD - exposure_pct) / 0.30)
+                magnitude = min(1.0, (LOW_EXPOSURE_THRESHOLD - exposure_pct) / (LOW_EXPOSURE_THRESHOLD - EXTREME_EXPOSURE_LOW_THRESHOLD))
                 persistence = 0.4
                 data_coverage = 1.0
                 metric_agreement = 0.9
@@ -504,7 +510,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         
         if drawdown_60d is not None and drawdown_60d < HIGH_DRAWDOWN_THRESHOLD:  # Drawdown worse than -20%
             # Calculate magnitude
-            magnitude = min(1.0, abs(drawdown_60d) / 0.40)  # Normalize to -40% as extreme
+            magnitude = min(1.0, abs(drawdown_60d) / MAX_DRAWDOWN_NORMALIZATION)
             
             # Persistence: 60d drawdown indicates sustained issue
             persistence = 0.8
@@ -938,7 +944,7 @@ def _create_beta_drift_cluster(signals: List[Dict[str, Any]], truth_df: pd.DataF
     
     # Calculate persistence (use average beta drift magnitude as proxy)
     avg_drift = np.mean([s.get('metric_value', 0.0) for s in signals if s.get('metric_value')])
-    persistence = min(1.0, avg_drift / 0.30)  # Normalize to 0.30 as maximum
+    persistence = min(1.0, avg_drift / MAX_BETA_DRIFT_NORMALIZATION)
     
     # Generate narrative
     max_drift_signal = max(signals, key=lambda s: s.get('metric_value', 0.0))
@@ -1417,7 +1423,7 @@ def _generate_priority_justification(cluster: Dict[str, Any], rank: int) -> str:
     if cluster_type == 'regime_mismatch':
         reasons.append("data quality concern")
     elif cluster_type == 'alpha_decay':
-        reasons.append("performance underperformance")
+        reasons.append("underperformance")
     elif cluster_type == 'beta_drift':
         reasons.append("tracking error concern")
     
