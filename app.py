@@ -22267,12 +22267,25 @@ def render_control_center_tab():
     # Clear audit log button (with confirmation)
     if st.session_state['control_center_audit_log']:
         st.markdown("---")
-        if st.button("🗑️ Clear Audit Log", type="secondary"):
-            if st.checkbox("Confirm: I want to clear the audit log"):
+        
+        # Initialize confirmation state
+        if 'confirm_clear_audit_log' not in st.session_state:
+            st.session_state['confirm_clear_audit_log'] = False
+        
+        # Show confirmation checkbox first
+        confirm = st.checkbox("Confirm: I want to clear the audit log", key="clear_audit_confirm")
+        
+        # Only show clear button if confirmed
+        if confirm:
+            if st.button("🗑️ Clear Audit Log", type="secondary", key="clear_audit_button"):
                 st.session_state['control_center_audit_log'] = []
                 st.session_state['control_center_decisions'] = {}
+                st.session_state['confirm_clear_audit_log'] = False
                 st.success("✓ Audit log cleared.")
                 st.rerun()
+        else:
+            st.button("🗑️ Clear Audit Log", type="secondary", disabled=True, key="clear_audit_button_disabled")
+
 
 
 def render_wave_overview_new_tab():
