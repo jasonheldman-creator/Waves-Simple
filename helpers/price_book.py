@@ -14,6 +14,7 @@ Core Guarantees:
 
 import os
 import logging
+import warnings
 from typing import List, Optional, Dict, Any
 
 import pandas as pd
@@ -26,6 +27,17 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 LIVE_DATA_ENABLED = os.getenv("LIVE_DATA_ENABLED", "false").lower() == "true"
 ALLOW_NETWORK_FETCH = LIVE_DATA_ENABLED
+
+# -----------------------------------------------------------------------------
+# LEGACY BACKWARD-COMPATIBILITY ALIAS (DO NOT REMOVE)
+# -----------------------------------------------------------------------------
+PRICE_FETCH_ENABLED = ALLOW_NETWORK_FETCH
+warnings.warn(
+    "PRICE_FETCH_ENABLED is deprecated and will be removed in a future release. "
+    "Please use ALLOW_NETWORK_FETCH instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 # =============================================================================
 # CANONICAL CACHE CONFIG
@@ -76,8 +88,10 @@ def _load_cache_fallback() -> pd.DataFrame:
         logger.error(f"Failed reading cache directly: {e}")
         return pd.DataFrame()
 
+
 def _dedupe_fallback(tickers: List[str]) -> List[str]:
     return sorted(set(tickers))
+
 
 # =============================================================================
 # CANONICAL REQUIRED TICKERS (SINGLE SOURCE)
@@ -87,21 +101,25 @@ def _get_required_tickers(active_only: bool = True) -> List[str]:
     dedupe = deduplicate_tickers or _dedupe_fallback
     return dedupe(tickers)
 
+
 # =============================================================================
 # PUBLIC / LEGACY API (DO NOT BREAK)
 # =============================================================================
 def get_active_required_tickers(active_only: bool = True) -> List[str]:
     return _get_required_tickers(active_only=active_only)
 
+
 def get_required_tickers(active_only: bool = True) -> List[str]:
     return _get_required_tickers(active_only=active_only)
+
 
 def get_required_tickers_active_waves() -> List[str]:
     """
     Legacy compatibility alias.
-    Required by Reality Panel / Control Center imports.
+    Required by Reality Panel / Control Center.
     """
     return _get_required_tickers(active_only=True)
+
 
 # =============================================================================
 # PRICE_BOOK ACCESS (READ-ONLY)
@@ -135,6 +153,7 @@ def get_price_book(
 
     return cache_df
 
+
 # =============================================================================
 # METADATA
 # =============================================================================
@@ -158,13 +177,13 @@ def get_price_book_meta(price_book: Optional[pd.DataFrame]) -> Dict[str, Any]:
         "cache_path": CANONICAL_CACHE_PATH,
     }
 
+
 # =============================================================================
 # REALITY PANEL COMPATIBILITY HELPERS
 # =============================================================================
 def compute_missing_and_extra_tickers(price_book: pd.DataFrame) -> Dict[str, Any]:
     """
     Compatibility helper required by Reality Panel diagnostics.
-    Compares required tickers vs cached tickers.
     """
     required = set(_get_required_tickers(active_only=True))
     cached = set() if price_book is None or price_book.empty else set(price_book.columns)
@@ -180,6 +199,7 @@ def compute_missing_and_extra_tickers(price_book: pd.DataFrame) -> Dict[str, Any
         "required_count": len(required),
         "cached_count": len(cached),
     }
+
 
 # =============================================================================
 # EXPLICIT CACHE REBUILD (ONLY NETWORK ENTRY POINT)
@@ -207,11 +227,13 @@ def rebuild_price_cache(
         "last_updated": cache_info.get("last_updated"),
     }
 
+
 # =============================================================================
 # SINGLETON (SYSTEM-WIDE)
 # =============================================================================
 _PRICE_BOOK_CACHE: Optional[pd.DataFrame] = None
 _PRICE_BOOK_LOADED = False
+
 
 def get_price_book_singleton(force_reload: bool = False) -> pd.DataFrame:
     global _PRICE_BOOK_CACHE, _PRICE_BOOK_LOADED
@@ -220,7 +242,9 @@ def get_price_book_singleton(force_reload: bool = False) -> pd.DataFrame:
         _PRICE_BOOK_LOADED = True
     return _PRICE_BOOK_CACHE
 
+
 PRICE_BOOK = get_price_book_singleton
+
 
 # =============================================================================
 # SYSTEM HEALTH (Reality Panel / Control Center)
@@ -254,10 +278,14 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
         "details": f"{status} — {coverage_pct:.1f}% coverage",
     }
 
+
 # =============================================================================
 # EXPORT SAFETY (UI / LEGACY IMPORTS)
 # =============================================================================
 __all__ = [
+    "LIVE_DATA_ENABLED",
+    "ALLOW_NETWORK_FETCH",
+    "PRICE_FETCH_ENABLED",
     "get_price_book",
     "get_price_book_singleton",
     "get_active_required_tickers",
