@@ -21124,24 +21124,35 @@ def render_adaptive_intelligence_tab():
     MONITORING-ONLY TAB - This tab provides read-only diagnostics and insights.
     It does NOT modify any trading behavior, strategies, parameters, or execution logic.
     
+    Stage 2 Enhancement: Interpretive Intelligence (Read-Only)
+    - Enhanced signal severity and confidence scoring
+    - Color-coded severity badges
+    - Grouped signal sections with collapsible Informational section
+    
     This tab provides:
     - Wave Health Monitor: Alpha trends, beta drift, exposure analysis
     - Regime Intelligence: Volatility regime and wave alignment
-    - Learning Signals: Detected patterns and anomalies
+    - Learning Signals: Detected patterns and anomalies with enhanced scoring
     
     All data is read from TruthFrame with no writes or modifications.
     """
     st.markdown("# 🧠 Adaptive Intelligence Center")
-    st.markdown("### Monitoring and Diagnostics - Read-Only System")
+    st.markdown("### Stage 2 – Interpretive Intelligence (Read-Only)")
     
     # ========================================================================
-    # PROMINENT DISCLAIMER
+    # PROMINENT GOVERNANCE BANNER
     # ========================================================================
     st.info("""
-    **📋 DISCLAIMER: Monitoring-Only System**
+    **📋 STAGE 2 – INTERPRETIVE INTELLIGENCE (READ-ONLY)**
     
-    This center is for **monitoring and diagnostics only**. No actions are taken, and no trading behavior is modified.
+    This center provides **monitoring and diagnostics only**. No actions are taken, and no trading behavior is modified.
     All diagnostics pull from TruthFrame data. No strategies, parameters, weights, or execution logic are changed.
+    
+    **Stage 2 Features:**
+    - ✅ Enhanced severity scoring (0-100, deterministic)
+    - ✅ Confidence scoring based on data coverage, metric agreement, and recency
+    - ✅ Regime-aware severity multipliers
+    - ✅ Action classification (Info, Watch, Intervention)
     """)
     
     st.markdown("---")
@@ -21295,10 +21306,10 @@ def render_adaptive_intelligence_tab():
     st.markdown("---")
     
     # ========================================================================
-    # SECTION 3: LEARNING SIGNALS
+    # SECTION 3: LEARNING SIGNALS (STAGE 2 ENHANCED)
     # ========================================================================
     st.subheader("🔔 Learning Signals")
-    st.markdown("**Detected patterns and anomalies that may warrant attention.**")
+    st.markdown("**Detected patterns and anomalies with enhanced severity and confidence scoring.**")
     
     try:
         # Detect learning signals
@@ -21307,62 +21318,93 @@ def render_adaptive_intelligence_tab():
         if not signals:
             st.success("✓ No learning signals detected - all waves operating within normal parameters.")
         else:
-            st.warning(f"⚠️ Detected {len(signals)} learning signals")
+            # Group signals by severity label (Stage 2)
+            critical_signals = [s for s in signals if s.get('severity_label', 'Low') == 'Critical']
+            high_signals = [s for s in signals if s.get('severity_label', 'Low') == 'High']
+            medium_signals = [s for s in signals if s.get('severity_label', 'Low') == 'Medium']
+            low_signals = [s for s in signals if s.get('severity_label', 'Low') == 'Low']
             
-            # Group signals by severity
-            critical_signals = [s for s in signals if s['severity'] == 'critical']
-            warning_signals = [s for s in signals if s['severity'] == 'warning']
-            info_signals = [s for s in signals if s['severity'] == 'info']
-            
-            # Display critical signals
-            if critical_signals:
-                st.markdown("**🔴 Critical Signals:**")
-                for signal in critical_signals:
-                    with st.expander(f"🔴 {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
-                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
-                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
-                        st.markdown(f"**Description:** {signal['description']}")
-                        if signal['metric_value'] is not None:
-                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
-            
-            # Display warning signals
-            if warning_signals:
-                st.markdown("**🟡 Warning Signals:**")
-                for signal in warning_signals:
-                    with st.expander(f"🟡 {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
-                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
-                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
-                        st.markdown(f"**Description:** {signal['description']}")
-                        if signal['metric_value'] is not None:
-                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
-            
-            # Display info signals
-            if info_signals:
-                st.markdown("**ℹ️ Info Signals:**")
-                for signal in info_signals:
-                    with st.expander(f"ℹ️ {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
-                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
-                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
-                        st.markdown(f"**Description:** {signal['description']}")
-                        if signal['metric_value'] is not None:
-                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
-            
-            # Summary by severity
-            st.markdown("---")
-            st.markdown("**Signal Summary:**")
-            col1, col2, col3 = st.columns(3)
+            # Display severity breakdown
+            st.markdown("**Signal Breakdown by Severity:**")
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Critical", len(critical_signals))
+                st.metric("🔴 Critical", len(critical_signals))
             
             with col2:
-                st.metric("Warning", len(warning_signals))
+                st.metric("🟠 High Priority", len(high_signals))
             
             with col3:
-                st.metric("Info", len(info_signals))
+                st.metric("🟡 Watchlist", len(medium_signals))
+            
+            with col4:
+                st.metric("🔵 Informational", len(low_signals))
+            
+            st.markdown("---")
+            
+            # Helper function to display signal with badge
+            def display_signal_with_badge(signal):
+                severity_label = signal.get('severity_label', 'Low')
+                severity_score = signal.get('severity_score', 0)
+                confidence_score = signal.get('confidence_score', 0)
+                action = signal.get('action_classification', 'Info')
+                
+                # Color-coded badge
+                badge_colors = {
+                    'Critical': '🔴',
+                    'High': '🟠',
+                    'Medium': '🟡',
+                    'Low': '🔵'
+                }
+                badge = badge_colors.get(severity_label, '⚪')
+                
+                # Create expander title with badge
+                title = f"{badge} {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"
+                
+                with st.expander(title):
+                    # Display badge with scores
+                    st.markdown(f"**Severity:** {severity_label} ({severity_score}/100) | **Confidence:** {confidence_score}% | **Action:** {action}")
+                    st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
+                    st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
+                    st.markdown(f"**Description:** {signal['description']}")
+                    if signal['metric_value'] is not None:
+                        st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
+            
+            # Display Critical Signals
+            if critical_signals:
+                st.markdown("### 🔴 Critical Signals")
+                st.markdown("*Immediate attention required - potential intervention needed*")
+                for signal in critical_signals:
+                    display_signal_with_badge(signal)
+                st.markdown("---")
+            
+            # Display High Priority Signals
+            if high_signals:
+                st.markdown("### 🟠 High Priority Signals")
+                st.markdown("*Monitor closely - may require action soon*")
+                for signal in high_signals:
+                    display_signal_with_badge(signal)
+                st.markdown("---")
+            
+            # Display Watchlist Signals
+            if medium_signals:
+                st.markdown("### 🟡 Watchlist")
+                st.markdown("*Keep an eye on these patterns*")
+                for signal in medium_signals:
+                    display_signal_with_badge(signal)
+                st.markdown("---")
+            
+            # Display Informational Signals (Collapsed by default)
+            if low_signals:
+                with st.expander(f"🔵 Informational ({len(low_signals)} signals) - Click to expand", expanded=False):
+                    st.markdown("*Low severity - informational only*")
+                    for signal in low_signals:
+                        display_signal_with_badge(signal)
     
     except Exception as e:
         st.error(f"⚠️ Error detecting learning signals: {e}")
+        import traceback
+        st.code(traceback.format_exc())
     
     st.markdown("---")
     
@@ -21370,8 +21412,9 @@ def render_adaptive_intelligence_tab():
     # FOOTER
     # ========================================================================
     st.caption("""
-    **Note:** This Adaptive Intelligence Center is the foundation for future adaptive learning advancements.
+    **Note:** This Adaptive Intelligence Center (Stage 2) provides enhanced interpretive monitoring.
     All diagnostics are read-only and do not modify any trading behavior or system state.
+    Severity and confidence scores are deterministically calculated based on magnitude, persistence, regime awareness, and data quality.
     """)
 
 
