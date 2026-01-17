@@ -1287,7 +1287,13 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # Informational message for portfolio view
         portfolio_info_html = ""
         if is_portfolio_view:
-            portfolio_info_html = '''<div class="portfolio-info">
+            # Add timestamp for when metrics were computed
+            from datetime import datetime, timezone
+            compute_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            portfolio_info_html = f'''<div class="portfolio-info">
+                ⚡ Live Computation from PRICE_BOOK | Computed at: {compute_timestamp}
+            </div>
+            <div class="portfolio-info">
                 &#9432; Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
             </div>'''
         
@@ -5621,17 +5627,16 @@ def get_wavescore_leaderboard(portfolio_snapshot=None):
     """
     Get top 10 waves by WaveScore (30-day cumulative alpha).
     
-    UPDATED: Now uses portfolio_snapshot from session state instead of reloading wave_history.csv
-    This avoids unnecessary CSV reads and uses pre-computed snapshot data.
+    DEPRECATED: The portfolio_snapshot parameter is deprecated and should be None.
+    This function now always computes live from wave_history.csv to avoid cached dependencies.
     
     Args:
-        portfolio_snapshot: DataFrame from st.session_state["portfolio_snapshot"] with Alpha_30D column
-                           If None, falls back to legacy wave_history loading
+        portfolio_snapshot: DEPRECATED - Should be None. Kept for backward compatibility.
     
     Returns a DataFrame with wave names and scores, or None if unavailable.
     """
     try:
-        # UPDATED: Use portfolio_snapshot if available
+        # portfolio_snapshot parameter is deprecated - always use live data
         if portfolio_snapshot is not None and not portfolio_snapshot.empty:
             # Use Alpha_30D column from snapshot for WaveScore calculation
             if 'Alpha_30D' not in portfolio_snapshot.columns or 'Wave' not in portfolio_snapshot.columns:
@@ -9937,47 +9942,30 @@ def render_executive_brief_tab():
     
     try:
         # ========================================================================
-        # PORTFOLIO SNAPSHOT FROM SESSION STATE - Use pre-loaded snapshot
+        # LOAD TRUTHFRAME FOR WAVE-LEVEL ANALYTICS (NOT CACHED)
         # ========================================================================
-        # UPDATED: Use portfolio_snapshot from session state instead of reloading/recomputing
-        # The snapshot is already loaded at app startup and stored in st.session_state["portfolio_snapshot"]
-        snapshot_df = st.session_state.get("portfolio_snapshot")
+        # Note: This loads per-wave analytics from TruthFrame, not cached portfolio aggregation.
+        # Portfolio-level metrics are computed live from PRICE_BOOK in the banner.
+        snapshot_df = None
         snapshot_metadata = None
         
-        if snapshot_df is None or snapshot_df.empty:
-            # Fallback: Try loading from TruthFrame if session state is empty
-            try:
-                from analytics_truth import get_truth_frame
-                from truth_frame_helpers import convert_truthframe_to_snapshot_format
-                from snapshot_ledger import get_snapshot_metadata
-                
-                # Debug trace marker
-                if st.session_state.get("debug_mode", False):
-                    st.caption("🔍 Trace: Fallback to TruthFrame (portfolio_snapshot not in session state)")
-                
-                # Get TruthFrame (respects Safe Mode)
-                safe_mode = st.session_state.get("safe_mode_enabled", False)
-                truth_df = get_truth_frame(safe_mode=safe_mode)
-                
-                # Convert to snapshot_df format for backward compatibility
-                snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
-                
-                snapshot_metadata = get_snapshot_metadata()
-            except ImportError:
-                st.warning("⚠️ TruthFrame module not available and portfolio_snapshot not in session state.")
-            except Exception as e:
-                st.warning(f"⚠️ TruthFrame fallback error: {str(e)}")
-        else:
-            # Successfully loaded from session state
-            if st.session_state.get("debug_mode", False):
-                st.caption(f"✓ Loaded portfolio_snapshot from session state ({len(snapshot_df)} rows)")
+        try:
+            from analytics_truth import get_truth_frame
+            from truth_frame_helpers import convert_truthframe_to_snapshot_format
+            from snapshot_ledger import get_snapshot_metadata
             
-            # Try to get metadata
-            try:
-                from snapshot_ledger import get_snapshot_metadata
-                snapshot_metadata = get_snapshot_metadata()
-            except:
-                pass
+            # Get TruthFrame (respects Safe Mode)
+            safe_mode = st.session_state.get("safe_mode_enabled", False)
+            truth_df = get_truth_frame(safe_mode=safe_mode)
+            
+            # Convert to snapshot_df format for backward compatibility
+            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
+            
+            snapshot_metadata = get_snapshot_metadata()
+        except ImportError:
+            st.warning("⚠️ TruthFrame module not available.")
+        except Exception as e:
+            st.warning(f"⚠️ TruthFrame loading error: {str(e)}")
         
         # ========================================================================
         # WAVE STATUS FILTERING - Add UI toggle for staging waves
@@ -11812,15 +11800,18 @@ def render_wave_intelligence_center_tab():
 
 def compute_portfolio_metrics_from_snapshot(portfolio_snapshot):
     """
-    Compute portfolio-level metrics from portfolio_snapshot DataFrame.
+    Compute portfolio-level metrics from per-wave snapshot DataFrame.
     
-    UPDATED: This function replaces compute_portfolio_alpha_ledger for portfolio-level aggregation.
-    Instead of recomputing from price_book, it aggregates pre-computed per-wave metrics from
-    the portfolio_snapshot (live_snapshot.csv loaded into session state).
+    NOTE: Despite the name, this function aggregates from per-wave analytics (TruthFrame),
+    not from a cached portfolio-level snapshot. For true live portfolio computation,
+    use compute_portfolio_snapshot() from helpers.wave_performance with PRICE_BOOK.
+    
+    This function provides equal-weight portfolio aggregation from pre-computed per-wave metrics.
     
     Args:
         portfolio_snapshot: DataFrame with columns Wave, Return_1D, Return_30D, Return_60D, 
                            Return_365D, Benchmark_Return_1D, etc., Alpha_1D, etc.
+                           (typically from TruthFrame/live_snapshot.csv)
     
     Returns:
         Dictionary with portfolio metrics for each period, or None if unavailable.
@@ -11947,9 +11938,8 @@ def render_executive_tab():
     with col1:
         st.markdown("#### 🏆 Top Performers")
         
-        # UPDATED: Pass portfolio_snapshot from session state to avoid reloading wave_history.csv
-        portfolio_snapshot = st.session_state.get("portfolio_snapshot")
-        leaderboard = get_wavescore_leaderboard(portfolio_snapshot=portfolio_snapshot)
+        # Get leaderboard - it will compute from live data
+        leaderboard = get_wavescore_leaderboard(portfolio_snapshot=None)
         if leaderboard is not None and len(leaderboard) > 0:
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
