@@ -1288,7 +1288,6 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         portfolio_info_html = ""
         if is_portfolio_view:
             # Add timestamp for when metrics were computed
-            from datetime import datetime, timezone
             compute_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             portfolio_info_html = f'''<div class="portfolio-info">
                 ⚡ Live Computation from PRICE_BOOK | Computed at: {compute_timestamp}
@@ -5627,46 +5626,17 @@ def get_wavescore_leaderboard(portfolio_snapshot=None):
     """
     Get top 10 waves by WaveScore (30-day cumulative alpha).
     
-    DEPRECATED: The portfolio_snapshot parameter is deprecated and should be None.
+    DEPRECATED: The portfolio_snapshot parameter is deprecated.
     This function now always computes live from wave_history.csv to avoid cached dependencies.
+    The parameter is kept only for backward compatibility but is ignored.
     
     Args:
-        portfolio_snapshot: DEPRECATED - Should be None. Kept for backward compatibility.
+        portfolio_snapshot: DEPRECATED - Ignored. Kept for backward compatibility only.
     
     Returns a DataFrame with wave names and scores, or None if unavailable.
     """
     try:
-        # portfolio_snapshot parameter is deprecated - always use live data
-        if portfolio_snapshot is not None and not portfolio_snapshot.empty:
-            # Use Alpha_30D column from snapshot for WaveScore calculation
-            if 'Alpha_30D' not in portfolio_snapshot.columns or 'Wave' not in portfolio_snapshot.columns:
-                # Fall back to legacy method if required columns missing
-                portfolio_snapshot = None
-            else:
-                # Filter to waves with valid Alpha_30D data
-                valid_waves = portfolio_snapshot[portfolio_snapshot['Alpha_30D'].notna()].copy()
-                
-                if len(valid_waves) == 0:
-                    return None
-                
-                # Use Alpha_30D column from snapshot for WaveScore calculation
-                # WaveScore formula: (Alpha_30D * 1000) + 50, clamped to 0-100
-                # Multiplier of 1000 converts alpha decimal (e.g., 0.05) to points (50)
-                # Base of 50 centers the score around mid-range
-                # Range [0,100] provides intuitive percentage-like score
-                valid_waves['WaveScore'] = (valid_waves['Alpha_30D'] * 1000) + 50
-                valid_waves['WaveScore'] = valid_waves['WaveScore'].clip(0, 100)
-                
-                # Sort and get top 10
-                leaderboard_df = valid_waves[['Wave', 'WaveScore']].sort_values(
-                    'WaveScore', ascending=False
-                ).head(10).copy()
-                leaderboard_df['Rank'] = range(1, len(leaderboard_df) + 1)
-                leaderboard_df = leaderboard_df[['Rank', 'Wave', 'WaveScore']]
-                
-                return leaderboard_df
-        
-        # LEGACY PATH: Fall back to wave_history if portfolio_snapshot not provided
+        # Always use live data from wave_history.csv (portfolio_snapshot parameter is deprecated and ignored)
         df = get_wave_data_filtered(wave_name=None, days=30)
         
         if df is None:
