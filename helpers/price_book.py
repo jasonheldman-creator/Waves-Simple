@@ -9,12 +9,11 @@ Core Guarantees:
 - ONE canonical cache: data/cache/prices_cache.parquet
 - NO implicit network access
 - Deterministic, reproducible outputs
-- Stable public API (UI-safe)
+- Stable public API (UI-safe + backward compatible)
 """
 
 import os
 import logging
-from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 import pandas as pd
@@ -49,14 +48,12 @@ if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
 STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS
 
 # =============================================================================
-# DEPENDENCIES (price_loader = low-level IO only)
+# DEPENDENCIES (LOW-LEVEL IO ONLY)
 # =============================================================================
 try:
     from helpers.price_loader import (
         load_cache,
-        save_cache,
         collect_required_tickers,
-        normalize_ticker,
         deduplicate_tickers,
         load_or_fetch_prices,
         get_cache_info,
@@ -83,19 +80,28 @@ def _dedupe_fallback(tickers: List[str]) -> List[str]:
     return sorted(set(tickers))
 
 # =============================================================================
-# PUBLIC API — REQUIRED TICKERS (STABLE CONTRACT)
+# CANONICAL REQUIRED TICKERS (SINGLE SOURCE)
 # =============================================================================
-def get_active_required_tickers(active_only: bool = True) -> List[str]:
-    """
-    UI-safe public API.
-    Returns the canonical list of required tickers for the system.
-    """
+def _get_required_tickers(active_only: bool = True) -> List[str]:
     tickers = collect_required_tickers(active_only=active_only)
     dedupe = deduplicate_tickers or _dedupe_fallback
     return dedupe(tickers)
 
-# Backward-compatible alias (defensive)
-get_required_tickers = get_active_required_tickers
+# =============================================================================
+# PUBLIC / LEGACY API (DO NOT BREAK)
+# =============================================================================
+def get_active_required_tickers(active_only: bool = True) -> List[str]:
+    return _get_required_tickers(active_only=active_only)
+
+def get_required_tickers(active_only: bool = True) -> List[str]:
+    return _get_required_tickers(active_only=active_only)
+
+def get_required_tickers_active_waves() -> List[str]:
+    """
+    Legacy compatibility alias.
+    Required by Reality Panel / Control Center imports.
+    """
+    return _get_required_tickers(active_only=True)
 
 # =============================================================================
 # PRICE_BOOK ACCESS (READ-ONLY)
@@ -105,17 +111,11 @@ def get_price_book(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Load the canonical PRICE_BOOK from cache only.
-    NEVER fetches from the network.
-    """
-
     logger.info("PRICE_BOOK: loading canonical cache")
 
     cache_df = load_cache() if load_cache else _load_cache_fallback()
 
     if cache_df is None or cache_df.empty:
-        logger.warning("PRICE_BOOK empty")
         df = pd.DataFrame(columns=active_tickers or [])
         df.index.name = "Date"
         return df
@@ -128,11 +128,9 @@ def get_price_book(
     if active_tickers:
         dedupe = deduplicate_tickers or _dedupe_fallback
         tickers = dedupe(active_tickers)
-
         for t in tickers:
             if t not in cache_df.columns:
                 cache_df[t] = np.nan
-
         cache_df = cache_df[tickers]
 
     return cache_df
@@ -167,11 +165,6 @@ def rebuild_price_cache(
     active_only: bool = True,
     force_user_initiated: bool = False,
 ) -> Dict[str, Any]:
-    """
-    Explicit, human-triggered cache rebuild.
-    This is the ONLY place network access is permitted.
-    """
-
     if not ALLOW_NETWORK_FETCH and not force_user_initiated:
         return {
             "allowed": False,
@@ -179,9 +172,8 @@ def rebuild_price_cache(
             "message": "LIVE_DATA_ENABLED=false — network fetch blocked",
         }
 
-    required = get_active_required_tickers(active_only=active_only)
+    required = _get_required_tickers(active_only=active_only)
     prices = load_or_fetch_prices(required, force_fetch=True)
-
     cache_info = get_cache_info() or {}
 
     return {
@@ -200,11 +192,9 @@ _PRICE_BOOK_LOADED = False
 
 def get_price_book_singleton(force_reload: bool = False) -> pd.DataFrame:
     global _PRICE_BOOK_CACHE, _PRICE_BOOK_LOADED
-
     if force_reload or not _PRICE_BOOK_LOADED:
         _PRICE_BOOK_CACHE = get_price_book()
         _PRICE_BOOK_LOADED = True
-
     return _PRICE_BOOK_CACHE
 
 PRICE_BOOK = get_price_book_singleton
@@ -216,7 +206,7 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
     if price_book is None:
         price_book = get_price_book_singleton()
 
-    required = get_active_required_tickers(active_only=True)
+    required = _get_required_tickers(active_only=True)
     cached = [] if price_book.empty else price_book.columns.tolist()
 
     missing = sorted(set(required) - set(cached))
@@ -240,7 +230,8 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
         "days_stale": days_stale,
         "details": f"{status} — {coverage_pct:.1f}% coverage",
     }
-    # =============================================================================
+
+# =============================================================================
 # EXPORT SAFETY (UI / LEGACY IMPORTS)
 # =============================================================================
 __all__ = [
@@ -248,6 +239,7 @@ __all__ = [
     "get_price_book_singleton",
     "get_active_required_tickers",
     "get_required_tickers",
+    "get_required_tickers_active_waves",
     "compute_system_health",
     "rebuild_price_cache",
     "PRICE_BOOK",
