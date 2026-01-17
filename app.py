@@ -1122,11 +1122,8 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     if not st.session_state.get("ENGINE_RUNNING", False):
                         st.session_state.ENGINE_RUNNING = True
                         try:
-                            # Initialize render counter if it doesn't exist
-                            if "_portfolio_render_count" not in st.session_state:
-                                st.session_state["_portfolio_render_count"] = 0
-                            
-                            # Increment render counter
+                            # Initialize and increment render counter
+                            st.session_state.setdefault("_portfolio_render_count", 0)
                             st.session_state["_portfolio_render_count"] += 1
                             
                             # Compute portfolio snapshot with all periods
