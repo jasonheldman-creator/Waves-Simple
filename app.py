@@ -22033,6 +22033,256 @@ def get_comprehensive_wave_data_all_28():
         return []
 
 
+def render_control_center_tab():
+    """
+    Render the Control Center tab - Human Oversight & Authorization Layer.
+    
+    This tab provides:
+    - Decision Queue: Top 3 priority insights from Stage 4 decision support
+    - Human Decision Controls: Dropdown menus and text fields for human oversight
+    - Audit Table: Real-time log of human decisions and outcomes
+    
+    All actions require human review. No execution or portfolio changes occur in this layer.
+    """
+    st.markdown("# 🛠 Control Center")
+    st.markdown("### Human Oversight & Authorization Layer")
+    
+    # ========================================================================
+    # PERSISTENT BANNER
+    # ========================================================================
+    st.info("""
+    **📋 HUMAN OVERSIGHT REQUIRED**
+    
+    All actions require human review. No execution or portfolio changes occur in this layer.
+    This is a safeguarding mechanism for irreversible portfolio modifications.
+    """)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: DECISION QUEUE
+    # ========================================================================
+    st.subheader("📋 Decision Queue")
+    st.markdown("**Top 3 priority insights requiring review**")
+    
+    # Initialize session state for decisions and audit log if not exists
+    if 'control_center_decisions' not in st.session_state:
+        st.session_state['control_center_decisions'] = {}
+    if 'control_center_audit_log' not in st.session_state:
+        st.session_state['control_center_audit_log'] = []
+    
+    try:
+        # Get decision support summary from adaptive intelligence
+        from analytics_truth import get_truth_frame
+        from adaptive_intelligence import get_adaptive_intelligence_snapshot, get_decision_support_summary
+        
+        # Get safe mode setting
+        safe_mode = st.session_state.get("safe_mode_no_fetch", True)
+        
+        # Load TruthFrame (read-only)
+        with st.spinner("Loading decision support data..."):
+            truth_df = get_truth_frame(safe_mode=safe_mode)
+        
+        if truth_df is None or truth_df.empty:
+            st.warning("⚠️ TruthFrame data not available. Decision queue is empty.")
+            decision_support = []
+        else:
+            # Get prior snapshot from session state (if available)
+            prior_snapshot = st.session_state.get('ai_prior_snapshot', None)
+            
+            # Generate current snapshot
+            current_snapshot = get_adaptive_intelligence_snapshot(truth_df, prior_snapshot)
+            
+            # Extract priority insights
+            priority_insights = current_snapshot['priority_insights']
+            
+            # Generate Stage 4 decision support summary
+            prior_clusters = prior_snapshot.get('signal_clusters', []) if prior_snapshot else []
+            decision_support = get_decision_support_summary(priority_insights, prior_clusters)
+    
+    except Exception as e:
+        st.error(f"⚠️ Error loading decision support data: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        decision_support = []
+    
+    # Display decision cards
+    if not decision_support:
+        st.success("✓ No priority issues detected - all waves operating within normal parameters.")
+    else:
+        for idx, item in enumerate(decision_support):
+            rank = item['rank']
+            cluster_name = item['cluster_name']
+            cluster_severity = item['cluster_severity']
+            wave_count = item['wave_count']
+            enhanced_narrative = item['enhanced_narrative']
+            recommended_action = item['recommended_action']
+            risk_of_inaction = item['risk_of_inaction']
+            affected_waves = item.get('affected_waves', [])
+            
+            # Severity badge
+            if cluster_severity >= 75:
+                badge = "🔴"
+                severity_label = "Critical"
+            elif cluster_severity >= 50:
+                badge = "🟠"
+                severity_label = "High"
+            elif cluster_severity >= 25:
+                badge = "🟡"
+                severity_label = "Medium"
+            else:
+                badge = "🔵"
+                severity_label = "Low"
+            
+            # Risk of inaction color coding
+            risk_badge = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(risk_of_inaction, "⚪")
+            
+            # Display Decision Card
+            with st.expander(f"{badge} #{rank}: {cluster_name}", expanded=(idx == 0)):
+                # Title
+                st.markdown(f"### {cluster_name}")
+                
+                # Explanation (Enhanced Narrative)
+                st.markdown("**📊 Explanation:**")
+                st.markdown(enhanced_narrative)
+                
+                # Metrics
+                st.markdown("**📈 Metrics:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Severity", f"{severity_label}", delta=f"{cluster_severity}/100")
+                with col2:
+                    st.metric("Risk of Inaction", f"{risk_of_inaction}", delta=risk_badge)
+                with col3:
+                    st.metric("Affected Waves", wave_count)
+                
+                # Affected waves
+                if affected_waves:
+                    st.markdown("**🌊 Affected Waves:**")
+                    st.caption(" · ".join(affected_waves))
+                
+                # Recommended Action
+                st.markdown("**🎯 Recommended Action:**")
+                st.info(recommended_action)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2: HUMAN DECISION CONTROLS
+    # ========================================================================
+    st.subheader("✋ Human Decision Controls")
+    st.markdown("**Make decisions on priority insights**")
+    
+    if decision_support:
+        for item in decision_support:
+            rank = item['rank']
+            cluster_name = item['cluster_name']
+            
+            # Create unique key for this decision
+            decision_key = f"decision_{rank}"
+            
+            st.markdown(f"**Decision for #{rank}: {cluster_name}**")
+            
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # Dropdown menu
+                decision = st.selectbox(
+                    f"Action for #{rank}",
+                    options=["-- Select Action --", "Acknowledge", "Reject", "Escalate", "Monitor", "Defer"],
+                    key=f"dropdown_{decision_key}"
+                )
+            
+            with col2:
+                # Complementary text field
+                notes = st.text_area(
+                    f"Notes for #{rank}",
+                    placeholder="Add your comments here...",
+                    key=f"notes_{decision_key}",
+                    height=100
+                )
+            
+            # Save button
+            if st.button(f"💾 Save Decision #{rank}", key=f"save_{decision_key}"):
+                if decision == "-- Select Action --":
+                    st.error("Please select an action before saving.")
+                else:
+                    # Save to session state
+                    st.session_state['control_center_decisions'][decision_key] = {
+                        'rank': rank,
+                        'cluster_name': cluster_name,
+                        'decision': decision,
+                        'notes': notes,
+                        'timestamp': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    }
+                    
+                    # Add to audit log
+                    st.session_state['control_center_audit_log'].append({
+                        'timestamp': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+                        'insight': cluster_name,
+                        'decision': decision,
+                        'notes': notes,
+                        'rank': rank
+                    })
+                    
+                    st.success(f"✓ Decision saved for #{rank}: {cluster_name}")
+            
+            st.markdown("---")
+    else:
+        st.info("No decisions to make at this time.")
+    
+    # ========================================================================
+    # SECTION 3: AUDIT TABLE
+    # ========================================================================
+    st.subheader("📜 Audit Table")
+    st.markdown("**Real-time log of human decisions**")
+    st.caption("**Filter:** Safeguarding Irreversible Portfolio Modifications")
+    
+    if st.session_state['control_center_audit_log']:
+        # Create DataFrame from audit log
+        audit_df = pd.DataFrame(st.session_state['control_center_audit_log'])
+        
+        # Reorder columns for display
+        audit_df = audit_df[['timestamp', 'rank', 'insight', 'decision', 'notes']]
+        audit_df.columns = ['Timestamp', 'Rank', 'Insight', 'Decision', 'Notes']
+        
+        # Sort by timestamp descending (most recent first)
+        audit_df = audit_df.sort_values('Timestamp', ascending=False)
+        
+        # Display the audit table
+        st.dataframe(audit_df, use_container_width=True, height=400)
+        
+        # Export option
+        if st.button("📥 Export Audit Log as CSV"):
+            csv = audit_df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"control_center_audit_log_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+    else:
+        st.info("No audit entries yet. Decisions will be logged here in real-time.")
+    
+    # Clear audit log button (with confirmation)
+    if st.session_state['control_center_audit_log']:
+        st.markdown("---")
+        
+        # Show confirmation checkbox first
+        confirm = st.checkbox("Confirm: I want to clear the audit log", key="clear_audit_confirm")
+        
+        # Only show clear button if confirmed
+        if confirm:
+            if st.button("🗑️ Clear Audit Log", type="secondary", key="clear_audit_button"):
+                st.session_state['control_center_audit_log'] = []
+                st.session_state['control_center_decisions'] = {}
+                st.success("✓ Audit log cleared.")
+                st.rerun()
+        else:
+            st.button("🗑️ Clear Audit Log", type="secondary", disabled=True, key="clear_audit_button_disabled")
+
+
+
 def render_wave_overview_new_tab():
     """
     Render the new Wave Overview tab with comprehensive all-waves view.
@@ -23681,6 +23931,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Adaptive Intelligence",   # NEW: Read-only monitoring and diagnostics center
+            "🛠 Control Center",       # NEW: Human oversight & authorization layer
             "Governance & Audit",      # NEW: Governance and transparency layer
             "Operator Panel",          # NEW: Operator layer for system state and diagnostics
             "Diagnostics",             # Health/Diagnostics tab
@@ -23748,20 +23999,28 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[12]:
             safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
         
-        # Governance & Audit tab (NEW)
+        # Adaptive Intelligence tab (NEW - Read-only monitoring and diagnostics)
         with analytics_tabs[13]:
+            safe_component("Adaptive Intelligence", render_adaptive_intelligence_tab)
+        
+        # Control Center tab (NEW - Human oversight & authorization layer)
+        with analytics_tabs[14]:
+            safe_component("Control Center", render_control_center_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[15]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Operator Panel tab (NEW)
-        with analytics_tabs[14]:
+        with analytics_tabs[16]:
             safe_component("Operator Panel", render_operator_panel_tab)
         
         # Diagnostics tab
-        with analytics_tabs[15]:
+        with analytics_tabs[17]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[16]:
+        with analytics_tabs[18]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -23782,6 +24041,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Adaptive Intelligence",       # NEW: Read-only monitoring and diagnostics center
+            "🛠 Control Center",           # NEW: Human oversight & authorization layer
             "Governance & Audit",          # NEW: Governance and transparency layer
             "Operator Panel",              # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                 # Health/Diagnostics tab
@@ -23857,20 +24117,24 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[14]:
             safe_component("Adaptive Intelligence", render_adaptive_intelligence_tab)
         
-        # Governance & Audit tab (NEW)
+        # Control Center tab (NEW - Human oversight & authorization layer)
         with analytics_tabs[15]:
+            safe_component("Control Center", render_control_center_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[16]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Operator Panel tab (NEW)
-        with analytics_tabs[16]:
+        with analytics_tabs[17]:
             safe_component("Operator Panel", render_operator_panel_tab)
         
         # Diagnostics tab
-        with analytics_tabs[17]:
+        with analytics_tabs[18]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[18]:
+        with analytics_tabs[19]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -23890,6 +24154,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
             "Adaptive Intelligence",      # NEW: Read-only monitoring and diagnostics center
+            "🛠 Control Center",          # NEW: Human oversight & authorization layer
             "Governance & Audit",         # NEW: Governance and transparency layer
             "Operator Panel",             # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                # Health/Diagnostics tab
@@ -23960,20 +24225,24 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[13]:
             safe_component("Adaptive Intelligence", render_adaptive_intelligence_tab)
         
-        # Governance & Audit tab (NEW)
+        # Control Center tab (NEW - Human oversight & authorization layer)
         with analytics_tabs[14]:
+            safe_component("Control Center", render_control_center_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[15]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Operator Panel tab (NEW)
-        with analytics_tabs[15]:
+        with analytics_tabs[16]:
             safe_component("Operator Panel", render_operator_panel_tab)
         
         # Diagnostics tab
-        with analytics_tabs[16]:
+        with analytics_tabs[17]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[17]:
+        with analytics_tabs[18]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
