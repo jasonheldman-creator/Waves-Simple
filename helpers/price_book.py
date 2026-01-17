@@ -240,3 +240,15 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
         "days_stale": days_stale,
         "details": f"{status} — {coverage_pct:.1f}% coverage",
     }
+    # =============================================================================
+# EXPORT SAFETY (UI / LEGACY IMPORTS)
+# =============================================================================
+__all__ = [
+    "get_price_book",
+    "get_price_book_singleton",
+    "get_active_required_tickers",
+    "get_required_tickers",
+    "compute_system_health",
+    "rebuild_price_cache",
+    "PRICE_BOOK",
+]
