@@ -1797,3 +1797,44 @@ def generate_truth_frame_full() -> pd.DataFrame:
         TruthFrame DataFrame
     """
     return get_truth_frame(safe_mode=False, force_refresh=True)
+    
+    def compute_portfolio_snapshot_from_truth(
+    mode: str,
+    periods=(1, 30, 60, 365),
+):
+    """
+    Compute portfolio-level metrics by aggregating
+    strategy-adjusted Wave analytics from TruthFrame.
+
+    This guarantees portfolio numbers reflect:
+    - VIX regime
+    - dynamic benchmarks
+    - exposure & cash
+    - all Wave algos
+    """
+
+    # 1. Build FULL TruthFrame (this runs the real engine)
+    truth_df = get_truth_frame(safe_mode=False)
+
+    # 2. Filter to the requested mode
+    truth_df = truth_df[truth_df["mode"] == mode]
+
+    if truth_df.empty:
+        return {
+            "error": "No waves available for portfolio computation"
+        }
+
+    snapshot = {}
+
+    # 3. Aggregate returns
+    for p in periods:
+        ret_col = f"return_{p}d"
+        alpha_col = f"alpha_{p}d"
+
+        snapshot[f"return_{p}d"] = truth_df[ret_col].mean()
+        snapshot[f"alpha_{p}d"] = truth_df[alpha_col].mean()
+
+    # 4. Timestamp for proof
+    snapshot["computed_at_utc"] = datetime.utcnow().isoformat()
+
+    return snapshot
