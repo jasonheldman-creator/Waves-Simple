@@ -23160,3 +23160,8 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Debug trace marker
     if st.session_state.get("debug_mode", False):
         st.captio
+
+# =========================================================
+# RUN APPLICATION
+# =========================================================
+main()
