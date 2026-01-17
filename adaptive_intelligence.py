@@ -16,16 +16,27 @@ Key Features:
 - Wave health monitoring (alpha trends, beta drift, exposure analysis)
 - Volatility regime intelligence
 - Learning signal detection (patterns and anomalies)
+- **STAGE 3**: Narrative & Causal Intelligence with clustering, change detection, and priority ranking
 
 All diagnostics pull from TruthFrame and wave registry metadata only.
 No legacy portfolio aggregation paths or duplicate strategy calculations.
+
+Stage 3 Enhancements:
+- Cluster related signals into causal themes (beta drift clusters, regime mismatches, etc.)
+- Deterministic cluster severity, affected wave count, and persistence
+- Template-based narrative explanations (no LLM)
+- Change detection vs prior snapshot (new, escalating, improving, resolved)
+- Priority stack ranking top 3 "What Matters Today" insights
 
 Usage:
     from adaptive_intelligence import (
         analyze_wave_health,
         analyze_regime_intelligence,
         detect_learning_signals,
-        get_wave_health_summary
+        get_wave_health_summary,
+        cluster_signals,  # STAGE 3
+        detect_cluster_changes,  # STAGE 3
+        get_priority_insights  # STAGE 3
     )
     
     # Get TruthFrame (read-only)
@@ -39,6 +50,15 @@ Usage:
     
     # Detect learning signals
     signals = detect_learning_signals(truth_df)
+    
+    # STAGE 3: Cluster signals into themes
+    clusters = cluster_signals(signals)
+    
+    # STAGE 3: Detect changes from prior snapshot
+    changes = detect_cluster_changes(clusters, prior_clusters)
+    
+    # STAGE 3: Get top 3 priority insights
+    top_insights = get_priority_insights(clusters)
 """
 
 from typing import Dict, List, Optional, Any, Tuple
@@ -83,6 +103,12 @@ SEVERITY_HIGH_THRESHOLD = 75
 REGIME_MULTIPLIER_NORMAL = 1.0  # LIVE regime
 REGIME_MULTIPLIER_VOLATILE = 1.3  # HYBRID regime
 REGIME_MULTIPLIER_RISK_OFF = 1.5  # SANDBOX or UNAVAILABLE regime
+
+# Stage 3: Normalization constants for clustering
+MAX_BETA_DRIFT_NORMALIZATION = 0.30  # Maximum beta drift for normalization (30% drift is extreme)
+MAX_ALPHA_NORMALIZATION = 0.05  # Maximum alpha for normalization (5% is extreme)
+MAX_DRAWDOWN_NORMALIZATION = 0.40  # Maximum drawdown for normalization (-40% is extreme)
+MAX_EXPOSURE_DRIFT_NORMALIZATION = 0.02  # Maximum exposure drift for normalization (2% from threshold)
 
 
 # ============================================================================
@@ -325,7 +351,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         if alpha_30d is not None and alpha_60d is not None:
             if alpha_30d < ALPHA_DECAY_THRESHOLD and alpha_60d < ALPHA_DECAY_THRESHOLD:  # Both worse than -1%
                 # Calculate magnitude: how negative is the alpha?
-                magnitude = min(1.0, abs(alpha_60d) / 0.05)  # Normalize to 5% as extreme
+                magnitude = min(1.0, abs(alpha_60d) / MAX_ALPHA_NORMALIZATION)
                 
                 # Calculate persistence: both 30d and 60d negative indicates persistence
                 persistence = 0.8  # High persistence since both periods are negative
@@ -364,7 +390,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         
         if beta_drift is not None and beta_drift > BETA_DRIFT_WARNING_THRESHOLD:
             # Calculate magnitude: how large is the drift?
-            magnitude = min(1.0, beta_drift / 0.30)  # Normalize to 0.30 as extreme
+            magnitude = min(1.0, beta_drift / MAX_BETA_DRIFT_NORMALIZATION)
             
             # Persistence: can't easily determine from single point, use moderate
             persistence = 0.5
@@ -403,7 +429,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         if exposure_pct is not None:
             if exposure_pct > HIGH_EXPOSURE_THRESHOLD:
                 # High exposure is informational, low severity
-                magnitude = min(1.0, (exposure_pct - HIGH_EXPOSURE_THRESHOLD) / 0.02)
+                magnitude = min(1.0, (exposure_pct - HIGH_EXPOSURE_THRESHOLD) / MAX_EXPOSURE_DRIFT_NORMALIZATION)
                 persistence = 0.3
                 data_coverage = 1.0
                 metric_agreement = 0.9
@@ -428,7 +454,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
                 })
             elif exposure_pct < LOW_EXPOSURE_THRESHOLD:
                 # Low exposure may indicate issues
-                magnitude = min(1.0, (LOW_EXPOSURE_THRESHOLD - exposure_pct) / 0.30)
+                magnitude = min(1.0, (LOW_EXPOSURE_THRESHOLD - exposure_pct) / (LOW_EXPOSURE_THRESHOLD - EXTREME_EXPOSURE_LOW_THRESHOLD))
                 persistence = 0.4
                 data_coverage = 1.0
                 metric_agreement = 0.9
@@ -484,7 +510,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         
         if drawdown_60d is not None and drawdown_60d < HIGH_DRAWDOWN_THRESHOLD:  # Drawdown worse than -20%
             # Calculate magnitude
-            magnitude = min(1.0, abs(drawdown_60d) / 0.40)  # Normalize to -40% as extreme
+            magnitude = min(1.0, abs(drawdown_60d) / MAX_DRAWDOWN_NORMALIZATION)
             
             # Persistence: 60d drawdown indicates sustained issue
             persistence = 0.8
@@ -789,15 +815,18 @@ def _get_action_classification(severity_label: str) -> str:
 # EXPORT FUNCTIONS FOR UI
 # ============================================================================
 
-def get_adaptive_intelligence_snapshot(truth_df: pd.DataFrame) -> Dict[str, Any]:
+def get_adaptive_intelligence_snapshot(truth_df: pd.DataFrame, prior_snapshot: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Get complete adaptive intelligence snapshot (READ-ONLY).
     
     This is a convenience function that bundles all adaptive intelligence
     diagnostics into a single dictionary for easy UI consumption.
     
+    Stage 3 Enhancement: Includes signal clustering, change detection, and priority insights.
+    
     Args:
         truth_df: TruthFrame DataFrame (not modified)
+        prior_snapshot: Optional prior snapshot for change detection
         
     Returns:
         Dictionary with all adaptive intelligence data:
@@ -805,12 +834,603 @@ def get_adaptive_intelligence_snapshot(truth_df: pd.DataFrame) -> Dict[str, Any]
             'wave_health': List[Dict],
             'regime_intelligence': Dict,
             'learning_signals': List[Dict],
+            'signal_clusters': List[Dict],  # STAGE 3
+            'cluster_changes': List[Dict],  # STAGE 3
+            'priority_insights': List[Dict],  # STAGE 3
             'timestamp': datetime
         }
     """
+    signals = detect_learning_signals(truth_df)
+    clusters = cluster_signals(signals, truth_df)
+    
+    # Extract prior clusters if available
+    prior_clusters = prior_snapshot.get('signal_clusters', []) if prior_snapshot else []
+    cluster_changes = detect_cluster_changes(clusters, prior_clusters)
+    
+    priority_insights = get_priority_insights(clusters)
+    
     return {
         'wave_health': get_wave_health_summary(truth_df),
         'regime_intelligence': analyze_regime_intelligence(truth_df),
-        'learning_signals': detect_learning_signals(truth_df),
+        'learning_signals': signals,
+        'signal_clusters': clusters,  # STAGE 3
+        'cluster_changes': cluster_changes,  # STAGE 3
+        'priority_insights': priority_insights,  # STAGE 3
         'timestamp': datetime.now()
     }
+
+
+# ============================================================================
+# STAGE 3: SIGNAL CLUSTERING & NARRATIVE INTELLIGENCE
+# ============================================================================
+
+def cluster_signals(signals: List[Dict[str, Any]], truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Cluster related signals into causal themes (STAGE 3, READ-ONLY).
+    
+    Groups signals by type into clusters representing broader systemic issues:
+    - Beta Drift Cluster: Waves with tracking error
+    - Regime Mismatch Cluster: Waves in non-LIVE regimes
+    - Concentration Risk Cluster: Waves with extreme exposure
+    - Alpha Decay Cluster: Waves with sustained underperformance
+    - High Drawdown Cluster: Waves with significant losses
+    
+    Each cluster includes:
+    - cluster_type: Type of cluster
+    - cluster_severity: Deterministic severity score (0-100)
+    - affected_waves: List of wave_ids in cluster
+    - wave_count: Number of affected waves
+    - persistence: How long this issue has persisted (0.0-1.0)
+    - narrative: Template-based explanation (no LLM)
+    
+    Args:
+        signals: List of signal dictionaries from detect_learning_signals()
+        truth_df: TruthFrame DataFrame for additional context (not modified)
+        
+    Returns:
+        List of cluster dictionaries sorted by severity (descending)
+    """
+    # Group signals by type
+    signal_groups = {}
+    for signal in signals:
+        signal_type = signal['signal_type']
+        if signal_type not in signal_groups:
+            signal_groups[signal_type] = []
+        signal_groups[signal_type].append(signal)
+    
+    clusters = []
+    
+    # Cluster 1: Beta Drift Cluster
+    beta_drift_signals = signal_groups.get('beta_drift', [])
+    if beta_drift_signals:
+        clusters.append(_create_beta_drift_cluster(beta_drift_signals, truth_df))
+    
+    # Cluster 2: Regime Mismatch Cluster
+    regime_mismatch_signals = signal_groups.get('data_regime_mismatch', [])
+    if regime_mismatch_signals:
+        clusters.append(_create_regime_mismatch_cluster(regime_mismatch_signals, truth_df))
+    
+    # Cluster 3: Alpha Decay Cluster
+    alpha_decay_signals = signal_groups.get('sustained_alpha_decay', [])
+    if alpha_decay_signals:
+        clusters.append(_create_alpha_decay_cluster(alpha_decay_signals, truth_df))
+    
+    # Cluster 4: Concentration Risk Cluster (extreme exposure)
+    exposure_high_signals = signal_groups.get('extreme_exposure_high', [])
+    exposure_low_signals = signal_groups.get('extreme_exposure_low', [])
+    if exposure_high_signals or exposure_low_signals:
+        clusters.append(_create_concentration_risk_cluster(
+            exposure_high_signals + exposure_low_signals, truth_df
+        ))
+    
+    # Cluster 5: High Drawdown Cluster
+    drawdown_signals = signal_groups.get('high_drawdown', [])
+    if drawdown_signals:
+        clusters.append(_create_high_drawdown_cluster(drawdown_signals, truth_df))
+    
+    # Sort clusters by severity (descending)
+    clusters.sort(key=lambda c: c['cluster_severity'], reverse=True)
+    
+    return clusters
+
+
+def _create_beta_drift_cluster(signals: List[Dict[str, Any]], truth_df: pd.DataFrame) -> Dict[str, Any]:
+    """Create beta drift cluster from related signals."""
+    affected_waves = [s['wave_id'] for s in signals]
+    wave_count = len(affected_waves)
+    
+    # Calculate cluster severity (average of signal severities)
+    avg_severity = int(np.mean([s['severity_score'] for s in signals]))
+    
+    # Calculate persistence (use average beta drift magnitude as proxy)
+    avg_drift = np.mean([s.get('metric_value', 0.0) for s in signals if s.get('metric_value')])
+    persistence = min(1.0, avg_drift / MAX_BETA_DRIFT_NORMALIZATION)
+    
+    # Generate narrative
+    max_drift_signal = max(signals, key=lambda s: s.get('metric_value', 0.0))
+    max_drift = max_drift_signal.get('metric_value', 0.0)
+    max_drift_wave = max_drift_signal.get('display_name', 'Unknown')
+    
+    narrative = (
+        f"**Beta Drift Detected:** {wave_count} wave{'s' if wave_count > 1 else ''} "
+        f"showing tracking error vs target beta. "
+        f"Largest drift: {max_drift_wave} ({max_drift:.3f}). "
+        f"This indicates portfolio allocation may be deviating from intended market exposure. "
+        f"Review rebalancing thresholds and consider tactical adjustments if drift persists."
+    )
+    
+    return {
+        'cluster_type': 'beta_drift',
+        'cluster_name': 'Beta Drift Cluster',
+        'cluster_severity': avg_severity,
+        'affected_waves': affected_waves,
+        'wave_count': wave_count,
+        'persistence': persistence,
+        'narrative': narrative,
+        'signals': signals
+    }
+
+
+def _create_regime_mismatch_cluster(signals: List[Dict[str, Any]], truth_df: pd.DataFrame) -> Dict[str, Any]:
+    """Create regime mismatch cluster from related signals."""
+    affected_waves = [s['wave_id'] for s in signals]
+    wave_count = len(affected_waves)
+    
+    # Regime mismatch is always high severity
+    avg_severity = int(np.mean([s['severity_score'] for s in signals]))
+    
+    # Persistence is high for regime issues (assumed persistent until fixed)
+    persistence = 0.9
+    
+    # Count by regime type
+    regime_counts = {}
+    for signal in signals:
+        # Extract regime from description
+        desc = signal['description']
+        if 'UNAVAILABLE' in desc:
+            regime = 'UNAVAILABLE'
+        elif 'SANDBOX' in desc:
+            regime = 'SANDBOX'
+        elif 'HYBRID' in desc:
+            regime = 'HYBRID'
+        else:
+            regime = 'UNKNOWN'
+        regime_counts[regime] = regime_counts.get(regime, 0) + 1
+    
+    # Generate narrative
+    regime_summary = ', '.join([f"{count} in {regime}" for regime, count in regime_counts.items()])
+    narrative = (
+        f"**Regime Mismatch Alert:** {wave_count} wave{'s' if wave_count > 1 else ''} "
+        f"operating in non-LIVE data regimes ({regime_summary}). "
+        f"These waves may be using stale, simulated, or unavailable data. "
+        f"Verify data pipeline health and consider excluding these waves from execution "
+        f"until data quality improves."
+    )
+    
+    return {
+        'cluster_type': 'regime_mismatch',
+        'cluster_name': 'Regime Mismatch Cluster',
+        'cluster_severity': avg_severity,
+        'affected_waves': affected_waves,
+        'wave_count': wave_count,
+        'persistence': persistence,
+        'narrative': narrative,
+        'signals': signals
+    }
+
+
+def _create_alpha_decay_cluster(signals: List[Dict[str, Any]], truth_df: pd.DataFrame) -> Dict[str, Any]:
+    """Create alpha decay cluster from related signals."""
+    affected_waves = [s['wave_id'] for s in signals]
+    wave_count = len(affected_waves)
+    
+    # Calculate cluster severity
+    avg_severity = int(np.mean([s['severity_score'] for s in signals]))
+    
+    # Persistence is high (both 30d and 60d negative indicates sustained issue)
+    persistence = 0.8
+    
+    # Calculate total underperformance
+    avg_alpha = np.mean([s.get('metric_value', 0.0) for s in signals if s.get('metric_value')])
+    
+    # Find worst performer
+    worst_signal = min(signals, key=lambda s: s.get('metric_value', 0.0))
+    worst_alpha = worst_signal.get('metric_value', 0.0)
+    worst_wave = worst_signal.get('display_name', 'Unknown')
+    
+    # Generate narrative
+    narrative = (
+        f"**Sustained Alpha Decay:** {wave_count} wave{'s' if wave_count > 1 else ''} "
+        f"underperforming benchmark over 30+ days. "
+        f"Average 60d alpha: {avg_alpha*100:.2f}%. "
+        f"Worst performer: {worst_wave} ({worst_alpha*100:.2f}%). "
+        f"This pattern suggests strategy ineffectiveness or adverse market conditions. "
+        f"Review strategy assumptions, factor exposures, and consider defensive positioning."
+    )
+    
+    return {
+        'cluster_type': 'alpha_decay',
+        'cluster_name': 'Alpha Decay Cluster',
+        'cluster_severity': avg_severity,
+        'affected_waves': affected_waves,
+        'wave_count': wave_count,
+        'persistence': persistence,
+        'narrative': narrative,
+        'signals': signals
+    }
+
+
+def _create_concentration_risk_cluster(signals: List[Dict[str, Any]], truth_df: pd.DataFrame) -> Dict[str, Any]:
+    """Create concentration risk cluster from extreme exposure signals."""
+    affected_waves = [s['wave_id'] for s in signals]
+    wave_count = len(affected_waves)
+    
+    # Calculate cluster severity
+    avg_severity = int(np.mean([s['severity_score'] for s in signals]))
+    
+    # Persistence is moderate (exposure can change quickly)
+    persistence = 0.4
+    
+    # Separate high and low exposure
+    high_exposure = [s for s in signals if 'high' in s['signal_type']]
+    low_exposure = [s for s in signals if 'low' in s['signal_type']]
+    
+    # Generate narrative
+    if high_exposure and low_exposure:
+        narrative = (
+            f"**Concentration Risk Alert:** {len(high_exposure)} wave{'s' if len(high_exposure) > 1 else ''} "
+            f"with very high exposure (>98%) and {len(low_exposure)} wave{'s' if len(low_exposure) > 1 else ''} "
+            f"with low exposure (<50%). "
+            f"This indicates imbalanced capital allocation. "
+            f"High exposure waves have minimal cash buffer for rebalancing or drawdowns. "
+            f"Low exposure waves may be underutilized. Review allocation strategy."
+        )
+    elif high_exposure:
+        narrative = (
+            f"**High Concentration Risk:** {len(high_exposure)} wave{'s' if len(high_exposure) > 1 else ''} "
+            f"operating at >98% exposure with minimal cash buffer. "
+            f"Limited flexibility for rebalancing or managing drawdowns. "
+            f"Consider reducing exposure or increasing cash allocation for risk management."
+        )
+    else:
+        narrative = (
+            f"**Low Exposure Alert:** {len(low_exposure)} wave{'s' if len(low_exposure) > 1 else ''} "
+            f"holding <50% exposure with high cash allocation. "
+            f"Capital may be underutilized. "
+            f"Review investment policy and consider increasing exposure if market conditions permit."
+        )
+    
+    return {
+        'cluster_type': 'concentration_risk',
+        'cluster_name': 'Concentration Risk Cluster',
+        'cluster_severity': avg_severity,
+        'affected_waves': affected_waves,
+        'wave_count': wave_count,
+        'persistence': persistence,
+        'narrative': narrative,
+        'signals': signals
+    }
+
+
+def _create_high_drawdown_cluster(signals: List[Dict[str, Any]], truth_df: pd.DataFrame) -> Dict[str, Any]:
+    """Create high drawdown cluster from related signals."""
+    affected_waves = [s['wave_id'] for s in signals]
+    wave_count = len(affected_waves)
+    
+    # Calculate cluster severity
+    avg_severity = int(np.mean([s['severity_score'] for s in signals]))
+    
+    # Persistence is high (60d drawdown indicates sustained issue)
+    persistence = 0.8
+    
+    # Calculate average drawdown
+    avg_drawdown = np.mean([s.get('metric_value', 0.0) for s in signals if s.get('metric_value')])
+    
+    # Find worst drawdown
+    worst_signal = min(signals, key=lambda s: s.get('metric_value', 0.0))
+    worst_drawdown = worst_signal.get('metric_value', 0.0)
+    worst_wave = worst_signal.get('display_name', 'Unknown')
+    
+    # Generate narrative
+    narrative = (
+        f"**High Drawdown Alert:** {wave_count} wave{'s' if wave_count > 1 else ''} "
+        f"experiencing significant 60-day drawdowns. "
+        f"Average drawdown: {avg_drawdown*100:.2f}%. "
+        f"Worst drawdown: {worst_wave} ({worst_drawdown*100:.2f}%). "
+        f"Extended drawdowns increase recovery time and may indicate structural issues. "
+        f"Review risk management, stop-loss policies, and consider defensive hedging strategies."
+    )
+    
+    return {
+        'cluster_type': 'high_drawdown',
+        'cluster_name': 'High Drawdown Cluster',
+        'cluster_severity': avg_severity,
+        'affected_waves': affected_waves,
+        'wave_count': wave_count,
+        'persistence': persistence,
+        'narrative': narrative,
+        'signals': signals
+    }
+
+
+# ============================================================================
+# STAGE 3: CHANGE DETECTION
+# ============================================================================
+
+def detect_cluster_changes(
+    current_clusters: List[Dict[str, Any]], 
+    prior_clusters: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Detect changes between current and prior cluster snapshots (STAGE 3, READ-ONLY).
+    
+    Identifies:
+    - New clusters: Clusters that didn't exist before
+    - Escalating clusters: Clusters with increased severity or wave count
+    - Improving clusters: Clusters with decreased severity or wave count
+    - Resolved clusters: Clusters that existed before but no longer exist
+    
+    Args:
+        current_clusters: Current cluster list
+        prior_clusters: Prior cluster list (may be empty)
+        
+    Returns:
+        List of change dictionaries:
+        [
+            {
+                'change_type': str ('new', 'escalating', 'improving', 'resolved'),
+                'cluster_type': str,
+                'cluster_name': str,
+                'severity_change': int (delta in severity),
+                'wave_count_change': int (delta in wave count),
+                'description': str
+            },
+            ...
+        ]
+    """
+    if not prior_clusters:
+        # All current clusters are new
+        return [
+            {
+                'change_type': 'new',
+                'cluster_type': c['cluster_type'],
+                'cluster_name': c['cluster_name'],
+                'severity_change': c['cluster_severity'],
+                'wave_count_change': c['wave_count'],
+                'description': f"New {c['cluster_name'].lower()} detected with {c['wave_count']} affected wave{'s' if c['wave_count'] > 1 else ''}"
+            }
+            for c in current_clusters
+        ]
+    
+    changes = []
+    
+    # Create lookup maps
+    current_map = {c['cluster_type']: c for c in current_clusters}
+    prior_map = {c['cluster_type']: c for c in prior_clusters}
+    
+    # Check for new, escalating, and improving clusters
+    for cluster_type, current_cluster in current_map.items():
+        if cluster_type not in prior_map:
+            # New cluster
+            changes.append({
+                'change_type': 'new',
+                'cluster_type': cluster_type,
+                'cluster_name': current_cluster['cluster_name'],
+                'severity_change': current_cluster['cluster_severity'],
+                'wave_count_change': current_cluster['wave_count'],
+                'description': f"New {current_cluster['cluster_name'].lower()} detected with {current_cluster['wave_count']} affected wave{'s' if current_cluster['wave_count'] > 1 else ''}"
+            })
+        else:
+            # Existing cluster - check for changes
+            prior_cluster = prior_map[cluster_type]
+            severity_delta = current_cluster['cluster_severity'] - prior_cluster['cluster_severity']
+            wave_count_delta = current_cluster['wave_count'] - prior_cluster['wave_count']
+            
+            # Threshold for meaningful change
+            if abs(severity_delta) >= 10 or wave_count_delta != 0:
+                if severity_delta > 0 or wave_count_delta > 0:
+                    # Escalating
+                    changes.append({
+                        'change_type': 'escalating',
+                        'cluster_type': cluster_type,
+                        'cluster_name': current_cluster['cluster_name'],
+                        'severity_change': severity_delta,
+                        'wave_count_change': wave_count_delta,
+                        'description': (
+                            f"{current_cluster['cluster_name']} escalating: "
+                            f"severity {'↑' if severity_delta > 0 else '→'}{abs(severity_delta)} points, "
+                            f"waves {'↑' if wave_count_delta > 0 else '→'}{abs(wave_count_delta)}"
+                        )
+                    })
+                else:
+                    # Improving
+                    changes.append({
+                        'change_type': 'improving',
+                        'cluster_type': cluster_type,
+                        'cluster_name': current_cluster['cluster_name'],
+                        'severity_change': severity_delta,
+                        'wave_count_change': wave_count_delta,
+                        'description': (
+                            f"{current_cluster['cluster_name']} improving: "
+                            f"severity ↓{abs(severity_delta)} points, "
+                            f"waves ↓{abs(wave_count_delta)}"
+                        )
+                    })
+    
+    # Check for resolved clusters
+    for cluster_type, prior_cluster in prior_map.items():
+        if cluster_type not in current_map:
+            changes.append({
+                'change_type': 'resolved',
+                'cluster_type': cluster_type,
+                'cluster_name': prior_cluster['cluster_name'],
+                'severity_change': -prior_cluster['cluster_severity'],
+                'wave_count_change': -prior_cluster['wave_count'],
+                'description': f"{prior_cluster['cluster_name']} resolved - no longer detected"
+            })
+    
+    return changes
+
+
+# ============================================================================
+# STAGE 3: PRIORITY STACK
+# ============================================================================
+
+def get_priority_insights(clusters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Get top 3 priority insights ("What Matters Today") from clusters (STAGE 3, READ-ONLY).
+    
+    Prioritization algorithm:
+    1. Cluster severity (0-100)
+    2. Number of affected waves (more waves = higher priority)
+    3. Regime sensitivity (regime mismatches prioritized)
+    4. Persistence (longer-lasting issues prioritized)
+    
+    Args:
+        clusters: List of cluster dictionaries
+        
+    Returns:
+        List of top 3 priority insights (or fewer if less than 3 clusters exist):
+        [
+            {
+                'rank': int (1-3),
+                'cluster_type': str,
+                'cluster_name': str,
+                'cluster_severity': int,
+                'wave_count': int,
+                'priority_score': float,
+                'narrative': str,
+                'justification': str (why this is prioritized)
+            },
+            ...
+        ]
+    """
+    if not clusters:
+        return []
+    
+    # Calculate priority score for each cluster
+    scored_clusters = []
+    for cluster in clusters:
+        priority_score = _calculate_priority_score(cluster)
+        scored_clusters.append({
+            **cluster,
+            'priority_score': priority_score
+        })
+    
+    # Sort by priority score (descending)
+    scored_clusters.sort(key=lambda c: c['priority_score'], reverse=True)
+    
+    # Take top 3
+    top_3 = scored_clusters[:3]
+    
+    # Add rank and justification
+    insights = []
+    for rank, cluster in enumerate(top_3, start=1):
+        justification = _generate_priority_justification(cluster, rank)
+        insights.append({
+            'rank': rank,
+            'cluster_type': cluster['cluster_type'],
+            'cluster_name': cluster['cluster_name'],
+            'cluster_severity': cluster['cluster_severity'],
+            'wave_count': cluster['wave_count'],
+            'priority_score': cluster['priority_score'],
+            'narrative': cluster['narrative'],
+            'justification': justification
+        })
+    
+    return insights
+
+
+def _calculate_priority_score(cluster: Dict[str, Any]) -> float:
+    """
+    Calculate priority score for a cluster.
+    
+    Formula:
+    - Severity: 40% weight (normalized 0-100)
+    - Wave count: 30% weight (normalized by total waves)
+    - Regime sensitivity: 20% weight (regime mismatches get boost)
+    - Persistence: 10% weight (0.0-1.0)
+    
+    Args:
+        cluster: Cluster dictionary
+        
+    Returns:
+        Priority score (0-100)
+    """
+    # Severity component (0-40 points)
+    severity_component = (cluster['cluster_severity'] / 100.0) * 40
+    
+    # Wave count component (0-30 points)
+    # Assume max 10 waves as normalization factor
+    wave_count_component = min(cluster['wave_count'] / 10.0, 1.0) * 30
+    
+    # Regime sensitivity component (0-20 points)
+    if cluster['cluster_type'] == 'regime_mismatch':
+        regime_component = 20  # Full points for regime issues
+    elif cluster['cluster_type'] in ['beta_drift', 'alpha_decay']:
+        regime_component = 10  # Half points for tracking issues
+    else:
+        regime_component = 5  # Minimal points for exposure issues
+    
+    # Persistence component (0-10 points)
+    persistence_component = cluster['persistence'] * 10
+    
+    # Total priority score
+    priority_score = (
+        severity_component + 
+        wave_count_component + 
+        regime_component + 
+        persistence_component
+    )
+    
+    return round(priority_score, 2)
+
+
+def _generate_priority_justification(cluster: Dict[str, Any], rank: int) -> str:
+    """
+    Generate justification text for why a cluster is prioritized.
+    
+    Args:
+        cluster: Cluster dictionary
+        rank: Priority rank (1-3)
+        
+    Returns:
+        Justification string
+    """
+    severity = cluster['cluster_severity']
+    wave_count = cluster['wave_count']
+    persistence = cluster['persistence']
+    cluster_type = cluster['cluster_type']
+    
+    # Build justification components
+    reasons = []
+    
+    if severity >= 75:
+        reasons.append("critical severity")
+    elif severity >= 50:
+        reasons.append("high severity")
+    
+    if wave_count >= 5:
+        reasons.append(f"affects {wave_count} waves")
+    elif wave_count >= 3:
+        reasons.append(f"affects multiple waves ({wave_count})")
+    
+    if persistence >= 0.8:
+        reasons.append("highly persistent issue")
+    elif persistence >= 0.5:
+        reasons.append("moderately persistent")
+    
+    if cluster_type == 'regime_mismatch':
+        reasons.append("data quality concern")
+    elif cluster_type == 'alpha_decay':
+        reasons.append("underperformance")
+    elif cluster_type == 'beta_drift':
+        reasons.append("tracking error concern")
+    
+    # Format justification
+    if reasons:
+        justification = f"Ranked #{rank} due to: {', '.join(reasons)}"
+    else:
+        justification = f"Ranked #{rank} based on overall priority scoring"
+    
+    return justification

@@ -21124,12 +21124,15 @@ def render_adaptive_intelligence_tab():
     MONITORING-ONLY TAB - This tab provides read-only diagnostics and insights.
     It does NOT modify any trading behavior, strategies, parameters, or execution logic.
     
-    Stage 2 Enhancement: Interpretive Intelligence (Read-Only)
-    - Enhanced signal severity and confidence scoring
-    - Color-coded severity badges
-    - Grouped signal sections with collapsible Informational section
+    Stage 3 Enhancement: Narrative & Causal Intelligence (Read-Only)
+    - Signal clustering into causal themes
+    - Change detection vs prior snapshot
+    - Priority stack with "What Matters Today" insights
+    - Template-based narratives (no LLM)
     
     This tab provides:
+    - Today's Intelligence Summary: Top 3 priority insights
+    - Signal Clusters: Grouped signals by causal theme
     - Wave Health Monitor: Alpha trends, beta drift, exposure analysis
     - Regime Intelligence: Volatility regime and wave alignment
     - Learning Signals: Detected patterns and anomalies with enhanced scoring
@@ -21137,18 +21140,23 @@ def render_adaptive_intelligence_tab():
     All data is read from TruthFrame with no writes or modifications.
     """
     st.markdown("# 🧠 Adaptive Intelligence Center")
-    st.markdown("### Stage 2 – Interpretive Intelligence (Read-Only)")
+    st.markdown("### Stage 3 – Narrative & Causal Intelligence (Read-Only)")
     
     # ========================================================================
     # PROMINENT GOVERNANCE BANNER
     # ========================================================================
     st.info("""
-    **📋 STAGE 2 – INTERPRETIVE INTELLIGENCE (READ-ONLY)**
+    **📋 STAGE 3 – NARRATIVE & CAUSAL INTELLIGENCE (READ-ONLY)**
     
     This center provides **monitoring and diagnostics only**. No actions are taken, and no trading behavior is modified.
     All diagnostics pull from TruthFrame data. No strategies, parameters, weights, or execution logic are changed.
     
-    **Stage 2 Features:**
+    **Stage 3 Features:**
+    - ✅ Signal clustering into causal themes (beta drift, regime mismatch, concentration risk, etc.)
+    - ✅ Deterministic cluster severity, affected wave count, and persistence tracking
+    - ✅ Template-based narrative explanations (no LLM usage)
+    - ✅ Change detection vs prior snapshot (new, escalating, improving, resolved)
+    - ✅ Priority stack ranking top 3 "What Matters Today" insights
     - ✅ Enhanced severity scoring (0-100, deterministic)
     - ✅ Confidence scoring based on data coverage, metric agreement, and recency
     - ✅ Regime-aware severity multipliers
@@ -21158,14 +21166,18 @@ def render_adaptive_intelligence_tab():
     st.markdown("---")
     
     # ========================================================================
-    # LOAD TRUTHFRAME DATA
+    # LOAD TRUTHFRAME DATA & GENERATE STAGE 3 INTELLIGENCE
     # ========================================================================
     try:
         from analytics_truth import get_truth_frame
         from adaptive_intelligence import (
             get_wave_health_summary,
             analyze_regime_intelligence,
-            detect_learning_signals
+            detect_learning_signals,
+            cluster_signals,  # STAGE 3
+            detect_cluster_changes,  # STAGE 3
+            get_priority_insights,  # STAGE 3
+            get_adaptive_intelligence_snapshot  # STAGE 3
         )
         
         # Get safe mode setting
@@ -21181,13 +21193,180 @@ def render_adaptive_intelligence_tab():
         
         st.success(f"✓ TruthFrame loaded: {len(truth_df)} waves available")
         
+        # Generate Stage 3 intelligence snapshot
+        with st.spinner("Generating intelligence snapshot..."):
+            # Get prior snapshot from session state (if available)
+            prior_snapshot = st.session_state.get('ai_prior_snapshot', None)
+            
+            # Generate current snapshot
+            current_snapshot = get_adaptive_intelligence_snapshot(truth_df, prior_snapshot)
+            
+            # Store current snapshot for next comparison
+            st.session_state['ai_prior_snapshot'] = current_snapshot
+            
+            # Extract data
+            wave_health = current_snapshot['wave_health']
+            regime = current_snapshot['regime_intelligence']
+            signals = current_snapshot['learning_signals']
+            clusters = current_snapshot['signal_clusters']
+            cluster_changes = current_snapshot['cluster_changes']
+            priority_insights = current_snapshot['priority_insights']
+        
+        st.success(f"✓ Intelligence snapshot generated: {len(clusters)} clusters, {len(signals)} signals")
+        
     except ImportError as e:
         st.error(f"⚠️ Required modules not available: {e}")
         st.info("Please ensure `analytics_truth` and `adaptive_intelligence` modules are installed.")
         return
     except Exception as e:
         st.error(f"⚠️ Error loading data: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         return
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # STAGE 3: TODAY'S INTELLIGENCE SUMMARY
+    # ========================================================================
+    st.subheader("📌 Today's Intelligence Summary")
+    st.markdown("**Top 3 priority insights requiring attention**")
+    
+    if not priority_insights:
+        st.success("✓ No priority issues detected - all waves operating within normal parameters.")
+    else:
+        for insight in priority_insights:
+            rank = insight['rank']
+            cluster_name = insight['cluster_name']
+            cluster_severity = insight['cluster_severity']
+            wave_count = insight['wave_count']
+            narrative = insight['narrative']
+            justification = insight['justification']
+            
+            # Severity badge
+            if cluster_severity >= 75:
+                badge = "🔴"
+                severity_label = "Critical"
+            elif cluster_severity >= 50:
+                badge = "🟠"
+                severity_label = "High"
+            elif cluster_severity >= 25:
+                badge = "🟡"
+                severity_label = "Medium"
+            else:
+                badge = "🔵"
+                severity_label = "Low"
+            
+            # Display insight card
+            with st.container():
+                st.markdown(f"### {badge} #{rank}: {cluster_name}")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Severity", f"{severity_label} ({cluster_severity}/100)")
+                with col2:
+                    st.metric("Affected Waves", wave_count)
+                with col3:
+                    st.metric("Priority Rank", f"#{rank} of 3")
+                
+                st.markdown(narrative)
+                st.caption(f"*{justification}*")
+                st.markdown("---")
+    
+    # ========================================================================
+    # STAGE 3: SIGNAL CLUSTERS
+    # ========================================================================
+    st.subheader("🔗 Signal Clusters")
+    st.markdown("**Related signals grouped by causal theme**")
+    
+    if not clusters:
+        st.success("✓ No signal clusters detected - all waves operating within normal parameters.")
+    else:
+        # Display cluster changes summary if available
+        if cluster_changes:
+            st.markdown("**Cluster Changes Since Last Snapshot:**")
+            
+            new_changes = [c for c in cluster_changes if c['change_type'] == 'new']
+            escalating_changes = [c for c in cluster_changes if c['change_type'] == 'escalating']
+            improving_changes = [c for c in cluster_changes if c['change_type'] == 'improving']
+            resolved_changes = [c for c in cluster_changes if c['change_type'] == 'resolved']
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("🆕 New", len(new_changes))
+            with col2:
+                st.metric("⬆️ Escalating", len(escalating_changes))
+            with col3:
+                st.metric("⬇️ Improving", len(improving_changes))
+            with col4:
+                st.metric("✅ Resolved", len(resolved_changes))
+            
+            # Display change details
+            for change in cluster_changes:
+                change_icon = {
+                    'new': '🆕',
+                    'escalating': '⬆️',
+                    'improving': '⬇️',
+                    'resolved': '✅'
+                }.get(change['change_type'], '•')
+                
+                st.caption(f"{change_icon} {change['description']}")
+            
+            st.markdown("---")
+        
+        # Display each cluster
+        for cluster in clusters:
+            cluster_type = cluster['cluster_type']
+            cluster_name = cluster['cluster_name']
+            cluster_severity = cluster['cluster_severity']
+            wave_count = cluster['wave_count']
+            persistence = cluster['persistence']
+            narrative = cluster['narrative']
+            affected_waves = cluster['affected_waves']
+            
+            # Severity badge
+            if cluster_severity >= 75:
+                badge = "🔴"
+                severity_label = "Critical"
+            elif cluster_severity >= 50:
+                badge = "🟠"
+                severity_label = "High"
+            elif cluster_severity >= 25:
+                badge = "🟡"
+                severity_label = "Medium"
+            else:
+                badge = "🔵"
+                severity_label = "Low"
+            
+            # Check if this cluster has changes
+            cluster_change = next((c for c in cluster_changes if c['cluster_type'] == cluster_type), None)
+            change_icon = ""
+            if cluster_change:
+                change_icon = {
+                    'new': ' 🆕',
+                    'escalating': ' ⬆️',
+                    'improving': ' ⬇️',
+                    'resolved': ' ✅'
+                }.get(cluster_change['change_type'], '')
+            
+            # Display cluster card
+            with st.expander(f"{badge} {cluster_name}{change_icon} - {wave_count} wave{'s' if wave_count > 1 else ''}", expanded=(cluster_severity >= 50)):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Severity", f"{severity_label} ({cluster_severity}/100)")
+                with col2:
+                    st.metric("Affected Waves", wave_count)
+                with col3:
+                    st.metric("Persistence", f"{persistence*100:.0f}%")
+                
+                st.markdown("**Narrative:**")
+                st.markdown(narrative)
+                
+                st.markdown("**Affected Waves:**")
+                st.caption(", ".join(affected_waves))
+                
+                # Show change details if applicable
+                if cluster_change:
+                    st.markdown(f"**Change:** {cluster_change['description']}")
     
     st.markdown("---")
     
@@ -21198,9 +21377,6 @@ def render_adaptive_intelligence_tab():
     st.markdown("**Recent alpha, beta drift, exposure, and volatility alignment for each wave.**")
     
     try:
-        # Get wave health summary
-        wave_health = get_wave_health_summary(truth_df)
-        
         if not wave_health:
             st.warning("No wave health data available.")
         else:
@@ -21412,9 +21588,10 @@ def render_adaptive_intelligence_tab():
     # FOOTER
     # ========================================================================
     st.caption("""
-    **Note:** This Adaptive Intelligence Center (Stage 2) provides enhanced interpretive monitoring.
+    **Note:** This Adaptive Intelligence Center (Stage 3) provides narrative and causal intelligence monitoring.
     All diagnostics are read-only and do not modify any trading behavior or system state.
-    Severity and confidence scores are deterministically calculated based on magnitude, persistence, regime awareness, and data quality.
+    Signal clustering, narratives, change detection, and priority ranking are all deterministically calculated.
+    No LLM or AI models are used - all narratives are template-based.
     """)
 
 
