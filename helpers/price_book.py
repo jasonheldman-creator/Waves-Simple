@@ -1,15 +1,15 @@
 """
-PRICE_BOOK - Single Canonical Price Source of Truth
+PRICE_BOOK — Canonical Price Source of Truth
 
-This module provides THE authoritative price data loader for the entire application.
-All price data must flow through this module to ensure consistency and prevent
-"two truths" problems.
+This module is the ONLY authoritative source of price data for the system.
+All pricing, readiness, diagnostics, governance, and execution intelligence
+must flow through this module.
 
-Key Principles:
-- ONE canonical cache file: data/cache/prices_cache.parquet
-- NO implicit fetching - all fetches are explicit and controlled
-- PRICE_BOOK is a DataFrame: index=dates, columns=tickers, values=close prices
-- All readiness, health, execution, and diagnostics use the SAME PRICE_BOOK
+Core Guarantees:
+- ONE canonical cache: data/cache/prices_cache.parquet
+- NO implicit network access
+- Deterministic, reproducible outputs
+- Stable public API (UI-safe)
 """
 
 import os
@@ -22,50 +22,35 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# LIVE / NETWORK FETCH CONTROL (SINGLE SOURCE OF TRUTH)
-# ============================================================================
+# =============================================================================
+# ENVIRONMENT & FETCH CONTROL
+# =============================================================================
 LIVE_DATA_ENABLED = os.getenv("LIVE_DATA_ENABLED", "false").lower() == "true"
-
-# Canonical fetch gate used everywhere
 ALLOW_NETWORK_FETCH = LIVE_DATA_ENABLED
 
-# ============================================================================
-# Canonical cache configuration
-# ============================================================================
+# =============================================================================
+# CANONICAL CACHE CONFIG
+# =============================================================================
 CACHE_DIR = "data/cache"
 CACHE_FILE = "prices_cache.parquet"
 CANONICAL_CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 
-# ============================================================================
-# Cache health thresholds
-# ============================================================================
-_logger = logging.getLogger(__name__)
-
-try:
-    PRICE_CACHE_OK_DAYS = int(os.getenv("PRICE_CACHE_OK_DAYS", "14"))
-except (ValueError, TypeError):
-    _logger.warning("Invalid PRICE_CACHE_OK_DAYS, using default 14")
-    PRICE_CACHE_OK_DAYS = 14
-
-try:
-    PRICE_CACHE_DEGRADED_DAYS = int(os.getenv("PRICE_CACHE_DEGRADED_DAYS", "30"))
-except (ValueError, TypeError):
-    _logger.warning("Invalid PRICE_CACHE_DEGRADED_DAYS, using default 30")
-    PRICE_CACHE_DEGRADED_DAYS = 30
+# =============================================================================
+# HEALTH THRESHOLDS
+# =============================================================================
+PRICE_CACHE_OK_DAYS = int(os.getenv("PRICE_CACHE_OK_DAYS", "14"))
+PRICE_CACHE_DEGRADED_DAYS = int(os.getenv("PRICE_CACHE_DEGRADED_DAYS", "30"))
 
 if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
-    _logger.warning("Invalid cache thresholds, resetting to defaults")
+    logger.warning("Invalid cache thresholds — resetting to defaults")
     PRICE_CACHE_OK_DAYS = 14
     PRICE_CACHE_DEGRADED_DAYS = 30
 
-CRITICAL_MISSING_THRESHOLD = 0.5
 STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS
-DEGRADED_DAYS_THRESHOLD = PRICE_CACHE_OK_DAYS
 
-# ============================================================================
-# Import price_loader helpers
-# ============================================================================
+# =============================================================================
+# DEPENDENCIES (price_loader = low-level IO only)
+# =============================================================================
 try:
     from helpers.price_loader import (
         load_cache,
@@ -76,38 +61,47 @@ try:
         load_or_fetch_prices,
         get_cache_info,
         check_cache_readiness,
-        CACHE_PATH,
     )
 except ImportError:
-    logger.error("FAILED importing helpers.price_loader", exc_info=True)
+    logger.exception("Failed importing helpers.price_loader")
     raise
 
-
-# ============================================================================
-# Fallback helpers
-# ============================================================================
+# =============================================================================
+# INTERNAL FALLBACKS (SAFE MODE)
+# =============================================================================
 def _load_cache_fallback() -> pd.DataFrame:
     if not os.path.exists(CANONICAL_CACHE_PATH):
-        logger.warning(f"Cache file not found: {CANONICAL_CACHE_PATH}")
+        logger.warning("PRICE_BOOK cache missing")
         return pd.DataFrame()
-
     try:
         return pd.read_parquet(CANONICAL_CACHE_PATH)
     except Exception as e:
-        logger.error(f"Failed loading cache directly: {e}")
+        logger.error(f"Failed reading cache directly: {e}")
         return pd.DataFrame()
 
-
-def _deduplicate_tickers_fallback(tickers: List[str]) -> List[str]:
+def _dedupe_fallback(tickers: List[str]) -> List[str]:
     return sorted(set(tickers))
 
+# =============================================================================
+# PUBLIC API — REQUIRED TICKERS (STABLE CONTRACT)
+# =============================================================================
+def get_active_required_tickers(active_only: bool = True) -> List[str]:
+    """
+    UI-safe public API.
+    Returns the canonical list of required tickers for the system.
+    """
+    tickers = collect_required_tickers(active_only=active_only)
+    dedupe = deduplicate_tickers or _dedupe_fallback
+    return dedupe(tickers)
 
-# ============================================================================
-# PRICE_BOOK access
-# ============================================================================
+# Backward-compatible alias (defensive)
+get_required_tickers = get_active_required_tickers
+
+# =============================================================================
+# PRICE_BOOK ACCESS (READ-ONLY)
+# =============================================================================
 def get_price_book(
     active_tickers: Optional[List[str]] = None,
-    mode: str = "Standard",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> pd.DataFrame:
@@ -121,7 +115,7 @@ def get_price_book(
     cache_df = load_cache() if load_cache else _load_cache_fallback()
 
     if cache_df is None or cache_df.empty:
-        logger.warning("PRICE_BOOK is empty")
+        logger.warning("PRICE_BOOK empty")
         df = pd.DataFrame(columns=active_tickers or [])
         df.index.name = "Date"
         return df
@@ -132,7 +126,7 @@ def get_price_book(
         cache_df = cache_df[cache_df.index <= pd.to_datetime(end_date)]
 
     if active_tickers:
-        dedupe = deduplicate_tickers if deduplicate_tickers else _deduplicate_tickers_fallback
+        dedupe = deduplicate_tickers or _dedupe_fallback
         tickers = dedupe(active_tickers)
 
         for t in tickers:
@@ -143,71 +137,66 @@ def get_price_book(
 
     return cache_df
 
-
-def get_price_book_meta(price_book: pd.DataFrame) -> Dict[str, Any]:
+# =============================================================================
+# METADATA
+# =============================================================================
+def get_price_book_meta(price_book: Optional[pd.DataFrame]) -> Dict[str, Any]:
     if price_book is None or price_book.empty:
         return {
-            "date_min": None,
-            "date_max": None,
+            "is_empty": True,
             "rows": 0,
             "cols": 0,
-            "tickers_count": 0,
             "tickers": [],
-            "is_empty": True,
             "cache_path": CANONICAL_CACHE_PATH,
         }
 
     return {
-        "date_min": price_book.index[0].strftime("%Y-%m-%d"),
-        "date_max": price_book.index[-1].strftime("%Y-%m-%d"),
+        "is_empty": False,
         "rows": len(price_book),
         "cols": len(price_book.columns),
-        "tickers_count": len(price_book.columns),
+        "date_min": price_book.index[0].strftime("%Y-%m-%d"),
+        "date_max": price_book.index[-1].strftime("%Y-%m-%d"),
         "tickers": sorted(price_book.columns.tolist()),
-        "is_empty": False,
         "cache_path": CANONICAL_CACHE_PATH,
     }
 
-
-# ============================================================================
-# Explicit cache rebuild (ONLY place network is allowed)
-# ============================================================================
+# =============================================================================
+# EXPLICIT CACHE REBUILD (ONLY NETWORK ENTRY POINT)
+# =============================================================================
 def rebuild_price_cache(
     active_only: bool = True,
     force_user_initiated: bool = False,
 ) -> Dict[str, Any]:
     """
-    Explicit user-triggered cache rebuild.
+    Explicit, human-triggered cache rebuild.
+    This is the ONLY place network access is permitted.
     """
 
     if not ALLOW_NETWORK_FETCH and not force_user_initiated:
         return {
             "allowed": False,
             "success": False,
-            "message": "Live fetching disabled (LIVE_DATA_ENABLED=false)",
+            "message": "LIVE_DATA_ENABLED=false — network fetch blocked",
         }
 
-    required = collect_required_tickers(active_only=active_only)
+    required = get_active_required_tickers(active_only=active_only)
     prices = load_or_fetch_prices(required, force_fetch=True)
 
-    cache_info = get_cache_info() if get_cache_info else {}
+    cache_info = get_cache_info() or {}
 
     return {
         "allowed": True,
         "success": not prices.empty,
         "tickers_requested": len(required),
         "tickers_fetched": len(prices.columns),
-        "date_max": cache_info.get("last_updated"),
-        "cache_info": cache_info,
+        "last_updated": cache_info.get("last_updated"),
     }
 
-
-# ============================================================================
-# Singleton PRICE_BOOK
-# ============================================================================
+# =============================================================================
+# SINGLETON (SYSTEM-WIDE)
+# =============================================================================
 _PRICE_BOOK_CACHE: Optional[pd.DataFrame] = None
 _PRICE_BOOK_LOADED = False
-
 
 def get_price_book_singleton(force_reload: bool = False) -> pd.DataFrame:
     global _PRICE_BOOK_CACHE, _PRICE_BOOK_LOADED
@@ -218,18 +207,16 @@ def get_price_book_singleton(force_reload: bool = False) -> pd.DataFrame:
 
     return _PRICE_BOOK_CACHE
 
-
 PRICE_BOOK = get_price_book_singleton
 
-
-# ============================================================================
-# System health diagnostics
-# ============================================================================
+# =============================================================================
+# SYSTEM HEALTH (Reality Panel / Control Center)
+# =============================================================================
 def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
     if price_book is None:
         price_book = get_price_book_singleton()
 
-    required = collect_required_tickers(active_only=True)
+    required = get_active_required_tickers(active_only=True)
     cached = [] if price_book.empty else price_book.columns.tolist()
 
     missing = sorted(set(required) - set(cached))
@@ -239,21 +226,17 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
     days_stale = readiness.get("days_stale", 0)
 
     if price_book.empty or days_stale > STALE_DAYS_THRESHOLD:
-        status = "STALE"
-        emoji = "❌"
+        status, emoji = "STALE", "❌"
     elif missing:
-        status = "DEGRADED"
-        emoji = "⚠️"
+        status, emoji = "DEGRADED", "⚠️"
     else:
-        status = "OK"
-        emoji = "✅"
+        status, emoji = "OK", "✅"
 
     return {
         "health_status": status,
         "health_emoji": emoji,
-        "missing_count": len(missing),
-        "total_required": len(required),
         "coverage_pct": coverage_pct,
+        "missing_count": len(missing),
         "days_stale": days_stale,
         "details": f"{status} — {coverage_pct:.1f}% coverage",
     }
