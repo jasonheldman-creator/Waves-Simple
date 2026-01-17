@@ -1,0 +1,1 @@
+The current architecture cannot produce dynamically changing Portfolio Snapshot values at runtime.
