@@ -21117,6 +21117,264 @@ def render_diagnostics_tab():
     st.caption("**Note:** This tab is for diagnostic purposes only. Most users won't need to interact with it.")
 
 
+def render_adaptive_intelligence_tab():
+    """
+    Render the Adaptive Intelligence Center tab.
+    
+    MONITORING-ONLY TAB - This tab provides read-only diagnostics and insights.
+    It does NOT modify any trading behavior, strategies, parameters, or execution logic.
+    
+    This tab provides:
+    - Wave Health Monitor: Alpha trends, beta drift, exposure analysis
+    - Regime Intelligence: Volatility regime and wave alignment
+    - Learning Signals: Detected patterns and anomalies
+    
+    All data is read from TruthFrame with no writes or modifications.
+    """
+    st.markdown("# 🧠 Adaptive Intelligence Center")
+    st.markdown("### Monitoring and Diagnostics - Read-Only System")
+    
+    # ========================================================================
+    # PROMINENT DISCLAIMER
+    # ========================================================================
+    st.info("""
+    **📋 DISCLAIMER: Monitoring-Only System**
+    
+    This center is for **monitoring and diagnostics only**. No actions are taken, and no trading behavior is modified.
+    All diagnostics pull from TruthFrame data. No strategies, parameters, weights, or execution logic are changed.
+    """)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # LOAD TRUTHFRAME DATA
+    # ========================================================================
+    try:
+        from analytics_truth import get_truth_frame
+        from adaptive_intelligence import (
+            get_wave_health_summary,
+            analyze_regime_intelligence,
+            detect_learning_signals
+        )
+        
+        # Get safe mode setting
+        safe_mode = st.session_state.get("safe_mode_no_fetch", True)
+        
+        # Load TruthFrame (read-only)
+        with st.spinner("Loading TruthFrame data..."):
+            truth_df = get_truth_frame(safe_mode=safe_mode)
+        
+        if truth_df is None or truth_df.empty:
+            st.warning("⚠️ TruthFrame data not available. Please ensure data is loaded.")
+            return
+        
+        st.success(f"✓ TruthFrame loaded: {len(truth_df)} waves available")
+        
+    except ImportError as e:
+        st.error(f"⚠️ Required modules not available: {e}")
+        st.info("Please ensure `analytics_truth` and `adaptive_intelligence` modules are installed.")
+        return
+    except Exception as e:
+        st.error(f"⚠️ Error loading data: {e}")
+        return
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: WAVE HEALTH MONITOR
+    # ========================================================================
+    st.subheader("🌊 Wave Health Monitor")
+    st.markdown("**Recent alpha, beta drift, exposure, and volatility alignment for each wave.**")
+    
+    try:
+        # Get wave health summary
+        wave_health = get_wave_health_summary(truth_df)
+        
+        if not wave_health:
+            st.warning("No wave health data available.")
+        else:
+            # Convert to DataFrame for display
+            import pandas as pd
+            health_df = pd.DataFrame(wave_health)
+            
+            # Select columns for display
+            display_cols = [
+                'display_name', 'alpha_30d', 'alpha_60d', 'alpha_direction',
+                'beta_drift', 'exposure_pct', 'health_label', 'health_score'
+            ]
+            
+            # Filter columns that exist
+            display_cols = [col for col in display_cols if col in health_df.columns]
+            health_display = health_df[display_cols].copy()
+            
+            # Format percentages
+            if 'alpha_30d' in health_display.columns:
+                health_display['alpha_30d'] = health_display['alpha_30d'].apply(
+                    lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+                )
+            if 'alpha_60d' in health_display.columns:
+                health_display['alpha_60d'] = health_display['alpha_60d'].apply(
+                    lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+                )
+            if 'beta_drift' in health_display.columns:
+                health_display['beta_drift'] = health_display['beta_drift'].apply(
+                    lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
+                )
+            if 'exposure_pct' in health_display.columns:
+                health_display['exposure_pct'] = health_display['exposure_pct'].apply(
+                    lambda x: f"{x*100:.1f}%" if pd.notna(x) else "N/A"
+                )
+            if 'health_score' in health_display.columns:
+                health_display['health_score'] = health_display['health_score'].apply(
+                    lambda x: f"{x}" if pd.notna(x) else "N/A"
+                )
+            
+            # Rename columns for display
+            health_display.columns = [
+                col.replace('_', ' ').title() for col in health_display.columns
+            ]
+            
+            # Display table
+            st.dataframe(health_display, use_container_width=True, height=400)
+            
+            # Summary metrics
+            st.markdown("**Health Summary:**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                healthy_count = sum(1 for h in wave_health if h['health_label'] == 'healthy')
+                st.metric("Healthy Waves", healthy_count)
+            
+            with col2:
+                watch_count = sum(1 for h in wave_health if h['health_label'] == 'watch')
+                st.metric("Watch List", watch_count)
+            
+            with col3:
+                intervention_count = sum(1 for h in wave_health if h['health_label'] == 'intervention_candidate')
+                st.metric("Intervention Candidates", intervention_count)
+    
+    except Exception as e:
+        st.error(f"⚠️ Error analyzing wave health: {e}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2: REGIME INTELLIGENCE
+    # ========================================================================
+    st.subheader("📊 Regime Intelligence")
+    st.markdown("**Current volatility regime and wave alignment summary.**")
+    
+    try:
+        # Analyze regime intelligence
+        regime = analyze_regime_intelligence(truth_df)
+        
+        # Display regime overview
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Current Regime", regime['current_regime'])
+        
+        with col2:
+            st.metric("Aligned Waves", regime['aligned_waves'])
+        
+        with col3:
+            st.metric("Misaligned Waves", regime['misaligned_waves'])
+        
+        with col4:
+            st.metric("Alignment %", f"{regime['alignment_pct']:.1f}%")
+        
+        # Regime description
+        st.info(f"**Regime Description:** {regime['regime_description']}")
+        
+        # Regime summary
+        st.caption(f"**Summary:** {regime['regime_summary']}")
+    
+    except Exception as e:
+        st.error(f"⚠️ Error analyzing regime intelligence: {e}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 3: LEARNING SIGNALS
+    # ========================================================================
+    st.subheader("🔔 Learning Signals")
+    st.markdown("**Detected patterns and anomalies that may warrant attention.**")
+    
+    try:
+        # Detect learning signals
+        signals = detect_learning_signals(truth_df)
+        
+        if not signals:
+            st.success("✓ No learning signals detected - all waves operating within normal parameters.")
+        else:
+            st.warning(f"⚠️ Detected {len(signals)} learning signals")
+            
+            # Group signals by severity
+            critical_signals = [s for s in signals if s['severity'] == 'critical']
+            warning_signals = [s for s in signals if s['severity'] == 'warning']
+            info_signals = [s for s in signals if s['severity'] == 'info']
+            
+            # Display critical signals
+            if critical_signals:
+                st.markdown("**🔴 Critical Signals:**")
+                for signal in critical_signals:
+                    with st.expander(f"🔴 {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
+                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
+                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
+                        st.markdown(f"**Description:** {signal['description']}")
+                        if signal['metric_value'] is not None:
+                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
+            
+            # Display warning signals
+            if warning_signals:
+                st.markdown("**🟡 Warning Signals:**")
+                for signal in warning_signals:
+                    with st.expander(f"🟡 {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
+                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
+                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
+                        st.markdown(f"**Description:** {signal['description']}")
+                        if signal['metric_value'] is not None:
+                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
+            
+            # Display info signals
+            if info_signals:
+                st.markdown("**ℹ️ Info Signals:**")
+                for signal in info_signals:
+                    with st.expander(f"ℹ️ {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
+                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
+                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
+                        st.markdown(f"**Description:** {signal['description']}")
+                        if signal['metric_value'] is not None:
+                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
+            
+            # Summary by severity
+            st.markdown("---")
+            st.markdown("**Signal Summary:**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Critical", len(critical_signals))
+            
+            with col2:
+                st.metric("Warning", len(warning_signals))
+            
+            with col3:
+                st.metric("Info", len(info_signals))
+    
+    except Exception as e:
+        st.error(f"⚠️ Error detecting learning signals: {e}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # FOOTER
+    # ========================================================================
+    st.caption("""
+    **Note:** This Adaptive Intelligence Center is the foundation for future adaptive learning advancements.
+    All diagnostics are read-only and do not modify any trading behavior or system state.
+    """)
+
+
 def render_bottom_ticker_bar():
     """
     Render the bottom ticker bar with scrolling animation.
@@ -23119,6 +23377,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Monitor",            # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
+            "Adaptive Intelligence",   # NEW: Read-only monitoring and diagnostics center
             "Governance & Audit",      # NEW: Governance and transparency layer
             "Operator Panel",          # NEW: Operator layer for system state and diagnostics
             "Diagnostics",             # Health/Diagnostics tab
@@ -23219,6 +23478,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
+            "Adaptive Intelligence",       # NEW: Read-only monitoring and diagnostics center
             "Governance & Audit",          # NEW: Governance and transparency layer
             "Operator Panel",              # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                 # Health/Diagnostics tab
@@ -23290,20 +23550,24 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[13]:
             safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
         
-        # Governance & Audit tab (NEW)
+        # Adaptive Intelligence tab (NEW - Read-only monitoring and diagnostics)
         with analytics_tabs[14]:
+            safe_component("Adaptive Intelligence", render_adaptive_intelligence_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[15]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Operator Panel tab (NEW)
-        with analytics_tabs[15]:
+        with analytics_tabs[16]:
             safe_component("Operator Panel", render_operator_panel_tab)
         
         # Diagnostics tab
-        with analytics_tabs[16]:
+        with analytics_tabs[17]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[17]:
+        with analytics_tabs[18]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -23322,6 +23586,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Monitor",               # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
+            "Adaptive Intelligence",      # NEW: Read-only monitoring and diagnostics center
             "Governance & Audit",         # NEW: Governance and transparency layer
             "Operator Panel",             # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                # Health/Diagnostics tab
@@ -23388,20 +23653,24 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[12]:
             safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
         
-        # Governance & Audit tab (NEW)
+        # Adaptive Intelligence tab (NEW - Read-only monitoring and diagnostics)
         with analytics_tabs[13]:
+            safe_component("Adaptive Intelligence", render_adaptive_intelligence_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[14]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Operator Panel tab (NEW)
-        with analytics_tabs[14]:
+        with analytics_tabs[15]:
             safe_component("Operator Panel", render_operator_panel_tab)
         
         # Diagnostics tab
-        with analytics_tabs[15]:
+        with analytics_tabs[16]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[16]:
+        with analytics_tabs[17]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
