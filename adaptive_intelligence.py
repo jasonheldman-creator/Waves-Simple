@@ -48,6 +48,33 @@ from datetime import datetime
 
 
 # ============================================================================
+# CONFIGURATION CONSTANTS
+# ============================================================================
+
+# Alpha thresholds
+ALPHA_DECAY_THRESHOLD = -0.01  # Alpha worse than -1% is considered decaying
+ALPHA_NEGATIVE_THRESHOLD = -0.02  # Alpha worse than -2% is problematic
+ALPHA_POSITIVE_THRESHOLD = 0.02  # Alpha better than +2% is strong
+ALPHA_STABILITY_THRESHOLD = 0.005  # Within 0.5% is considered stable
+
+# Beta thresholds
+BETA_DRIFT_WARNING_THRESHOLD = 0.15  # Drift > 0.15 is a warning
+BETA_DRIFT_MODERATE_THRESHOLD = 0.10  # Drift > 0.10 is moderate concern
+
+# Exposure thresholds
+HIGH_EXPOSURE_THRESHOLD = 0.98  # Exposure > 98% is very high
+LOW_EXPOSURE_THRESHOLD = 0.50  # Exposure < 50% is low
+EXTREME_EXPOSURE_LOW_THRESHOLD = 0.30  # Exposure < 30% is extreme
+
+# Drawdown thresholds
+HIGH_DRAWDOWN_THRESHOLD = -0.20  # Drawdown worse than -20% is high
+
+# Health score thresholds
+HEALTH_SCORE_HEALTHY_THRESHOLD = 80
+HEALTH_SCORE_WATCH_THRESHOLD = 60
+
+
+# ============================================================================
 # WAVE HEALTH MONITORING
 # ============================================================================
 
@@ -264,7 +291,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         alpha_60d = row.get('alpha_60d', None)
         
         if alpha_30d is not None and alpha_60d is not None:
-            if alpha_30d < -0.01 and alpha_60d < -0.01:  # Both worse than -1%
+            if alpha_30d < ALPHA_DECAY_THRESHOLD and alpha_60d < ALPHA_DECAY_THRESHOLD:  # Both worse than -1%
                 signals.append({
                     'signal_type': 'sustained_alpha_decay',
                     'wave_id': wave_id,
@@ -277,13 +304,13 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         # Signal 2: Significant beta drift
         beta_drift = row.get('beta_drift', None)
         
-        if beta_drift is not None and beta_drift > 0.15:  # Drift > 0.15
+        if beta_drift is not None and beta_drift > BETA_DRIFT_WARNING_THRESHOLD:
             signals.append({
                 'signal_type': 'beta_drift',
                 'wave_id': wave_id,
                 'display_name': display_name,
                 'severity': 'warning',
-                'description': f'Beta drift of {beta_drift:.3f} exceeds threshold (0.15)',
+                'description': f'Beta drift of {beta_drift:.3f} exceeds threshold ({BETA_DRIFT_WARNING_THRESHOLD})',
                 'metric_value': beta_drift
             })
         
@@ -291,7 +318,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         exposure_pct = row.get('exposure_pct', None)
         
         if exposure_pct is not None:
-            if exposure_pct > 0.98:
+            if exposure_pct > HIGH_EXPOSURE_THRESHOLD:
                 signals.append({
                     'signal_type': 'extreme_exposure_high',
                     'wave_id': wave_id,
@@ -300,7 +327,7 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
                     'description': f'Very high exposure ({exposure_pct*100:.1f}%) - minimal cash buffer',
                     'metric_value': exposure_pct
                 })
-            elif exposure_pct < 0.50:
+            elif exposure_pct < LOW_EXPOSURE_THRESHOLD:
                 signals.append({
                     'signal_type': 'extreme_exposure_low',
                     'wave_id': wave_id,
@@ -326,13 +353,13 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         # Signal 5: High drawdown (if available)
         drawdown_60d = row.get('drawdown_60d', None)
         
-        if drawdown_60d is not None and drawdown_60d < -0.20:  # Drawdown worse than -20%
+        if drawdown_60d is not None and drawdown_60d < HIGH_DRAWDOWN_THRESHOLD:  # Drawdown worse than -20%
             signals.append({
                 'signal_type': 'high_drawdown',
                 'wave_id': wave_id,
                 'display_name': display_name,
                 'severity': 'warning',
-                'description': f'60-day drawdown of {drawdown_60d*100:.2f}% exceeds -20%',
+                'description': f'60-day drawdown of {drawdown_60d*100:.2f}% exceeds {HIGH_DRAWDOWN_THRESHOLD*100:.0f}%',
                 'metric_value': drawdown_60d
             })
     
@@ -371,7 +398,7 @@ def _compute_alpha_direction(alpha_1d: Optional[float],
     alpha_diff = alpha_30d - alpha_60d
     
     # Threshold for "stable" (within 0.5%)
-    if abs(alpha_diff) < 0.005:
+    if abs(alpha_diff) < ALPHA_STABILITY_THRESHOLD:
         return 'stable'
     elif alpha_diff > 0:
         return 'improving'
@@ -418,24 +445,24 @@ def _compute_health_label(alpha_direction: str,
     
     # Check alpha magnitude (30d)
     if alpha_30d is not None:
-        if alpha_30d < -0.02:  # Worse than -2%
+        if alpha_30d < ALPHA_NEGATIVE_THRESHOLD:  # Worse than -2%
             score -= 25
             flags.append('negative_alpha')
-        elif alpha_30d > 0.02:  # Better than +2%
+        elif alpha_30d > ALPHA_POSITIVE_THRESHOLD:  # Better than +2%
             score += 0  # No bonus, just neutral
     
     # Check beta drift
     if beta_drift is not None:
-        if beta_drift > 0.15:
+        if beta_drift > BETA_DRIFT_WARNING_THRESHOLD:
             score -= 20
             flags.append('high_beta_drift')
-        elif beta_drift > 0.10:
+        elif beta_drift > BETA_DRIFT_MODERATE_THRESHOLD:
             score -= 10
             flags.append('moderate_beta_drift')
     
     # Check exposure (extreme values may indicate issues)
     if exposure_pct is not None:
-        if exposure_pct < 0.30 or exposure_pct > 0.98:
+        if exposure_pct < EXTREME_EXPOSURE_LOW_THRESHOLD or exposure_pct > HIGH_EXPOSURE_THRESHOLD:
             score -= 10
             flags.append('extreme_exposure')
     
@@ -443,9 +470,9 @@ def _compute_health_label(alpha_direction: str,
     score = max(0, min(100, score))
     
     # Determine label based on score and flags
-    if score >= 80 and len(flags) == 0:
+    if score >= HEALTH_SCORE_HEALTHY_THRESHOLD and len(flags) == 0:
         label = 'healthy'
-    elif score >= 60 and len(flags) <= 1:
+    elif score >= HEALTH_SCORE_WATCH_THRESHOLD and len(flags) <= 1:
         label = 'watch'
     else:
         label = 'intervention_candidate'
