@@ -1798,7 +1798,6 @@ def generate_truth_frame_full() -> pd.DataFrame:
     """
     return get_truth_frame(safe_mode=False, force_refresh=True)
 
-
 def compute_portfolio_snapshot_from_truth(
     mode: str,
     periods=(1, 30, 60, 365),

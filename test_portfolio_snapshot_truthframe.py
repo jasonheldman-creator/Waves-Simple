@@ -56,8 +56,8 @@ def test_truthframe_portfolio_snapshot_basic():
                 if pd.isna(ret):
                     print(f"  {period}D: N/A (insufficient data)")
                 else:
-                    alpha_str = f"{alpha*100:+.2%}" if alpha is not None and not pd.isna(alpha) else "N/A"
-                    print(f"  {period}D: {ret*100:+.2%} (Alpha: {alpha_str})")
+                    alpha_str = f"{alpha:+.2%}" if alpha is not None and not pd.isna(alpha) else "N/A"
+                    print(f"  {period}D: {ret:+.2%} (Alpha: {alpha_str})")
             else:
                 print(f"  {period}D: Missing")
         
@@ -156,9 +156,9 @@ def test_truthframe_portfolio_snapshot_data_quality():
                 # Check if they're close (within 0.01%)
                 diff = abs(expected_mean - actual_value)
                 if diff < 0.0001:  # 0.01% tolerance
-                    print(f"  ✓ {period}D: {actual_value*100:+.2%} (matches mean)")
+                    print(f"  ✓ {period}D: {actual_value:+.2%} (matches mean)")
                 else:
-                    print(f"  ⚠ {period}D: Expected {expected_mean*100:+.2%}, got {actual_value*100:+.2%} (diff: {diff*100:.4f}%)")
+                    print(f"  ⚠ {period}D: Expected {expected_mean:+.2%}, got {actual_value:+.2%} (diff: {diff:.4f})")
         
         print("\n✓ PASS: TruthFrame data quality test")
         return True

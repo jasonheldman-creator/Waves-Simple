@@ -1196,52 +1196,56 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
             # DEPRECATED: Legacy PRICE_BOOK-based fallback (kept for emergency rollback only)
             # This code path is intentionally disabled to prevent accidental reintroduction
             # of the old logic. To re-enable, set ENABLE_LEGACY_PORTFOLIO_SNAPSHOT=True
-            elif WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE and os.environ.get('ENABLE_LEGACY_PORTFOLIO_SNAPSHOT') == 'True':
-                logging.warning("Using DEPRECATED legacy PRICE_BOOK portfolio snapshot - this should not be used in production")
-                try:
-                    # Load PRICE_BOOK
-                    price_book = get_cached_price_book()
-                    
-                    # Use ENGINE_RUNNING as a reentrancy lock
-                    if not st.session_state.get("ENGINE_RUNNING", False):
-                        st.session_state.ENGINE_RUNNING = True
-                        try:
-                            # DEPRECATED: Compute portfolio snapshot with legacy logic
-                            snapshot = _legacy_compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
-                            
-                            # Store debug info in session state for diagnostics panel
-                            if 'debug' in snapshot:
-                                st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
-                            
-                            if snapshot['success']:
-                                # Extract portfolio returns (legacy format: '1D', '30D', etc.)
-                                ret_1d = snapshot['portfolio_returns'].get('1D')
-                                ret_30d = snapshot['portfolio_returns'].get('30D')
-                                ret_60d = snapshot['portfolio_returns'].get('60D')
-                                ret_365d = snapshot['portfolio_returns'].get('365D')
+            elif WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE:
+                # Check if legacy snapshot is explicitly enabled via environment variable
+                legacy_enabled = os.environ.get('ENABLE_LEGACY_PORTFOLIO_SNAPSHOT') == 'True'
+                
+                if legacy_enabled:
+                    logging.warning("Using DEPRECATED legacy PRICE_BOOK portfolio snapshot - this should not be used in production")
+                    try:
+                        # Load PRICE_BOOK
+                        price_book = get_cached_price_book()
+                        
+                        # Use ENGINE_RUNNING as a reentrancy lock
+                        if not st.session_state.get("ENGINE_RUNNING", False):
+                            st.session_state.ENGINE_RUNNING = True
+                            try:
+                                # DEPRECATED: Compute portfolio snapshot with legacy logic
+                                snapshot = _legacy_compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                                 
-                                # Extract alphas
-                                alpha_1d = snapshot['alphas'].get('1D')
-                                alpha_30d = snapshot['alphas'].get('30D')
-                                alpha_60d = snapshot['alphas'].get('60D')
-                                alpha_365d = snapshot['alphas'].get('365D')
+                                # Store debug info in session state for diagnostics panel
+                                if 'debug' in snapshot:
+                                    st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
                                 
-                                # Format return strings
-                                ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                                ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                                ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                                ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
-                                
-                                # Format alpha strings
-                                alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                                alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                                alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                                alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
-                        finally:
-                            st.session_state.ENGINE_RUNNING = False
-                except Exception as e:
-                    # Log error but keep N/A values (graceful degradation)
-                    logging.warning(f"Failed to compute legacy portfolio snapshot: {e}")
+                                if snapshot['success']:
+                                    # Extract portfolio returns (legacy format: '1D', '30D', etc.)
+                                    ret_1d = snapshot['portfolio_returns'].get('1D')
+                                    ret_30d = snapshot['portfolio_returns'].get('30D')
+                                    ret_60d = snapshot['portfolio_returns'].get('60D')
+                                    ret_365d = snapshot['portfolio_returns'].get('365D')
+                                    
+                                    # Extract alphas
+                                    alpha_1d = snapshot['alphas'].get('1D')
+                                    alpha_30d = snapshot['alphas'].get('30D')
+                                    alpha_60d = snapshot['alphas'].get('60D')
+                                    alpha_365d = snapshot['alphas'].get('365D')
+                                    
+                                    # Format return strings
+                                    ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
+                                    ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
+                                    ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
+                                    ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                                    
+                                    # Format alpha strings
+                                    alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
+                                    alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
+                                    alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
+                                    alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                            finally:
+                                st.session_state.ENGINE_RUNNING = False
+                    except Exception as e:
+                        # Log error but keep N/A values (graceful degradation)
+                        logging.warning(f"Failed to compute legacy portfolio snapshot: {e}")
         
         # ========================================================================
         # WAVE VIEW: Calculate wave-specific metrics from historical data
