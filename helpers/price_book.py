@@ -159,6 +159,29 @@ def get_price_book_meta(price_book: Optional[pd.DataFrame]) -> Dict[str, Any]:
     }
 
 # =============================================================================
+# REALITY PANEL COMPATIBILITY HELPERS
+# =============================================================================
+def compute_missing_and_extra_tickers(price_book: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Compatibility helper required by Reality Panel diagnostics.
+    Compares required tickers vs cached tickers.
+    """
+    required = set(_get_required_tickers(active_only=True))
+    cached = set() if price_book is None or price_book.empty else set(price_book.columns)
+
+    missing = sorted(required - cached)
+    extra = sorted(cached - required)
+
+    return {
+        "missing_tickers": missing,
+        "extra_tickers": extra,
+        "missing_count": len(missing),
+        "extra_count": len(extra),
+        "required_count": len(required),
+        "cached_count": len(cached),
+    }
+
+# =============================================================================
 # EXPLICIT CACHE REBUILD (ONLY NETWORK ENTRY POINT)
 # =============================================================================
 def rebuild_price_cache(
@@ -240,6 +263,7 @@ __all__ = [
     "get_active_required_tickers",
     "get_required_tickers",
     "get_required_tickers_active_waves",
+    "compute_missing_and_extra_tickers",
     "compute_system_health",
     "rebuild_price_cache",
     "PRICE_BOOK",
