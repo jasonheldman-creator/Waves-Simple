@@ -1797,8 +1797,9 @@ def generate_truth_frame_full() -> pd.DataFrame:
         TruthFrame DataFrame
     """
     return get_truth_frame(safe_mode=False, force_refresh=True)
-    
-    def compute_portfolio_snapshot_from_truth(
+
+
+def compute_portfolio_snapshot_from_truth(
     mode: str,
     periods=(1, 30, 60, 365),
 ):
@@ -1811,8 +1812,18 @@ def generate_truth_frame_full() -> pd.DataFrame:
     - dynamic benchmarks
     - exposure & cash
     - all Wave algos
+    
+    Args:
+        mode: Operating mode (e.g., 'Standard', 'Alpha-Minus-Beta')
+        periods: Tuple of lookback periods in days (default: 1, 30, 60, 365)
+    
+    Returns:
+        Dictionary with aggregated portfolio metrics:
+        - return_1d, return_30d, return_60d, return_365d: Portfolio returns
+        - alpha_1d, alpha_30d, alpha_60d, alpha_365d: Portfolio alphas
+        - computed_at_utc: ISO timestamp of computation
+        - error: Error message if computation fails
     """
-
     # 1. Build FULL TruthFrame (this runs the real engine)
     truth_df = get_truth_frame(safe_mode=False)
 
@@ -1826,7 +1837,7 @@ def generate_truth_frame_full() -> pd.DataFrame:
 
     snapshot = {}
 
-    # 3. Aggregate returns
+    # 3. Aggregate returns and alphas across all waves
     for p in periods:
         ret_col = f"return_{p}d"
         alpha_col = f"alpha_{p}d"

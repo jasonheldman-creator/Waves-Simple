@@ -204,12 +204,21 @@ except ImportError:
     get_price_book = None
 
 # Import wave performance functions for portfolio metrics
+# DEPRECATED: Legacy PRICE_BOOK-based portfolio snapshot (replaced by TruthFrame)
 try:
-    from helpers.wave_performance import compute_portfolio_snapshot
+    from helpers.wave_performance import compute_portfolio_snapshot as _legacy_compute_portfolio_snapshot
     WAVE_PERFORMANCE_AVAILABLE = True
 except ImportError:
     WAVE_PERFORMANCE_AVAILABLE = False
-    compute_portfolio_snapshot = None
+    _legacy_compute_portfolio_snapshot = None
+
+# Import TruthFrame-based portfolio snapshot (NEW: replaces legacy PRICE_BOOK aggregation)
+try:
+    from analytics_truth import compute_portfolio_snapshot_from_truth
+    TRUTHFRAME_PORTFOLIO_AVAILABLE = True
+except ImportError:
+    TRUTHFRAME_PORTFOLIO_AVAILABLE = False
+    compute_portfolio_snapshot_from_truth = None
 
 # Import snapshot ledger for portfolio snapshot loading
 try:
@@ -1109,11 +1118,86 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         cash_str = "N/A"
         
         # ========================================================================
-        # PORTFOLIO VIEW: Compute portfolio-level metrics using compute_portfolio_snapshot
+        # PORTFOLIO VIEW: Compute portfolio-level metrics using TruthFrame aggregation
+        # MIGRATED: Replaced legacy PRICE_BOOK aggregation with TruthFrame-based approach
+        # This ensures metrics reflect VIX regime, dynamic benchmarks, exposure, and cash
         # ========================================================================
         if is_portfolio_view:
-            # Use module-level imports if available
-            if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            # Use TruthFrame-based portfolio snapshot (NEW)
+            if TRUTHFRAME_PORTFOLIO_AVAILABLE:
+                try:
+                    # Use ENGINE_RUNNING as a reentrancy lock
+                    if not st.session_state.get("ENGINE_RUNNING", False):
+                        st.session_state.ENGINE_RUNNING = True
+                        try:
+                            # Compute portfolio snapshot from TruthFrame
+                            # This aggregates strategy-adjusted analytics from all waves
+                            snapshot = compute_portfolio_snapshot_from_truth(mode=mode, periods=(1, 30, 60, 365))
+                            
+                            # Store timestamp and debug info for diagnostics
+                            if 'computed_at_utc' in snapshot:
+                                st.session_state['portfolio_snapshot_timestamp'] = snapshot['computed_at_utc']
+                            
+                            # Create debug info for diagnostics panel (compatible with legacy format)
+                            st.session_state['portfolio_snapshot_debug'] = {
+                                'source': 'TruthFrame',
+                                'method': 'compute_portfolio_snapshot_from_truth',
+                                'mode': mode,
+                                'computed_at': snapshot.get('computed_at_utc', 'N/A'),
+                                'has_error': 'error' in snapshot,
+                                'error_message': snapshot.get('error') if 'error' in snapshot else None,
+                                'periods': [1, 30, 60, 365],
+                            }
+                            
+                            # Check for errors
+                            if 'error' not in snapshot:
+                                # Extract returns (format: return_1d, return_30d, etc.)
+                                ret_1d = snapshot.get('return_1d')
+                                ret_30d = snapshot.get('return_30d')
+                                ret_60d = snapshot.get('return_60d')
+                                ret_365d = snapshot.get('return_365d')
+                                
+                                # Extract alphas (format: alpha_1d, alpha_30d, etc.)
+                                alpha_1d = snapshot.get('alpha_1d')
+                                alpha_30d = snapshot.get('alpha_30d')
+                                alpha_60d = snapshot.get('alpha_60d')
+                                alpha_365d = snapshot.get('alpha_365d')
+                                
+                                # Format return strings (handle NaN values from TruthFrame)
+                                ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None and not pd.isna(ret_1d) else "—"
+                                ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None and not pd.isna(ret_30d) else "—"
+                                ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None and not pd.isna(ret_60d) else "—"
+                                ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None and not pd.isna(ret_365d) else "—"
+                                
+                                # Format alpha strings (handle NaN values from TruthFrame)
+                                alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None and not pd.isna(alpha_1d) else "—"
+                                alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None and not pd.isna(alpha_30d) else "—"
+                                alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None and not pd.isna(alpha_60d) else "—"
+                                alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None and not pd.isna(alpha_365d) else "—"
+                            else:
+                                # Error in snapshot computation - log and keep N/A values
+                                logging.warning(f"Portfolio snapshot error: {snapshot.get('error')}")
+                        finally:
+                            st.session_state.ENGINE_RUNNING = False
+                except Exception as e:
+                    # Log error but keep N/A values (graceful degradation)
+                    logging.warning(f"Failed to compute TruthFrame portfolio snapshot: {e}")
+                    import traceback
+                    logging.debug(traceback.format_exc())
+                    # Store error in debug info
+                    st.session_state['portfolio_snapshot_debug'] = {
+                        'source': 'TruthFrame',
+                        'method': 'compute_portfolio_snapshot_from_truth',
+                        'has_error': True,
+                        'exception_message': str(e),
+                        'exception_traceback': traceback.format_exc(),
+                    }
+            
+            # DEPRECATED: Legacy PRICE_BOOK-based fallback (kept for emergency rollback only)
+            # This code path is intentionally disabled to prevent accidental reintroduction
+            # of the old logic. To re-enable, set ENABLE_LEGACY_PORTFOLIO_SNAPSHOT=True
+            elif WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE and os.environ.get('ENABLE_LEGACY_PORTFOLIO_SNAPSHOT') == 'True':
+                logging.warning("Using DEPRECATED legacy PRICE_BOOK portfolio snapshot - this should not be used in production")
                 try:
                     # Load PRICE_BOOK
                     price_book = get_cached_price_book()
@@ -1122,16 +1206,15 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     if not st.session_state.get("ENGINE_RUNNING", False):
                         st.session_state.ENGINE_RUNNING = True
                         try:
-                            # Compute portfolio snapshot with all periods
-                            snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
+                            # DEPRECATED: Compute portfolio snapshot with legacy logic
+                            snapshot = _legacy_compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                             
                             # Store debug info in session state for diagnostics panel
-                            # Always update to ensure fresh debug data (even on failure)
                             if 'debug' in snapshot:
                                 st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
                             
                             if snapshot['success']:
-                                # Extract portfolio returns
+                                # Extract portfolio returns (legacy format: '1D', '30D', etc.)
                                 ret_1d = snapshot['portfolio_returns'].get('1D')
                                 ret_30d = snapshot['portfolio_returns'].get('30D')
                                 ret_60d = snapshot['portfolio_returns'].get('60D')
@@ -1158,7 +1241,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                             st.session_state.ENGINE_RUNNING = False
                 except Exception as e:
                     # Log error but keep N/A values (graceful degradation)
-                    logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
+                    logging.warning(f"Failed to compute legacy portfolio snapshot: {e}")
         
         # ========================================================================
         # WAVE VIEW: Calculate wave-specific metrics from historical data
