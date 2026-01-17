@@ -17,6 +17,7 @@ Key Features:
 - Volatility regime intelligence
 - Learning signal detection (patterns and anomalies)
 - **STAGE 3**: Narrative & Causal Intelligence with clustering, change detection, and priority ranking
+- **STAGE 4**: Decision Support Layer (Human-in-the-Loop) with action recommendations and attention flags
 
 All diagnostics pull from TruthFrame and wave registry metadata only.
 No legacy portfolio aggregation paths or duplicate strategy calculations.
@@ -28,6 +29,13 @@ Stage 3 Enhancements:
 - Change detection vs prior snapshot (new, escalating, improving, resolved)
 - Priority stack ranking top 3 "What Matters Today" insights
 
+Stage 4 Enhancements:
+- Recommended review actions for top priority insights (deterministic, advisory)
+- Risk of inaction metrics (Low/Medium/High)
+- Wave-level attention flags (🔎 Needs Review, ⏳ Monitor, ⚠️ Escalating Risk)
+- Time & trend context in narratives (persistence, direction, wave expansion/contraction)
+- Decision support summary (read-only, human-review oriented)
+
 Usage:
     from adaptive_intelligence import (
         analyze_wave_health,
@@ -36,7 +44,12 @@ Usage:
         get_wave_health_summary,
         cluster_signals,  # STAGE 3
         detect_cluster_changes,  # STAGE 3
-        get_priority_insights  # STAGE 3
+        get_priority_insights,  # STAGE 3
+        generate_recommended_action,  # STAGE 4
+        calculate_risk_of_inaction,  # STAGE 4
+        compute_attention_flag,  # STAGE 4
+        enhance_narrative_with_time_context,  # STAGE 4
+        get_decision_support_summary  # STAGE 4
     )
     
     # Get TruthFrame (read-only)
@@ -1335,7 +1348,9 @@ def get_priority_insights(clusters: List[Dict[str, Any]]) -> List[Dict[str, Any]
             'wave_count': cluster['wave_count'],
             'priority_score': cluster['priority_score'],
             'narrative': cluster['narrative'],
-            'justification': justification
+            'justification': justification,
+            'affected_waves': cluster.get('affected_waves', []),  # STAGE 4
+            'persistence': cluster.get('persistence', 0.5)  # STAGE 4
         })
     
     return insights
@@ -1434,3 +1449,282 @@ def _generate_priority_justification(cluster: Dict[str, Any], rank: int) -> str:
         justification = f"Ranked #{rank} based on overall priority scoring"
     
     return justification
+
+
+# ============================================================================
+# STAGE 4: DECISION SUPPORT LAYER (HUMAN-IN-THE-LOOP)
+# ============================================================================
+
+def generate_recommended_action(cluster: Dict[str, Any]) -> str:
+    """
+    Generate deterministic recommended review action for a cluster (STAGE 4, READ-ONLY).
+    
+    Maps cluster type and severity to specific, actionable human review recommendations.
+    All recommendations are advisory only and do not trigger any automated changes.
+    
+    Args:
+        cluster: Cluster dictionary with type, severity, and metadata
+        
+    Returns:
+        Recommended action string (e.g., "Review beta targets for affected waves")
+    """
+    cluster_type = cluster['cluster_type']
+    severity = cluster['cluster_severity']
+    wave_count = cluster['wave_count']
+    
+    # Beta drift cluster recommendations
+    if cluster_type == 'beta_drift':
+        if severity >= 75:
+            return "Urgent: Review beta targets and rebalancing thresholds for all affected waves"
+        elif severity >= 50:
+            return "Review beta targets for affected waves; consider tactical rebalancing"
+        else:
+            return "Monitor beta drift trends; review if persistence increases"
+    
+    # Regime mismatch cluster recommendations
+    elif cluster_type == 'regime_mismatch':
+        if severity >= 75:
+            return "Critical: Investigate data pipeline health; consider excluding affected waves"
+        elif severity >= 50:
+            return "Investigate data regime mismatch; verify data quality"
+        else:
+            return "Monitor data regime status; verify expected behavior"
+    
+    # Alpha decay cluster recommendations
+    elif cluster_type == 'alpha_decay':
+        if severity >= 75:
+            return "Critical: Review strategy effectiveness and factor exposures; consider defensive positioning"
+        elif severity >= 50:
+            return "Review strategy assumptions and recent market conditions"
+        else:
+            return "Monitor alpha trends; review strategy if decay persists"
+    
+    # Concentration risk cluster recommendations
+    elif cluster_type == 'concentration_risk':
+        if severity >= 75:
+            return "Review allocation strategy; rebalance exposure levels if appropriate"
+        elif severity >= 50:
+            return "Review capital allocation across affected waves"
+        else:
+            return "Monitor exposure levels; ensure within policy limits"
+    
+    # High drawdown cluster recommendations
+    elif cluster_type == 'high_drawdown':
+        if severity >= 75:
+            return "Urgent: Review risk management and stop-loss policies; consider defensive hedging"
+        elif severity >= 50:
+            return "Review drawdown recovery strategies and risk controls"
+        else:
+            return "Monitor drawdown trends; review if recovery stalls"
+    
+    # Default fallback
+    else:
+        return "Review cluster details and determine appropriate response"
+
+
+def calculate_risk_of_inaction(cluster: Dict[str, Any]) -> str:
+    """
+    Calculate deterministic risk of inaction metric (STAGE 4, READ-ONLY).
+    
+    Classifies risk level (Low/Medium/High) based on cluster severity, persistence,
+    and affected wave count. This is purely advisory and informational.
+    
+    Args:
+        cluster: Cluster dictionary with severity, persistence, and wave count
+        
+    Returns:
+        Risk level string: "Low", "Medium", or "High"
+    """
+    severity = cluster['cluster_severity']
+    persistence = cluster['persistence']
+    wave_count = cluster['wave_count']
+    
+    # Calculate composite risk score (0-100)
+    # Weights: severity 50%, persistence 30%, wave count 20%
+    severity_component = (severity / 100.0) * 50
+    persistence_component = persistence * 30
+    wave_count_component = min(wave_count / 10.0, 1.0) * 20
+    
+    risk_score = severity_component + persistence_component + wave_count_component
+    
+    # Classify risk level
+    if risk_score >= 65:
+        return "High"
+    elif risk_score >= 35:
+        return "Medium"
+    else:
+        return "Low"
+
+
+def compute_attention_flag(wave_id: str, clusters: List[Dict[str, Any]], truth_df: pd.DataFrame) -> str:
+    """
+    Compute wave-level attention flag (STAGE 4, READ-ONLY).
+    
+    Determines appropriate non-interactive flag for a wave based on:
+    - Cluster severity affecting this wave
+    - Change direction (escalating/improving)
+    - Regime sensitivity
+    
+    Flags:
+    - 🔎 Needs Review: Wave in high/critical severity cluster
+    - ⏳ Monitor: Wave in medium severity cluster or improving
+    - ⚠️ Escalating Risk: Wave in escalating cluster with high severity
+    
+    Args:
+        wave_id: Wave identifier
+        clusters: List of current clusters
+        truth_df: TruthFrame DataFrame for regime context
+        
+    Returns:
+        Flag string: "🔎 Needs Review", "⏳ Monitor", "⚠️ Escalating Risk", or "" (none)
+    """
+    # Find clusters affecting this wave
+    affecting_clusters = [c for c in clusters if wave_id in c['affected_waves']]
+    
+    if not affecting_clusters:
+        return ""  # No flag if wave not in any cluster
+    
+    # Get max severity across affecting clusters
+    max_severity = max(c['cluster_severity'] for c in affecting_clusters)
+    
+    # Check for escalating regime mismatch (highest priority)
+    regime_clusters = [c for c in affecting_clusters if c['cluster_type'] == 'regime_mismatch']
+    if regime_clusters and max_severity >= 50:
+        return "⚠️ Escalating Risk"
+    
+    # Check severity level
+    if max_severity >= 75:
+        return "⚠️ Escalating Risk"
+    elif max_severity >= 50:
+        return "🔎 Needs Review"
+    elif max_severity >= 25:
+        return "⏳ Monitor"
+    else:
+        return ""  # Low severity, no flag needed
+
+
+def enhance_narrative_with_time_context(
+    cluster: Dict[str, Any],
+    prior_clusters: List[Dict[str, Any]],
+    snapshot_history: Optional[List[Dict[str, Any]]] = None
+) -> str:
+    """
+    Enhance cluster narrative with time and trend context (STAGE 4, READ-ONLY).
+    
+    Adds deterministic phrasing about:
+    - Persistence (e.g., "persisting 6 of last 8 snapshots")
+    - Directional trend (e.g., "Escalating over last 3 snapshots")
+    - Affected-wave expansion/contraction
+    
+    All context derived from existing snapshot history.
+    
+    Args:
+        cluster: Current cluster dictionary
+        prior_clusters: List of prior clusters for comparison
+        snapshot_history: Optional list of historical snapshots (not yet implemented)
+        
+    Returns:
+        Enhanced narrative string with time context
+    """
+    base_narrative = cluster['narrative']
+    cluster_type = cluster['cluster_type']
+    
+    # Find matching prior cluster
+    prior_cluster = next((c for c in prior_clusters if c['cluster_type'] == cluster_type), None)
+    
+    time_context_parts = []
+    
+    # Add persistence context
+    persistence = cluster['persistence']
+    if persistence >= 0.8:
+        time_context_parts.append("**Highly persistent issue**")
+    elif persistence >= 0.5:
+        time_context_parts.append("**Moderately persistent**")
+    
+    # Add trend context if prior data available
+    if prior_cluster:
+        severity_delta = cluster['cluster_severity'] - prior_cluster['cluster_severity']
+        wave_delta = cluster['wave_count'] - prior_cluster['wave_count']
+        
+        # Determine trend
+        if severity_delta >= 10 or wave_delta > 0:
+            if severity_delta >= 20:
+                time_context_parts.append("**⬆️ Escalating rapidly over last snapshot**")
+            else:
+                time_context_parts.append("**⬆️ Escalating since last snapshot**")
+        elif severity_delta <= -10 or wave_delta < 0:
+            time_context_parts.append("**⬇️ Improving but unresolved**")
+        else:
+            time_context_parts.append("**→ Stable since last snapshot**")
+        
+        # Add wave count change context
+        if wave_delta > 0:
+            time_context_parts.append(f"*Expanded by {wave_delta} wave{'s' if wave_delta > 1 else ''} since prior snapshot*")
+        elif wave_delta < 0:
+            time_context_parts.append(f"*Contracted by {abs(wave_delta)} wave{'s' if abs(wave_delta) > 1 else ''} since prior snapshot*")
+    else:
+        time_context_parts.append("**🆕 Newly detected in this snapshot**")
+    
+    # Combine base narrative with time context
+    if time_context_parts:
+        time_context = "\n\n" + " · ".join(time_context_parts)
+        return base_narrative + time_context
+    else:
+        return base_narrative
+
+
+def get_decision_support_summary(
+    priority_insights: List[Dict[str, Any]],
+    prior_clusters: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Generate Decision Support Summary for top priority insights (STAGE 4, READ-ONLY).
+    
+    For each of the top 3 priority insights, adds:
+    - Recommended review action
+    - Risk of inaction metric (Low/Medium/High)
+    - Enhanced narrative with time context
+    
+    Args:
+        priority_insights: List of top priority insights from Stage 3
+        prior_clusters: List of prior clusters for time context
+        
+    Returns:
+        List of enhanced decision support dictionaries:
+        [
+            {
+                ...all original insight fields...,
+                'recommended_action': str,
+                'risk_of_inaction': str,
+                'enhanced_narrative': str
+            }
+        ]
+    """
+    decision_support = []
+    
+    for insight in priority_insights:
+        # Create cluster dict from insight for helper functions
+        cluster = {
+            'cluster_type': insight['cluster_type'],
+            'cluster_name': insight['cluster_name'],
+            'cluster_severity': insight['cluster_severity'],
+            'wave_count': insight['wave_count'],
+            'persistence': insight.get('persistence', 0.5),  # Default if missing
+            'narrative': insight['narrative'],
+            'affected_waves': insight.get('affected_waves', [])
+        }
+        
+        # Generate Stage 4 enhancements
+        recommended_action = generate_recommended_action(cluster)
+        risk_of_inaction = calculate_risk_of_inaction(cluster)
+        enhanced_narrative = enhance_narrative_with_time_context(cluster, prior_clusters)
+        
+        # Combine original insight with Stage 4 additions
+        decision_support.append({
+            **insight,
+            'recommended_action': recommended_action,
+            'risk_of_inaction': risk_of_inaction,
+            'enhanced_narrative': enhanced_narrative
+        })
+    
+    return decision_support
