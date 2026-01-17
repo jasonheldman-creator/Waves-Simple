@@ -28,7 +28,12 @@ print("Testing reconciliation formulas...")
 
 # Compute daily returns manually
 risk_return = price_book['AAPL'].pct_change().fillna(0)
-safe_return = price_book['BIL'].pct_change().fillna(0)
+# Check if BIL is present in price_book columns before using it
+if 'BIL' in price_book.columns:
+    safe_return = price_book['BIL'].pct_change().fillna(0)
+else:
+    # Fallback to zero return if BIL is not present (cash/zero return assumption)
+    safe_return = pd.Series(0.0, index=price_book.index)
 benchmark_return = price_book['SPY'].pct_change().fillna(0)
 exposure = pd.Series(0.8, index=dates)  # Constant exposure for test
 
