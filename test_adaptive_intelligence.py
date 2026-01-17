@@ -8,6 +8,7 @@ This test suite validates that the adaptive intelligence module:
 2. Correctly analyzes regime intelligence
 3. Correctly detects learning signals
 4. Never modifies TruthFrame data (read-only behavior)
+5. (Stage 2) Correctly computes severity scores, confidence scores, and action classifications
 """
 
 import pandas as pd
@@ -20,7 +21,12 @@ from adaptive_intelligence import (
     get_adaptive_intelligence_snapshot,
     _compute_alpha_direction,
     _compute_health_label,
-    _get_regime_description
+    _get_regime_description,
+    _get_regime_multiplier,
+    _compute_severity_score,
+    _compute_confidence_score,
+    _get_severity_label,
+    _get_action_classification
 )
 
 
@@ -262,12 +268,219 @@ def test_read_only_behavior():
 
 
 # ============================================================================
+# STAGE 2 TESTS
+# ============================================================================
+
+def test_regime_multiplier():
+    """Test regime multiplier calculation (Stage 2)"""
+    
+    # LIVE regime should have normal multiplier
+    multiplier = _get_regime_multiplier('LIVE')
+    assert multiplier == 1.0
+    print(f"✓ LIVE regime multiplier: {multiplier}")
+    
+    # HYBRID regime should have volatile multiplier
+    multiplier = _get_regime_multiplier('HYBRID')
+    assert multiplier == 1.3
+    print(f"✓ HYBRID regime multiplier: {multiplier}")
+    
+    # SANDBOX regime should have risk-off multiplier
+    multiplier = _get_regime_multiplier('SANDBOX')
+    assert multiplier == 1.5
+    print(f"✓ SANDBOX regime multiplier: {multiplier}")
+    
+    # UNAVAILABLE regime should have risk-off multiplier
+    multiplier = _get_regime_multiplier('UNAVAILABLE')
+    assert multiplier == 1.5
+    print(f"✓ UNAVAILABLE regime multiplier: {multiplier}")
+    
+    print("✓ _get_regime_multiplier() tests passed")
+
+
+def test_compute_severity_score():
+    """Test severity score computation (Stage 2)"""
+    
+    # Low severity case
+    score = _compute_severity_score(
+        magnitude=0.2,
+        persistence=0.1,
+        regime='LIVE',
+        wave_weight=0.3
+    )
+    assert 0 <= score <= 100
+    assert score < 50  # Should be low severity
+    print(f"✓ Low severity case: {score}/100")
+    
+    # High severity case
+    score = _compute_severity_score(
+        magnitude=0.8,
+        persistence=0.9,
+        regime='SANDBOX',
+        wave_weight=0.5
+    )
+    assert 0 <= score <= 100
+    assert score >= 50  # Should be high severity
+    print(f"✓ High severity case: {score}/100")
+    
+    # Critical severity case
+    score = _compute_severity_score(
+        magnitude=1.0,
+        persistence=1.0,
+        regime='UNAVAILABLE',
+        wave_weight=1.0
+    )
+    assert score == 100  # Capped at 100
+    print(f"✓ Critical severity case: {score}/100 (capped)")
+    
+    print("✓ _compute_severity_score() tests passed")
+
+
+def test_compute_confidence_score():
+    """Test confidence score computation (Stage 2)"""
+    
+    # High confidence case
+    score = _compute_confidence_score(
+        data_coverage=1.0,
+        metric_agreement=1.0,
+        recency=1.0
+    )
+    assert score == 100
+    print(f"✓ High confidence case: {score}%")
+    
+    # Medium confidence case
+    score = _compute_confidence_score(
+        data_coverage=0.7,
+        metric_agreement=0.6,
+        recency=0.8
+    )
+    assert 50 <= score < 90
+    print(f"✓ Medium confidence case: {score}%")
+    
+    # Low confidence case
+    score = _compute_confidence_score(
+        data_coverage=0.3,
+        metric_agreement=0.4,
+        recency=0.2
+    )
+    assert score < 50
+    print(f"✓ Low confidence case: {score}%")
+    
+    print("✓ _compute_confidence_score() tests passed")
+
+
+def test_get_severity_label():
+    """Test severity label classification (Stage 2)"""
+    
+    assert _get_severity_label(10) == 'Low'
+    assert _get_severity_label(24) == 'Low'
+    assert _get_severity_label(25) == 'Medium'
+    assert _get_severity_label(49) == 'Medium'
+    assert _get_severity_label(50) == 'High'
+    assert _get_severity_label(74) == 'High'
+    assert _get_severity_label(75) == 'Critical'
+    assert _get_severity_label(100) == 'Critical'
+    
+    print("✓ _get_severity_label() tests passed")
+
+
+def test_get_action_classification():
+    """Test action classification (Stage 2)"""
+    
+    assert _get_action_classification('Low') == 'Info'
+    assert _get_action_classification('Medium') == 'Watch'
+    assert _get_action_classification('High') == 'Watch'
+    assert _get_action_classification('Critical') == 'Intervention'
+    
+    print("✓ _get_action_classification() tests passed")
+
+
+def test_detect_learning_signals_stage2():
+    """Test learning signal detection with Stage 2 enhancements"""
+    truth_df = create_sample_truth_frame()
+    
+    signals = detect_learning_signals(truth_df)
+    
+    print(f"✓ Detected {len(signals)} learning signals (Stage 2)")
+    
+    # Verify all signals have Stage 2 fields
+    for signal in signals:
+        assert 'signal_type' in signal
+        assert 'wave_id' in signal
+        assert 'display_name' in signal
+        assert 'severity' in signal  # Legacy field
+        assert 'severity_score' in signal  # Stage 2
+        assert 'severity_label' in signal  # Stage 2
+        assert 'confidence_score' in signal  # Stage 2
+        assert 'action_classification' in signal  # Stage 2
+        assert 'description' in signal
+        
+        # Validate severity score
+        assert 0 <= signal['severity_score'] <= 100
+        
+        # Validate severity label
+        assert signal['severity_label'] in ['Low', 'Medium', 'High', 'Critical']
+        
+        # Validate confidence score
+        assert 0 <= signal['confidence_score'] <= 100
+        
+        # Validate action classification
+        assert signal['action_classification'] in ['Info', 'Watch', 'Intervention']
+        
+        print(f"  - {signal['signal_type']}: Severity={signal['severity_label']} ({signal['severity_score']}), "
+              f"Confidence={signal['confidence_score']}%, Action={signal['action_classification']}")
+    
+    print("✓ detect_learning_signals() Stage 2 enhancements verified")
+
+
+def test_deterministic_severity():
+    """Test that severity scoring is deterministic (Stage 2)"""
+    truth_df = create_sample_truth_frame()
+    
+    # Run signal detection multiple times
+    signals1 = detect_learning_signals(truth_df)
+    signals2 = detect_learning_signals(truth_df)
+    signals3 = detect_learning_signals(truth_df)
+    
+    # All runs should produce identical results
+    assert len(signals1) == len(signals2) == len(signals3)
+    
+    for s1, s2, s3 in zip(signals1, signals2, signals3):
+        assert s1['severity_score'] == s2['severity_score'] == s3['severity_score']
+        assert s1['severity_label'] == s2['severity_label'] == s3['severity_label']
+        assert s1['confidence_score'] == s2['confidence_score'] == s3['confidence_score']
+        assert s1['action_classification'] == s2['action_classification'] == s3['action_classification']
+    
+    print("✓ DETERMINISTIC BEHAVIOR VERIFIED - Severity scoring is reproducible")
+
+
+def test_regime_aware_severity():
+    """Test that severity is regime-aware (Stage 2)"""
+    
+    # Same issue in different regimes should have different severity
+    base_params = {
+        'magnitude': 0.5,
+        'persistence': 0.5,
+        'wave_weight': 0.33
+    }
+    
+    live_severity = _compute_severity_score(**base_params, regime='LIVE')
+    hybrid_severity = _compute_severity_score(**base_params, regime='HYBRID')
+    sandbox_severity = _compute_severity_score(**base_params, regime='SANDBOX')
+    
+    # Severity should increase in more volatile regimes
+    assert live_severity < hybrid_severity < sandbox_severity
+    
+    print(f"✓ Regime-aware severity: LIVE={live_severity}, HYBRID={hybrid_severity}, SANDBOX={sandbox_severity}")
+    print("✓ Regime-aware severity calculation verified")
+
+
+# ============================================================================
 # RUN ALL TESTS
 # ============================================================================
 
 if __name__ == "__main__":
     print("="*70)
-    print("ADAPTIVE INTELLIGENCE MODULE - UNIT TESTS")
+    print("ADAPTIVE INTELLIGENCE MODULE - UNIT TESTS (STAGE 2)")
     print("="*70)
     print()
     
@@ -298,6 +511,36 @@ if __name__ == "__main__":
     test_read_only_behavior()
     print()
     
+    # Stage 2 tests
     print("="*70)
-    print("✓ ALL TESTS PASSED")
+    print("STAGE 2 ENHANCEMENTS - ADDITIONAL TESTS")
+    print("="*70)
+    print()
+    
+    test_regime_multiplier()
+    print()
+    
+    test_compute_severity_score()
+    print()
+    
+    test_compute_confidence_score()
+    print()
+    
+    test_get_severity_label()
+    print()
+    
+    test_get_action_classification()
+    print()
+    
+    test_detect_learning_signals_stage2()
+    print()
+    
+    test_deterministic_severity()
+    print()
+    
+    test_regime_aware_severity()
+    print()
+    
+    print("="*70)
+    print("✓ ALL TESTS PASSED (INCLUDING STAGE 2 ENHANCEMENTS)")
     print("="*70)

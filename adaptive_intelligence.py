@@ -73,6 +73,17 @@ HIGH_DRAWDOWN_THRESHOLD = -0.20  # Drawdown worse than -20% is high
 HEALTH_SCORE_HEALTHY_THRESHOLD = 80
 HEALTH_SCORE_WATCH_THRESHOLD = 60
 
+# Severity thresholds (Stage 2)
+SEVERITY_LOW_THRESHOLD = 25
+SEVERITY_MEDIUM_THRESHOLD = 50
+SEVERITY_HIGH_THRESHOLD = 75
+# Anything >= 75 is Critical
+
+# Regime volatility multipliers (Stage 2)
+REGIME_MULTIPLIER_NORMAL = 1.0  # LIVE regime
+REGIME_MULTIPLIER_VOLATILE = 1.3  # HYBRID regime
+REGIME_MULTIPLIER_RISK_OFF = 1.5  # SANDBOX or UNAVAILABLE regime
+
 
 # ============================================================================
 # WAVE HEALTH MONITORING
@@ -259,6 +270,12 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
     Detect learning signals and patterns across all waves (READ-ONLY).
     
+    Stage 2 Enhancement: Each signal now includes:
+    - severity_score (0-100, deterministic)
+    - severity_label ('Low', 'Medium', 'High', 'Critical')
+    - confidence_score (0-100)
+    - action_classification ('Info', 'Watch', 'Intervention')
+    
     This function analyzes TruthFrame data to identify patterns that may
     warrant human attention, such as sustained alpha decay, beta drift,
     or benchmark mismatches.
@@ -273,7 +290,11 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
                 'signal_type': str,
                 'wave_id': str,
                 'display_name': str,
-                'severity': str ('info', 'warning', 'critical'),
+                'severity': str ('info', 'warning', 'critical'),  # Legacy field
+                'severity_score': int (0-100),
+                'severity_label': str ('Low', 'Medium', 'High', 'Critical'),
+                'confidence_score': int (0-100),
+                'action_classification': str ('Info', 'Watch', 'Intervention'),
                 'description': str,
                 'metric_value': float or None
             },
@@ -282,34 +303,96 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
     signals = []
     
+    # Get total portfolio weight for normalization
+    total_waves = len(truth_df)
+    default_weight = 1.0 / total_waves if total_waves > 0 else 0.33
+    
     for _, row in truth_df.iterrows():
         wave_id = row['wave_id']
         display_name = row.get('display_name', 'N/A')
+        data_regime = row.get('data_regime_tag', 'LIVE')
+        
+        # Estimate wave weight (use exposure as proxy if available)
+        wave_weight = row.get('exposure_pct', default_weight)
+        if wave_weight is None or wave_weight <= 0:
+            wave_weight = default_weight
         
         # Signal 1: Sustained alpha decay (30d and 60d both negative)
         alpha_30d = row.get('alpha_30d', None)
         alpha_60d = row.get('alpha_60d', None)
+        alpha_1d = row.get('alpha_1d', None)
         
         if alpha_30d is not None and alpha_60d is not None:
             if alpha_30d < ALPHA_DECAY_THRESHOLD and alpha_60d < ALPHA_DECAY_THRESHOLD:  # Both worse than -1%
+                # Calculate magnitude: how negative is the alpha?
+                magnitude = min(1.0, abs(alpha_60d) / 0.05)  # Normalize to 5% as extreme
+                
+                # Calculate persistence: both 30d and 60d negative indicates persistence
+                persistence = 0.8  # High persistence since both periods are negative
+                
+                # Calculate data coverage
+                data_coverage = 1.0 if alpha_1d is not None else 0.7
+                
+                # Calculate metric agreement (both 30d and 60d agree on negativity)
+                metric_agreement = 1.0
+                
+                # Calculate recency (30d is more recent)
+                recency = 0.9
+                
+                # Compute scores
+                severity_score = _compute_severity_score(magnitude, persistence, data_regime, wave_weight)
+                confidence_score = _compute_confidence_score(data_coverage, metric_agreement, recency)
+                severity_label = _get_severity_label(severity_score)
+                action_classification = _get_action_classification(severity_label)
+                
                 signals.append({
                     'signal_type': 'sustained_alpha_decay',
                     'wave_id': wave_id,
                     'display_name': display_name,
-                    'severity': 'warning',
+                    'severity': 'warning',  # Legacy field
+                    'severity_score': severity_score,
+                    'severity_label': severity_label,
+                    'confidence_score': confidence_score,
+                    'action_classification': action_classification,
                     'description': f'Alpha negative in both 30d ({alpha_30d*100:.2f}%) and 60d ({alpha_60d*100:.2f}%)',
                     'metric_value': alpha_60d
                 })
         
         # Signal 2: Significant beta drift
         beta_drift = row.get('beta_drift', None)
+        beta_target = row.get('beta_target', None)
         
         if beta_drift is not None and beta_drift > BETA_DRIFT_WARNING_THRESHOLD:
+            # Calculate magnitude: how large is the drift?
+            magnitude = min(1.0, beta_drift / 0.30)  # Normalize to 0.30 as extreme
+            
+            # Persistence: can't easily determine from single point, use moderate
+            persistence = 0.5
+            
+            # Data coverage
+            data_coverage = 1.0 if beta_target is not None else 0.6
+            
+            # Metric agreement: moderate (single metric)
+            metric_agreement = 0.7
+            
+            # Recency
+            recency = 0.8
+            
+            # Compute scores
+            severity_score = _compute_severity_score(magnitude, persistence, data_regime, wave_weight)
+            confidence_score = _compute_confidence_score(data_coverage, metric_agreement, recency)
+            severity_label = _get_severity_label(severity_score)
+            action_classification = _get_action_classification(severity_label)
+            
             signals.append({
                 'signal_type': 'beta_drift',
                 'wave_id': wave_id,
                 'display_name': display_name,
-                'severity': 'warning',
+                'severity': 'warning',  # Legacy field
+                'severity_score': severity_score,
+                'severity_label': severity_label,
+                'confidence_score': confidence_score,
+                'action_classification': action_classification,
                 'description': f'Beta drift of {beta_drift:.3f} exceeds threshold ({BETA_DRIFT_WARNING_THRESHOLD})',
                 'metric_value': beta_drift
             })
@@ -319,33 +402,79 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         
         if exposure_pct is not None:
             if exposure_pct > HIGH_EXPOSURE_THRESHOLD:
+                # High exposure is informational, low severity
+                magnitude = min(1.0, (exposure_pct - HIGH_EXPOSURE_THRESHOLD) / 0.02)
+                persistence = 0.3
+                data_coverage = 1.0
+                metric_agreement = 0.9
+                recency = 0.9
+                
+                severity_score = _compute_severity_score(magnitude, persistence, data_regime, wave_weight)
+                confidence_score = _compute_confidence_score(data_coverage, metric_agreement, recency)
+                severity_label = _get_severity_label(severity_score)
+                action_classification = _get_action_classification(severity_label)
+                
                 signals.append({
                     'signal_type': 'extreme_exposure_high',
                     'wave_id': wave_id,
                     'display_name': display_name,
-                    'severity': 'info',
+                    'severity': 'info',  # Legacy field
+                    'severity_score': severity_score,
+                    'severity_label': severity_label,
+                    'confidence_score': confidence_score,
+                    'action_classification': action_classification,
                     'description': f'Very high exposure ({exposure_pct*100:.1f}%) - minimal cash buffer',
                     'metric_value': exposure_pct
                 })
             elif exposure_pct < LOW_EXPOSURE_THRESHOLD:
+                # Low exposure may indicate issues
+                magnitude = min(1.0, (LOW_EXPOSURE_THRESHOLD - exposure_pct) / 0.30)
+                persistence = 0.4
+                data_coverage = 1.0
+                metric_agreement = 0.9
+                recency = 0.9
+                
+                severity_score = _compute_severity_score(magnitude, persistence, data_regime, wave_weight)
+                confidence_score = _compute_confidence_score(data_coverage, metric_agreement, recency)
+                severity_label = _get_severity_label(severity_score)
+                action_classification = _get_action_classification(severity_label)
+                
                 signals.append({
                     'signal_type': 'extreme_exposure_low',
                     'wave_id': wave_id,
                     'display_name': display_name,
-                    'severity': 'info',
+                    'severity': 'info',  # Legacy field
+                    'severity_score': severity_score,
+                    'severity_label': severity_label,
+                    'confidence_score': confidence_score,
+                    'action_classification': action_classification,
                     'description': f'Low exposure ({exposure_pct*100:.1f}%) - high cash allocation',
                     'metric_value': exposure_pct
                 })
         
         # Signal 4: Data regime mismatch (UNAVAILABLE or SANDBOX in production)
-        data_regime = row.get('data_regime_tag', None)
-        
         if data_regime in ['UNAVAILABLE', 'SANDBOX']:
+            # Regime mismatch is critical
+            magnitude = 1.0 if data_regime == 'UNAVAILABLE' else 0.7
+            persistence = 0.9  # Assume persistent until resolved
+            data_coverage = 1.0
+            metric_agreement = 1.0
+            recency = 1.0
+            
+            severity_score = _compute_severity_score(magnitude, persistence, data_regime, wave_weight)
+            confidence_score = _compute_confidence_score(data_coverage, metric_agreement, recency)
+            severity_label = _get_severity_label(severity_score)
+            action_classification = _get_action_classification(severity_label)
+            
             signals.append({
                 'signal_type': 'data_regime_mismatch',
                 'wave_id': wave_id,
                 'display_name': display_name,
-                'severity': 'critical' if data_regime == 'UNAVAILABLE' else 'warning',
+                'severity': 'critical' if data_regime == 'UNAVAILABLE' else 'warning',  # Legacy field
+                'severity_score': severity_score,
+                'severity_label': severity_label,
+                'confidence_score': confidence_score,
+                'action_classification': action_classification,
                 'description': f'Wave operating in {data_regime} regime',
                 'metric_value': None
             })
@@ -354,11 +483,35 @@ def detect_learning_signals(truth_df: pd.DataFrame) -> List[Dict[str, Any]]:
         drawdown_60d = row.get('drawdown_60d', None)
         
         if drawdown_60d is not None and drawdown_60d < HIGH_DRAWDOWN_THRESHOLD:  # Drawdown worse than -20%
+            # Calculate magnitude
+            magnitude = min(1.0, abs(drawdown_60d) / 0.40)  # Normalize to -40% as extreme
+            
+            # Persistence: 60d drawdown indicates sustained issue
+            persistence = 0.8
+            
+            # Data coverage
+            data_coverage = 0.9
+            
+            # Metric agreement
+            metric_agreement = 0.8
+            
+            # Recency
+            recency = 0.7
+            
+            severity_score = _compute_severity_score(magnitude, persistence, data_regime, wave_weight)
+            confidence_score = _compute_confidence_score(data_coverage, metric_agreement, recency)
+            severity_label = _get_severity_label(severity_score)
+            action_classification = _get_action_classification(severity_label)
+            
             signals.append({
                 'signal_type': 'high_drawdown',
                 'wave_id': wave_id,
                 'display_name': display_name,
-                'severity': 'warning',
+                'severity': 'warning',  # Legacy field
+                'severity_score': severity_score,
+                'severity_label': severity_label,
+                'confidence_score': confidence_score,
+                'action_classification': action_classification,
                 'description': f'60-day drawdown of {drawdown_60d*100:.2f}% exceeds {HIGH_DRAWDOWN_THRESHOLD*100:.0f}%',
                 'metric_value': drawdown_60d
             })
@@ -498,6 +651,138 @@ def _get_regime_description(regime: str) -> str:
     }
     
     return descriptions.get(regime, f'Unknown regime: {regime}')
+
+
+def _get_regime_multiplier(regime: str) -> float:
+    """
+    Get volatility multiplier for regime-aware severity calculation (Stage 2).
+    
+    Args:
+        regime: Regime tag (e.g., 'LIVE', 'SANDBOX')
+        
+    Returns:
+        Multiplier value (1.0 for normal, up to 1.5 for risk-off)
+    """
+    multipliers = {
+        'LIVE': REGIME_MULTIPLIER_NORMAL,
+        'HYBRID': REGIME_MULTIPLIER_VOLATILE,
+        'SANDBOX': REGIME_MULTIPLIER_RISK_OFF,
+        'UNAVAILABLE': REGIME_MULTIPLIER_RISK_OFF
+    }
+    
+    return multipliers.get(regime, REGIME_MULTIPLIER_NORMAL)
+
+
+def _compute_severity_score(
+    magnitude: float,
+    persistence: float,
+    regime: str,
+    wave_weight: float
+) -> int:
+    """
+    Compute deterministic severity score (0-100) for a signal (Stage 2).
+    
+    Severity is based on:
+    - Magnitude of the issue (0-40 points)
+    - Persistence of the issue (0-30 points)
+    - Regime-aware multiplier (1.0-1.5x based on market volatility)
+    - Wave role/importance (0-30 points based on weight)
+    
+    Args:
+        magnitude: Magnitude of the issue (0.0-1.0, higher is worse)
+        persistence: How long the issue has persisted (0.0-1.0, higher is worse)
+        regime: Market regime ('LIVE', 'SANDBOX', etc.)
+        wave_weight: Weight of the wave in portfolio (0.0-1.0)
+        
+    Returns:
+        Severity score (0-100, capped at 100)
+    """
+    # Magnitude contribution (0-40 points)
+    magnitude_score = min(40, magnitude * 40)
+    
+    # Persistence contribution (0-30 points)
+    persistence_score = min(30, persistence * 30)
+    
+    # Wave importance contribution (0-30 points)
+    wave_score = min(30, wave_weight * 30)
+    
+    # Base severity
+    base_severity = magnitude_score + persistence_score + wave_score
+    
+    # Apply regime multiplier
+    regime_multiplier = _get_regime_multiplier(regime)
+    adjusted_severity = base_severity * regime_multiplier
+    
+    # Cap at 100
+    return int(min(100, adjusted_severity))
+
+
+def _compute_confidence_score(
+    data_coverage: float,
+    metric_agreement: float,
+    recency: float
+) -> int:
+    """
+    Compute confidence score (0-100) for a signal (Stage 2).
+    
+    Confidence is based on:
+    - Data coverage: How complete the data is (0-40 points)
+    - Metric agreement: Agreement between different metrics (0-40 points)
+    - Recency: How recent the signal is (0-20 points)
+    
+    Args:
+        data_coverage: Data completeness (0.0-1.0, 1.0 is full coverage)
+        metric_agreement: Agreement between metrics (0.0-1.0, 1.0 is perfect agreement)
+        recency: Recency of data (0.0-1.0, 1.0 is most recent)
+        
+    Returns:
+        Confidence score (0-100)
+    """
+    coverage_score = min(40, data_coverage * 40)
+    agreement_score = min(40, metric_agreement * 40)
+    recency_score = min(20, recency * 20)
+    
+    return int(coverage_score + agreement_score + recency_score)
+
+
+def _get_severity_label(severity_score: int) -> str:
+    """
+    Convert severity score to label (Stage 2).
+    
+    Args:
+        severity_score: Severity score (0-100)
+        
+    Returns:
+        Severity label ('Low', 'Medium', 'High', 'Critical')
+    """
+    if severity_score >= SEVERITY_HIGH_THRESHOLD:
+        return 'Critical'
+    elif severity_score >= SEVERITY_MEDIUM_THRESHOLD:
+        return 'High'
+    elif severity_score >= SEVERITY_LOW_THRESHOLD:
+        return 'Medium'
+    else:
+        return 'Low'
+
+
+def _get_action_classification(severity_label: str) -> str:
+    """
+    Get action classification based on severity label (Stage 2).
+    
+    Args:
+        severity_label: Severity label ('Low', 'Medium', 'High', 'Critical')
+        
+    Returns:
+        Action classification ('Info', 'Watch', 'Intervention')
+    """
+    action_map = {
+        'Low': 'Info',
+        'Medium': 'Watch',
+        'High': 'Watch',
+        'Critical': 'Intervention'
+    }
+    
+    return action_map.get(severity_label, 'Info')
 
 
 # ============================================================================
