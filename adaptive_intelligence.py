@@ -1728,3 +1728,10 @@ def get_decision_support_summary(
         })
     
     return decision_support
+def get_decision_support_summary(truth_df, prior_snapshot=None):
+    """
+    Stage 4 compatibility wrapper.
+    Returns the decision support summary for UI consumption.
+    """
+    snapshot = get_adaptive_intelligence_snapshot(truth_df, prior_snapshot)
+    return snapshot.get("decision_support_summary", [])
