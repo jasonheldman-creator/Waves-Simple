@@ -1164,16 +1164,16 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                                 alpha_365d = snapshot.get('alpha_365d')
                                 
                                 # Format return strings (handle NaN values from TruthFrame)
-                                ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None and not pd.isna(ret_1d) else "—"
-                                ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None and not pd.isna(ret_30d) else "—"
-                                ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None and not pd.isna(ret_60d) else "—"
-                                ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None and not pd.isna(ret_365d) else "—"
+                                ret_1d_str = f"{ret_1d:+.2%}" if ret_1d is not None and not pd.isna(ret_1d) else "—"
+                                ret_30d_str = f"{ret_30d:+.2%}" if ret_30d is not None and not pd.isna(ret_30d) else "—"
+                                ret_60d_str = f"{ret_60d:+.2%}" if ret_60d is not None and not pd.isna(ret_60d) else "—"
+                                ret_365d_str = f"{ret_365d:+.2%}" if ret_365d is not None and not pd.isna(ret_365d) else "—"
                                 
                                 # Format alpha strings (handle NaN values from TruthFrame)
-                                alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None and not pd.isna(alpha_1d) else "—"
-                                alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None and not pd.isna(alpha_30d) else "—"
-                                alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None and not pd.isna(alpha_60d) else "—"
-                                alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None and not pd.isna(alpha_365d) else "—"
+                                alpha_1d_str = f"{alpha_1d:+.2%}" if alpha_1d is not None and not pd.isna(alpha_1d) else "—"
+                                alpha_30d_str = f"{alpha_30d:+.2%}" if alpha_30d is not None and not pd.isna(alpha_30d) else "—"
+                                alpha_60d_str = f"{alpha_60d:+.2%}" if alpha_60d is not None and not pd.isna(alpha_60d) else "—"
+                                alpha_365d_str = f"{alpha_365d:+.2%}" if alpha_365d is not None and not pd.isna(alpha_365d) else "—"
                             else:
                                 # Error in snapshot computation - log and keep N/A values
                                 logging.warning(f"Portfolio snapshot error: {snapshot.get('error')}")
