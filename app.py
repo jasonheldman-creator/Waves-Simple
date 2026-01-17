@@ -1122,6 +1122,13 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     if not st.session_state.get("ENGINE_RUNNING", False):
                         st.session_state.ENGINE_RUNNING = True
                         try:
+                            # Initialize render counter if it doesn't exist
+                            if "_portfolio_render_count" not in st.session_state:
+                                st.session_state["_portfolio_render_count"] = 0
+                            
+                            # Increment render counter
+                            st.session_state["_portfolio_render_count"] += 1
+                            
                             # Compute portfolio snapshot with all periods
                             snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                             
@@ -1287,8 +1294,12 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # Informational message for portfolio view
         portfolio_info_html = ""
         if is_portfolio_view:
-            portfolio_info_html = '''<div class="portfolio-info">
+            # Get render count for display
+            render_count = st.session_state.get("_portfolio_render_count", 0)
+            portfolio_info_html = f'''<div class="portfolio-info">
                 &#9432; Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
+                <br/>
+                <strong>Render Count: {render_count}</strong>
             </div>'''
         
         # Enhanced banner with stats
