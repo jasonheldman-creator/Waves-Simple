@@ -21124,15 +21124,16 @@ def render_adaptive_intelligence_tab():
     MONITORING-ONLY TAB - This tab provides read-only diagnostics and insights.
     It does NOT modify any trading behavior, strategies, parameters, or execution logic.
     
-    Stage 3 Enhancement: Narrative & Causal Intelligence (Read-Only)
-    - Signal clustering into causal themes
-    - Change detection vs prior snapshot
-    - Priority stack with "What Matters Today" insights
-    - Template-based narratives (no LLM)
+    Stage 4 Enhancement: Decision Support Layer (Human-in-the-Loop, Read-Only)
+    - Decision support summary with recommended review actions
+    - Risk of inaction metrics (Low/Medium/High)
+    - Wave-level attention flags (🔎 Needs Review, ⏳ Monitor, ⚠️ Escalating Risk)
+    - Time & trend context enhancements
+    - Governance & disclosure statements
     
     This tab provides:
-    - Today's Intelligence Summary: Top 3 priority insights
-    - Signal Clusters: Grouped signals by causal theme
+    - Decision Support Summary: Top 3 priority insights with recommended actions
+    - Signal Clusters: Grouped signals by causal theme (with time context)
     - Wave Health Monitor: Alpha trends, beta drift, exposure analysis
     - Regime Intelligence: Volatility regime and wave alignment
     - Learning Signals: Detected patterns and anomalies with enhanced scoring
@@ -21140,16 +21141,23 @@ def render_adaptive_intelligence_tab():
     All data is read from TruthFrame with no writes or modifications.
     """
     st.markdown("# 🧠 Adaptive Intelligence Center")
-    st.markdown("### Stage 3 – Narrative & Causal Intelligence (Read-Only)")
+    st.markdown("### Stage 4 – Decision Support Layer (Human-in-the-Loop, Read-Only)")
     
     # ========================================================================
     # PROMINENT GOVERNANCE BANNER
     # ========================================================================
     st.info("""
-    **📋 STAGE 3 – NARRATIVE & CAUSAL INTELLIGENCE (READ-ONLY)**
+    **📋 STAGE 4 – DECISION SUPPORT LAYER (HUMAN-IN-THE-LOOP, READ-ONLY)**
     
-    This center provides **monitoring and diagnostics only**. No actions are taken, and no trading behavior is modified.
+    This center provides **monitoring and decision support only**. No actions are taken, and no trading behavior is modified.
     All diagnostics pull from TruthFrame data. No strategies, parameters, weights, or execution logic are changed.
+    
+    **Stage 4 Features (NEW):**
+    - 🧭 **Decision Support Summary**: Recommended review actions for top 3 priority insights
+    - 🎯 **Risk of Inaction**: Low/Medium/High risk classification for each insight
+    - 🔎 **Wave-Level Attention Flags**: Visual indicators (🔎 Needs Review, ⏳ Monitor, ⚠️ Escalating Risk)
+    - 📊 **Time & Trend Context**: Persistence, direction, and wave expansion/contraction tracking
+    - ⚖️ **Governance**: All outputs are deterministic, reproducible, and advisory only
     
     **Stage 3 Features:**
     - ✅ Signal clustering into causal themes (beta drift, regime mismatch, concentration risk, etc.)
@@ -21157,16 +21165,17 @@ def render_adaptive_intelligence_tab():
     - ✅ Template-based narrative explanations (no LLM usage)
     - ✅ Change detection vs prior snapshot (new, escalating, improving, resolved)
     - ✅ Priority stack ranking top 3 "What Matters Today" insights
-    - ✅ Enhanced severity scoring (0-100, deterministic)
-    - ✅ Confidence scoring based on data coverage, metric agreement, and recency
-    - ✅ Regime-aware severity multipliers
-    - ✅ Action classification (Info, Watch, Intervention)
+    
+    **Important Disclosures:**
+    - 🚫 **No Execution**: Decision support is advisory only. No parameter changes or trades occur.
+    - 🔄 **Deterministic**: All outputs are reproducible and derived from existing snapshot data.
+    - 👤 **Human Oversight Required**: All decisions require human review and approval.
     """)
     
     st.markdown("---")
     
     # ========================================================================
-    # LOAD TRUTHFRAME DATA & GENERATE STAGE 3 INTELLIGENCE
+    # LOAD TRUTHFRAME DATA & GENERATE STAGE 4 INTELLIGENCE
     # ========================================================================
     try:
         from analytics_truth import get_truth_frame
@@ -21177,7 +21186,9 @@ def render_adaptive_intelligence_tab():
             cluster_signals,  # STAGE 3
             detect_cluster_changes,  # STAGE 3
             get_priority_insights,  # STAGE 3
-            get_adaptive_intelligence_snapshot  # STAGE 3
+            get_adaptive_intelligence_snapshot,  # STAGE 3
+            get_decision_support_summary,  # STAGE 4
+            compute_attention_flag  # STAGE 4
         )
         
         # Get safe mode setting
@@ -21193,7 +21204,7 @@ def render_adaptive_intelligence_tab():
         
         st.success(f"✓ TruthFrame loaded: {len(truth_df)} waves available")
         
-        # Generate Stage 3 intelligence snapshot
+        # Generate Stage 4 intelligence snapshot (includes Stage 3)
         with st.spinner("Generating intelligence snapshot..."):
             # Get prior snapshot from session state (if available)
             prior_snapshot = st.session_state.get('ai_prior_snapshot', None)
@@ -21211,8 +21222,12 @@ def render_adaptive_intelligence_tab():
             clusters = current_snapshot['signal_clusters']
             cluster_changes = current_snapshot['cluster_changes']
             priority_insights = current_snapshot['priority_insights']
+            
+            # Generate Stage 4 decision support summary
+            prior_clusters = prior_snapshot.get('signal_clusters', []) if prior_snapshot else []
+            decision_support = get_decision_support_summary(priority_insights, prior_clusters)
         
-        st.success(f"✓ Intelligence snapshot generated: {len(clusters)} clusters, {len(signals)} signals")
+        st.success(f"✓ Intelligence snapshot generated: {len(clusters)} clusters, {len(signals)} signals, {len(decision_support)} decision support items")
         
     except ImportError as e:
         st.error(f"⚠️ Required modules not available: {e}")
@@ -21227,21 +21242,25 @@ def render_adaptive_intelligence_tab():
     st.markdown("---")
     
     # ========================================================================
-    # STAGE 3: TODAY'S INTELLIGENCE SUMMARY
+    # STAGE 4: DECISION SUPPORT SUMMARY
     # ========================================================================
-    st.subheader("📌 Today's Intelligence Summary")
-    st.markdown("**Top 3 priority insights requiring attention**")
+    st.subheader("🧭 Decision Support Summary (Read-Only)")
+    st.markdown("**Top 3 priority insights with recommended review actions**")
+    st.caption("⚠️ This section is advisory only. No execution or parameter changes occur. Human oversight required for all decisions.")
     
-    if not priority_insights:
+    if not decision_support:
         st.success("✓ No priority issues detected - all waves operating within normal parameters.")
     else:
-        for insight in priority_insights:
-            rank = insight['rank']
-            cluster_name = insight['cluster_name']
-            cluster_severity = insight['cluster_severity']
-            wave_count = insight['wave_count']
-            narrative = insight['narrative']
-            justification = insight['justification']
+        for item in decision_support:
+            rank = item['rank']
+            cluster_name = item['cluster_name']
+            cluster_severity = item['cluster_severity']
+            wave_count = item['wave_count']
+            enhanced_narrative = item['enhanced_narrative']
+            justification = item['justification']
+            recommended_action = item['recommended_action']
+            risk_of_inaction = item['risk_of_inaction']
+            affected_waves = item.get('affected_waves', [])
             
             # Severity badge
             if cluster_severity >= 75:
@@ -21257,26 +21276,53 @@ def render_adaptive_intelligence_tab():
                 badge = "🔵"
                 severity_label = "Low"
             
+            # Risk of inaction color coding
+            risk_badge = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(risk_of_inaction, "⚪")
+            
             # Display insight card
             with st.container():
                 st.markdown(f"### {badge} #{rank}: {cluster_name}")
-                col1, col2, col3 = st.columns(3)
+                
+                # Metrics row
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Severity", f"{severity_label} ({cluster_severity}/100)")
                 with col2:
                     st.metric("Affected Waves", wave_count)
                 with col3:
+                    st.metric("Risk of Inaction", f"{risk_badge} {risk_of_inaction}")
+                with col4:
                     st.metric("Priority Rank", f"#{rank} of 3")
                 
-                st.markdown(narrative)
+                # Recommended action (Stage 4)
+                st.markdown("**🎯 Recommended Review Action:**")
+                st.info(recommended_action)
+                
+                # Enhanced narrative with time context (Stage 4)
+                st.markdown("**📊 Analysis:**")
+                st.markdown(enhanced_narrative)
+                
+                # Affected waves with attention flags (Stage 4)
+                if affected_waves:
+                    st.markdown("**🌊 Affected Waves:**")
+                    wave_flags = []
+                    for wave_id in affected_waves:
+                        flag = compute_attention_flag(wave_id, clusters, truth_df)
+                        if flag:
+                            wave_flags.append(f"{wave_id} {flag}")
+                        else:
+                            wave_flags.append(wave_id)
+                    st.caption(" · ".join(wave_flags))
+                
+                # Justification
                 st.caption(f"*{justification}*")
                 st.markdown("---")
     
     # ========================================================================
-    # STAGE 3: SIGNAL CLUSTERS
+    # STAGE 3: SIGNAL CLUSTERS (Enhanced with Time Context)
     # ========================================================================
     st.subheader("🔗 Signal Clusters")
-    st.markdown("**Related signals grouped by causal theme**")
+    st.markdown("**Related signals grouped by causal theme (with time context)**")
     
     if not clusters:
         st.success("✓ No signal clusters detected - all waves operating within normal parameters.")
@@ -21348,6 +21394,11 @@ def render_adaptive_intelligence_tab():
                     'resolved': ' ✅'
                 }.get(cluster_change['change_type'], '')
             
+            # Import Stage 4 function for enhanced narratives
+            from adaptive_intelligence import enhance_narrative_with_time_context
+            prior_clusters = prior_snapshot.get('signal_clusters', []) if prior_snapshot else []
+            enhanced_narrative = enhance_narrative_with_time_context(cluster, prior_clusters)
+            
             # Display cluster card
             with st.expander(f"{badge} {cluster_name}{change_icon} - {wave_count} wave{'s' if wave_count > 1 else ''}", expanded=(cluster_severity >= 50)):
                 col1, col2, col3 = st.columns(3)
@@ -21358,11 +21409,18 @@ def render_adaptive_intelligence_tab():
                 with col3:
                     st.metric("Persistence", f"{persistence*100:.0f}%")
                 
-                st.markdown("**Narrative:**")
-                st.markdown(narrative)
+                st.markdown("**Narrative with Time Context:**")
+                st.markdown(enhanced_narrative)
                 
-                st.markdown("**Affected Waves:**")
-                st.caption(", ".join(affected_waves))
+                st.markdown("**Affected Waves with Attention Flags:**")
+                wave_flags = []
+                for wave_id in affected_waves:
+                    flag = compute_attention_flag(wave_id, clusters, truth_df)
+                    if flag:
+                        wave_flags.append(f"{wave_id} {flag}")
+                    else:
+                        wave_flags.append(wave_id)
+                st.caption(" · ".join(wave_flags))
                 
                 # Show change details if applicable
                 if cluster_change:
@@ -21585,13 +21643,38 @@ def render_adaptive_intelligence_tab():
     st.markdown("---")
     
     # ========================================================================
-    # FOOTER
+    # GOVERNANCE & DISCLOSURE FOOTER
     # ========================================================================
+    st.markdown("---")
+    st.markdown("### ⚖️ Governance & Disclosure")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Decision Support (Stage 4):**")
+        st.caption("""
+        - 🧭 Advisory only - no execution or parameter changes
+        - 🎯 Recommended actions require human review
+        - 📊 All outputs deterministic and reproducible
+        - 🔄 Derived from existing snapshot and TruthFrame data
+        - 👤 Human oversight required for all decisions
+        """)
+    
+    with col2:
+        st.markdown("**System Compliance:**")
+        st.caption("""
+        - ✅ Read-only monitoring layer
+        - ✅ No trading behavior modifications
+        - ✅ No strategy or parameter changes
+        - ✅ No data pipeline alterations
+        - ✅ All Stage 1-3 features maintained
+        """)
+    
     st.caption("""
-    **Note:** This Adaptive Intelligence Center (Stage 3) provides narrative and causal intelligence monitoring.
+    **Note:** This Adaptive Intelligence Center (Stage 4) provides decision support and narrative intelligence monitoring.
     All diagnostics are read-only and do not modify any trading behavior or system state.
-    Signal clustering, narratives, change detection, and priority ranking are all deterministically calculated.
-    No LLM or AI models are used - all narratives are template-based.
+    Signal clustering, narratives, change detection, priority ranking, and decision support are all deterministically calculated.
+    No LLM or AI models are used - all narratives and recommendations are template-based and rule-driven.
     """)
 
 
