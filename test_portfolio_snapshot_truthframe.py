@@ -11,6 +11,7 @@ This test validates that the new TruthFrame-based portfolio snapshot:
 
 import sys
 import os
+import pandas as pd
 
 # Add parent directory to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -52,7 +53,6 @@ def test_truthframe_portfolio_snapshot_basic():
             
             if ret is not None:
                 # Check if it's a valid number (not NaN)
-                import pandas as pd
                 if pd.isna(ret):
                     print(f"  {period}D: N/A (insufficient data)")
                 else:

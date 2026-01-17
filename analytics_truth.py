@@ -1845,6 +1845,7 @@ def compute_portfolio_snapshot_from_truth(
         snapshot[f"alpha_{p}d"] = truth_df[alpha_col].mean()
 
     # 4. Timestamp for proof
-    snapshot["computed_at_utc"] = datetime.utcnow().isoformat()
+    from datetime import timezone
+    snapshot["computed_at_utc"] = datetime.now(timezone.utc).isoformat()
 
     return snapshot
