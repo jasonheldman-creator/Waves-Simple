@@ -6836,15 +6836,15 @@ def render_reality_panel():
     
     try:
         from helpers.price_book import (
-            get_price_book,
-            get_price_book_meta,
-            collect_required_tickers,
-            get_required_tickers_active_waves,
-            compute_missing_and_extra_tickers,
-            compute_system_health,
-            CANONICAL_CACHE_PATH,
-            PRICE_FETCH_ENABLED,
-            ALLOW_NETWORK_FETCH
+             get_price_book,
+             get_price_book_meta,
+             collect_required_tickers,
+             get_required_tickers_active_waves,
+             compute_missing_and_extra_tickers,
+             compute_system_health,
+             CANONICAL_CACHE_PATH,
+             PRICE_FETCH_ENABLED,
+             ALLOW_NETWORK_FETCH
         )
         
         # Load the PRICE_BOOK (this is the actual object used by execution)
