@@ -1,23 +1,26 @@
 name: Rebuild Snapshot
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-  build:
+  rebuild:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
-    - name: Run rebuild snapshot script
-      run: |
-        python3 scripts/rebuild_snapshot.py
-        git add data/live_snapshot.csv
-        git commit -m 'Regenerate snapshot' --allow-empty
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-        # Time-stamped commit
-        GIT_COMMITTER_DATE='$(date -u)' git commit --amend --no-edit --date '$(date -u)' --allow-empty
-        
-        # Force commit by checking out the branch again
-        git checkout -B main
-        git push origin main
+      - name: Set up Python environment
+        run: |
+          python3 -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install numpy
+          fi
+
+      - name: Run rebuild snapshot script
+        run: |
+          # Add your rebuild snapshot command here
