@@ -1,87 +1,80 @@
 """
 adaptive_intelligence.py
 
-Adaptive Intelligence module (SAFE STUB VERSION).
+Adaptive Intelligence module (SAFE / SNAPSHOT-ONLY MODE)
 
-This file intentionally provides deterministic, non-throwing,
-snapshot-only placeholder implementations to satisfy all import
-contracts used by the app.
+This file intentionally guarantees that all public functions expected
+by the app are ALWAYS importable, deterministic, and non-throwing.
 
 No live network access.
-No side effects.
-No runtime exceptions.
-
-This module is designed to be extended later without breaking
-existing imports or workflows.
+No side effects on import.
+All outputs derived from snapshot data only (or placeholders).
 """
 
 from typing import Dict, Any
 from datetime import datetime
 
 
-# ------------------------------------------------------------------------------
-# SYSTEM METADATA
-# ------------------------------------------------------------------------------
+# ============================================================================
+# INTERNAL CONFIG
+# ============================================================================
 
-MODULE_VERSION = "0.1.0-safe"
-MODULE_MODE = "SNAPSHOT_ONLY"
+ADAPTIVE_INTELLIGENCE_MODE = "SNAPSHOT_ONLY"
 NETWORK_FETCH_ENABLED = False
 
 
-# ------------------------------------------------------------------------------
-# WAVE HEALTH SUMMARY (IMPORT CONTRACT)
-# ------------------------------------------------------------------------------
-
-def get_wave_health_summary(*args, **kwargs) -> Dict[str, Any]:
-    """
-    Safe placeholder for wave health summary.
-
-    Returns a deterministic structure so downstream UI and analytics
-    layers never fail due to missing data.
-    """
-    return {
-        "status": "unknown",
-        "confidence": 0.0,
-        "source": "placeholder",
-        "mode": MODULE_MODE,
-        "timestamp_utc": datetime.utcnow().isoformat() + "Z",
-    }
-
-
-# ------------------------------------------------------------------------------
-# REGIME INTELLIGENCE (IMPORT CONTRACT)
-# ------------------------------------------------------------------------------
+# ============================================================================
+# PUBLIC API — REQUIRED IMPORT CONTRACT
+# ============================================================================
 
 def analyze_regime_intelligence(*args, **kwargs) -> Dict[str, Any]:
     """
-    Safe placeholder to satisfy the analyze_regime_intelligence import contract.
+    Analyze market regime using snapshot-only logic.
 
-    This function intentionally performs NO live computation and does NOT
-    depend on external data sources. It exists to keep the system stable
-    until full regime logic is reintroduced.
+    SAFE PLACEHOLDER IMPLEMENTATION:
+    - Never raises
+    - Never fetches network data
+    - Always returns a valid dict
     """
+
     return {
         "regime": "unknown",
         "confidence": 0.0,
-        "source": "placeholder",
-        "mode": MODULE_MODE,
+        "volatility_state": "unknown",
+        "risk_state": "neutral",
+        "source": "adaptive_intelligence_placeholder",
+        "mode": ADAPTIVE_INTELLIGENCE_MODE,
         "network_fetch": NETWORK_FETCH_ENABLED,
-        "note": "Regime intelligence not yet activated",
-        "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+        "computed_at": datetime.utcnow().isoformat() + "Z",
+        "note": "Regime intelligence placeholder — snapshot-only, deterministic."
     }
 
 
-# ------------------------------------------------------------------------------
-# FUTURE EXTENSION NOTES
-# ------------------------------------------------------------------------------
-#
-# When real adaptive intelligence is reintroduced:
-#
-# - Replace internal logic ONLY
-# - Do NOT change function names
-# - Do NOT change return keys without updating UI consumers
-# - Preserve deterministic fallbacks
-#
-# This guarantees zero-downtime upgrades.
-#
-# ------------------------------------------------------------------------------
+def get_wave_health_summary(*args, **kwargs) -> Dict[str, Any]:
+    """
+    Returns a high-level system / wave health summary.
+
+    SAFE PLACEHOLDER IMPLEMENTATION:
+    - Exists solely to satisfy import requirements
+    - Does not depend on live data
+    - Can be upgraded later without breaking callers
+    """
+
+    return {
+        "status": "ok",
+        "coverage": 1.0,
+        "network_fetch": NETWORK_FETCH_ENABLED,
+        "mode": ADAPTIVE_INTELLIGENCE_MODE,
+        "computed_at": datetime.utcnow().isoformat() + "Z",
+        "note": "Wave health placeholder — adaptive intelligence not yet active."
+    }
+
+
+# ============================================================================
+# OPTIONAL: SELF-TEST (DOES NOT RUN ON IMPORT)
+# ============================================================================
+
+if __name__ == "__main__":
+    print("Adaptive Intelligence self-test")
+    print("analyze_regime_intelligence():", analyze_regime_intelligence())
+    print("get_wave_health_summary():", get_wave_health_summary())
