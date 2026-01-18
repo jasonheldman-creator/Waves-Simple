@@ -1,11 +1,5 @@
-def detect_learning_signals(truth_df):
-    """Add your docstring here"""
-    import pandas as pd
+def get_wave_health_summary():
+    # Function implementation goes here
+    pass
 
-    # Ensure truth_df is a DataFrame exactly once, right after get_truth_frame.
-    truth_df = get_truth_frame(safe_mode=True)
-    if isinstance(truth_df, list):
-        truth_df = pd.DataFrame(truth_df)
-
-    signals = []
-    # ... (rest of the function logic remains unchanged) ...
+# Other code for adaptive_intelligence.py goes here
