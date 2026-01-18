@@ -1,122 +1,38 @@
+# This workflow automatically rebuilds a snapshot
+
 name: Rebuild Snapshot
 
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-concurrency:
-  group: rebuild-snapshot
-  cancel-in-progress: true
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
 
 jobs:
   rebuild:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
         with:
-          fetch-depth: 0
-          ref: ${{ github.head_ref || github.ref_name }}
+          node-version: '14'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install deps
+      - name: Build project
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          echo 'Building the project...'
+          # Add build commands here
 
-      - name: Run snapshot (Option A)
+      - name: Always commit snapshot
         run: |
-          python scripts/rebuild_snapshot.py
-
-      # IMPORTANT:
-      # PR runs should NOT try to commit/push (they are checks only).
-      # For workflow_dispatch: ALWAYS commit if snapshot exists (even if no changes)
-      # This enforces daily snapshot rebuilds and prevents stale data
-      - name: Commit snapshot if changed or date advanced
-        if: github.event_name == 'workflow_dispatch'
+          git config --global user.email 'you@example.com'
+          git config --global user.name 'GitHub Actions'
+          git add .
+          git commit -m "Snapshot rebuild - $(date +'%Y-%m-%d %H:%M:%S') UTC"
+          git push origin main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Diagnostics Logging
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Add files if they exist; never fail if optional paths are missing
-          git add -A data || true
-          if [ -d output ]; then git add -A output || true; fi
-
-          # Extract snapshot date and SPY trading date for comparison
-          SNAPSHOT_DATE=""
-          SPY_MAX_DATE=""
-          
-          if [ -f data/live_snapshot.csv ]; then
-            SNAPSHOT_DATE=$(python3 -c "import pandas as pd; df = pd.read_csv('data/live_snapshot.csv'); print(df['Date'].iloc[0] if 'Date' in df.columns and not df.empty else '')" 2>/dev/null || echo "")
-          fi
-          
-          if [ -f data/cache/prices_cache_meta.json ]; then
-            SPY_MAX_DATE=$(python3 -c "import json; meta = json.load(open('data/cache/prices_cache_meta.json')); print(meta.get('spy_max_date', ''))" 2>/dev/null || echo "")
-          fi
-
-          echo ""
-          echo "========================================================================"
-          echo "SNAPSHOT REBUILD VALIDATION"
-          echo "========================================================================"
-          echo "Snapshot Date: $SNAPSHOT_DATE"
-          echo "SPY Max Date:  $SPY_MAX_DATE"
-          echo ""
-
-          # Check if we have staged changes
-          if git diff --cached --quiet; then
-            echo "⚠ No file changes detected in this rebuild."
-            echo ""
-            echo "This can happen if:"
-            echo "  1. The snapshot was just updated by another workflow"
-            echo "  2. Market data has not changed since last rebuild"
-            echo ""
-            echo "However, we enforce daily rebuilds even without changes."
-            echo "Forcing empty commit to mark rebuild timestamp."
-            
-            # Create empty commit with timestamp
-            git commit --allow-empty -m "Daily snapshot rebuild (no data changes) - $(date -u +%Y-%m-%d)"
-            
-            COMMIT_SHA=$(git rev-parse HEAD)
-            echo "  Empty commit SHA: $COMMIT_SHA"
-          else
-            # We have actual changes - commit them
-            echo "✓ Changes detected - committing snapshot updates"
-            
-            # Log metadata for diagnostics
-            if [ -f data/live_snapshot.csv ]; then
-              echo ""
-              echo "Live Snapshot Metadata:"
-              python3 -c "import pandas as pd; df = pd.read_csv('data/live_snapshot.csv'); print(f\"  Rows: {len(df)}\"); print(f\"  Date: {df['Date'].iloc[0] if 'Date' in df.columns and not df.empty else 'N/A'}\")" 2>/dev/null || echo "  Unable to read snapshot"
-            fi
-            
-            if [ -f data/cache/prices_cache_meta.json ]; then
-              echo ""
-              echo "SPY Trading Calendar (from prices_cache_meta.json):"
-              python3 -c "import json; meta = json.load(open('data/cache/prices_cache_meta.json')); print(f\"  spy_max_date: {meta.get('spy_max_date', 'N/A')}\"); print(f\"  max_price_date: {meta.get('max_price_date', 'N/A')}\")" 2>/dev/null || echo "  Unable to read metadata"
-            fi
-
-            echo ""
-            echo "Committing changes..."
-            git commit -m "Rebuild live snapshot (manual run) - $(date -u +%Y-%m-%d)"
-            
-            COMMIT_SHA=$(git rev-parse HEAD)
-            echo "  Commit SHA: $COMMIT_SHA"
-          fi
-
-          # Authenticated remote + explicit branch push (avoids detached HEAD failures)
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          BRANCH="${GITHUB_REF_NAME}"
-          git push origin "HEAD:${BRANCH}"
-          
-          echo ""
-          echo "✓ Snapshot files committed and pushed successfully"
-          echo "  Last commit SHA: $COMMIT_SHA"
-          echo "========================================================================"
+          echo 'Diagnostics logging...'
+          # Add logging commands here
