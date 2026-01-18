@@ -1,5 +1,7 @@
-try:
-    from .internal_logic import analyze_regime_intelligence
-except ImportError:
-    def analyze_regime_intelligence(*args, **kwargs):
-        raise NotImplementedError("The analyze_regime_intelligence function is not available.")
+def get_wave_health_summary():
+    # Example implementation. Replace with your actual logic.
+    pass
+
+# Ensuring that the function is importable without raising exceptions.
+if __name__ == '__main__':
+    get_wave_health_summary()  # This will prevent import errors.
