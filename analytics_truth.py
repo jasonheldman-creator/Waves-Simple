@@ -1,30 +1,50 @@
 """
 analytics_truth.py
 
-Canonical TruthFrame accessor.
-Provides backward-compatible get_truth_frame interface.
+Canonical TruthFrame provider for WAVES Intelligence.
+Read-only, diagnostic-safe. No trading logic.
 """
+
+from datetime import datetime
+
+class TruthFrame:
+    """
+    Minimal canonical TruthFrame.
+    Acts as the single source of diagnostic truth for the app.
+    """
+
+    def __init__(self):
+        self.generated_at = datetime.utcnow().isoformat() + "Z"
+        self.mode = "diagnostic"
+        self.portfolio = {
+            "1D": None,
+            "30D": None,
+            "60D": None,
+            "365D": None,
+            "alpha_1D": None,
+            "alpha_30D": None,
+            "alpha_60D": None,
+            "alpha_365D": None,
+        }
+        self.waves = {}
+        self.status = "initialized"
+
+    def summary(self):
+        return {
+            "status": self.status,
+            "generated_at": self.generated_at,
+            "wave_count": len(self.waves),
+        }
+
 
 def get_truth_frame(*args, safe_mode=False, **kwargs):
     """
     Backward-compatible TruthFrame accessor.
 
     Args:
-        *args: Ignored (compatibility)
         safe_mode (bool): Accepted for compatibility with app.py
-        **kwargs: Ignored
 
     Returns:
-        TruthFrame object or safe default placeholder.
+        TruthFrame instance
     """
-    try:
-        # If TruthFrame is defined elsewhere/imported later,
-        # this will return it safely.
-        return TruthFrame
-    except NameError:
-        # Safe fallback to prevent app crash
-        return {
-            "status": "unavailable",
-            "reason": "TruthFrame not initialized",
-            "safe_mode": safe_mode
-        }
+    return TruthFrame()
