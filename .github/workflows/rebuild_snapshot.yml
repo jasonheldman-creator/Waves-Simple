@@ -1,38 +1,23 @@
-# This workflow automatically rebuilds a snapshot
-
 name: Rebuild Snapshot
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:
 
 jobs:
-  rebuild:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+    - name: Checkout repository
+      uses: actions/checkout@v2
+    - name: Run rebuild snapshot script
+      run: |
+        python3 scripts/rebuild_snapshot.py
+        git add data/live_snapshot.csv
+        git commit -m 'Regenerate snapshot' --allow-empty
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: '14'
-
-      - name: Build project
-        run: |
-          echo 'Building the project...'
-          # Add build commands here
-
-      - name: Always commit snapshot
-        run: |
-          git config --global user.email 'you@example.com'
-          git config --global user.name 'GitHub Actions'
-          git add .
-          git commit -m "Snapshot rebuild - $(date +'%Y-%m-%d %H:%M:%S') UTC"
-          git push origin main
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Diagnostics Logging
-        run: |
-          echo 'Diagnostics logging...'
-          # Add logging commands here
+        # Time-stamped commit
+        GIT_COMMITTER_DATE='$(date -u)' git commit --amend --no-edit --date '$(date -u)' --allow-empty
+        
+        # Force commit by checking out the branch again
+        git checkout -B main
+        git push origin main
