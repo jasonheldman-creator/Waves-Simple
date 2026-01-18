@@ -21164,7 +21164,8 @@ def render_adaptive_intelligence_tab():
         with st.spinner("Loading TruthFrame data..."):
             truth_df = get_truth_frame(safe_mode=safe_mode)
         
-        if truth_df is None or truth_df.empty:
+        # Check if TruthFrame is properly initialized (object-based check)
+        if truth_df is None or not hasattr(truth_df, "portfolio") or truth_df.status != "initialized":
             st.warning("⚠️ TruthFrame data not available. Please ensure data is loaded.")
             return
         
