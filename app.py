@@ -10084,7 +10084,7 @@ def render_executive_brief_tab():
                             price_df = st.session_state.get("global_price_df")
                             from analytics_truth import get_truth_frame
                             truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
-                            st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
+                            st.success(f"✓ TruthFrame refreshed: {len(truth_df.waves)} waves")
                             # Mark user interaction
                             st.session_state.user_interaction_detected = True
                             trigger_rerun("truthframe_refresh")
@@ -13579,7 +13579,7 @@ def render_overview_tab():
                                 # Get global price cache for faster generation
                                 price_df = st.session_state.get("global_price_df")
                                 truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
-                                st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
+                                st.success(f"✓ TruthFrame refreshed: {len(truth_df.waves)} waves")
                                 trigger_rerun("truthframe_force_refresh")
                         except Exception as e:
                             st.error(f"TruthFrame refresh failed: {str(e)}")
@@ -21164,11 +21164,12 @@ def render_adaptive_intelligence_tab():
         with st.spinner("Loading TruthFrame data..."):
             truth_df = get_truth_frame(safe_mode=safe_mode)
         
-        if truth_df is None or truth_df.empty:
+        # Check if TruthFrame is properly initialized (object-based check)
+        if truth_df is None or not hasattr(truth_df, "portfolio") or getattr(truth_df, "status", None) != "initialized":
             st.warning("⚠️ TruthFrame data not available. Please ensure data is loaded.")
             return
         
-        st.success(f"✓ TruthFrame loaded: {len(truth_df)} waves available")
+        st.success(f"✓ TruthFrame loaded: {len(truth_df.waves)} waves available")
         
     except ImportError as e:
         st.error(f"⚠️ Required modules not available: {e}")
