@@ -44,6 +44,29 @@ class TruthFrame:
         # Wave-level diagnostics (optional, empty by default)
         self.waves = {}
 
+    # ------------------------------------------------------------------
+    # Compatibility shims (DataFrame-like behavior expected by app.py)
+    # ------------------------------------------------------------------
+
+    @property
+    def empty(self):
+        """
+        Pandas-compatibility shim.
+
+        Some legacy code checks `truth_frame.empty`.
+        TruthFrame is considered empty when no waves are present.
+        """
+        return len(self.waves) == 0
+
+    def __bool__(self):
+        """
+        TruthFrame should always evaluate as True to avoid
+        accidental falsy checks breaking execution.
+        """
+        return True
+
+    # ------------------------------------------------------------------
+
     def summary(self):
         """
         Lightweight summary for UI or logging.
@@ -72,8 +95,8 @@ def compute_portfolio_snapshot_from_truth(truth_frame=None):
     """
     Minimal, diagnostic-safe portfolio snapshot builder.
 
-    This restores the interface expected by app.py and test files.
-    No calculations are performed.
+    Restores the interface expected by app.py and test files.
+    NO calculations are performed.
 
     Returns:
         dict: Schema-complete portfolio snapshot
