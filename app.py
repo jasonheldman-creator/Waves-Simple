@@ -21169,7 +21169,7 @@ def render_adaptive_intelligence_tab():
             st.warning("⚠️ TruthFrame data not available. Please ensure data is loaded.")
             return
         
-        st.success(f"✓ TruthFrame loaded: {len(truth_df)} waves available")
+        st.success(f"✓ TruthFrame loaded: {len(truth_df.waves)} waves available")
         
     except ImportError as e:
         st.error(f"⚠️ Required modules not available: {e}")
