@@ -1193,45 +1193,11 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     except Exception as banner_error:
         logging.error(f"Wave banner rendering failed: {banner_error}")
         # ====================================================================
-        # LEGACY PRICE_BOOK FALLBACK (DISABLED BY DEFAULT — DO NOT TOUCH)
-        # ====================================================================
-        elif (
-            WAVE_PERFORMANCE_AVAILABLE
-            and PRICE_BOOK_CONSTANTS_AVAILABLE
-            and os.environ.get("ENABLE_LEGACY_PORTFOLIO_SNAPSHOT") == "True"
-        ):
-            logging.warning(
-                "Using DEPRECATED legacy PRICE_BOOK portfolio snapshot"
-            )
-            try:
-                price_book = get_cached_price_book()
-                snapshot = _legacy_compute_portfolio_snapshot(
-                    price_book, mode=mode, periods=[1, 30, 60, 365]
-                )
-
-                if snapshot.get("success"):
-                    ret_1d_str = (
-                        f"{snapshot['portfolio_returns'].get('1D')*100:+.2f}%"
-                        if snapshot["portfolio_returns"].get("1D") is not None
-                        else "—"
-                    )
-                    alpha_1d_str = (
-                        f"{snapshot['alphas'].get('1D')*100:+.2f}%"
-                        if snapshot["alphas"].get("1D") is not None
-                        else "—"
-                    )
-
-            except Exception as e:
-                logging.warning(
-                    f"Failed to compute legacy portfolio snapshot: {e}"
-                )
-
-    except Exception as e:
-        logging.error(f"Wave banner render failure: {e}", exc_info=True)
+        
         # ========================================================================
         # WAVE VIEW: Calculate wave-specific metrics from historical data
         # ========================================================================
-        else:
+        
             # Calculate from 30-day data
             if wave_data_30d is not None and len(wave_data_30d) > 0:
                 # 1D return (latest day)
