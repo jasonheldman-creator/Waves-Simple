@@ -1073,432 +1073,152 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     Render an enhanced pinned banner at the top of the page with quick stats.
     """
     try:
-        # Determine context
+        # --------------------------------------------------------------------
+        # Context
+        # --------------------------------------------------------------------
         is_portfolio_view = is_portfolio_context(selected_wave)
 
-        # Initialize display values
+        # --------------------------------------------------------------------
+        # Defaults (safe placeholders)
+        # --------------------------------------------------------------------
         nav_str = "N/A"
-        ret_1d_str = "N/A"
-        ret_30d_str = "N/A"
-        ret_60d_str = "N/A"
-        ret_365d_str = "N/A"
-        alpha_1d_str = "N/A"
-        alpha_30d_str = "N/A"
-        alpha_60d_str = "N/A"
-        alpha_365d_str = "N/A"
-        beta_str = "N/A"
-        vix_regime_str = "N/A"
-        exposure_str = "N/A"
-        cash_str = "N/A"
+        ret_1d_str = ret_30d_str = ret_60d_str = ret_365d_str = "—"
+        alpha_1d_str = alpha_30d_str = alpha_60d_str = alpha_365d_str = "N/A"
+        beta_str = vix_regime_str = exposure_str = cash_str = "N/A"
 
-        # ====================================================================
-        # PORTFOLIO VIEW — TruthFrame aggregation (PRIMARY)
-        # ====================================================================
+        # --------------------------------------------------------------------
+        # PORTFOLIO VIEW — TruthFrame (PRIMARY)
+        # --------------------------------------------------------------------
         if is_portfolio_view and TRUTHFRAME_PORTFOLIO_AVAILABLE:
+            if not st.session_state.get("ENGINE_RUNNING", False):
+                st.session_state.ENGINE_RUNNING = True
+                try:
+                    snapshot = compute_portfolio_snapshot_from_truth(
+                        mode=mode,
+                        periods=(1, 30, 60, 365),
+                    )
+
+                    st.session_state["portfolio_snapshot_debug"] = {
+                        "source": "TruthFrame",
+                        "method": "compute_portfolio_snapshot_from_truth",
+                        "mode": mode,
+                        "computed_at": snapshot.get("computed_at_utc"),
+                        "has_error": "error" in snapshot,
+                        "error_message": snapshot.get("error"),
+                        "periods": [1, 30, 60, 365],
+                    }
+
+                    if "error" not in snapshot:
+                        # Returns
+                        ret_1d = snapshot.get("return_1d")
+                        ret_30d = snapshot.get("return_30d")
+                        ret_60d = snapshot.get("return_60d")
+                        ret_365d = snapshot.get("return_365d")
+
+                        # Alphas
+                        alpha_1d = snapshot.get("alpha_1d")
+                        alpha_30d = snapshot.get("alpha_30d")
+                        alpha_60d = snapshot.get("alpha_60d")
+                        alpha_365d = snapshot.get("alpha_365d")
+
+                        # Formatting
+                        ret_1d_str = f"{ret_1d:+.2%}" if ret_1d is not None and not pd.isna(ret_1d) else "—"
+                        ret_30d_str = f"{ret_30d:+.2%}" if ret_30d is not None and not pd.isna(ret_30d) else "—"
+                        ret_60d_str = f"{ret_60d:+.2%}" if ret_60d is not None and not pd.isna(ret_60d) else "—"
+                        ret_365d_str = f"{ret_365d:+.2%}" if ret_365d is not None and not pd.isna(ret_365d) else "—"
+
+                        alpha_1d_str = f"{alpha_1d:+.2%}" if alpha_1d is not None and not pd.isna(alpha_1d) else "N/A"
+                        alpha_30d_str = f"{alpha_30d:+.2%}" if alpha_30d is not None and not pd.isna(alpha_30d) else "N/A"
+                        alpha_60d_str = f"{alpha_60d:+.2%}" if alpha_60d is not None and not pd.isna(alpha_60d) else "N/A"
+                        alpha_365d_str = f"{alpha_365d:+.2%}" if alpha_365d is not None and not pd.isna(alpha_365d) else "N/A"
+
+                except Exception as e:
+                    import traceback
+                    logging.warning(f"TruthFrame portfolio snapshot failed: {e}")
+                    logging.debug(traceback.format_exc())
+                finally:
+                    st.session_state.ENGINE_RUNNING = False
+
+        # --------------------------------------------------------------------
+        # WAVE VIEW — lightweight metrics only (NO heavy math here)
+        # --------------------------------------------------------------------
+        if not is_portfolio_view:
             try:
-                if not st.session_state.get("ENGINE_RUNNING", False):
-                    st.session_state.ENGINE_RUNNING = True
-                    try:
-                        snapshot = compute_portfolio_snapshot_from_truth(
-                            mode=mode,
-                            periods=(1, 30, 60, 365)
-                        )
+                wave_data_30d = get_wave_data_filtered(selected_wave, 30)
 
-                        # Diagnostics
-                        st.session_state["portfolio_snapshot_debug"] = {
-                            "source": "TruthFrame",
-                            "method": "compute_portfolio_snapshot_from_truth",
-                            "mode": mode,
-                            "computed_at": snapshot.get("computed_at_utc"),
-                            "has_error": "error" in snapshot,
-                            "error_message": snapshot.get("error"),
-                            "periods": [1, 30, 60, 365],
-                        }
+                if wave_data_30d is not None and not wave_data_30d.empty:
+                    if "exposure" in wave_data_30d.columns:
+                        avg_exposure = wave_data_30d["exposure"].mean()
+                        exposure_str = f"{avg_exposure * 100:.1f}%"
+                        cash_str = f"{(1 - avg_exposure) * 100:.1f}%"
 
-                        if "error" not in snapshot:
-                            # Returns
-                            ret_1d = snapshot.get("return_1d")
-                            ret_30d = snapshot.get("return_30d")
-                            ret_60d = snapshot.get("return_60d")
-                            ret_365d = snapshot.get("return_365d")
-
-                            # Alphas
-                            alpha_1d = snapshot.get("alpha_1d")
-                            alpha_30d = snapshot.get("alpha_30d")
-                            alpha_60d = snapshot.get("alpha_60d")
-                            alpha_365d = snapshot.get("alpha_365d")
-
-                            # Format returns
-                            ret_1d_str = (
-                                f"{ret_1d:+.2%}"
-                                if ret_1d is not None and not pd.isna(ret_1d)
-                                else "—"
-                            )
-                            ret_30d_str = (
-                                f"{ret_30d:+.2%}"
-                                if ret_30d is not None and not pd.isna(ret_30d)
-                                else "—"
-                            )
-                            ret_60d_str = (
-                                f"{ret_60d:+.2%}"
-                                if ret_60d is not None and not pd.isna(ret_60d)
-                                else "—"
-                            )
-                            ret_365d_str = (
-                                f"{ret_365d:+.2%}"
-                                if ret_365d is not None and not pd.isna(ret_365d)
-                                else "—"
-                            )
-
-                            # Format alphas (canonical)
-                            alpha_1d_str = (
-                                f"{alpha_1d:+.2%}"
-                                if alpha_1d is not None and not pd.isna(alpha_1d)
-                                else "N/A"
-                            )
-                            alpha_30d_str = (
-                                f"{alpha_30d:+.2%}"
-                                if alpha_30d is not None and not pd.isna(alpha_30d)
-                                else "N/A"
-                            )
-                            alpha_60d_str = (
-                                f"{alpha_60d:+.2%}"
-                                if alpha_60d is not None and not pd.isna(alpha_60d)
-                                else "N/A"
-                            )
-                            alpha_365d_str = (
-                                f"{alpha_365d:+.2%}"
-                                if alpha_365d is not None and not pd.isna(alpha_365d)
-                                else "N/A"
-                            )
+                    if "vix" in wave_data_30d.columns:
+                        vix = wave_data_30d["vix"].iloc[-1]
+                        if vix < 15:
+                            vix_regime_str = "Low"
+                        elif vix < 20:
+                            vix_regime_str = "Normal"
+                        elif vix < 30:
+                            vix_regime_str = "Elevated"
                         else:
-                            logging.warning(
-                                f"Portfolio snapshot error: {snapshot.get('error')}"
-                            )
-                    finally:
-                        st.session_state.ENGINE_RUNNING = False
-            except Exception as e:
-                import traceback
-                logging.warning(
-                    f"Failed to compute TruthFrame portfolio snapshot: {e}"
-                )
-                logging.debug(traceback.format_exc())
-                st.session_state["portfolio_snapshot_debug"] = {
-                    "source": "TruthFrame",
-                    "has_error": True,
-                    "exception_message": str(e),
-                    "exception_traceback": traceback.format_exc(),
-                }
+                            vix_regime_str = "High"
 
-    except Exception as banner_error:
-        logging.error(f"Wave banner rendering failed: {banner_error}")
-        # ====================================================================
-        
-        # ========================================================================
-        # WAVE VIEW: Calculate wave-specific metrics from historical data
-        # ========================================================================
-        
-            # Calculate from 30-day data
-            if wave_data_30d is not None and len(wave_data_30d) > 0:
-                # 1D return (latest day)
-                if 'portfolio_return' in wave_data_30d.columns:
-                    latest_return = wave_data_30d['portfolio_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                    ret_1d_str = f"{latest_return*100:.2f}%"
-                    
-                    # 30D return
-                    ret_30d = wave_data_30d['portfolio_return'].sum()
-                    ret_30d_str = f"{ret_30d*100:.2f}%"
-                
-                # Alpha calculations
-                if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
-                    # 1D alpha
-                    latest_alpha = wave_data_30d['portfolio_return'].iloc[-1] - wave_data_30d['benchmark_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                    alpha_1d_str = f"{latest_alpha*100:.2f}%"
-                    
-                    # 30D alpha
-                    alpha_30d = wave_data_30d['portfolio_return'].sum() - wave_data_30d['benchmark_return'].sum()
-                    alpha_30d_str = f"{alpha_30d*100:.2f}%"
-                
-                # Exposure and cash
-                if 'exposure' in wave_data_30d.columns:
-                    avg_exposure = wave_data_30d['exposure'].mean()
-                    exposure_str = f"{avg_exposure*100:.1f}%"
-                    cash_str = f"{(1-avg_exposure)*100:.1f}%"
-                
-                # VIX regime
-                if 'vix' in wave_data_30d.columns:
-                    latest_vix = wave_data_30d['vix'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                    if latest_vix < 15:
-                        vix_regime_str = "Low"
-                    elif latest_vix < 20:
-                        vix_regime_str = "Normal"
-                    elif latest_vix < 30:
-                        vix_regime_str = "Elevated"
-                    else:
-                        vix_regime_str = "High"
-                
-                # Beta calculation (simplified)
-                if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
-                    try:
-                        port_returns = wave_data_30d['portfolio_return']
-                        bench_returns = wave_data_30d['benchmark_return']
-                        covariance = np.cov(port_returns, bench_returns)[0][1]
-                        variance = np.var(bench_returns)
-                        if variance > 0:
-                            beta = covariance / variance
-                            beta_str = f"{beta:.2f}"
-                    except:
-                        pass
-            
-            # 60D return
-            if wave_data_60d is not None and len(wave_data_60d) > 0:
-                if 'portfolio_return' in wave_data_60d.columns:
-                    ret_60d = wave_data_60d['portfolio_return'].sum()
-                    ret_60d_str = f"{ret_60d*100:.2f}%"
-                
-                if 'portfolio_return' in wave_data_60d.columns and 'benchmark_return' in wave_data_60d.columns:
-                    alpha_60d = wave_data_60d['portfolio_return'].sum() - wave_data_60d['benchmark_return'].sum()
-                    alpha_60d_str = f"{alpha_60d*100:.2f}%"
-            
-            # 365D return
-            if wave_data_365d is not None and len(wave_data_365d) > 0:
-                if 'portfolio_return' in wave_data_365d.columns:
-                    ret_365d = wave_data_365d['portfolio_return'].sum()
-                    ret_365d_str = f"{ret_365d*100:.2f}%"
-                
-                if 'portfolio_return' in wave_data_365d.columns and 'benchmark_return' in wave_data_365d.columns:
-                    alpha_365d = wave_data_365d['portfolio_return'].sum() - wave_data_365d['benchmark_return'].sum()
-                    alpha_365d_str = f"{alpha_365d*100:.2f}%"
-        
-        # Mode color pill
+            except Exception:
+                pass  # wave-level metrics are optional
+
+        # --------------------------------------------------------------------
+        # UI Labels
+        # --------------------------------------------------------------------
         mode_color = "#00ff88" if mode == "Standard" else "#ffd700" if mode == "Aggressive" else "#ff6b6b"
-        
-        # Set display title and icon based on context
         display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
         display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
-        
-        # Get VIX overlay status for this wave
-        vix_overlay_active = False
-        vix_overlay_status_str = "N/A"
-        if VIX_CONFIG_AVAILABLE and not is_portfolio_view:
-            try:
-                vix_status = get_vix_overlay_status_for_wave(selected_wave)
-                vix_overlay_active = vix_status["is_enabled_for_wave"] and vix_status["is_equity_wave"]
-                if vix_status["is_equity_wave"]:
-                    if vix_status["is_enabled_for_wave"]:
-                        vix_overlay_status_str = "🟢 LIVE"
-                    else:
-                        vix_overlay_status_str = "⚪ Off"
-                else:
-                    vix_overlay_status_str = "—"  # Not applicable for non-equity waves
-            except:
-                vix_overlay_status_str = "N/A"
-        
-        # Wave-specific metrics HTML (shown only for individual waves)
+
+        # --------------------------------------------------------------------
+        # HTML Assembly
+        # --------------------------------------------------------------------
         wave_specific_metrics_html = ""
         if not is_portfolio_view:
-            wave_specific_metrics_html = f'''<div class="stat-tile">
-                    <div class="stat-label">Beta</div>
-                    <div class="stat-value">{beta_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">VIX Regime</div>
-                    <div class="stat-value">{vix_regime_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">VIX Overlay</div>
-                    <div class="stat-value" style="font-size: 0.9em;">{vix_overlay_status_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Exposure</div>
-                    <div class="stat-value">{exposure_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Cash</div>
-                    <div class="stat-value">{cash_str}</div>
-                </div>'''
-        
-        # Informational message for portfolio view
+            wave_specific_metrics_html = f"""
+                <div class="stat-tile"><div class="stat-label">Beta</div><div class="stat-value">{beta_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">VIX Regime</div><div class="stat-value">{vix_regime_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">Exposure</div><div class="stat-value">{exposure_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">Cash</div><div class="stat-value">{cash_str}</div></div>
+            """
+
         portfolio_info_html = ""
         if is_portfolio_view:
-            # Add timestamp for when metrics were computed
-            compute_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-            portfolio_info_html = f'''<div class="portfolio-info">
-                ⚡ Live Computation from PRICE_BOOK | Computed at: {compute_timestamp}
-            </div>
-            <div class="portfolio-info">
-                &#9432; Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
-            </div>'''
-        
-        # Enhanced banner with stats
+            portfolio_info_html = """
+                <div class="portfolio-info">
+                    ⚡ Live TruthFrame portfolio aggregation
+                </div>
+            """
+
         banner_html = f"""
-        <style>
-            @keyframes glow {{
-                0%, 100% {{ box-shadow: 0 0 10px rgba(0, 217, 255, 0.5), 0 0 20px rgba(0, 217, 255, 0.3); }}
-                50% {{ box-shadow: 0 0 20px rgba(0, 217, 255, 0.8), 0 0 30px rgba(0, 217, 255, 0.5); }}
-            }}
-            
-            .wave-banner {{
-                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-                border: 3px solid #00d9ff;
-                border-radius: 12px;
-                padding: 20px 30px;
-                margin-bottom: 20px;
-                animation: glow 3s infinite;
-            }}
-            
-            .wave-title {{
-                color: #ffffff;
-                font-size: 28px;
-                font-weight: bold;
-                margin: 0 0 12px 0;
-                text-align: center;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-            }}
-            
-            .mode-pill {{
-                display: inline-block;
-                background: {mode_color};
-                color: #1a1a2e;
-                padding: 5px 15px;
-                border-radius: 20px;
-                font-weight: bold;
-                font-size: 14px;
-                margin-left: 10px;
-            }}
-            
-            .stats-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-                gap: 8px;
-                margin-top: 12px;
-            }}
-            
-            .stat-tile {{
-                background: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(0, 217, 255, 0.3);
-                border-radius: 8px;
-                padding: 8px 6px;
-                text-align: center;
-            }}
-            
-            .stat-label {{
-                color: #00d9ff;
-                font-size: 9px;
-                text-transform: uppercase;
-                margin-bottom: 2px;
-            }}
-            
-            .stat-value {{
-                color: #ffffff;
-                font-size: 13px;
-                font-weight: bold;
-            }}
-            
-            .portfolio-info {{
-                text-align: center;
-                margin-top: 12px;
-                color: #a8dadc;
-                font-size: 11px;
-                font-style: italic;
-            }}
-            
-            /* Mobile responsiveness */
-            @media only screen and (max-width: 768px) {{
-                .wave-banner {{
-                    padding: 15px 12px;
-                    margin-bottom: 15px;
-                    border-radius: 10px;
-                    border-width: 2px;
-                }}
-                
-                .wave-title {{
-                    font-size: 20px;
-                    margin: 0 0 10px 0;
-                    letter-spacing: 1px;
-                }}
-                
-                .mode-pill {{
-                    padding: 4px 12px;
-                    font-size: 12px;
-                    margin-left: 6px;
-                }}
-                
-                .stats-grid {{
-                    grid-template-columns: repeat(3, 1fr);
-                    gap: 6px;
-                    margin-top: 10px;
-                }}
-                
-                .stat-tile {{
-                    padding: 6px 4px;
-                    border-radius: 6px;
-                }}
-                
-                .stat-label {{
-                    font-size: 8px;
-                    margin-bottom: 1px;
-                }}
-                
-                .stat-value {{
-                    font-size: 11px;
-                }}
-            }}
-        </style>
-        
         <div class="wave-banner">
             <div class="wave-title">
-                <span style="color: #00d9ff;">{display_icon}</span> {display_title}
-                <span class="mode-pill">{mode}</span>
+                {display_icon} {display_title}
+                <span class="mode-pill" style="background:{mode_color};">{mode}</span>
             </div>
-            
+
             <div class="stats-grid">
-                <div class="stat-tile">
-                    <div class="stat-label">1D Return</div>
-                    <div class="stat-value">{ret_1d_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">30D Return</div>
-                    <div class="stat-value">{ret_30d_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">60D Return</div>
-                    <div class="stat-value">{ret_60d_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">365D Return</div>
-                    <div class="stat-value">{ret_365d_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Alpha 1D</div>
-                    <div class="stat-value">{alpha_1d_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Alpha 30D</div>
-                    <div class="stat-value">{alpha_30d_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Alpha 60D</div>
-                    <div class="stat-value">{alpha_60d_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Alpha 365D</div>
-                    <div class="stat-value">{alpha_365d_str}</div>
-                </div>
+                <div class="stat-tile"><div class="stat-label">1D</div><div class="stat-value">{ret_1d_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">30D</div><div class="stat-value">{ret_30d_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">60D</div><div class="stat-value">{ret_60d_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">365D</div><div class="stat-value">{ret_365d_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">α 1D</div><div class="stat-value">{alpha_1d_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">α 30D</div><div class="stat-value">{alpha_30d_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">α 60D</div><div class="stat-value">{alpha_60d_str}</div></div>
+                <div class="stat-tile"><div class="stat-label">α 365D</div><div class="stat-value">{alpha_365d_str}</div></div>
                 {wave_specific_metrics_html}
             </div>
             {portfolio_info_html}
         </div>
         """
-        
-        # Use render_html_safe for proper HTML rendering (uses st.html() when Rich HTML 
-        # rendering is enabled, falls back to st.markdown with unsafe_allow_html=True)
+
         render_html_safe(banner_html)
-        
+
     except Exception as e:
-        # Fallback to simple banner if enhanced version fails
-        st.warning(f"⚠️ Enhanced banner unavailable, using fallback: {str(e)}")
+        logging.error(f"Enhanced banner failed: {e}")
         render_selected_wave_banner_simple(selected_wave, mode)
 
 
