@@ -16693,21 +16693,7 @@ def render_board_pack_tab():
     
     st.divider()
     
-    # Introduction
-    st.markdown("""
-    ### Institutional Board Pack Report
     
-    The Board Pack includes:
-    
-    1. **Cover Page** - Title, current date/time, and build information
-    2. **Executive Summary** - Mission Control metrics, WaveScore leader, and alerts
-    3. **Performance Table** - Key portfolio metrics for 30 days, 60 days, and Year-To-Date
-    4. **Risk Analysis** - Volatility, max drawdown, and correlation insights
-    5. **Alpha Proof** - Selection Alpha, Overlay Alpha, and Risk-Off Alpha breakdown
-    6. **Wave Analysis** - WaveScore, top holdings, and Vector Explain narrative
-    7. **Top Movers** - Biggest WaveScore changes during the period
-    8. **Appendix** - Data timestamps and system metadata
-    """)
     
     st.divider()
     
