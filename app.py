@@ -1060,12 +1060,6 @@ WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wa
 def is_portfolio_context(selected_wave: str) -> bool:
     """
     Determine if the current context is portfolio-level (no specific wave selected).
-    
-    Args:
-        selected_wave: The currently selected wave name (None or placeholder for portfolio)
-    
-    Returns:
-        True if portfolio context, False if specific wave is selected
     """
     return selected_wave is None or selected_wave == PORTFOLIO_VIEW_PLACEHOLDER
 
@@ -1079,7 +1073,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     Render an enhanced pinned banner at the top of the page with quick stats.
     """
     try:
-        # Determine if we're in portfolio context
+        # Determine context
         is_portfolio_view = is_portfolio_context(selected_wave)
 
         # Initialize display values
@@ -1098,7 +1092,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         cash_str = "N/A"
 
         # ====================================================================
-        # PORTFOLIO VIEW — TruthFrame aggregation (PRIMARY, CANONICAL)
+        # PORTFOLIO VIEW — TruthFrame aggregation (PRIMARY)
         # ====================================================================
         if is_portfolio_view and TRUTHFRAME_PORTFOLIO_AVAILABLE:
             try:
@@ -1122,13 +1116,13 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                         }
 
                         if "error" not in snapshot:
-                            # Extract returns
+                            # Returns
                             ret_1d = snapshot.get("return_1d")
                             ret_30d = snapshot.get("return_30d")
                             ret_60d = snapshot.get("return_60d")
                             ret_365d = snapshot.get("return_365d")
 
-                            # Extract alphas
+                            # Alphas
                             alpha_1d = snapshot.get("alpha_1d")
                             alpha_30d = snapshot.get("alpha_30d")
                             alpha_60d = snapshot.get("alpha_60d")
@@ -1156,7 +1150,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                                 else "—"
                             )
 
-                            # Format alphas (FIXED — single canonical block)
+                            # Format alphas (canonical)
                             alpha_1d_str = (
                                 f"{alpha_1d:+.2%}"
                                 if alpha_1d is not None and not pd.isna(alpha_1d)
@@ -1177,20 +1171,17 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                                 if alpha_365d is not None and not pd.isna(alpha_365d)
                                 else "N/A"
                             )
-
                         else:
                             logging.warning(
                                 f"Portfolio snapshot error: {snapshot.get('error')}"
                             )
-
                     finally:
                         st.session_state.ENGINE_RUNNING = False
-
             except Exception as e:
+                import traceback
                 logging.warning(
                     f"Failed to compute TruthFrame portfolio snapshot: {e}"
                 )
-                import traceback
                 logging.debug(traceback.format_exc())
                 st.session_state["portfolio_snapshot_debug"] = {
                     "source": "TruthFrame",
@@ -1199,6 +1190,8 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     "exception_traceback": traceback.format_exc(),
                 }
 
+    except Exception as banner_error:
+        logging.error(f"Wave banner rendering failed: {banner_error}")
         # ====================================================================
         # LEGACY PRICE_BOOK FALLBACK (DISABLED BY DEFAULT — DO NOT TOUCH)
         # ====================================================================
@@ -23220,460 +23213,4 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
                 "component": "Readiness Report",
                 "error": str(e),
                 "traceback": traceback.format_exc()
-            })
-        finally:
-            st.session_state.readiness_report_logged = True
-        
-        # Create backup on successful startup
-        try:
-            create_last_known_good_backup()
-        except Exception as e:
-            print(f"Warning: Could not create backup: {e}")
-            # Store exception for debug panel
-            if "data_load_exceptions" not in st.session_state:
-                st.session_state.data_load_exceptions = []
-            st.session_state.data_load_exceptions.append({
-                "component": "Backup Creation",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            })
-        finally:
-            st.session_state.backup_created = True
-        
-        # Initialize wave_intelligence_center error flag
-        st.session_state.wave_ic_has_errors = False
-        
-        # Initialize wave_universe_version
-        st.session_state.wave_universe_version = 1
-        
-        # Initialize last_refresh_time
-        st.session_state.last_refresh_time = datetime.now()
-        
-        # Initialize last_successful_refresh_time
-        st.session_state.last_successful_refresh_time = datetime.now()
-        
-        # Initialize auto_refresh_enabled using config constant (default: OFF to prevent rerun loops)
-        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
-        
-        # Initialize auto_refresh_interval using config constant
-        st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
-        
-        # Initialize auto_refresh_error_count
-        st.session_state.auto_refresh_error_count = 0
-        
-        # Initialize auto_refresh_paused flag
-        st.session_state.auto_refresh_paused = False
-        
-        # Initialize auto_refresh_error_message
-        st.session_state.auto_refresh_error_message = None
-        
-        # Initialize show_bottom_ticker (default: ON)
-        st.session_state.show_bottom_ticker = True
-        
-        # Initialize selected_wave_id (default: None - portfolio view)
-        # UPDATED: Use selected_wave_id as the authoritative state key
-        st.session_state.selected_wave_id = None
-        
-        # Initialize mode (default: Standard)
-        st.session_state.mode = "Standard"
-        
-        # Initialize other session state variables as needed
-        # (Additional initialization code would go here)
-    
-    # ========================================================================
-    # STEP 4: Render Main UI
-    # ========================================================================
-    
-    # Resolve canonical app context (single source of truth)
-    ctx = resolve_app_context()
-    
-    # Render selected wave banner at the very top (above all tabs)
-    # Use enhanced banner if ENABLE_WAVE_PROFILE is True, otherwise use simple banner
-    if ENABLE_WAVE_PROFILE:
-        render_selected_wave_banner_enhanced(
-            selected_wave=ctx["selected_wave_name"],
-            mode=ctx["mode"]
-        )
-    else:
-        render_selected_wave_banner_simple(
-            selected_wave=ctx["selected_wave_name"],
-            mode=ctx["mode"]
-        )
-    
-    # Render Mission Control at the top
-    render_mission_control()
-    
-    # Render sidebar
-    render_sidebar_info()
-    
-    # NOW enforce the loop trap AFTER sidebar is rendered
-    # This allows users to see and toggle the "Allow Continuous Reruns" checkbox
-    if st.session_state.get("loop_trap_should_engage", False):
-        st.stop()
-    
-    # Main analytics tabs
-    st.title("Institutional Console - Executive Layer v2")
-    
-    # ========================================================================
-    # ENTRYPOINT FINGERPRINT - UI Banner
-    # ========================================================================
-    st.caption("ENTRYPOINT: app.py")
-    
-    # ========================================================================
-    # REALITY PANEL - Single Source of Truth for Price Data
-    # ========================================================================
-    # Display the Reality Panel showing actual PRICE_BOOK metadata
-    render_reality_panel()
-    
-    st.markdown("---")
-    
-    # ========================================================================
-    # UI RENDERING PHASE CONFIRMATION
-    # ========================================================================
-    # Log message confirming that we've reached the UI rendering phase
-    logger.info("✓ Entering UI rendering phase - portfolio data loaded, diagnostics complete")
-    print("✓ UI RENDERING PHASE: Beginning tab rendering with portfolio data")
-    
-    # ========================================================================
-    # ROUND 7 Phase 1: Wave Universe Validation Banner
-    # ========================================================================
-    # Display warning banner if wave universe validation failed
-    if st.session_state.get("wave_universe_validation_failed", False):
-        discrepancy = st.session_state.get("wave_universe_discrepancy", "Unknown discrepancy")
-        st.error(f"🔴 **Wave Universe Validation Failed:** {discrepancy}")
-    
-    # Check if Wave Intelligence Center encountered errors (SAFE_MODE fallback)
-    # Use session state to check both the error flag and if safe mode is enabled
-    wave_ic_has_errors = st.session_state.get("wave_ic_has_errors", False)
-    use_safe_mode = st.session_state.get("safe_mode_enabled", SAFE_MODE)
-    
-    # Tab structure based on SAFE_MODE status and ENABLE_WAVE_PROFILE
-    if wave_ic_has_errors and use_safe_mode:
-        # SAFE_MODE fallback - exclude Wave Intelligence Center tab
-        st.warning("⚠️ Wave Intelligence Center is temporarily unavailable. Displaying core tabs only.")
-        
-        analytics_tabs = st.tabs([
-            "Institutional Readiness",        # NEW: FIRST TAB - Clean demo-ready overview
-            "Console",                 # Core functionality
-            "Overview",                # Market tab equivalent
-            "Details",     
-            "Reports",     
-            "Overlays",    
-            "Attribution", 
-            "Board Pack",  
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",            # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
-            "Adaptive Intelligence",   # NEW: Read-only monitoring and diagnostics center
-            "Governance & Audit",      # NEW: Governance and transparency layer
-            "Operator Panel",          # NEW: Operator layer for system state and diagnostics
-            "Diagnostics",             # Health/Diagnostics tab
-            "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Institutional Readiness tab (FIRST)
-        with analytics_tabs[0]:
-            safe_component("Institutional Readiness", render_overview_clean_tab)
-        
-        # Console tab
-        with analytics_tabs[1]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Overview tab
-        with analytics_tabs[2]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overview", render_overview_tab)
-        
-        # Details tab
-        with analytics_tabs[3]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[4]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[5]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[6]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[7]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[8]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[9]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[10]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[11]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[12]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[13]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Operator Panel tab (NEW)
-        with analytics_tabs[14]:
-            safe_component("Operator Panel", render_operator_panel_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[15]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[16]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    
-    elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Institutional Readiness is FIRST
-        analytics_tabs = st.tabs([
-            "Institutional Readiness",            # NEW: FIRST TAB - Clean demo-ready overview
-            "Overview",                    # Second tab - unified system overview with performance, alpha attribution, and market context
-            "Console",                     # Third tab - Executive
-            "Wave",                        # Fourth tab - Wave Profile with hero card
-            "Details",                     # Factor Decomp equivalent
-            "Reports",                     # Risk Lab equivalent
-            "Overlays",                    # Correlation equivalent
-            "Attribution",                 # Rolling Diagnostics equivalent
-            "Board Pack",                  # Mode Proof equivalent
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
-            "Adaptive Intelligence",       # NEW: Read-only monitoring and diagnostics center
-            "Governance & Audit",          # NEW: Governance and transparency layer
-            "Operator Panel",              # NEW: Operator layer for system state and diagnostics
-            "Diagnostics",                 # Health/Diagnostics tab
-            "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Institutional Readiness tab (FIRST)
-        with analytics_tabs[0]:
-            safe_component("Institutional Readiness", render_overview_clean_tab)
-        
-        # Overview tab (second) - Executive Brief
-        with analytics_tabs[1]:
-            safe_component("Executive Brief", render_executive_brief_tab)
-        
-        # Console tab (third)
-        with analytics_tabs[2]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Wave Profile tab (fourth)
-        with analytics_tabs[3]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Wave Profile", render_wave_intelligence_center_tab)
-        
-        # Details tab
-        with analytics_tabs[4]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[5]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[6]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[7]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[8]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[9]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[10]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[11]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[12]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[13]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Adaptive Intelligence tab (NEW - Read-only monitoring and diagnostics)
-        with analytics_tabs[14]:
-            safe_component("Adaptive Intelligence", render_adaptive_intelligence_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[15]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Operator Panel tab (NEW)
-        with analytics_tabs[16]:
-            safe_component("Operator Panel", render_operator_panel_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[17]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[18]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    else:
-        # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Institutional Readiness is FIRST tab
-        analytics_tabs = st.tabs([
-            "Institutional Readiness",           # NEW: FIRST TAB - Clean demo-ready overview
-            "Overview",                   # Second tab - unified system overview
-            "Console",                    # Third tab - Executive
-            "Details",                    # Factor Decomp equivalent
-            "Reports",                    # Risk Lab equivalent
-            "Overlays",                   # Correlation equivalent
-            "Attribution",                # Rolling Diagnostics equivalent
-            "Board Pack",                 # Mode Proof equivalent
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",               # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
-            "Adaptive Intelligence",      # NEW: Read-only monitoring and diagnostics center
-            "Governance & Audit",         # NEW: Governance and transparency layer
-            "Operator Panel",             # NEW: Operator layer for system state and diagnostics
-            "Diagnostics",                # Health/Diagnostics tab
-            "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Institutional Readiness tab (FIRST)
-        with analytics_tabs[0]:
-            safe_component("Institutional Readiness", render_overview_clean_tab)
-        
-        # Overview tab (second) - Executive Brief
-        with analytics_tabs[1]:
-            safe_component("Executive Brief", render_executive_brief_tab)
-        
-        # Console tab (third)
-        with analytics_tabs[2]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Details tab
-        with analytics_tabs[3]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[4]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[5]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[6]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[7]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[8]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[9]:
-            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[10]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[11]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[12]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Adaptive Intelligence tab (NEW - Read-only monitoring and diagnostics)
-        with analytics_tabs[13]:
-            safe_component("Adaptive Intelligence", render_adaptive_intelligence_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[14]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Operator Panel tab (NEW)
-        with analytics_tabs[15]:
-            safe_component("Operator Panel", render_operator_panel_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[16]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[17]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    
-    # ========================================================================
-    # Bottom Ticker Bar Rendering
-    # ========================================================================
-    
-    # Render bottom ticker bar if enabled
-    if st.session_state.get("show_bottom_ticker", True):
-        safe_component("Bottom Ticker", render_bottom_ticker_bar, show_error=False)
-
-
-# ============================================================================
-# APPLICATION ENTRY POINT
-# ============================================================================
-
-if __name__ == "__main__":
-    main()
+            
