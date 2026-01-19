@@ -22822,27 +22822,27 @@ if "compute_operations_done" not in st.session_state:
     st.session_state.compute_operations_done = set()
 
 # ========================================================================
-# Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
+# Snapshot Auto-Build and Staleness Management (SAFE MODE ONLY)
 # ========================================================================
 
 # Debug trace marker
 if st.session_state.get("debug_mode", False):
-    st.caption("🔍 Trace: Entering snapshot build section")
+    st.caption("🔍 Trace: Entering snapshot validation section")
 
-# SAFE MODE: Skip auto-build entirely when Safe Mode is ON
-# Only validate if snapshot exists, but never trigger builds
+# Validate snapshot existence WITHOUT triggering any build
 if "snapshot_validated" not in st.session_state:
-    st.session_state.snapshot_validated = True  # prevent re-entry
+    st.session_state.snapshot_validated = True
 
     import os
     from datetime import datetime
+    import traceback
 
     snapshot_path = "data/live_snapshot.csv"
 
-    if os.path.exists(snapshot_path):
-        try:
+    try:
+        if os.path.exists(snapshot_path):
             mtime = os.path.getmtime(snapshot_path)
-            age_minutes = (datetime.now() - datetime.fromtimestamp(mtime)).total_seconds() / 60
+            age_minutes = (datetime.now() - datetime.fromtimestamp(mtime)).total_seconds() / 60.0
 
             st.session_state.snapshot_exists = True
             st.session_state.snapshot_fresh = age_minutes <= 15
@@ -22851,28 +22851,59 @@ if "snapshot_validated" not in st.session_state:
             st.session_state.snapshot_error = None
             st.session_state.snapshot_stale_fallback = False
             st.session_state.snapshot_build_suppressed = True
-            st.session_state.snapshot_suppression_reason = (
-                "Safe Mode enabled - auto-build disabled"
-            )
+            st.session_state.snapshot_suppression_reason = "Safe Mode – auto-build disabled"
 
-            print(
-                f"ℹ️ Snapshot exists (age: {age_minutes:.1f} min) "
-                f"- Safe Mode prevents auto-rebuild"
-            )
+            print(f"ℹ️ Snapshot exists (age: {age_minutes:.1f} min). Safe Mode prevents rebuild.")
 
-        except Exception as e:
-            print(f"⚠️ Warning: Could not check snapshot age: {e}")
-
-            st.session_state.snapshot_exists = True
+        else:
+            st.session_state.snapshot_exists = False
             st.session_state.snapshot_fresh = False
             st.session_state.snapshot_age_minutes = None
             st.session_state.snapshot_rebuilt = False
-            st.session_state.snapshot_error = str(e)
+            st.session_state.snapshot_error = "Snapshot file not found"
             st.session_state.snapshot_stale_fallback = False
             st.session_state.snapshot_build_suppressed = True
-            st.session_state.snapshot_suppression_reason = (
-                "Safe Mode enabled - auto-build disabled"
-            )
+            st.session_state.snapshot_suppression_reason = "Safe Mode – auto-build disabled"
 
-            if "data_load_exceptions" not in st.session_state:
-                st.session_state.data_load
+            print("ℹ️ Snapshot does not exist. Safe Mode prevents auto-build.")
+
+    except Exception as e:
+        print(f"⚠️ Snapshot validation error: {e}")
+
+        st.session_state.snapshot_exists = False
+        st.session_state.snapshot_fresh = False
+        st.session_state.snapshot_error = str(e)
+
+        if "data_load_exceptions" not in st.session_state:
+            st.session_state.data_load_exceptions = []
+
+        st.session_state.data_load_exceptions.append({
+            "component": "Snapshot Validation",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+
+# ========================================================================
+# Session State Initialization (ONE-TIME)
+# ========================================================================
+
+if "initialized" not in st.session_state:
+    st.session_state.initialized = True
+
+    try:
+        from analytics_pipeline import print_readiness_report
+        print_readiness_report()
+
+    except Exception as e:
+        print(f"⚠️ Readiness report failed: {e}")
+
+        import traceback
+
+        if "data_load_exceptions" not in st.session_state:
+            st.session_state.data_load_exceptions = []
+
+        st.session_state.data_load_exceptions.append({
+            "component": "Readiness Report",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
