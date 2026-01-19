@@ -1929,10 +1929,6 @@ Traceback:
         # Append to log file
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write(log_entry)
-    except Exception:
-        # Silent fail - don't compound errors
-        pass
-
 def log_data_load_exception(component: str, error: Exception):
     """
     Centralized, syntax-safe exception logger for session diagnostics.
