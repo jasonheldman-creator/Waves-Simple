@@ -1,28 +1,24 @@
 """
-Strategy Return Pipeline
+Strategy-Aware Return Pipeline
 
-This module provides strategy-aware return computation for waves with strategy_stack.
-It integrates with waves_engine.compute_history_nav to apply momentum, trend, 
-volatility, and other strategy overlays to wave returns.
+This module extends the basic return_pipeline.py with full strategy stack support.
+It integrates the unified strategy overlays to compute realized returns for waves.
 
 Key Features:
-- Wraps waves_engine.compute_history_nav for strategy-aware return calculation
-- Returns standardized DataFrame format compatible with return_pipeline
-- Preserves diagnostics and attribution metadata
-- Supports strategy components: momentum, trend, volatility_targeting, etc.
+- Reads strategy_stack from wave registry
+- Applies overlays in sequence (momentum -> trend -> vol_targeting -> vix_safesmart)
+- Returns both base (selection) and realized (stacked) returns
+- Provides full alpha attribution decomposition
 
 Usage:
     from helpers.strategy_return_pipeline import compute_wave_returns_with_strategy
     
-    # Compute strategy-aware returns for a wave
-    returns_df = compute_wave_returns_with_strategy(
-        wave_id='sp500_wave',
-        strategy_stack=['momentum', 'trend_confirmation']
-    )
+    # Compute returns with full strategy stack
+    result = compute_wave_returns_with_strategy('sp500_wave')
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional, Dict, Any
 import pandas as pd
 import numpy as np
 import sys
@@ -33,122 +29,189 @@ helpers_dir = os.path.dirname(os.path.abspath(__file__))
 if helpers_dir not in sys.path:
     sys.path.insert(0, helpers_dir)
 
+import canonical_data
 import wave_registry
+import strategy_overlays
+
+get_canonical_price_data = canonical_data.get_canonical_price_data
+get_wave_by_id = wave_registry.get_wave_by_id
 
 logger = logging.getLogger(__name__)
-
-# Import waves_engine for strategy computation
-try:
-    from waves_engine import compute_history_nav, get_display_name_from_wave_id
-    WAVES_ENGINE_AVAILABLE = True
-except ImportError:
-    WAVES_ENGINE_AVAILABLE = False
-    logger.warning("waves_engine not available - strategy pipeline disabled")
 
 
 def compute_wave_returns_with_strategy(
     wave_id: str,
-    strategy_stack: Optional[List[str]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    mode: str = "Standard",
-    days: int = 365
-) -> pd.DataFrame:
+    apply_strategy_stack: bool = True
+) -> Dict[str, Any]:
     """
-    Compute returns for a wave with strategy-aware logic.
+    Compute returns for a wave with full strategy stack support.
     
-    This function applies the full waves_engine strategy pipeline including:
-    - Momentum signal adjustments
-    - Trend confirmation overlays
-    - Volatility targeting
-    - VIX regime detection
-    - Relative strength strategies
+    This function:
+    1. Computes base (selection) returns from wave tickers
+    2. Applies strategy stack overlays from wave registry
+    3. Returns both base and realized returns with attribution
     
     Args:
         wave_id: Wave identifier (e.g., 'sp500_wave')
-        strategy_stack: List of strategy components to apply (e.g., ['momentum', 'trend'])
-                       If None or empty, returns basic returns without strategy overlays
-        start_date: Optional start date (YYYY-MM-DD) - currently not used, relies on days param
-        end_date: Optional end date (YYYY-MM-DD) - currently not used, uses most recent data
-        mode: Wave operating mode (default: "Standard")
-        days: Lookback window in days (default: 365)
+        start_date: Optional start date (YYYY-MM-DD)
+        end_date: Optional end date (YYYY-MM-DD)
+        apply_strategy_stack: Whether to apply strategy overlays (default: True)
         
     Returns:
-        DataFrame with columns:
-        - date: DatetimeIndex
-        - wave_return: Daily return of the wave with strategy overlays applied
-        - benchmark_return: Daily return of the benchmark portfolio
-        - alpha: wave_return - benchmark_return (includes strategy-generated alpha)
-        - strategy_applied: Boolean indicating strategy pipeline was used
-        
-    Example:
-        >>> df = compute_wave_returns_with_strategy(
-        ...     'sp500_wave', 
-        ...     strategy_stack=['momentum', 'trend_confirmation']
-        ... )
-        >>> print(df[['wave_return', 'benchmark_return', 'alpha']].tail())
+        Dictionary with:
+        - success: bool
+        - wave_id: str
+        - base_returns: pd.Series - Selection returns (before overlays)
+        - realized_returns: pd.Series - Final returns (after overlays)
+        - benchmark_returns: pd.Series - Benchmark returns
+        - selection_alpha: pd.Series - base_returns - benchmark_returns
+        - total_alpha: pd.Series - realized_returns - benchmark_returns
+        - strategy_stack: List[str] - Strategies applied
+        - attribution: Dict - Full attribution breakdown
+        - failure_reason: str (if success=False)
     """
+    result = {
+        'success': False,
+        'wave_id': wave_id,
+        'base_returns': None,
+        'realized_returns': None,
+        'benchmark_returns': None,
+        'selection_alpha': None,
+        'total_alpha': None,
+        'strategy_stack': [],
+        'attribution': None,
+        'failure_reason': None
+    }
+    
     try:
+        logger.info(f"Computing returns with strategy for wave: {wave_id}")
+        
         # Get wave from registry
-        wave = wave_registry.get_wave_by_id(wave_id)
+        wave = get_wave_by_id(wave_id)
         if wave is None:
-            logger.error(f"Wave not found in registry: {wave_id}")
-            return _empty_strategy_returns_dataframe()
+            result['failure_reason'] = f"Wave not found in registry: {wave_id}"
+            return result
         
-        # Get wave display name for waves_engine
-        wave_display_name = wave.get('wave_name')
-        if not wave_display_name:
-            logger.error(f"Wave display name not found for: {wave_id}")
-            return _empty_strategy_returns_dataframe()
+        # Parse wave tickers
+        wave_tickers = _parse_ticker_list(wave.get('ticker_normalized', ''))
+        if not wave_tickers:
+            result['failure_reason'] = f"No tickers found for wave: {wave_id}"
+            return result
         
-        # If no waves_engine available, return empty
-        if not WAVES_ENGINE_AVAILABLE:
-            logger.error("waves_engine not available for strategy computation")
-            return _empty_strategy_returns_dataframe()
+        # Parse benchmark recipe
+        benchmark_recipe = wave.get('benchmark_recipe', {})
+        if not benchmark_recipe:
+            logger.warning(f"No benchmark recipe found for wave: {wave_id}")
+            benchmark_tickers = []
+        else:
+            benchmark_tickers = list(benchmark_recipe.keys())
         
-        # If strategy_stack is empty or None, we still use the engine
-        # but note that the engine will apply default strategies based on wave configuration
-        has_strategy = strategy_stack is not None and len(strategy_stack) > 0
+        # Get strategy stack from registry
+        strategy_stack = wave.get('strategy_stack', [])
+        result['strategy_stack'] = strategy_stack
         
-        logger.info(f"Computing strategy-aware returns for {wave_display_name} "
-                   f"(mode={mode}, days={days}, strategy_stack={strategy_stack})")
+        logger.info(f"Wave {wave_id} strategy stack: {strategy_stack}")
         
-        # Call waves_engine compute_history_nav which includes full strategy pipeline
-        # This applies momentum, trend, volatility, VIX regime, and other overlays
-        hist_df = compute_history_nav(
-            wave_name=wave_display_name,
-            mode=mode,
-            days=days,
-            include_diagnostics=True,  # Get strategy diagnostics
-            price_df=None  # Let engine load from price book
+        # Get all required tickers (wave + benchmark + safe + VIX)
+        all_tickers = list(set(wave_tickers + benchmark_tickers))
+        
+        # Add safe asset tickers if vix_safesmart in stack
+        safe_ticker = None
+        if 'vix_safesmart' in strategy_stack:
+            for ticker in ['BIL', 'SHY', 'SGOV']:
+                all_tickers.append(ticker)
+        
+        # Add VIX ticker if vix_safesmart in stack
+        vix_ticker = None
+        if 'vix_safesmart' in strategy_stack:
+            for ticker in ['^VIX', 'VIXY', 'VXX']:
+                all_tickers.append(ticker)
+        
+        # Get price data (cache-first)
+        price_data = get_canonical_price_data(
+            tickers=list(set(all_tickers)),
+            start_date=start_date,
+            end_date=end_date
         )
         
-        if hist_df is None or hist_df.empty:
-            logger.warning(f"No history data returned for {wave_display_name}")
-            return _empty_strategy_returns_dataframe()
+        if price_data.empty:
+            result['failure_reason'] = "No price data available"
+            return result
         
-        # Extract returns from NAV series
-        # hist_df should have: wave_nav, bm_nav, wave_ret, bm_ret
-        if 'wave_ret' not in hist_df.columns or 'bm_ret' not in hist_df.columns:
-            logger.error(f"Missing return columns in history data for {wave_display_name}")
-            return _empty_strategy_returns_dataframe()
+        # Compute base (selection) returns
+        base_returns = _compute_portfolio_returns(
+            price_data, wave_tickers, equal_weight=True
+        )
         
-        # Build result dataframe
-        result = pd.DataFrame({
-            'wave_return': hist_df['wave_ret'],
-            'benchmark_return': hist_df['bm_ret'],
-            'alpha': hist_df['wave_ret'] - hist_df['bm_ret'],
-            'strategy_applied': has_strategy  # True if strategy_stack was provided
-        })
+        result['base_returns'] = base_returns
         
-        # Preserve diagnostics metadata if available
-        if hasattr(hist_df, 'attrs'):
-            result.attrs['diagnostics'] = hist_df.attrs.get('diagnostics', None)
-            result.attrs['coverage'] = hist_df.attrs.get('coverage', {})
-            result.attrs['strategy_stack'] = strategy_stack or []
+        # Compute benchmark returns
+        if benchmark_tickers and benchmark_recipe:
+            benchmark_weights = [benchmark_recipe[ticker] for ticker in benchmark_tickers]
+            benchmark_returns = _compute_portfolio_returns(
+                price_data, benchmark_tickers, weights=benchmark_weights
+            )
+        else:
+            benchmark_returns = pd.Series(np.nan, index=price_data.index)
         
-        logger.info(f"Strategy-aware returns computed: {len(result)} days, "
-                   f"avg alpha={result['alpha'].mean():.4f}")
+        result['benchmark_returns'] = benchmark_returns
+        
+        # Compute selection alpha (base vs benchmark)
+        result['selection_alpha'] = base_returns - benchmark_returns
+        
+        # Apply strategy stack if enabled
+        if apply_strategy_stack and strategy_stack:
+            # Find VIX prices
+            vix_prices = None
+            for ticker in ['^VIX', 'VIXY', 'VXX']:
+                if ticker in price_data.columns:
+                    vix_prices = price_data[ticker]
+                    vix_ticker = ticker
+                    break
+            
+            # Find safe asset returns
+            safe_returns = None
+            for ticker in ['BIL', 'SHY', 'SGOV']:
+                if ticker in price_data.columns:
+                    safe_prices = price_data[ticker]
+                    safe_returns = safe_prices.pct_change()
+                    safe_ticker = ticker
+                    break
+            
+            # Apply strategy stack
+            realized_returns, attribution = strategy_overlays.apply_strategy_stack(
+                base_returns=base_returns,
+                prices=price_data,
+                tickers=wave_tickers,
+                strategy_stack=strategy_stack,
+                vix_prices=vix_prices,
+                safe_returns=safe_returns
+            )
+            
+            result['realized_returns'] = realized_returns
+            result['attribution'] = attribution
+            
+            logger.info(f"Applied {len(attribution['overlays_applied'])} overlays: {attribution['overlays_applied']}")
+            
+        else:
+            # No strategy stack - realized = base
+            result['realized_returns'] = base_returns
+            result['attribution'] = {
+                'base_returns': base_returns,
+                'final_returns': base_returns,
+                'overlays_applied': [],
+                'overlay_diagnostics': {},
+                'total_alpha': 0.0,
+                'component_alphas': {}
+            }
+        
+        # Compute total alpha (realized vs benchmark)
+        result['total_alpha'] = result['realized_returns'] - benchmark_returns
+        
+        result['success'] = True
+        logger.info(f"Successfully computed returns for {wave_id}")
         
         return result
         

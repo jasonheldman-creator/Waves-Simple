@@ -22,6 +22,7 @@ Usage:
 import logging
 import os
 import pandas as pd
+import json
 from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,66 @@ def _parse_benchmark_spec(benchmark_spec: str) -> Dict[str, float]:
         return {}
 
 
+def _parse_strategy_stack(strategy_stack_str: str) -> List[str]:
+    """
+    Parse strategy_stack string (JSON array) into list of strategy names.
+    
+    Args:
+        strategy_stack_str: JSON string like '["momentum", "trend", "vix_safesmart"]'
+        
+    Returns:
+        List of strategy names in execution order
+    """
+    if not strategy_stack_str or pd.isna(strategy_stack_str):
+        return []
+    
+    try:
+        # Parse JSON string
+        stack = json.loads(strategy_stack_str)
+        
+        # Validate it's a list
+        if not isinstance(stack, list):
+            logger.warning(f"strategy_stack is not a list: {strategy_stack_str}")
+            return []
+        
+        # Return list of strings
+        return [str(s) for s in stack]
+        
+    except json.JSONDecodeError as e:
+        logger.warning(f"Error parsing strategy_stack JSON '{strategy_stack_str}': {e}")
+        return []
+    except Exception as e:
+        logger.warning(f"Error processing strategy_stack '{strategy_stack_str}': {e}")
+        return []
+
+
+def _get_default_strategy_stack(category: str) -> List[str]:
+    """
+    Get default strategy stack for a wave category when not specified in registry.
+    
+    Args:
+        category: Wave category (equity_growth, crypto_growth, etc.)
+        
+    Returns:
+        List of strategy names
+    """
+    if pd.isna(category):
+        return []
+    
+    category = str(category).lower()
+    
+    if 'equity_growth' in category:
+        return ['momentum', 'trend', 'vix_safesmart']
+    elif 'equity_income' in category:
+        return ['trend', 'vix_safesmart']
+    elif 'crypto' in category:
+        return ['momentum', 'trend']
+    elif 'special' in category:
+        return ['vix_safesmart']
+    else:
+        return ['momentum', 'trend', 'vix_safesmart']
+
+
 def get_wave_registry() -> pd.DataFrame:
     """
     Get the canonical wave registry.
@@ -79,6 +140,7 @@ def get_wave_registry() -> pd.DataFrame:
         - category: Wave category (equity_growth, crypto_growth, etc.)
         - active: Whether wave is active (True/False)
         - status: Wave status (ACTIVE/STAGING), defaults to ACTIVE if missing
+        - strategy_stack: List of strategy names to apply (parsed from JSON)
         - ticker_raw: Raw ticker list
         - ticker_normalized: Normalized ticker list
         - created_at: Creation timestamp
@@ -101,6 +163,14 @@ def get_wave_registry() -> pd.DataFrame:
         
         # Parse benchmark_spec into benchmark_recipe
         registry['benchmark_recipe'] = registry['benchmark_spec'].apply(_parse_benchmark_spec)
+        
+        # Parse strategy_stack if present
+        if 'strategy_stack' in registry.columns:
+            registry['strategy_stack'] = registry['strategy_stack'].apply(_parse_strategy_stack)
+        else:
+            # Default strategy stack if column is missing
+            logger.warning("strategy_stack column not found in registry - using defaults")
+            registry['strategy_stack'] = registry['category'].apply(_get_default_strategy_stack)
         
         logger.info(f"Loaded wave registry: {len(registry)} waves")
         return registry
