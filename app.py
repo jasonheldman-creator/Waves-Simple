@@ -1933,7 +1933,22 @@ Traceback:
         # Silent fail - don't compound errors
         pass
 
+def log_data_load_exception(component: str, error: Exception):
+    """
+    Centralized, syntax-safe exception logger for session diagnostics.
+    """
+    import traceback
+    from datetime import datetime
 
+    if "data_load_exceptions" not in st.session_state:
+        st.session_state.data_load_exceptions = []
+
+    st.session_state.data_load_exceptions.append({
+        "component": component,
+        "error": str(error),
+        "traceback": traceback.format_exc(),
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
 def get_deploy_timestamp():
     """Get the current timestamp as deploy timestamp."""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
