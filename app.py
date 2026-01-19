@@ -22902,7 +22902,13 @@ if "initialized" not in st.session_state:
         st.session_state.data_load_exceptions.append({
             "component": "Readiness Report",
             "error": str(e),
-            "traceback": traceback.format_exc()
+            "traceback": traceback.format_exc(),
         })
-        
-        
+
+
+# ========================================================================
+# Module Entrypoint (MUST be at top-level, no indentation)
+# ========================================================================
+
+if __name__ == "__main__":
+    main()
