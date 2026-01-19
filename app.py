@@ -1925,7 +1925,6 @@ Traceback:
 {'='*80}
 
 """
-    try:
         # Append to log file
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write(log_entry)
