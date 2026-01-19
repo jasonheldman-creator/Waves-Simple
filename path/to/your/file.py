@@ -1,3 +1,4 @@
-def compute_portfolio_snapshot(portfolio, mode=None):
-    # Previous code logic here
-    pass
+def compute_portfolio_snapshot_from_truth(..., mode: str | None = None):
+    # Existing logic
+    ...
+    return compute_portfolio_snapshot(..., mode=mode)
