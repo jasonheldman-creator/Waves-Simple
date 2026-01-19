@@ -16690,10 +16690,9 @@ def render_board_pack_tab():
     """
     st.header("📊 Board Pack (PDF)")
     st.write("Generate a comprehensive PDF report including all key metrics, performance data, and analytics.")
-    
     st.divider()
     
-    
+    render_board_pack_intro()
     
     st.divider()
     
