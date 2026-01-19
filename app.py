@@ -22809,94 +22809,70 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             })
     
     # ========================================================================
-    # Global Compute Lock - Prevent duplicate heavy computations
-    # ========================================================================
-    
-    # Initialize compute lock if not present
-    if "compute_lock" not in st.session_state:
-        st.session_state.compute_lock = False
-        st.session_state.compute_lock_reason = None
-    
-    # Initialize compute operations tracker
-    if "compute_operations_done" not in st.session_state:
-        st.session_state.compute_operations_done = set()
-    
-    # ========================================================================
-    # Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
-    # ========================================================================
-    
-    # Debug trace marker
-    if st.session_state.get("debug_mode", False):
-        st.caption("🔍 Trace: Entering snapshot build section")
-    
-    # SAFE MODE: Skip auto-build entirely when Safe Mode is ON
-    # Only validate if snapshot exists, but never trigger builds
-    if "snapshot_validated" not in st.session_state:
-        st.session_state.snapshot_validated = True  # Mark as validated to prevent re-entry
-        
-        # Check if snapshot exists without building
-        import os
-        snapshot_path = "data/live_snapshot.csv"
-        if os.path.exists(snapshot_path):
-            try:
-                from datetime import datetime
-                mtime = os.path.getmtime(snapshot_path)
-                age_minutes = (datetime.now() - datetime.fromtimestamp(mtime)).total_seconds() / 60
-                
-                st.session_state.snapshot_exists = True
-                st.session_state.snapshot_fresh = age_minutes <= 15
-                st.session_state.snapshot_age_minutes = age_minutes
-                st.session_state.snapshot_rebuilt = False
-                st.session_state.snapshot_error = None
-                st.session_state.snapshot_stale_fallback = False
-                st.session_state.snapshot_build_suppressed = True
-                st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
-                
-                print(f"ℹ️ Snapshot exists (age: {age_minutes:.1f} min) - Safe Mode prevents auto-rebuild")
-            except Exception as e:
-                print(f"⚠️ Warning: Could not check snapshot age: {e}")
-                st.session_state.snapshot_exists = True
-                st.session_state.snapshot_fresh = False
-                # Store exception for debug panel
-                if "data_load_exceptions" not in st.session_state:
-                    st.session_state.data_load_exceptions = []
-                st.session_state.data_load_exceptions.append({
-                    "component": "Snapshot Age Check",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-        else:
-            st.session_state.snapshot_exists = False
+# Global Compute Lock - Prevent duplicate heavy computations
+# ========================================================================
+
+# Initialize compute lock if not present
+if "compute_lock" not in st.session_state:
+    st.session_state.compute_lock = False
+    st.session_state.compute_lock_reason = None
+
+# Initialize compute operations tracker
+if "compute_operations_done" not in st.session_state:
+    st.session_state.compute_operations_done = set()
+
+# ========================================================================
+# Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
+# ========================================================================
+
+# Debug trace marker
+if st.session_state.get("debug_mode", False):
+    st.caption("🔍 Trace: Entering snapshot build section")
+
+# SAFE MODE: Skip auto-build entirely when Safe Mode is ON
+# Only validate if snapshot exists, but never trigger builds
+if "snapshot_validated" not in st.session_state:
+    st.session_state.snapshot_validated = True  # prevent re-entry
+
+    import os
+    from datetime import datetime
+
+    snapshot_path = "data/live_snapshot.csv"
+
+    if os.path.exists(snapshot_path):
+        try:
+            mtime = os.path.getmtime(snapshot_path)
+            age_minutes = (datetime.now() - datetime.fromtimestamp(mtime)).total_seconds() / 60
+
+            st.session_state.snapshot_exists = True
+            st.session_state.snapshot_fresh = age_minutes <= 15
+            st.session_state.snapshot_age_minutes = age_minutes
+            st.session_state.snapshot_rebuilt = False
+            st.session_state.snapshot_error = None
+            st.session_state.snapshot_stale_fallback = False
+            st.session_state.snapshot_build_suppressed = True
+            st.session_state.snapshot_suppression_reason = (
+                "Safe Mode enabled - auto-build disabled"
+            )
+
+            print(
+                f"ℹ️ Snapshot exists (age: {age_minutes:.1f} min) "
+                f"- Safe Mode prevents auto-rebuild"
+            )
+
+        except Exception as e:
+            print(f"⚠️ Warning: Could not check snapshot age: {e}")
+
+            st.session_state.snapshot_exists = True
             st.session_state.snapshot_fresh = False
             st.session_state.snapshot_age_minutes = None
             st.session_state.snapshot_rebuilt = False
-            st.session_state.snapshot_error = "Snapshot does not exist"
+            st.session_state.snapshot_error = str(e)
             st.session_state.snapshot_stale_fallback = False
             st.session_state.snapshot_build_suppressed = True
-            st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
-            
-            print(f"ℹ️ Snapshot does not exist - Safe Mode prevents auto-build. Use manual rebuild button.")
-    
-    # ========================================================================
-    # Session State Initialization
-    # ========================================================================
-    
-    # Initialize session state guard to prevent reinitialization during reruns
-    if "initialized" not in st.session_state:
-        st.session_state.initialized = True
-        
-        # One-time operations on first session startup
-        try:
-            from analytics_pipeline import print_readiness_report
-            print_readiness_report()
-        except Exception as e:
-            print(f"Warning: Could not generate readiness report: {e}")
-            # Store exception for debug panel
+            st.session_state.snapshot_suppression_reason = (
+                "Safe Mode enabled - auto-build disabled"
+            )
+
             if "data_load_exceptions" not in st.session_state:
-                st.session_state.data_load_exceptions = []
-                st.session_state.data_load_exceptions.append(str(e))
-            st.session_state.data_load_exceptions.append({
-                "component": "Readiness Report",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            
+                st.session_state.data_load
