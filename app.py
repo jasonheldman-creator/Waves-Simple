@@ -22904,3 +22904,16 @@ if "initialized" not in st.session_state:
             "error": str(e),
             "traceback": traceback.format_exc()
         })
+        
+        st.error("🔥 FORCED ROUTER REACHED")
+
+        tabs = st.tabs([
+            "Platform",
+            "Board Pack",
+        ])
+
+        with tabs[0]:
+            st.success("Platform tab renders")
+
+        with tabs[1]:
+            st.success("Board Pack tab renders")
