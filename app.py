@@ -12648,10 +12648,6 @@ def compute_aggregated_portfolio_metrics():
         st.exception(e)
         return None
     def render_alpha_attribution_section():
-    """
-    Executive alpha attribution across Waves.
-    Shows which Waves contributed positive or negative alpha.
-    """
 
     st.subheader("📊 Alpha Attribution by Wave")
 
@@ -12699,14 +12695,6 @@ def compute_aggregated_portfolio_metrics():
 # EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE BOX)
 # ============================================================
 
-def render_portfolio_snapshot_summary():
-    """
-    Executive summary snapshot for the full portfolio.
-    Intended to show:
-    - 1D / 30D / 60D / 365D returns
-    - 1D / 30D / 60D / 365D alpha
-    - Aggregated portfolio metrics
-    """
 
     st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
     st.caption(
