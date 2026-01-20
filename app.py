@@ -22405,27 +22405,18 @@ def main():
     Stable, demo-safe orchestration layer.
     """
 
-    # --------------------------------------------------------
-    # Page config (MUST be first Streamlit call)
-    # --------------------------------------------------------
+    # --- Page config (must be first Streamlit call)
     st.set_page_config(
         page_title="WAVES Intelligence™ – Institutional Console",
         layout="wide",
         initial_sidebar_state="expanded",
     )
 
-    # --------------------------------------------------------
-    # Proof / build banners
-    # --------------------------------------------------------
-    if "render_proof_banner" in globals():
-        render_proof_banner()
+    # --- Proof / build banners
+    render_proof_banner()
+    render_build_stamp()
 
-    if "render_build_stamp" in globals():
-        render_build_stamp()
-
-    # --------------------------------------------------------
-    # Top-level navigation tabs (CANONICAL)
-    # --------------------------------------------------------
+    # --- Top-level navigation tabs (CANONICAL)
     tabs = st.tabs([
         "📊 Overview",
         "📦 Portfolio Snapshot",
@@ -22433,54 +22424,48 @@ def main():
         "🧪 Diagnostics",
     ])
 
-    # ========================================================
+    # --------------------------------------------------------
     # TAB 1: OVERVIEW
-    # ========================================================
+    # --------------------------------------------------------
     with tabs[0]:
         try:
             if "render_overview_clean_tab" in globals():
                 render_overview_clean_tab()
-            elif "render_overview_tab" in globals():
-                render_overview_tab()
             else:
-                st.warning("Overview renderer not available.")
+                render_overview_tab()
         except Exception as e:
-            st.error("❌ Error rendering Overview tab")
-            with st.expander("Debug details"):
-                st.exception(e)
+            st.error("Error rendering Overview tab")
+            st.exception(e)
 
-    # ========================================================
-    # TAB 2: PORTFOLIO SNAPSHOT (CRITICAL FOR DEMO)
-    # ========================================================
+    # --------------------------------------------------------
+    # TAB 2: PORTFOLIO SNAPSHOT (EXECUTIVE SUMMARY)
+    # --------------------------------------------------------
     with tabs[1]:
         st.markdown("## 📦 Portfolio Snapshot")
         st.caption(
-            "Aggregated portfolio performance with returns and alpha "
-            "across multiple horizons."
+            "Aggregated portfolio performance across Waves. "
+            "Returns and alpha shown across multiple horizons."
         )
 
         try:
-            if "render_portfolio_snapshot" in globals():
-                render_portfolio_snapshot()
+            if "render_portfolio_snapshot_summary" in globals():
+                render_portfolio_snapshot_summary()
             else:
-                st.error("❌ Portfolio Snapshot renderer not registered.")
-                st.info(
-                    "Expected function: `render_portfolio_snapshot()`\n\n"
-                    "This tab requires a canonical portfolio snapshot renderer."
+                st.warning(
+                    "Portfolio Snapshot summary renderer not available.\n\n"
+                    "Expected function: render_portfolio_snapshot_summary()"
                 )
         except Exception as e:
             st.error("❌ Error rendering Portfolio Snapshot")
             with st.expander("Debug details"):
                 st.exception(e)
 
-    # ========================================================
+    # --------------------------------------------------------
     # TAB 3: ADAPTIVE INTELLIGENCE
-    # ========================================================
+    # --------------------------------------------------------
     with tabs[2]:
         st.markdown("## 🧠 Adaptive Intelligence")
-        st.caption(
-            "Adaptive learning, regime detection, and system self-monitoring."
-        )
+        st.caption("Adaptive learning, regime detection, and system self-monitoring")
 
         try:
             if "render_adaptive_intelligence_tab" in globals():
@@ -22496,23 +22481,23 @@ def main():
             with st.expander("Debug details"):
                 st.exception(e)
 
-    # ========================================================
+    # --------------------------------------------------------
     # TAB 4: DIAGNOSTICS
-    # ========================================================
+    # --------------------------------------------------------
     with tabs[3]:
-        st.markdown("## 🧪 Diagnostics")
-
         try:
             if "render_diagnostics_tab" in globals():
                 render_diagnostics_tab()
             else:
-                st.info("Diagnostics panel available when diagnostics are enabled.")
+                st.info("Diagnostics panel available in development mode.")
         except Exception as e:
             st.error("❌ Error rendering Diagnostics")
-            with st.expander("Debug details"):
-                st.exception(e)
+            st.exception(e)
 
 
+# --- Standard Python entrypoint (ONLY ONCE)
+if __name__ == "__main__":
+    main()
 # ------------------------------------------------------------
 # Standard Python entrypoint
 # ------------------------------------------------------------
