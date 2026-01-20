@@ -22452,7 +22452,29 @@ def main():
     # ========================================================================
     render_proof_banner()
     render_build_stamp()
-    
+    # ===============================
+# PRIMARY CONSOLE ORCHESTRATOR
+# ===============================
+def render_primary_console():
+    """
+    Main UI orchestrator for the WAVES Institutional Console.
+    Controls top-level tabs and delegates rendering.
+    """
+
+    tabs = st.tabs([
+        "Overview",
+        "Diagnostics",
+        "Mission Control",
+    ])
+
+    with tabs[0]:
+        render_overview_tab()
+
+    with tabs[1]:
+        render_diagnostics_tab()
+
+    with tabs[2]:
+        render_mission_control_tab()
     # ========================================================================
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
