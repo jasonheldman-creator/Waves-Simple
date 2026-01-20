@@ -22448,7 +22448,33 @@ def main():
     # ========================================================================
     render_proof_banner()
     render_build_stamp()
-    
+    st.error("🔥 MAIN REACHED — ABOUT TO ENTER UI ROUTER")
+    # ============================================================
+# STEP 1: MAIN UI ROUTER (PRIMARY APPLICATION NAVIGATION)
+# ============================================================
+
+main_tabs = st.tabs([
+    "Overview",
+    "Performance",
+    "Risk",
+    "Governance",
+    "Diagnostics"
+])
+
+with main_tabs[0]:
+    render_overview_tab()
+
+with main_tabs[1]:
+    render_performance_tab()
+
+with main_tabs[2]:
+    render_risk_tab()
+
+with main_tabs[3]:
+    render_governance_tab()
+
+with main_tabs[4]:
+    render_diagnostics_tab()
     # ========================================================================
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
