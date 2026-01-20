@@ -12629,14 +12629,74 @@ def compute_aggregated_portfolio_metrics():
         st.exception(e)
         return None
 # ============================================================
-# EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE BOX)
+# EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE CARD METRICS)
 # ============================================================
+
+def compute_aggregated_portfolio_metrics():
+    """
+    Compute aggregated portfolio returns and alpha across all Waves
+    using live_snapshot.csv as the single source of truth.
+
+    Returns:
+        dict with keys:
+        {
+            "1D":   {"return": float | None, "alpha": float | None},
+            "30D":  {"return": float | None, "alpha": float | None},
+            "60D":  {"return": float | None, "alpha": float | None},
+            "365D": {"return": float | None, "alpha": float | None},
+        }
+    """
+    try:
+        # --- Load snapshot directly (NO external helper) ---
+        snapshot_path = "data/live_snapshot.csv"
+        if not os.path.exists(snapshot_path):
+            return None
+
+        df = pd.read_csv(snapshot_path)
+
+        if df.empty:
+            return None
+
+        horizons = ["1D", "30D", "60D", "365D"]
+        metrics = {}
+
+        for label in horizons:
+            return_col = f"Return_{label}"
+            alpha_col = f"Alpha_{label}"
+
+            portfolio_return = None
+            alpha = None
+
+            # Portfolio return
+            if return_col in df.columns:
+                portfolio_return = df[return_col].dropna().mean()
+
+            # Alpha handling
+            if label == "30D" and "Benchmark_Return_30D" in df.columns:
+                benchmark = df["Benchmark_Return_30D"].dropna().mean()
+                if portfolio_return is not None and benchmark is not None:
+                    alpha = portfolio_return - benchmark
+            elif alpha_col in df.columns:
+                alpha = df[alpha_col].dropna().mean()
+
+            metrics[label] = {
+                "return": float(portfolio_return) if portfolio_return is not None else None,
+                "alpha": float(alpha) if alpha is not None else None,
+            }
+
+        return metrics
+
+    except Exception as e:
+        st.error("Failed to compute aggregated portfolio metrics")
+        st.exception(e)
+        return None
+
+
 def render_portfolio_snapshot_summary():
     """
     Executive summary snapshot for the full portfolio.
-    Shows aggregated returns and alpha across all Waves.
+    Shows aggregated returns and alpha across all horizons.
     """
-
     metrics = compute_aggregated_portfolio_metrics()
 
     if not metrics:
@@ -12646,7 +12706,6 @@ def render_portfolio_snapshot_summary():
     st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
 
     cols = st.columns(4)
-
     order = ["1D", "30D", "60D", "365D"]
 
     for i, label in enumerate(order):
@@ -12660,10 +12719,6 @@ def render_portfolio_snapshot_summary():
                 value=f"{ret:.2%}" if ret is not None else "—",
                 delta=f"α {alpha:.2%}" if alpha is not None else None,
             )
-    
-    # NOTE: Full metric computation can be added here safely
-
-
 # ============================================================
 # VECTOR EXPLAIN — SINGLE, CANONICAL DEFINITION
 # ============================================================
