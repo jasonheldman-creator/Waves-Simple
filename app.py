@@ -22566,9 +22566,6 @@ with tabs[2]:
             st.exception(e)
 
 
-# --- Standard Python entrypoint
-if __name__ == "__main__":
-    main()
 # ========================================================================
 # Module Entrypoint (MUST be at top-level, no indentation)
 # ========================================================================
