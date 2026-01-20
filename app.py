@@ -12575,15 +12575,16 @@ def render_portfolio_snapshot():
 
 def compute_aggregated_portfolio_metrics():
     """
-    Compute aggregated portfolio returns and alpha across all Waves.
+    Compute aggregated portfolio returns and alpha across all Waves
+    using the live_snapshot.csv as the single source of truth.
 
     Returns:
         dict with keys:
         {
-            "1D":  {"return": float, "alpha": float},
-            "30D": {"return": float, "alpha": float},
-            "60D": {"return": float, "alpha": float},
-            "365D":{"return": float, "alpha": float},
+            "1D":   {"return": float, "alpha": float},
+            "30D":  {"return": float, "alpha": float},
+            "60D":  {"return": float, "alpha": float},
+            "365D": {"return": float, "alpha": float},
         }
     """
     try:
@@ -12592,28 +12593,33 @@ def compute_aggregated_portfolio_metrics():
         if df is None or df.empty:
             return None
 
-        horizons = {
-            "1D": 1,
-            "30D": 30,
-            "60D": 60,
-            "365D": 365,
-        }
-
+        horizons = ["1D", "30D", "60D", "365D"]
         metrics = {}
 
-        for label, days in horizons.items():
-            port_col = f"portfolio_return_{days}d"
-            bench_col = f"benchmark_return_{days}d"
+        for label in horizons:
+            return_col = f"Return_{label}"
+            alpha_col = f"Alpha_{label}"
 
-            if port_col not in df.columns or bench_col not in df.columns:
+            if return_col not in df.columns:
                 continue
 
-            portfolio_return = df[port_col].mean()
-            benchmark_return = df[bench_col].mean()
+            portfolio_return = df[return_col].mean()
+
+            # Prefer explicit alpha column if available
+            if alpha_col in df.columns:
+                alpha_value = df[alpha_col].mean()
+
+            # Fallback: compute 30D alpha from benchmark if needed
+            elif label == "30D" and "Benchmark_Return_30D" in df.columns:
+                benchmark_return = df["Benchmark_Return_30D"].mean()
+                alpha_value = portfolio_return - benchmark_return
+
+            else:
+                alpha_value = None
 
             metrics[label] = {
                 "return": float(portfolio_return),
-                "alpha": float(portfolio_return - benchmark_return),
+                "alpha": float(alpha_value) if alpha_value is not None else None,
             }
 
         return metrics
