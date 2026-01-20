@@ -22417,35 +22417,31 @@ def main():
             st.exception(e)
 
     # --------------------------------------------------------
-  # ==========================================================
-# TAB 2: PORTFOLIO SNAPSHOT (CRITICAL FOR DEMO)
-# ==========================================================
+  # TAB 2: PORTFOLIO SNAPSHOT (CRITICAL FOR DEMO)
+# --------------------------------------------------------
+# TAB 2: PORTFOLIO SNAPSHOT (EXECUTIVE SUMMARY)
+# --------------------------------------------------------
 with tabs[1]:
     st.markdown("## 📦 Portfolio Snapshot")
+    st.caption(
+        "Aggregated portfolio performance across all Waves. "
+        "Returns and alpha shown across multiple horizons."
+    )
 
     try:
-        if "render_portfolio_snapshot" in globals():
-            # Canonical executive snapshot (blue box + metrics)
-            render_portfolio_snapshot()
-
-        elif "render_portfolio_overview" in globals():
-            # Fallback if snapshot renderer is unavailable
-            st.warning("Using fallback Portfolio Overview renderer.")
-            render_portfolio_overview()
-
+        if "render_portfolio_snapshot_summary" in globals():
+            render_portfolio_snapshot_summary()
         else:
-            st.error("❌ Portfolio Snapshot renderer not found.")
-            st.info(
-                "Expected function: `render_portfolio_snapshot()`\n\n"
-                "This tab requires a canonical snapshot renderer for demo."
+            st.warning(
+                "Portfolio Snapshot summary is not yet available.\n\n"
+                "This panel requires aggregated portfolio metrics "
+                "(returns and alpha across time horizons)."
             )
 
     except Exception as e:
-        st.error("🚨 Error rendering Portfolio Snapshot")
+        st.error("❌ Error rendering Portfolio Snapshot")
         with st.expander("Debug details"):
             st.exception(e)
-
-
 # ==========================================================
 # TAB 3: ADAPTIVE INTELLIGENCE (SAFE, LIGHTWEIGHT)
 # ==========================================================
