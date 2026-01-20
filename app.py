@@ -12634,11 +12634,32 @@ def compute_aggregated_portfolio_metrics():
 def render_portfolio_snapshot_summary():
     """
     Executive summary snapshot for the full portfolio.
-    Intended to show:
-    - 1D / 30D / 60D / 365D returns
-    - 1D / 30D / 60D / 365D alpha
-    - Aggregated portfolio metrics
+    Shows aggregated returns and alpha across all Waves.
     """
+
+    metrics = compute_aggregated_portfolio_metrics()
+
+    if not metrics:
+        st.warning("Portfolio snapshot data not available.")
+        return
+
+    st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
+
+    cols = st.columns(4)
+
+    order = ["1D", "30D", "60D", "365D"]
+
+    for i, label in enumerate(order):
+        data = metrics.get(label, {})
+        ret = data.get("return")
+        alpha = data.get("alpha")
+
+        with cols[i]:
+            st.metric(
+                label=f"{label} Return",
+                value=f"{ret:.2%}" if ret is not None else "—",
+                delta=f"α {alpha:.2%}" if alpha is not None else None,
+            )
     
     # NOTE: Full metric computation can be added here safely
 
