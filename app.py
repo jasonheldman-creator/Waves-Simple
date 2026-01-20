@@ -7,12 +7,8 @@ import time
 import itertools
 import html
 from datetime import datetime, timedelta
-import json
-import pandas as pd
 
-# --- PRICE BOOK SAFETY DEFAULTS ---
-get_price_book = None
-PRICE_BOOK_CONSTANTS_AVAILABLE = False
+import pandas as pd
     
 """
 Institutional Console v2 - Executive Layer v2
@@ -4457,15 +4453,567 @@ def render_wave_universe_truth_panel():
     
     st.divider()
     
-# ========================================================================
-# SECTION 4: OPERATOR CONTROLS (TEMPORARILY DISABLED)
-# ========================================================================
+    # ========================================================================
+    # SECTION 4: OPERATOR CONTROLS
+    # ========================================================================
+    st.markdown("#### ⚡ Operator Controls")
+    
+    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns(3)
+    
+    with ctrl_col1:
+        if st.button(
+            "🔄 Force Reload Universe",
+            use_container_width=True,
+            type="primary",
+            help="Reload the Wave Universe from source"
+        ):
+            try:
+                # Increment wave universe version
+                if "wave_universe_version" not in st.session_state:
+                    st.session_state.wave_universe_version = 1
+                st.session_state.wave_universe_version += 1
+                
+                # Clear wave universe cache using constant
+                for key in WAVE_UNIVERSE_CACHE_KEYS:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                # Set force reload flag
+                st.session_state["force_reload_universe"] = True
+                
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                
+                st.success("✅ Universe reload queued - refreshing...")
+                trigger_rerun("force_reload_universe")
+            except Exception as e:
+                st.error(f"❌ Reload failed: {str(e)}")
+    
+    with ctrl_col2:
+        if st.button(
+            "🧹 Clear Cache + Recompute",
+            use_container_width=True,
+            help="Clear all caches and force recomputation"
+        ):
+            try:
+                # Clear all Streamlit caches
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                
+                # Clear session state caches using constant
+                for key in WAVE_UNIVERSE_CACHE_KEYS:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                # Increment wave universe version
+                if "wave_universe_version" not in st.session_state:
+                    st.session_state.wave_universe_version = 1
+                st.session_state.wave_universe_version += 1
+                
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                
+                st.success("✅ Cache cleared - recomputing...")
+                trigger_rerun("clear_cache_recompute")
+            except Exception as e:
+                st.error(f"❌ Cache clear failed: {str(e)}")
+    
+    with ctrl_col3:
+        # Prepare diagnostics CSV
+        try:
+            # Build comprehensive diagnostics CSV
+            csv_rows = []
+            
+            # Header
+            csv_rows.append("Wave Universe Diagnostics Report")
+            csv_rows.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            csv_rows.append("")
+            
+            # Metrics
+            csv_rows.append("METRICS")
+            csv_rows.append(f"Universe Count,{diagnostics.get('universe_count', 0)}")
+            csv_rows.append(f"Active Waves,{diagnostics.get('active_count', 0)}")
+            csv_rows.append(f"Data-Ready Waves,{diagnostics.get('data_ready_count', 0)}")
+            csv_rows.append(f"History Unique,{diagnostics.get('history_unique_count', 0)}")
+            csv_rows.append(f"Missing Waves,{len(diagnostics.get('missing_waves', []))}")
+            csv_rows.append(f"Orphan Waves,{len(diagnostics.get('orphan_waves', []))}")
+            csv_rows.append(f"Duplicate Waves,{len(diagnostics.get('duplicate_waves', []))}")
+            csv_rows.append("")
+            
+            # Missing Waves
+            if diagnostics.get('missing_waves'):
+                csv_rows.append("MISSING WAVES (in registry but no data)")
+                for wave in diagnostics['missing_waves']:
+                    csv_rows.append(f"{wave}")
+                csv_rows.append("")
+            
+            # Orphan Waves
+            if diagnostics.get('orphan_waves'):
+                csv_rows.append("ORPHAN WAVES (in data but not in registry)")
+                for wave in diagnostics['orphan_waves']:
+                    csv_rows.append(f"{wave}")
+                csv_rows.append("")
+            
+            # Duplicate Waves
+            if diagnostics.get('duplicate_waves'):
+                csv_rows.append("DUPLICATE WAVES (removed during deduplication)")
+                for wave in diagnostics['duplicate_waves']:
+                    csv_rows.append(f"{wave}")
+                csv_rows.append("")
+            
+            # Data Freshness
+            if diagnostics.get('data_freshness'):
+                csv_rows.append("DATA FRESHNESS")
+                csv_rows.append("Wave,Latest Date,Days Old,Staleness")
+                for item in diagnostics['data_freshness']:
+                    wave = item['wave']
+                    latest_date = item['latest_date'] if item['latest_date'] else 'N/A'
+                    days_old = item['days_old'] if item['days_old'] is not None else 'N/A'
+                    staleness = item['staleness']
+                    csv_rows.append(f"{wave},{latest_date},{days_old},{staleness}")
+            
+            csv_content = "\n".join(csv_rows)
+            
+            st.download_button(
+                label="📥 Download Diagnostics CSV",
+                data=csv_content,
+                file_name=f"wave_universe_diagnostics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                help="Download comprehensive diagnostics as CSV"
+            )
+        except Exception as e:
+            st.button(
+                "📥 Download Diagnostics CSV",
+                disabled=True,
+                use_container_width=True,
+                help=f"Download unavailable: {str(e)}"
+            )
 
-st.markdown("#### ⚠️ Operator Controls")
-st.info(
-    "Operator controls are temporarily disabled while the system stabilizes. "
-    "Core analytics, Waves, and reporting are unaffected."
-)
+
+# ============================================================================
+# SECTION 4: VISUALIZATION FUNCTIONS
+# ============================================================================
+
+def create_wavescore_bar_chart(leaderboard_df):
+    """
+    Create a horizontal bar chart for WaveScore leaderboard.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if leaderboard_df is None or len(leaderboard_df) == 0:
+            return None
+        
+        # Create horizontal bar chart
+        fig = go.Figure()
+        
+        # Add bars with color gradient based on score
+        fig.add_trace(go.Bar(
+            y=leaderboard_df['Wave'],
+            x=leaderboard_df['WaveScore'],
+            orientation='h',
+            marker=dict(
+                color=leaderboard_df['WaveScore'],
+                colorscale='RdYlGn',
+                showscale=True,
+                colorbar=dict(title="WaveScore")
+            ),
+            text=leaderboard_df['WaveScore'].apply(lambda x: f"{x:.1f}"),
+            textposition='auto',
+            hovertemplate='<b>%{y}</b><br>WaveScore: %{x:.1f}<extra></extra>'
+        ))
+        
+        fig.update_layout(
+            title="Top Performers by WaveScore",
+            xaxis_title="WaveScore",
+            yaxis_title="Wave",
+            height=400,
+            showlegend=False,
+            yaxis={'categoryorder': 'total ascending'}
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_movers_chart(movers_df):
+    """
+    Create a waterfall chart showing biggest WaveScore movers.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if movers_df is None or len(movers_df) == 0:
+            return None
+        
+        # Create bar chart with color coding for positive/negative changes
+        fig = go.Figure()
+        
+        colors = ['green' if x > 0 else 'red' for x in movers_df['Change']]
+        
+        fig.add_trace(go.Bar(
+            x=movers_df['Wave'],
+            y=movers_df['Change'],
+            marker_color=colors,
+            text=movers_df['Change'].apply(lambda x: f"{x:+.1f}"),
+            textposition='outside',
+            hovertemplate='<b>%{x}</b><br>Change: %{y:+.1f}<br>Previous: %{customdata[0]:.1f}<br>Current: %{customdata[1]:.1f}<extra></extra>',
+            customdata=movers_df[['Previous', 'Current']].values
+        ))
+        
+        fig.update_layout(
+            title="Biggest WaveScore Movers (Month-over-Month)",
+            xaxis_title="Wave",
+            yaxis_title="WaveScore Change",
+            height=400,
+            showlegend=False
+        )
+        
+        fig.update_xaxes(tickangle=-45)
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_wave_performance_chart(wave_data, wave_name):
+    """
+    Create a multi-panel chart showing wave performance over time.
+    Includes cumulative returns, alpha, and drawdown.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if wave_data is None or len(wave_data) == 0:
+            return None
+        
+        if 'date' not in wave_data.columns:
+            return None
+        
+        # Create subplots
+        fig = make_subplots(
+            rows=3, cols=1,
+            subplot_titles=(
+                'Cumulative Returns',
+                'Daily Alpha',
+                'Drawdown'
+            ),
+            vertical_spacing=0.1,
+            row_heights=[0.4, 0.3, 0.3]
+        )
+        
+        # Calculate metrics
+        if 'portfolio_return' in wave_data.columns:
+            cumulative_returns = (1 + wave_data['portfolio_return']).cumprod() - 1
+            
+            # Panel 1: Cumulative returns
+            fig.add_trace(
+                go.Scatter(
+                    x=wave_data['date'],
+                    y=cumulative_returns * 100,
+                    mode='lines',
+                    name='Portfolio',
+                    line=dict(color='blue', width=2),
+                    hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.2f}%<extra></extra>'
+                ),
+                row=1, col=1
+            )
+            
+            if 'benchmark_return' in wave_data.columns:
+                cumulative_benchmark = (1 + wave_data['benchmark_return']).cumprod() - 1
+                fig.add_trace(
+                    go.Scatter(
+                        x=wave_data['date'],
+                        y=cumulative_benchmark * 100,
+                        mode='lines',
+                        name='Benchmark',
+                        line=dict(color='gray', width=2, dash='dash'),
+                        hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.2f}%<extra></extra>'
+                    ),
+                    row=1, col=1
+                )
+        
+        # Panel 2: Daily alpha
+        if 'alpha' in wave_data.columns or ('portfolio_return' in wave_data.columns and 'benchmark_return' in wave_data.columns):
+            if 'alpha' not in wave_data.columns:
+                wave_data = wave_data.copy()
+                wave_data['alpha'] = wave_data['portfolio_return'] - wave_data['benchmark_return']
+            
+            colors = ['green' if x > 0 else 'red' for x in wave_data['alpha']]
+            
+            fig.add_trace(
+                go.Bar(
+                    x=wave_data['date'],
+                    y=wave_data['alpha'] * 100,
+                    name='Alpha',
+                    marker_color=colors,
+                    hovertemplate='%{x|%Y-%m-%d}<br>Alpha: %{y:.3f}%<extra></extra>'
+                ),
+                row=2, col=1
+            )
+        
+        # Panel 3: Drawdown
+        if 'portfolio_return' in wave_data.columns:
+            cumulative_returns = (1 + wave_data['portfolio_return']).cumprod()
+            running_max = cumulative_returns.cummax()
+            drawdown = (cumulative_returns - running_max) / running_max
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=wave_data['date'],
+                    y=drawdown * 100,
+                    mode='lines',
+                    name='Drawdown',
+                    fill='tozeroy',
+                    line=dict(color='red', width=2),
+                    hovertemplate='%{x|%Y-%m-%d}<br>Drawdown: %{y:.2f}%<extra></extra>'
+                ),
+                row=3, col=1
+            )
+        
+        # Update layout
+        fig.update_yaxes(title_text="Cumulative Return (%)", row=1, col=1)
+        fig.update_yaxes(title_text="Alpha (%)", row=2, col=1)
+        fig.update_yaxes(title_text="Drawdown (%)", row=3, col=1)
+        fig.update_xaxes(title_text="Date", row=3, col=1)
+        
+        fig.update_layout(
+            title=f"Performance Analysis: {wave_name}",
+            height=800,
+            showlegend=True,
+            hovermode='x unified'
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_alpha_waterfall_chart(alpha_components, wave_name):
+    """
+    Create a waterfall chart showing alpha decomposition.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if alpha_components is None:
+            return None
+        
+        # Prepare waterfall data
+        labels = ['Selection Alpha', 'Overlay Alpha', 'Cash/Risk-Off', 'Total Alpha']
+        values = [
+            alpha_components['selection_alpha'],
+            alpha_components['overlay_alpha'],
+            alpha_components['cash_contribution'],
+            alpha_components['total_alpha']
+        ]
+        
+        # Create waterfall chart
+        fig = go.Figure(go.Waterfall(
+            name="Alpha Components",
+            orientation="v",
+            measure=["relative", "relative", "relative", "total"],
+            x=labels,
+            y=[v * 100 for v in values],  # Convert to percentage
+            text=[f"{v*100:.2f}%" for v in values],
+            textposition="outside",
+            connector={"line": {"color": "rgb(63, 63, 63)"}},
+            decreasing={"marker": {"color": "red"}},
+            increasing={"marker": {"color": "green"}},
+            totals={"marker": {"color": "blue"}}
+        ))
+        
+        fig.update_layout(
+            title=f"Alpha Decomposition: {wave_name}",
+            xaxis_title="Component",
+            yaxis_title="Alpha (%)",
+            height=500,
+            showlegend=False
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_correlation_heatmap(correlation_matrix, wave_names):
+    """
+    Create a correlation heatmap for portfolio waves.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if correlation_matrix is None or correlation_matrix.empty:
+            return None
+        
+        # Create heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=correlation_matrix.values,
+            x=correlation_matrix.columns,
+            y=correlation_matrix.index,
+            colorscale='RdBu_r',
+            zmid=0,
+            zmin=-1,
+            zmax=1,
+            text=correlation_matrix.values,
+            texttemplate='%{text:.2f}',
+            textfont={"size": 10},
+            colorbar=dict(title="Correlation")
+        ))
+        
+        fig.update_layout(
+            title="Portfolio Correlation Matrix",
+            xaxis_title="Wave",
+            yaxis_title="Wave",
+            height=500,
+            width=600
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_comparison_radar_chart(wave1_metrics, wave2_metrics):
+    """
+    Create a radar chart comparing two waves across multiple dimensions.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if wave1_metrics is None or wave2_metrics is None:
+            return None
+        
+        # Define metrics for comparison (normalized to 0-100 scale)
+        categories = []
+        wave1_values = []
+        wave2_values = []
+        
+        # WaveScore (already 0-100)
+        if wave1_metrics['wavescore'] != 'N/A' and wave2_metrics['wavescore'] != 'N/A':
+            categories.append('WaveScore')
+            wave1_values.append(wave1_metrics['wavescore'])
+            wave2_values.append(wave2_metrics['wavescore'])
+        
+        # Sharpe Ratio (normalize: assume range -2 to 4, map to 0-100)
+        if wave1_metrics['sharpe_ratio'] != 'N/A' and wave2_metrics['sharpe_ratio'] != 'N/A':
+            categories.append('Sharpe Ratio')
+            wave1_values.append(min(100, max(0, (wave1_metrics['sharpe_ratio'] + 2) * 100 / 6)))
+            wave2_values.append(min(100, max(0, (wave2_metrics['sharpe_ratio'] + 2) * 100 / 6)))
+        
+        # Win Rate (already percentage, scale to 0-100)
+        if wave1_metrics['win_rate'] != 'N/A' and wave2_metrics['win_rate'] != 'N/A':
+            categories.append('Win Rate')
+            wave1_values.append(wave1_metrics['win_rate'] * 100)
+            wave2_values.append(wave2_metrics['win_rate'] * 100)
+        
+        # Returns (normalize to 0-100, assuming -20% to +20% range)
+        if wave1_metrics['cumulative_return'] != 'N/A' and wave2_metrics['cumulative_return'] != 'N/A':
+            categories.append('Returns')
+            wave1_values.append(min(100, max(0, (wave1_metrics['cumulative_return'] + 0.2) * 100 / 0.4)))
+            wave2_values.append(min(100, max(0, (wave2_metrics['cumulative_return'] + 0.2) * 100 / 0.4)))
+        
+        # Risk Control (inverse of max drawdown, normalize)
+        if wave1_metrics['max_drawdown'] != 'N/A' and wave2_metrics['max_drawdown'] != 'N/A':
+            categories.append('Risk Control')
+            # Less negative drawdown is better, convert to 0-100 scale
+            wave1_values.append(min(100, max(0, (1 + wave1_metrics['max_drawdown']) * 100)))
+            wave2_values.append(min(100, max(0, (1 + wave2_metrics['max_drawdown']) * 100)))
+        
+        if len(categories) == 0:
+            return None
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatterpolar(
+            r=wave1_values,
+            theta=categories,
+            fill='toself',
+            name=wave1_metrics['name'],
+            line=dict(color='blue')
+        ))
+        
+        fig.add_trace(go.Scatterpolar(
+            r=wave2_values,
+            theta=categories,
+            fill='toself',
+            name=wave2_metrics['name'],
+            line=dict(color='red')
+        ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100]
+                )
+            ),
+            title="Multi-Dimensional Comparison",
+            height=500,
+            showlegend=True
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_correlation_heatmap(wave1_data, wave2_data, wave1_name, wave2_name):
+    """
+    Create a correlation matrix heatmap for two waves.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if wave1_data is None or wave2_data is None:
+            return None
+        
+        if 'date' not in wave1_data.columns or 'date' not in wave2_data.columns:
+            return None
+        
+        if 'portfolio_return' not in wave1_data.columns or 'portfolio_return' not in wave2_data.columns:
+            return None
+        
+        # Merge data on date
+        wave1_returns = wave1_data[['date', 'portfolio_return']].rename(columns={'portfolio_return': wave1_name})
+        wave2_returns = wave2_data[['date', 'portfolio_return']].rename(columns={'portfolio_return': wave2_name})
+        
+        merged = pd.merge(wave1_returns, wave2_returns, on='date', how='inner')
+        
+        if len(merged) < 2:
+            return None
+        
+        # Calculate correlation matrix
+        corr_matrix = merged[[wave1_name, wave2_name]].corr()
+        
+        # Create heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=corr_matrix.values,
+            x=corr_matrix.columns,
+            y=corr_matrix.index,
+            colorscale='RdBu',
+            zmid=0,
+            zmin=-1,
+            zmax=1,
+            text=corr_matrix.values,
+            texttemplate='%{text:.3f}',
+            textfont={"size": 16},
+            colorbar=dict(title="Correlation")
+        ))
+        
+        fig.update_layout(
+            title="Return Correlation Matrix",
+            height=400,
+            width=500
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
 # ============================================================================
 # SECTION 5: DATA PROCESSING FUNCTIONS
 # ============================================================================
@@ -7125,127 +7673,1638 @@ def render_sidebar_info():
     
     st.sidebar.markdown("---")
     
-
-
-# DIAGNOSTICS DEBUG PANEL — Collapsible (SAFE, STRUCTURED)
-# ========================================================================
-
-st.sidebar.markdown("---")
-
-with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
-    st.markdown("**Diagnostics & Visibility Panel**")
-
-    # Initialize exception storage
-    if "data_load_exceptions" not in st.session_state:
-        st.session_state.data_load_exceptions = []
-
-    try:
-        # ------------------------------------------------------------
-        # Basic State Info
-        # ------------------------------------------------------------
-        selected_wave_id = st.session_state.get("selected_wave_id", "None")
-        st.text(f"selected_wave_id: {selected_wave_id}")
-        st.text("Selectbox key: selected_wave_id_display")
-
-        # ------------------------------------------------------------
-        # Wave Registry Status
-        # ------------------------------------------------------------
-        if WAVE_REGISTRY_MANAGER_AVAILABLE:
+    # ========================================================================
+    # OPERATOR CONTROLS - Always Visible
+    # ========================================================================
+    st.sidebar.markdown("### 🛠 Operator Controls")
+    
+    # Define safe logger for operator controls
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        logging.basicConfig(level=logging.INFO)
+    
+    # Initialize last operator action in session state
+    if "last_operator_action" not in st.session_state:
+        st.session_state.last_operator_action = None
+        st.session_state.last_operator_time = None
+    
+    # Clear Cache Button
+    if st.sidebar.button("🗑️ Clear Cache", use_container_width=True, help="Clear Streamlit cache to force fresh computations"):
+        try:
+            # Clear both cache types safely
+            st.cache_data.clear()
             try:
-                active_waves_df = get_active_wave_registry()
-                st.text(f"Wave Registry: Loaded ({len(active_waves_df)} waves)")
+                st.cache_resource.clear()
+            except AttributeError:
+                # cache_resource may not be available in older Streamlit versions
+                pass
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Clear Cache"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Clear Cache at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success("✅ Cache cleared")
+            
+            # Trigger rerun to refresh the app with cleared caches
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"❌ Cache clear failed: {str(e)}")
+    
+    # Force Recompute Button
+    if st.sidebar.button("♻️ Force Recompute", use_container_width=True, help="Clear session state keys to trigger fresh computations"):
+        try:
+            # Safely delete/clear specific session state keys
+            keys_to_clear = [
+                'portfolio_alpha_ledger',
+                'portfolio_snapshot_debug',
+                'portfolio_exposure_series',
+                'wave_data_cache',
+                'price_book_cache',
+                'compute_lock'
+            ]
+            
+            cleared_count = 0
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    cleared_count += 1
+            
+            # Also clear Streamlit caches
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Force Recompute"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Force Recompute at {action_time} (cleared {cleared_count} keys)")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success(f"✅ Cleared {cleared_count} keys")
+            
+            # Trigger rerun to refresh the app with recomputed data
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"❌ Recompute failed: {str(e)}")
+    
+    # Hard Rerun Button
+    if st.sidebar.button("🔄 Hard Rerun", use_container_width=True, help="Trigger a full app rerun immediately"):
+        try:
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Hard Rerun"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Hard Rerun at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"❌ Rerun failed: {str(e)}")
+    
+    # Reload Price Book Button
+    if st.sidebar.button("📚 Reload Price Book", use_container_width=True, help="Reload price_book from disk cache"):
+        try:
+            # Clear price_book_cache from session state to force reload
+            if 'price_book_cache' in st.session_state:
+                del st.session_state['price_book_cache']
+            
+            # Clear Streamlit caches for price book
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Reload Price Book"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Reload Price Book at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success("✅ Price book reloaded")
+            
+            # Trigger rerun to refresh the app with reloaded data
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"❌ Price book reload failed: {str(e)}")
+    
+    # Force Ledger Recompute Button
+    if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger from fresh price_book cache"):
+        try:
+            if OPERATOR_TOOLBOX_AVAILABLE and force_ledger_recompute:
+                # Use the new comprehensive recompute function with diagnostic wrapper
+                with st.spinner("Reloading price_book and rebuilding wave_history..."):
+                    success, message, details = force_ledger_recompute()
+                
+                if success:
+                    # Clear ledger-related session state keys to trigger fresh computation
+                    ledger_keys = [
+                        'portfolio_alpha_ledger',
+                        'portfolio_snapshot_debug',
+                        'portfolio_exposure_series',
+                        'canonical_return_ledger',
+                        'wave_data_cache',
+                        'price_book_cache'
+                    ]
+                    
+                    cleared_count = 0
+                    for key in ledger_keys:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                            cleared_count += 1
+                    
+                    action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                    st.session_state.last_operator_action = "Force Ledger Recompute"
+                    st.session_state.last_operator_time = action_time
+                    
+                    # Log the action (fail-safe)
+                    try:
+                        logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} keys)")
+                    except Exception:
+                        pass  # Logging errors should not block button execution
+                    
+                    st.sidebar.success(message)
+                    st.rerun()
+                else:
+                    # Display error message with diagnostics
+                    st.sidebar.error(message)
+                    
+                    # If there's a traceback in details, show it
+                    if 'traceback' in details:
+                        st.sidebar.markdown("**📍 Stack Trace for Debugging:**")
+                        st.sidebar.code(details['traceback'], language="python")
+            else:
+                # Fallback to old behavior if operator_toolbox not available
+                ledger_keys = [
+                    'portfolio_alpha_ledger',
+                    'portfolio_snapshot_debug',
+                    'portfolio_exposure_series',
+                    'canonical_return_ledger'
+                ]
+                
+                cleared_count = 0
+                for key in ledger_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        cleared_count += 1
+                
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_operator_action = "Force Ledger Recompute"
+                st.session_state.last_operator_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} ledger keys)")
+                except Exception:
+                    pass  # Logging errors should not block button execution
+                
+                st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
+        except Exception as e:
+            # Diagnostic: Capture full stack trace for any error
+            full_traceback = traceback.format_exc()
+            st.sidebar.error(f"❌ Ledger recompute failed: {str(e)}")
+            st.sidebar.markdown("**📍 Full Stack Trace:**")
+            st.sidebar.code(full_traceback, language="python")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # OPERATOR DIAGNOSTICS - Read-Only Info
+    # ========================================================================
+    st.sidebar.markdown("### 📋 Diagnostics")
+    
+    # Build Marker
+    try:
+        build_info = get_build_info()
+        build_marker = f"{build_info.get('sha', 'unknown')[:8]}"
+        st.sidebar.caption(f"**Build marker:** `{build_marker}`")
+    except Exception:
+        st.sidebar.caption("**Build marker:** `SHA unavailable`")
+    
+    # Price Cache Max Date
+    try:
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            price_book = get_cached_price_book()
+            if price_book is not None and not price_book.empty:
+                max_date = price_book.index.max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                st.sidebar.caption(f"**Price cache max date:** `{max_date_str}`")
+            else:
+                st.sidebar.caption("**Price cache max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Price cache max date:** `N/A`")
+    except Exception as e:
+        st.sidebar.caption(f"**Price cache max date:** `Error: {str(e)[:30]}`")
+    
+    # Ledger Max Date - Read from metadata or artifact if available
+    try:
+        ledger_max_date_display = None
+        
+        # First try to get from get_data_health_metadata if available
+        if OPERATOR_TOOLBOX_AVAILABLE and get_data_health_metadata:
+            try:
+                health_metadata = get_data_health_metadata()
+                ledger_max_date_display = health_metadata.get('ledger_max_date')
+            except Exception:
+                pass  # Fall back to session state check
+        
+        # If not found in metadata, check session state
+        if not ledger_max_date_display and 'portfolio_alpha_ledger' in st.session_state:
+            ledger = st.session_state['portfolio_alpha_ledger']
+            if ledger and isinstance(ledger, dict) and ledger.get('success'):
+                ledger_df = ledger.get('ledger')
+                if ledger_df is not None and not ledger_df.empty:
+                    max_date = ledger_df.index.max()
+                    ledger_max_date_display = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+        
+        # Display result
+        if ledger_max_date_display:
+            st.sidebar.caption(f"**Ledger max date:** `{ledger_max_date_display}`")
+        else:
+            st.sidebar.caption("**Ledger max date:** `N/A`")
+    except Exception as e:
+        st.sidebar.caption(f"**Ledger max date:** `Error: {str(e)[:30]}`")
+    
+    # Wave History Max Date
+    try:
+        wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+        if os.path.exists(wave_history_path):
+            import pandas as pd
+            wave_history = pd.read_csv(wave_history_path)
+            if 'date' in wave_history.columns and not wave_history.empty:
+                wave_history['date'] = pd.to_datetime(wave_history['date'])
+                max_date = wave_history['date'].max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                st.sidebar.caption(f"**Wave history max date:** `{max_date_str}`")
+            else:
+                st.sidebar.caption("**Wave history max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Wave history max date:** `Not found`")
+    except Exception as e:
+        st.sidebar.caption(f"**Wave history max date:** `Error: {str(e)[:30]}`")
+    
+    # Display last operator action
+    if st.session_state.last_operator_action:
+        st.sidebar.caption(
+            f"Last operator action: **{st.session_state.last_operator_action}** at {st.session_state.last_operator_time}"
+        )
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # OPERATOR TOOLBOX - Always Visible
+    # Low-risk, in-app toolbox for debugging and rebuilding
+    # ========================================================================
+    with st.sidebar.expander("🧰 Operator Toolbox", expanded=False):
+        if not OPERATOR_TOOLBOX_AVAILABLE:
+            st.warning("⚠️ Operator Toolbox unavailable - helper module not loaded")
+        else:
+            st.markdown("### Data Health Panel")
+            
+            # Get data health metadata
+            try:
+                health_metadata = get_data_health_metadata()
+                
+                # Display key metrics
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric("Last Trading Day", health_metadata.get('last_trading_day') or 'N/A')
+                    st.metric("Price Book Max", health_metadata.get('price_book_max_date') or 'N/A')
+                
+                with col2:
+                    st.metric("Wave History Max", health_metadata.get('wave_history_max_date') or 'N/A')
+                    
+                    # Count missing tickers
+                    missing_count = len(health_metadata.get('missing_tickers', []))
+                    st.metric("Missing Tickers", missing_count)
+                
+                # Required symbols presence checks
+                st.markdown("#### Required Symbols")
+                
+                benchmarks = health_metadata.get('required_symbols_present', {}).get('benchmarks', {})
+                vix_any = health_metadata.get('required_symbols_present', {}).get('vix_any', False)
+                tbill_any = health_metadata.get('required_symbols_present', {}).get('tbill_any', False)
+                
+                # Benchmarks (ALL required)
+                spy_status = "✅" if benchmarks.get('SPY') else "❌"
+                qqq_status = "✅" if benchmarks.get('QQQ') else "❌"
+                iwm_status = "✅" if benchmarks.get('IWM') else "❌"
+                st.text(f"Benchmarks: SPY {spy_status} QQQ {qqq_status} IWM {iwm_status}")
+                
+                # VIX variants (ANY required)
+                vix_status = "✅" if vix_any else "❌"
+                st.text(f"VIX (any): {vix_status}")
+                
+                # T-bill variants (ANY required)
+                tbill_status = "✅" if tbill_any else "❌"
+                st.text(f"T-bill (any): {tbill_status}")
+                
+                # Show missing tickers if any
+                if missing_count > 0:
+                    with st.expander(f"Missing Tickers ({missing_count})"):
+                        missing_tickers = health_metadata.get('missing_tickers', [])
+                        st.text(", ".join(missing_tickers[:20]))
+                        if missing_count > 20:
+                            st.caption(f"... and {missing_count - 20} more")
+                
+                # Show errors if any
+                errors = health_metadata.get('errors', [])
+                if errors:
+                    with st.expander(f"⚠️ Errors ({len(errors)})"):
+                        for error in errors:
+                            st.error(error)
+                
             except Exception as e:
-                st.text(f"Wave Registry: Error — {e}")
+                st.error(f"❌ Error loading health metadata: {str(e)}")
+            
+            st.markdown("---")
+            st.markdown("### Interactive Actions")
+            
+            # Clear Streamlit Cache button
+            if st.button("🗑️ Clear Streamlit Cache", key="toolbox_clear_cache", use_container_width=True):
+                try:
+                    st.cache_data.clear()
+                    try:
+                        st.cache_resource.clear()
+                    except AttributeError:
+                        pass
+                    st.success("✅ Cache cleared")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Clear Session State (Soft Reset) button
+            if st.button("♻️ Clear Session State (Soft Reset)", key="toolbox_soft_reset", use_container_width=True):
+                try:
+                    # Clear non-critical session keys
+                    keys_to_clear = [
+                        'portfolio_alpha_ledger',
+                        'portfolio_snapshot_debug',
+                        'portfolio_exposure_series',
+                        'wave_data_cache',
+                        'price_book_cache'
+                    ]
+                    
+                    cleared_count = 0
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                            cleared_count += 1
+                    
+                    st.success(f"✅ Cleared {cleared_count} keys")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Rebuild Price Cache button
+            if st.button("🔨 Rebuild Price Cache (price_book)", key="toolbox_rebuild_price_cache", use_container_width=True):
+                try:
+                    with st.spinner("Rebuilding price cache... (this may take a few minutes)"):
+                        success, message = rebuild_price_cache_toolbox()
+                    
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Rebuild wave_history button
+            if st.button("📊 Rebuild wave_history from price_book", key="toolbox_rebuild_wave_history", use_container_width=True):
+                try:
+                    with st.spinner("Rebuilding wave_history... (this may take a few minutes)"):
+                        success, message = rebuild_wave_history()
+                    
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Force Ledger Recompute button (comprehensive)
+            if st.button("🔄 Force Ledger Recompute (Full Pipeline)", key="toolbox_force_ledger_recompute", use_container_width=True):
+                try:
+                    with st.spinner("Reloading price_book, rebuilding wave_history, and clearing ledger cache..."):
+                        success, message, details = force_ledger_recompute()
+                    
+                    if success:
+                        # Clear ledger-related session state
+                        ledger_keys = [
+                            'portfolio_alpha_ledger',
+                            'portfolio_snapshot_debug',
+                            'portfolio_exposure_series',
+                            'canonical_return_ledger',
+                            'wave_data_cache',
+                            'price_book_cache'
+                        ]
+                        
+                        cleared_count = 0
+                        for key in ledger_keys:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                                cleared_count += 1
+                        
+                        st.success(f"{message}\n\n✅ Cleared {cleared_count} cached keys")
+                        st.rerun()
+                    else:
+                        # Display error message with diagnostics
+                        st.error(message)
+                        
+                        # If there's a traceback in details, show it
+                        if 'traceback' in details:
+                            st.markdown("**📍 Stack Trace for Debugging:**")
+                            st.code(details['traceback'], language="python")
+                except Exception as e:
+                    # Diagnostic: Capture full stack trace for any error during unpacking or processing
+                    full_traceback = traceback.format_exc()
+                    st.error(f"❌ Error: {str(e)}")
+                    st.markdown("**📍 Full Stack Trace:**")
+                    st.code(full_traceback, language="python")
+            
+            # Run Self-Test button
+            if st.button("🔍 Run Self-Test", key="toolbox_self_test", use_container_width=True):
+                try:
+                    with st.spinner("Running self-test suite..."):
+                        test_results = run_self_test()
+                    
+                    # Display overall status
+                    if test_results['overall_status'] == 'PASS':
+                        st.success(f"✅ PASS - {test_results['summary']}")
+                    else:
+                        st.error(f"❌ FAIL - {test_results['summary']}")
+                    
+                    # Display individual test results
+                    st.markdown("#### Test Results")
+                    for test in test_results['tests']:
+                        status_icon = "✅" if test['status'] == 'PASS' else "❌"
+                        with st.expander(f"{status_icon} {test['name']} - {test['status']}"):
+                            st.text(test['message'])
+                    
+                    st.caption(f"Test run timestamp: {test_results['timestamp']}")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error running self-test: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # OPERATOR MODE (Admin-Gated)
+    # Operator Mode hidden by default; enable via OPERATOR_MODE secret.
+    # Set OPERATOR_MODE = true in .streamlit/secrets.toml to enable.
+    # ========================================================================
+    operator_mode_allowed = False
+    try:
+        operator_mode_allowed = st.secrets.get('OPERATOR_MODE', False)
+    except Exception:
+        # Secrets not available, OPERATOR_MODE not set, or secrets parsing error
+        pass
+    
+    if operator_mode_allowed:
+        with st.sidebar.expander("⚙️ Operator Controls (Admin)", expanded=False):
+            operator_mode_enabled = st.checkbox(
+                "Enable Operator Mode",
+                value=st.session_state.get("operator_mode_enabled", False),
+                key="operator_mode_toggle",
+                help="Enable advanced operator controls and tools"
+            )
+            st.session_state["operator_mode_enabled"] = operator_mode_enabled
+            
+            if operator_mode_enabled:
+                st.info("🔓 Operator Mode Active")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Safe Mode
+                # ========================================================================
+                st.markdown("#### 🛡️ Safe Mode")
+                
+                # Safe Mode (No Fetch / No Compute) - Default ON
+                safe_mode_no_fetch = st.checkbox(
+                    "Safe Mode (No Fetch / No Compute)",
+                    value=st.session_state.get("safe_mode_no_fetch", True),
+                    key="safe_mode_no_fetch_toggle",
+                    help="When ON: Prevents all network calls (yfinance, Alpaca, Coinbase) and snapshot builds. Loads pre-existing snapshots only."
+                )
+                st.session_state["safe_mode_no_fetch"] = safe_mode_no_fetch
+                
+                if safe_mode_no_fetch:
+                    st.info("🛡️ SAFE MODE ACTIVE - No external data calls")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Debug Mode
+                # ========================================================================
+                st.markdown("#### 🐛 Debug Mode")
+                
+                # Allow Continuous Reruns checkbox (default OFF)
+                allow_continuous_reruns = st.checkbox(
+                    "Allow Continuous Reruns (Debug)",
+                    value=st.session_state.get("allow_continuous_reruns", False),
+                    key="allow_continuous_reruns_toggle",
+                    help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
+                )
+                st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
+                
+                if not allow_continuous_reruns:
+                    st.warning("⚠️ Loop Trap Active - Max 2 runs")
+                else:
+                    st.info("🔄 Continuous reruns enabled")
+                
+                # Reset Compute Lock button (for diagnostics)
+                if st.button(
+                    "Reset Compute Lock",
+                    key="reset_compute_lock_button",
+                    use_container_width=True,
+                    help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
+                ):
+                    st.session_state["compute_lock"] = False
+                    st.session_state["compute_lock_reason"] = None
+                    st.success("✅ Compute lock reset")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Manual Snapshot Rebuild Buttons
+                # ========================================================================
+                st.markdown("#### 🔧 Manual Snapshot Rebuild")
+                
+                # Main Snapshot Rebuild Button
+                if st.button(
+                    "Rebuild Snapshot Now (Manual)",
+                    key="manual_rebuild_snapshot_button",
+                    use_container_width=True,
+                    disabled=safe_mode_no_fetch,
+                    help="Manually rebuild the main snapshot. Safe Mode must be OFF."
+                ):
+                    try:
+                        from analytics_pipeline import generate_live_snapshot
+                        
+                        st.info("⏳ Building snapshot...")
+                        
+                        # Temporarily allow the build by creating a temporary session state
+                        temp_session_state = dict(st.session_state)
+                        temp_session_state["safe_mode_no_fetch"] = False
+                        
+                        
+                        snapshot_df = generate_live_snapshot(
+                            output_path="data/live_snapshot.csv",
+                            session_state=temp_session_state
+                        )
+                        
+                        if snapshot_df is not None and not snapshot_df.empty:
+                            st.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
+                            # Reset run guard counter on successful rebuild
+                            st.session_state.run_count = 0
+                            st.session_state.loop_detected = False
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("rebuild_snapshot_manual")
+                        else:
+                            st.warning("⚠️ Snapshot rebuild returned empty data")
+                    except Exception as e:
+                        st.error(f"❌ Snapshot rebuild failed: {str(e)}")
+                
+                # Proxy Snapshot Rebuild Button
+                if st.button(
+                    "Rebuild Proxy Snapshot Now (Manual)",
+                    key="manual_rebuild_proxy_snapshot_button",
+                    use_container_width=True,
+                    disabled=safe_mode_no_fetch,
+                    help="Manually rebuild the proxy snapshot. Safe Mode must be OFF."
+                ):
+                    try:
+                        from planb_proxy_pipeline import build_proxy_snapshot
+                        
+                        st.info("⏳ Building proxy snapshot...")
+                        
+                        # Temporarily allow the build by creating a temporary session state
+                        temp_session_state = dict(st.session_state)
+                        temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+                        
+                        # Build proxy snapshot with explicit button click flag
+                        proxy_df = build_proxy_snapshot(
+                            days=365,
+                            session_state=temp_session_state,
+                            explicit_button_click=True
+                        )
+                        
+                        if proxy_df is not None and not proxy_df.empty:
+                            st.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
+                            # Reset run guard counter on successful rebuild
+                            st.session_state.run_count = 0
+                            st.session_state.loop_detected = False
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("rebuild_proxy_snapshot_manual")
+                        else:
+                            st.warning("⚠️ Proxy snapshot rebuild returned empty data")
+                    except Exception as e:
+                        st.error(f"❌ Proxy snapshot rebuild failed: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Feature Toggles
+                # ========================================================================
+                st.markdown("#### ⚙️ Feature Settings")
+                
+                # SAFE_MODE toggle (environment variable can override, but sidebar provides UI control)
+                safe_mode_default = os.environ.get("SAFE_MODE", "False").lower() == "true"
+                safe_mode_ui = st.checkbox(
+                    "Enable Safe Mode (Wave IC)",
+                    value=safe_mode_default,
+                    key="safe_mode_ui_toggle",
+                    help="When enabled, catches errors in Wave Intelligence Center and provides graceful fallback"
+                )
+                
+                # Update global SAFE_MODE based on UI toggle (allows runtime control)
+                # Note: This doesn't actually update the constant, but we can use session_state
+                st.session_state["safe_mode_enabled"] = safe_mode_ui
+                
+                # RENDER_RICH_HTML toggle
+                render_rich_html_default = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
+                render_rich_html_ui = st.checkbox(
+                    "Enable Rich HTML Rendering",
+                    value=render_rich_html_default,
+                    key="render_rich_html_ui_toggle",
+                    help="Use st.components.v1.html for rich HTML blocks (disable for simpler rendering)"
+                )
+                st.session_state["render_rich_html_enabled"] = render_rich_html_ui
+                
+                # Debug Mode toggle (default OFF per requirements)
+                debug_mode_ui = st.checkbox(
+                    "🐛 Debug Mode",
+                    value=st.session_state.get("debug_mode", False),
+                    key="debug_mode_ui_toggle",
+                    help="Show detailed error messages and diagnostics when components fail (default: OFF)"
+                )
+                st.session_state["debug_mode"] = debug_mode_ui
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Quick Actions
+                # ========================================================================
+                st.markdown("#### ⚡ Quick Actions")
+                
+                if st.button(
+                    "🔄 Force Reload Wave Universe",
+                    key="force_reload_universe_top_button",
+                    use_container_width=True,
+                    type="primary"
+                ):
+                    try:
+                        # Increment wave universe version
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Clear wave universe cache from session state using constant
+                        for key in WAVE_UNIVERSE_CACHE_KEYS:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Clear Streamlit caches
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        
+                        # Set force reload flag
+                        st.session_state["force_reload_universe"] = True
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger immediate rerun
+                        trigger_rerun("force_reload_waves")
+                    except Exception as e:
+                        st.warning(f"Force reload unavailable: {str(e)}")
+                
+                # Force Reload Data Button (Clear All Caches) - Add confirmation
+                clear_cache_confirm = st.checkbox(
+                    "Confirm Clear Cache",
+                    key="clear_cache_confirm_checkbox",
+                    help="Check this box to enable the Clear Cache button"
+                )
+                
+                if st.button(
+                    "🧹 Force Reload Data (Clear Cache)",
+                    key="force_reload_data_button",
+                    use_container_width=True,
+                    disabled=not clear_cache_confirm,
+                    help="Clear all cached data and reload from files. Requires confirmation."
+                ):
+                    try:
+                        # Clear all Streamlit caches
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        
+                        # Clear wave/history-related session state keys
+                        keys_to_clear = [
+                            "wave_universe",
+                            "waves_list",
+                            "universe_cache",
+                            "wave_history_cache",
+                            "last_compute_ts",
+                            "alpha_proof_result",
+                            "alpha_proof_wave",
+                            "attrib_result"
+                        ]
+                        for key in keys_to_clear:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Increment wave universe version to force reload
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Show success message
+                        st.success("✅ Cache cleared successfully!")
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger rerun
+                        trigger_rerun("force_reload_data_clear_cache")
+                    except Exception as e:
+                        st.error(f"Error clearing cache: {str(e)}")
+                
+                # Rebuild Price Cache Button
+                if st.button(
+                    "💰 Rebuild Price Cache (Active Tickers Only)",
+                    key="rebuild_price_cache_button",
+                    use_container_width=True,
+                    help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires ALLOW_NETWORK_FETCH=true (PRICE_FETCH_ENABLED)."
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                            # Import the rebuild function
+                            from helpers.price_book import rebuild_price_cache
+                            
+                            # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                            result = rebuild_price_cache(active_only=True)
+                            
+                            # Check if fetching is allowed
+                            if not result['allowed']:
+                                st.warning(
+                                    "⚠️ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                                    f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true or ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                                )
+                            elif result['success']:
+                                st.success(
+                                    f"✅ Price cache rebuilt!\n\n"
+                                    f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
+                                    f"📅 Latest Date: {result['date_max']}"
+                                )
+                                
+                                # Show failed tickers if any
+                                if result['tickers_failed'] > 0 and result['failures']:
+                                    st.warning(
+                                        f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                                        f"See data/cache/failed_tickers.csv for details"
+                                    )
+                            else:
+                                st.error("❌ Failed to rebuild price cache")
+                            
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            
+                            # Clear Streamlit caches to reflect new data
+                            st.cache_data.clear()
+                            
+                            # Trigger rerun
+                            trigger_rerun("rebuild_price_cache")
+                    except Exception as e:
+                        st.error(f"Error rebuilding cache: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Force Build Data for All Waves Button
+                # ========================================================================
+                if st.button(
+                    "🔨 Force Build Data for All Waves",
+                    key="force_build_all_waves_button",
+                    use_container_width=True,
+                    help="Trigger price prefetch, update readiness statuses, and generate diagnostics for all waves"
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Prefetching prices for all waves..."):
+                            # Clear diagnostics tracker
+                            try:
+                                from helpers.ticker_diagnostics import get_diagnostics_tracker
+                                tracker = get_diagnostics_tracker()
+                                tracker.clear()
+                            except ImportError:
+                                pass
+                            
+                            # Set force rebuild flag
+                            st.session_state.force_price_cache_rebuild = True
+                            
+                            # Clear any previous rate-limited flags
+                            if "rate_limited_waves" in st.session_state:
+                                del st.session_state["rate_limited_waves"]
+                            
+                            # Force refresh the canonical price cache (PRICE_BOOK)
+                            from helpers.price_loader import refresh_price_cache
+                            cache_result = refresh_price_cache(active_only=True)
+                            
+                            # Show results
+                            success_count = cache_result.get("tickers_fetched", 0)
+                            failure_count = cache_result.get("tickers_failed", 0)
+                            
+                            st.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                            
+                            # Generate and export diagnostics report if there are failures
+                            if failure_count > 0:
+                                try:
+                                    from helpers.ticker_diagnostics import get_diagnostics_tracker
+                                    tracker = get_diagnostics_tracker()
+                                    report_path = tracker.export_to_csv()
+                                    st.info(f"📊 Diagnostics report saved to: {report_path}")
+                                except Exception:
+                                    pass
+                            
+                            # Force reload diagnostics
+                            st.cache_data.clear()
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("force_build_all_waves")
+                    except Exception as e:
+                        st.error(f"Error building data: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Rebuild Wave CSV
+                # ========================================================================
+                if st.button(
+                    "📋 Rebuild Wave CSV + Clear Cache",
+                    key="rebuild_wave_csv_button",
+                    use_container_width=True,
+                    help="Rebuild wave registry CSV from canonical source and clear all cached data"
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Rebuilding wave registry CSV and clearing cache..."):
+                            # Import wave registry manager
+                            from wave_registry_manager import rebuild_wave_registry_csv
+                            
+                            # Rebuild the CSV
+                            rebuild_result = rebuild_wave_registry_csv(force=True)
+                            
+                            if rebuild_result['success']:
+                                st.success(f"✅ Wave CSV rebuilt with {rebuild_result['waves_written']} waves")
+                                
+                                # Clear all cached data
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                
+                                # Clear wave-related session state
+                                keys_to_clear = [
+                                    "wave_universe",
+                                    "waves_list",
+                                    "universe_cache",
+                                    "wave_history_cache",
+                                    "last_compute_ts",
+                                    "alpha_proof_result",
+                                    "alpha_proof_wave",
+                                    "attrib_result",
+                                    "global_price_df",
+                                    "global_price_failures",
+                                    "global_price_asof"
+                                ]
+                                for key in keys_to_clear:
+                                    if key in st.session_state:
+                                        del st.session_state[key]
+                                
+                                # Force rebuild price cache
+                                st.session_state.force_price_cache_rebuild = True
+                                
+                                # Rebuild canonical price cache (PRICE_BOOK)
+                                try:
+                                    from helpers.price_loader import refresh_price_cache
+                                    cache_result = refresh_price_cache(active_only=True)
+                                    
+                                    # Get summary statistics
+                                    waves_total = rebuild_result['waves_written']
+                                    success_count = cache_result.get("tickers_fetched", 0)
+                                    failures = cache_result.get("failures", {})
+                                    tickers_failed_count = cache_result.get("tickers_failed", 0)
+                                    
+                                    # Display summary
+                                    st.info(f"""
+**Rebuild Summary:**
+- Total Waves: {waves_total}
+- Waves Loaded: {waves_total}
+- Tickers Success: {success_count}
+- Tickers Failed: {tickers_failed_count}
+                                    """)
+                                    
+                                    # Show failed tickers if any
+                                    if tickers_failed_count > 0 and failures:
+                                        st.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
+                                        
+                                        # Build failed ticker table (limited display)
+                                        failed_ticker_data = []
+                                        for ticker, error in list(failures.items())[:20]:  # Show first 20
+                                            failed_ticker_data.append({
+                                                'Ticker': ticker,
+                                                'Error': str(error)[:50],  # Truncate long errors
+                                            })
+                                        
+                                        if failed_ticker_data:
+                                            failed_df = pd.DataFrame(failed_ticker_data)
+                                            st.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
+                                except Exception as cache_error:
+                                    st.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
+                                
+                                # Increment version to force reload
+                                if "wave_universe_version" not in st.session_state:
+                                    st.session_state.wave_universe_version = 1
+                                st.session_state.wave_universe_version += 1
+                                
+                                # Trigger rerun
+                                # Mark user interaction
+                                st.session_state.user_interaction_detected = True
+                                trigger_rerun("rebuild_wave_csv")
+                            else:
+                                st.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
+                    except Exception as e:
+                        st.error(f"❌ Error rebuilding wave CSV: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Data Refresh TTL Selector
+                # ========================================================================
+                st.markdown("#### 🕐 Data Refresh Settings")
+                
+                ttl_options = {
+                    "1 hour": 3600,
+                    "2 hours": 7200,
+                    "4 hours": 14400,
+                    "8 hours": 28800,
+                    "12 hours": 43200,
+                    "24 hours": 86400
+                }
+                
+                # Get current TTL from session state
+                current_ttl = st.session_state.get("price_cache_ttl_seconds", 7200)
+                
+                # Find the label for current TTL
+                current_label = "2 hours"  # default
+                for label, value in ttl_options.items():
+                    if value == current_ttl:
+                        current_label = label
+                        break
+                
+                selected_ttl_label = st.selectbox(
+                    "Data Refresh TTL",
+                    options=list(ttl_options.keys()),
+                    index=list(ttl_options.keys()).index(current_label),
+                    key="ttl_selector",
+                    help="How long to cache price data before refreshing"
+                )
+                
+                # Update session state
+                st.session_state.price_cache_ttl_seconds = ttl_options[selected_ttl_label]
+                
+                # Show cache status if available
+                if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
+                    asof_time = st.session_state.global_price_asof
+                    time_diff = datetime.now(timezone.utc) - asof_time
+                    minutes_ago = int(time_diff.total_seconds() / 60)
+                    
+                    if minutes_ago < 60:
+                        age_str = f"{minutes_ago} min ago"
+                    else:
+                        hours_ago = minutes_ago // 60
+                        age_str = f"{hours_ago}h {minutes_ago % 60}m ago"
+                    
+                    success_count = st.session_state.get("global_price_success_count", 0)
+                    ticker_count = st.session_state.get("global_price_ticker_count", 0)
+                    
+                    st.caption(f"📊 Cache: {success_count}/{ticker_count} tickers ({age_str})")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Activate All Waves Button
+                # ========================================================================
+                if st.button(
+                    "✅ Activate All Waves",
+                    key="activate_all_waves_button",
+                    use_container_width=True,
+                    help="Enable all waves in the universe (set enabled=True for all)"
+                ):
+                    try:
+                        # Get current universe
+                        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+                        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+                        
+                        # Create enabled flags dictionary with all waves set to True
+                        enabled_flags = {wave: True for wave in universe.get("waves", [])}
+                        
+                        # Store in session state
+                        st.session_state["wave_enabled_flags"] = enabled_flags
+                        
+                        # Force reload universe to pick up new flags
+                        st.session_state.wave_universe_version = wave_universe_version + 1
+                        st.cache_data.clear()
+                        
+                        st.success(f"✅ Activated all {len(enabled_flags)} waves!")
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        trigger_rerun("activate_all_waves")
+                    except Exception as e:
+                        st.error(f"Error activating waves: {str(e)}")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Warm Cache Button
+                # ========================================================================
+                if st.button(
+                    "🔥 Warm Cache",
+                    key="warm_cache_button",
+                    use_container_width=True,
+                    help="Prefetch and cache price data to ensure fast startup (uses canonical cache)"
+                ):
+                    # Debug trace marker
+                    if st.session_state.get("debug_mode", False):
+                        st.caption("🔍 Trace: Entering warm cache")
+                    
+                    try:
+                        with st.spinner("Warming cache with price data..."):
+                            # Use canonical price cache refresh
+                            from helpers.price_loader import refresh_price_cache, check_cache_readiness
+                            
+                            result = refresh_price_cache(active_only=True)
+                            
+                            # Show results
+                            if result['success']:
+                                st.success(
+                                    f"✅ Cache warmed!\n\n"
+                                    f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                                )
+                                
+                                if result['tickers_failed'] > 0:
+                                    st.warning(
+                                        f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                                        f"See data/cache/failed_tickers.csv for details"
+                                    )
+                            else:
+                                st.error("❌ Failed to warm cache")
+                            
+                            # Check readiness after refresh
+                            readiness = check_cache_readiness(active_only=True)
+                            if readiness['ready']:
+                                st.success(f"✅ Cache is READY")
+                            else:
+                                st.warning(f"⚠️ Cache status: {readiness['status_code']}")
+                                    
+                    except Exception as e:
+                        st.error(f"❌ Error warming cache: {str(e)}")
+                        # Don't crash - let user continue working
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Auto-Refresh Control
+                # ========================================================================
+                st.markdown("#### 🔄 Auto-Refresh Control")
+                
+                # Check if st_autorefresh or st.autorefresh is available
+                autorefresh_available = False
+                try:
+                    # Try importing st_autorefresh from streamlit-autorefresh
+                    from streamlit_autorefresh import st_autorefresh
+                    autorefresh_available = True
+                except ImportError:
+                    # Check if built-in autorefresh is available (newer Streamlit versions)
+                    if hasattr(st, 'autorefresh'):
+                        autorefresh_available = True
+                
+                if autorefresh_available:
+                    # Initialize auto-refresh setting (using DEFAULT from config)
+                    if "auto_refresh_enabled" not in st.session_state:
+                        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
+                    
+                    # Initialize auto-refresh interval
+                    if "auto_refresh_interval_ms" not in st.session_state:
+                        st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
+                    
+                    # Toggle switch
+                    auto_refresh_enabled = st.checkbox(
+                        "Enable Auto-Refresh",
+                        value=st.session_state.auto_refresh_enabled and not st.session_state.get("auto_refresh_paused", False),
+                        key="auto_refresh_toggle",
+                        help="Automatically refresh live analytics, overlays, attribution, and diagnostics at configured interval"
+                    )
+                    
+                    # Update session state
+                    st.session_state.auto_refresh_enabled = auto_refresh_enabled
+                    
+                    # If re-enabled, reset paused state
+                    if auto_refresh_enabled and st.session_state.get("auto_refresh_paused", False):
+                        st.session_state.auto_refresh_paused = False
+                        st.session_state.auto_refresh_error_count = 0
+                        st.session_state.auto_refresh_error_message = None
+                    
+                    # Interval selector (only show when enabled)
+                    if auto_refresh_enabled:
+                        # Get interval options
+                        interval_options = list(REFRESH_INTERVAL_OPTIONS.keys())
+                        current_interval_ms = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+                        
+                        # Find current selection index
+                        current_index = 0
+                        for i, (name, value) in enumerate(REFRESH_INTERVAL_OPTIONS.items()):
+                            if value == current_interval_ms:
+                                current_index = i
+                                break
+                        
+                        selected_interval_name = st.selectbox(
+                            "Refresh Interval",
+                            options=interval_options,
+                            index=current_index,
+                            key="auto_refresh_interval_selector",
+                            help="How frequently to refresh live data. Default: 1 minute"
+                        )
+                        
+                        # Update interval in session state
+                        st.session_state.auto_refresh_interval_ms = REFRESH_INTERVAL_OPTIONS[selected_interval_name]
+                    
+                    # Show status
+                    auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
+                    
+                    if auto_refresh_paused:
+                        st.error("⚠️ Auto-refresh PAUSED due to errors")
+                        error_msg = st.session_state.get("auto_refresh_error_message", "Unknown error")
+                        st.caption(f"Error: {error_msg}")
+                        st.caption("Re-enable the checkbox above to resume")
+                    elif auto_refresh_enabled:
+                        interval_name = REFRESH_INTERVAL_OPTIONS.get(
+                            st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS),
+                            "1 minute"
+                        )
+                        if AUTO_REFRESH_CONFIG_AVAILABLE:
+                            interval_name = get_interval_display_name(st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS))
+                        
+                        st.success(f"🟢 Auto-refresh is ON")
+                        st.caption(f"Refreshes every {interval_name}")
+                        
+                        # Show last successful refresh
+                        last_successful = st.session_state.get("last_successful_refresh_time", datetime.now())
+                        st.caption(f"Last update: {last_successful.strftime('%H:%M:%S')}")
+                        
+                        # Show scope information
+                        with st.expander("ℹ️ What gets refreshed?"):
+                            st.caption("**Included in auto-refresh:**")
+                            st.caption("• Live analytics & metrics")
+                            st.caption("• VIX overlays & regime detection")
+                            st.caption("• Alpha attribution")
+                            st.caption("• System diagnostics")
+                            st.caption("• Summary statistics")
+                            st.caption("")
+                            st.caption("**Excluded (cached):**")
+                            st.caption("• Historical backtests")
+                            st.caption("• Heavy simulations")
+                            st.caption("• Report generation")
+                    else:
+                        st.info("🔴 Auto-refresh is OFF")
+                        st.caption("Enable above for live updates")
+                else:
+                    # Auto-refresh not available
+                    st.warning("⚠️ Auto-refresh unavailable")
+                    st.caption("Install streamlit-autorefresh:")
+                    st.code("pip install streamlit-autorefresh", language="bash")
+                    # Ensure auto-refresh is disabled
+                    st.session_state.auto_refresh_enabled = False
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Bottom Ticker Bar Control
+                # ========================================================================
+                st.markdown("#### 📊 Bottom Ticker Bar")
+                
+                # Initialize ticker setting if not present
+                if "show_bottom_ticker" not in st.session_state:
+                    st.session_state.show_bottom_ticker = True  # Default: ON
+                
+                # Checkbox control
+                show_ticker = st.checkbox(
+                    "Show bottom ticker",
+                    value=st.session_state.show_bottom_ticker,
+                    key="show_ticker_toggle",
+                    help="Display scrolling ticker bar at the bottom with portfolio info, earnings dates, and Fed data"
+                )
+                
+                # Update session state
+                st.session_state.show_bottom_ticker = show_ticker
+                
+                # Show status
+                if show_ticker:
+                    st.success("🟢 Ticker bar is visible")
+                    st.caption("Displays portfolio tickers, earnings, and Fed data")
+                else:
+                    st.info("🔴 Ticker bar is hidden")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Ops Controls (Admin)
+                # ========================================================================
+                st.markdown("#### 🛠️ Ops Controls")
+                
+                # Confirmation checkbox
+                ops_confirmation = st.checkbox(
+                    "I understand this will reset cached data.",
+                    key="ops_confirmation"
+                )
+                
+                # Clear Streamlit Cache Button with confirmation
+                if st.button(
+                    "Clear Streamlit Cache",
+                    disabled=not ops_confirmation,
+                    key="clear_cache_button",
+                    use_container_width=True
+                ):
+                    try:
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        st.success("Cache cleared.")
+                    except Exception:
+                        st.warning("Cache clear unavailable.")
+                
+                # Reset Session State Button
+                if st.button(
+                    "Reset Session State",
+                    disabled=not ops_confirmation,
+                    key="reset_session_button",
+                    use_container_width=True
+                ):
+                    # Preserve system keys (navigation-related)
+                    system_keys = [key for key in st.session_state.keys() if key.startswith('_')]
+                    
+                    # Clear all non-system keys
+                    keys_to_delete = [key for key in st.session_state.keys() if key not in system_keys]
+                    for key in keys_to_delete:
+                        del st.session_state[key]
+                    
+                    st.success("Session state reset.")
+                
+                # Force Reload Wave Universe Button
+                if st.button(
+                    "Force Reload Wave Universe",
+                    disabled=not ops_confirmation,
+                    key="force_reload_universe_ops_button",
+                    use_container_width=True
+                ):
+                    try:
+                        # Increment wave universe version
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Clear wave universe cache from session state
+                        cache_keys = ["wave_universe", "waves_list", "universe_cache"]
+                        for key in cache_keys:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Clear Streamlit caches
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+                        
+                        try:
+                            st.cache_resource.clear()
+                        except Exception:
+                            pass
+                        
+                        # Set force reload flag
+                        st.session_state["force_reload_universe"] = True
+                        
+                        st.success("Wave universe cache cleared. Reloading...")
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        trigger_rerun("clear_wave_universe_cache")
+                    except Exception as e:
+                        st.warning(f"Force reload unavailable: {str(e)}")
+                
+                # Hard Rerun App Button
+                if st.button(
+                    "Hard Rerun App",
+                    disabled=not ops_confirmation,
+                    key="hard_rerun_button",
+                    use_container_width=True
+                ):
+                    trigger_rerun("hard_rerun_button")
+                
+                # Force Reload + Clear Cache + Rerun Button (Enhanced)
+                if st.button(
+                    "Force Reload + Clear Cache + Rerun",
+                    disabled=not ops_confirmation,
+                    key="force_reload_clear_rerun_button",
+                    use_container_width=True,
+                    type="primary"
+                ):
+                    try:
+                        # Clear wave-related session cache keys
+                        cache_keys = ["wave_universe", "waves_list", "universe_cache", "force_reload_universe"]
+                        for key in cache_keys:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Clear Streamlit caches
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+                        
+                        try:
+                            st.cache_resource.clear()
+                        except Exception:
+                            pass
+                        
+                        # Trigger canonical wave universe reload with force_reload=True
+                        get_canonical_wave_universe(force_reload=True)
+                        
+                        st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        trigger_rerun("force_clear_wave_reload")
+                    except Exception as e:
+                        st.warning(f"⚠️ Force reload failed: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Data Health Panel
+    # ========================================================================
+    with st.sidebar.expander("📊 Data Health Status", expanded=False):
+        try:
+            from helpers.data_health_panel import render_data_health_panel
+            render_data_health_panel()
+        except ImportError:
+            st.warning("⚠️ Data health panel not available")
+        except Exception as e:
+            st.error(f"❌ Error loading health panel: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Wave Universe Truth Panel (Collapsible)
+    # ========================================================================
+    with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
+        render_wave_universe_truth_panel()
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Sidebar Information
+    # ========================================================================
+    
+    st.sidebar.title("Risk Lab")
+    st.sidebar.write("Advanced risk analytics and monitoring tools for institutional portfolio management.")
+    
+    st.sidebar.title("Correlation Matrix")
+    st.sidebar.write("Cross-asset correlation analysis for portfolio diversification insights.")
+    
+    st.sidebar.title("Rolling Alpha / Volatility")
+    st.sidebar.write("Time-series analysis of alpha generation and volatility patterns.")
+    
+    st.sidebar.title("Drawdown Monitor")
+    st.sidebar.write("Real-time tracking of portfolio drawdowns and recovery metrics.")
+    
+    # Debug Expander - Wave List Verification
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Wave List Debug (Engine Source)"):
+        try:
+            all_waves = get_all_wave_names()
+            
+            if all_waves:
+                st.write(f"**Total Waves Available:** {len(all_waves)}")
+                st.write("")
+                st.write("**First 25 Waves:**")
+                
+                # Display first 25 waves
+                display_waves = all_waves[:25]
+                for i, wave in enumerate(display_waves, 1):
+                    st.text(f"{i}. {wave}")
+                
+                if len(all_waves) > 25:
+                    st.write("")
+                    st.caption(f"... and {len(all_waves) - 25} more waves")
+                
+                st.write("")
+                st.caption("✅ Sourced from WAVE_WEIGHTS in waves_engine.py")
+            else:
+                st.warning("⚠️ No waves available from engine")
+                st.caption("Check waves_engine.py WAVE_WEIGHTS")
+        except Exception as e:
+            st.error(f"❌ Error loading waves: {str(e)}")
+    
+    # Build Information
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Build Information")
+    
+    version_label = "Console v1.0"
+    commit_hash = get_git_commit_hash()
+    branch_name = get_git_branch_name()
+    deploy_time = get_deploy_timestamp()
+    data_timestamp = get_latest_data_timestamp()
+    
+    st.sidebar.text(f"Version: {version_label}")
+    st.sidebar.text(f"Commit: {commit_hash}")
+    st.sidebar.text(f"Branch: {branch_name}")
+    st.sidebar.text(f"Deployed: {deploy_time}")
+    st.sidebar.text(f"Data as of: {data_timestamp}")
+    
+    # Debug Display - Wave Universe Info
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Wave Universe Debug Info"):
+        try:
+            universe = st.session_state.get("wave_universe", {})
+            if universe:
+                waves = universe.get("waves", [])
+                removed_duplicates = universe.get("removed_duplicates", [])
+                source = universe.get("source", "unknown")
+                timestamp = universe.get("timestamp", "N/A")
+                
+                st.write(f"**Total Waves:** {len(waves)}")
+                st.write(f"**Duplicates Removed:** {len(removed_duplicates)}")
+                st.write(f"**Source:** {source}")
+                st.write(f"**Last Updated:** {timestamp}")
+                
+                # Show first 10 waves for verification
+                if waves:
+                    st.write("**First 10 Waves:**")
+                    preview_waves = waves[:10]
+                    for i, wave in enumerate(preview_waves, 1):
+                        st.text(f"{i}. {wave}")
+                else:
+                    st.warning("No waves loaded")
+            else:
+                st.info("Wave universe not yet initialized")
+        except Exception as e:
+            st.error(f"Debug display error: {str(e)}")
+    
+    # ========================================================================
+    # DIAGNOSTICS DEBUG PANEL - Collapsible
+    # ========================================================================
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
+        st.markdown("**Diagnostics & Visibility Panel**")
+        
+        # Initialize exception storage in session state
+        if "data_load_exceptions" not in st.session_state:
+            st.session_state.data_load_exceptions = []
+        
+        try:
+            # Display selected_wave_id
+            selected_wave_id = st.session_state.get("selected_wave_id", "None")
+            st.text(f"selected_wave_id: {selected_wave_id}")
+            
+            # Display selectbox key being used
+            st.text(f"Selectbox key: selected_wave_id_display")
+            
+            # Check wave registry status
+            try:
+                if WAVE_REGISTRY_MANAGER_AVAILABLE:
+                    active_waves_df = get_active_wave_registry()
+                    wave_count = len(active_waves_df)
+                    st.text(f"Wave Registry: Loaded ({wave_count} waves)")
+                else:
+                    st.text("Wave Registry: Module unavailable")
+            except Exception as e:
+                st.text(f"Wave Registry: Error - {str(e)}")
                 st.session_state.data_load_exceptions.append({
                     "component": "Wave Registry",
                     "error": str(e),
                     "traceback": traceback.format_exc()
                 })
-        else:
-            st.text("Wave Registry: Module unavailable")
-
-        # ------------------------------------------------------------
-        # Portfolio Snapshot Status
-        # ------------------------------------------------------------
-        snapshot_path = "data/live_snapshot.csv"
-        try:
-            if os.path.exists(snapshot_path):
-                snapshot_df = pd.read_csv(snapshot_path)
-                st.text(f"Portfolio Snapshot: Loaded ({len(snapshot_df)} rows)")
-            else:
-                st.text("Portfolio Snapshot: File not found")
-        except Exception as e:
-            st.text(f"Portfolio Snapshot: Error — {e}")
-            st.session_state.data_load_exceptions.append({
-                "component": "Portfolio Snapshot",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            })
-
-        # ------------------------------------------------------------
-        # Price Cache Status
-        # ------------------------------------------------------------
-        try:
-            st.text(f"Price Cache Path: {CANONICAL_CACHE_PATH}")
-            if os.path.exists(CANONICAL_CACHE_PATH):
-                size_mb = os.path.getsize(CANONICAL_CACHE_PATH) / (1024 * 1024)
-                st.text(f"Price Cache Size: {size_mb:.2f} MB")
-            else:
-                st.text("Price Cache: Not found")
-        except Exception as e:
-            st.text(f"Price Cache: Error — {e}")
-            st.session_state.data_load_exceptions.append({
-                "component": "Price Cache",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            })
-
-        # ------------------------------------------------------------
-        # Portfolio Snapshot Debug Info (if available)
-        # ------------------------------------------------------------
-        st.markdown("---")
-        st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
-
-        if "portfolio_snapshot_debug" in st.session_state:
-            debug_info = st.session_state.portfolio_snapshot_debug
-
-            if debug_info.get("reason_if_failure"):
-                st.error(f"**Failure Reason:** {debug_info['reason_if_failure']}")
-
-            if debug_info.get("exception_message"):
-                with st.expander("🔍 Exception Details", expanded=False):
-                    st.code(debug_info["exception_message"])
-                    if debug_info.get("exception_traceback"):
-                        st.code(debug_info["exception_traceback"], language="python")
-
-            with st.expander("📊 Input Summary", expanded=False):
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.metric("Price Book Shape", debug_info.get("price_book_shape", "N/A"))
-                    st.metric("Active Waves", debug_info.get("active_waves_count", "N/A"))
-                with c2:
-                    st.metric("Date Min", debug_info.get("price_book_index_min", "N/A"))
-                    st.metric("Date Max", debug_info.get("price_book_index_max", "N/A"))
-
-            with st.expander("🔧 Full Debug JSON", expanded=False):
-                st.json(debug_info)
-        else:
-            st.caption("No portfolio snapshot debug info available yet")
-
-        # ------------------------------------------------------------
-        # Captured Exceptions
-        # ------------------------------------------------------------
-        if st.session_state.data_load_exceptions:
+            
+            # Check portfolio snapshot status
+            try:
+                snapshot_path = "data/live_snapshot.csv"
+                if os.path.exists(snapshot_path):
+                    snapshot_df = pd.read_csv(snapshot_path)
+                    row_count = len(snapshot_df)
+                    st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
+                else:
+                    st.text("Portfolio Snapshot: File not found")
+            except Exception as e:
+                st.text(f"Portfolio Snapshot: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Portfolio Snapshot",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Check price cache status
+            try:
+                price_cache_path = CANONICAL_CACHE_PATH  # Use canonical path
+                cache_exists = os.path.exists(price_cache_path)
+                st.text(f"Price Cache Path: {price_cache_path}")
+                st.text(f"Price Cache Exists: {cache_exists}")
+                
+                if cache_exists:
+                    # Get file size
+                    file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
+                    st.text(f"Price Cache Size: {file_size:.2f} MB")
+            except Exception as e:
+                st.text(f"Price Cache: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Price Cache",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Portfolio Snapshot Debug Section
             st.markdown("---")
-            st.markdown("**🚨 Captured Exceptions**")
-            for i, exc in enumerate(st.session_state.data_load_exceptions, 1):
-                with st.expander(f"Exception {i}: {exc['component']}", expanded=False):
-                    st.error(exc["error"])
-                    st.code(exc["traceback"], language="python")
+            st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
+            try:
+                if "portfolio_snapshot_debug" in st.session_state:
+                    debug_info = st.session_state.portfolio_snapshot_debug
+                    
+                    # Enhanced display with structured sections
+                    if debug_info.get('reason_if_failure'):
+                        st.error(f"**Failure Reason:** {debug_info['reason_if_failure']}")
+                    
+                    # Show exception details if available
+                    if debug_info.get('exception_message'):
+                        with st.expander("🔍 Exception Details", expanded=True):
+                            st.markdown("**Error Message:**")
+                            st.code(debug_info['exception_message'])
+                            
+                            if debug_info.get('exception_traceback'):
+                                st.markdown("**Traceback:**")
+                                st.code(debug_info['exception_traceback'], language='python')
+                    
+                    # Show input summaries
+                    with st.expander("📊 Input Summary", expanded=False):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Price Book Shape", debug_info.get('price_book_shape', 'N/A'))
+                            st.metric("Active Waves", debug_info.get('active_waves_count', 'N/A'))
+                            st.metric("Tickers Requested", debug_info.get('tickers_requested_count', 'N/A'))
+                        with col2:
+                            st.metric("Date Min", debug_info.get('price_book_index_min', 'N/A'))
+                            st.metric("Date Max", debug_info.get('price_book_index_max', 'N/A'))
+                            st.metric("Tickers Found", debug_info.get('tickers_intersection_count', 'N/A'))
+                        
+                        # Show missing tickers if any
+                        missing = debug_info.get('tickers_missing_sample', [])
+                        if missing:
+                            st.markdown("**Missing Tickers (sample):**")
+                            st.caption(', '.join(missing))
+                    
+                    # Show full JSON for power users
+                    with st.expander("🔧 Full Debug JSON", expanded=False):
+                        import json
+                        st.json(debug_info)
+                else:
+                    st.text("No portfolio snapshot debug info available yet")
+                    st.caption("Navigate to Portfolio View to generate debug data")
+            except Exception as e:
+                st.error(f"Portfolio Snapshot Debug error: {str(e)}")
+            
+            # Display all captured exceptions
+            if st.session_state.data_load_exceptions:
+                st.markdown("---")
+                st.markdown("**🚨 Captured Exceptions:**")
+                for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
+                    with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
+                        st.error(f"**Error:** {exc['error']}")
+                        st.code(exc['traceback'], language="python")
+                        
+        except Exception as e:
+            st.error(f"Debug panel error: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
 
-    except Exception as e:
-        st.error(f"Diagnostics Panel Error: {e}")
-        st.code(traceback.format_exc(), language="python")
+
 # ============================================================================
 # SECTION 7: TAB RENDER FUNCTIONS
 # ============================================================================
@@ -11026,95 +13085,137 @@ def render_overview_tab():
                 try:
                     price_book = get_cached_price_book()
                     
-        # ===============================
-# PRICE_BOOK – SAFE TRUTH PANEL
-# ===============================
-
-st.markdown("---")
-st.markdown("### 📦 PRICE_BOOK — Data Truth")
-st.caption("Canonical price cache — single source of truth")
-
-try:
-    # Hard guard — never touch price_book unless loader exists
-    if PRICE_BOOK_CONSTANTS_AVAILABLE and callable(get_cached_price_book):
-
-        try:
-            price_book = get_cached_price_book()
-
-            if price_book is None or price_book.empty:
-                st.warning("⚠️ PRICE_BOOK loaded but is empty")
-                st.caption("Reason: cache returned no usable price data")
+                    if price_book is not None and not price_book.empty:
+                        # Get shape
+                        rows, cols = price_book.shape
+                        
+                        # Get index min/max dates
+                        min_date = price_book.index.min().strftime('%Y-%m-%d')
+                        max_date = price_book.index.max().strftime('%Y-%m-%d')
+                        
+                        # Check ticker presence
+                        tickers = price_book.columns.tolist()
+                        
+                        # Required tickers
+                        spy_present = 'SPY' in tickers
+                        qqq_present = 'QQQ' in tickers
+                        iwm_present = 'IWM' in tickers
+                        
+                        # VIX proxy (any of: ^VIX, VIXY, VXX)
+                        vix_proxy = None
+                        for vix_ticker in ['^VIX', 'VIXY', 'VXX']:
+                            if vix_ticker in tickers:
+                                vix_proxy = vix_ticker
+                                break
+                        
+                        # Safe asset (any of: BIL, SHY)
+                        safe_asset = None
+                        for safe_ticker in ['BIL', 'SHY']:
+                            if safe_ticker in tickers:
+                                safe_asset = safe_ticker
+                                break
+                        
+                        # Display metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric("Shape", f"{rows} × {cols}")
+                        
+                        with col2:
+                            st.metric("Index Min Date", min_date)
+                        
+                        with col3:
+                            st.metric("Latest Price Date", max_date)
+                        
+                        with col4:
+                            # Calculate data age
+                            try:
+                                latest_date = datetime.strptime(max_date, '%Y-%m-%d').date()
+                                data_age_days = (datetime.now().date() - latest_date).days
+                                
+                                if data_age_days <= 3:
+                                    age_status = "🟢"
+                                elif data_age_days <= 7:
+                                    age_status = "🟡"
+                                else:
+                                    age_status = "🔴"
+                                
+                                st.metric("Data Age", f"{data_age_days}d {age_status}")
+                            except Exception:
+                                st.metric("Data Age", "N/A")
+                        
+                        # Ticker presence
+                        st.markdown("**Ticker Presence:**")
+                        presence_cols = st.columns(5)
+                        
+                        with presence_cols[0]:
+                            spy_icon = "✅" if spy_present else "❌"
+                            st.caption(f"{spy_icon} SPY")
+                        
+                        with presence_cols[1]:
+                            qqq_icon = "✅" if qqq_present else "❌"
+                            st.caption(f"{qqq_icon} QQQ")
+                        
+                        with presence_cols[2]:
+                            iwm_icon = "✅" if iwm_present else "❌"
+                            st.caption(f"{iwm_icon} IWM")
+                        
+                        with presence_cols[3]:
+                            if vix_proxy:
+                                st.caption(f"✅ VIX: {vix_proxy}")
+                            else:
+                                st.caption("❌ VIX: none")
+                        
+                        with presence_cols[4]:
+                            if safe_asset:
+                                st.caption(f"✅ Safe: {safe_asset}")
+                            else:
+                                st.caption("❌ Safe: none")
+                        
+                        # Missing tickers (first 10)
+                        # Calculate expected tickers from universe
+                        try:
+                            from helpers.ticker_rail import collect_required_tickers
+                            universe = get_canonical_wave_universe(force_reload=False)
+                            expected_tickers = set()
+                            for wave in universe.get('waves', []):
+                                ticker_list = wave.get('tickers', [])
+                                expected_tickers.update(ticker_list)
+                            
+                            # Add benchmark and special tickers
+                            expected_tickers.update(['SPY', 'QQQ', 'IWM', '^VIX', 'VIXY', 'VXX', 'BIL', 'SHY'])
+                            
+                            # Find missing
+                            present_tickers = set(tickers)
+                            missing_tickers = sorted(expected_tickers - present_tickers)
+                            
+                            if missing_tickers:
+                                missing_display = missing_tickers[:10]
+                                missing_text = ", ".join(missing_display)
+                                if len(missing_tickers) > 10:
+                                    missing_text += f" ... ({len(missing_tickers) - 10} more)"
+                                st.caption(f"**Missing tickers ({len(missing_tickers)}):** {missing_text}")
+                            else:
+                                st.caption("**Missing tickers:** None")
+                        except Exception:
+                            # If we can't calculate missing, skip it
+                            pass
+                        
+                    else:
+                        st.error("❌ PRICE_BOOK is empty or None")
+                        st.caption("**Reason:** Failed to load price data from cache")
+                
+                except Exception as e:
+                    st.error(f"❌ Failed to load PRICE_BOOK: {str(e)}")
+                    st.caption(f"**Reason:** {str(e)}")
             else:
-                # ---------------------------
-                # Core metadata
-                # ---------------------------
-                rows, cols = price_book.shape
-                min_date = price_book.index.min().date()
-                max_date = price_book.index.max().date()
-                tickers = list(price_book.columns)
-
-                # Required tickers
-                spy_present = "SPY" in tickers
-                qqq_present = "QQQ" in tickers
-                iwm_present = "IWM" in tickers
-
-                # VIX proxy
-                vix_proxy = next(
-                    (t for t in ["^VIX", "VIXY", "VXX"] if t in tickers),
-                    None
-                )
-
-                # Safe asset
-                safe_asset = next(
-                    (t for t in ["BIL", "SHY"] if t in tickers),
-                    None
-                )
-
-                # ---------------------------
-                # Display metrics
-                # ---------------------------
-                c1, c2, c3, c4 = st.columns(4)
-
-                with c1:
-                    st.metric("Shape", f"{rows} × {cols}")
-
-                with c2:
-                    st.metric("Start Date", min_date.strftime("%Y-%m-%d"))
-
-                with c3:
-                    st.metric("Latest Date", max_date.strftime("%Y-%m-%d"))
-
-                with c4:
-                    age_days = (datetime.now().date() - max_date).days
-                    status = "🟢" if age_days <= 3 else "🟡" if age_days <= 7 else "🔴"
-                    st.metric("Data Age", f"{age_days}d {status}")
-
-                # ---------------------------
-                # Ticker presence
-                # ---------------------------
-                st.markdown("**Ticker Presence**")
-                pcols = st.columns(5)
-
-                pcols[0].caption(f"{'✅' if spy_present else '❌'} SPY")
-                pcols[1].caption(f"{'✅' if qqq_present else '❌'} QQQ")
-                pcols[2].caption(f"{'✅' if iwm_present else '❌'} IWM")
-                vix_icon = "✅" if vix_proxy else "❌"
-                safe_icon = "✅" if safe_asset else "❌"
-
-pcols[3].caption(f"{vix_icon} VIX: {vix_proxy if vix_proxy else 'none'}")
-pcols[4].caption(f"{safe_icon} Safe: {safe_asset if safe_asset else 'none'}")
-
+                st.warning("⚠️ PRICE_BOOK module not available")
+        
         except Exception as e:
-            st.error("❌ Failed to load PRICE_BOOK")
-            st.caption(str(e))
-
-    else:
-        st.info("ℹ️ PRICE_BOOK not initialized yet")
-
-except Exception as e:
-    st.error("⚠️ PRICE_BOOK Truth Panel error")
-    import traceback
-    st.code(traceback.format_exc())
+            st.error(f"⚠️ PRICE_BOOK Truth Panel error: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+        
         # ========================================================================
         # TRUTHFRAME - Canonical Data Source for All Waves
         # ========================================================================
@@ -20347,44 +22448,11 @@ def main():
     # ========================================================================
     render_proof_banner()
     render_build_stamp()
-    # ===============================
-# PRIMARY CONSOLE ORCHESTRATOR
-# ===============================
-def render_primary_console():
-    """
-    Main UI orchestrator for the WAVES Institutional Console.
-    Controls top-level tabs and delegates rendering.
-    """
-
-    tabs = st.tabs([
-        "Overview",
-        "Diagnostics",
-        "Mission Control",
-    ])
-
-    with tabs[0]:
-        render_overview_tab()
-
-    with tabs[1]:
-        render_diagnostics_tab()
-
-    with tabs[2]:
-        render_mission_control_tab()
+    
     # ========================================================================
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
     print("[ENTRYPOINT] Running app.py")
-    # STEP 0: Session bootstrap (required)
-if "session_start_time" not in st.session_state:
-    st.session_state.session_start_time = datetime.now()
-    # STEP 0: Session bootstrap (required for Diagnostics)
-
-if "debug_mode" not in st.session_state:
-    st.session_state.debug_mode = False
-        # ========================================================================
-    # STEP 0.1: PRIMARY UI TAB ROUTING (RESTORED)
-    # ========================================================================
-    render_primary_console()
     
     # ========================================================================
     # STEP 0: Initialize Safe Mode (Default ON)
@@ -20844,5 +22912,4 @@ if "initialized" not in st.session_state:
 
 if __name__ == "__main__":
     main()
-    
     
