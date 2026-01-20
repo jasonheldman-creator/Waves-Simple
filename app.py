@@ -9248,8 +9248,8 @@ def render_sidebar_info():
             # Portfolio Snapshot Debug Section
             st.markdown("---")
             st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
-                if "portfolio_snapshot_debug" in st.session_state:
-                    debug_info = st.session_state.portfolio_snapshot_debug
+        if "portfolio_snapshot_debug" in st.session_state:
+            debug_info = st.session_state.portfolio_snapshot_debug
                     
                     # Enhanced display with structured sections
                     if debug_info.get('reason_if_failure'):
