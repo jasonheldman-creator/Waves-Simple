@@ -22454,27 +22454,64 @@ def main():
 # ============================================================
 
 main_tabs = st.tabs([
-    "Overview",
-    "Performance",
-    "Risk",
-    "Governance",
-    "Diagnostics"
+    "🏛 Mission Control",
+    "📊 Portfolio Snapshot",
+    "📈 Performance",
+    "⚠️ Risk Lab",
+    "🧠 Adaptive Intelligence",
+    "🌊 Wave Operations",
+    "🧾 Governance",
+    "🏦 IC / Compliance",
+    "🔍 Diagnostics",
+    "🧪 Research",
+    "📡 Signals",
+    "🧮 Attribution",
+    "📂 Data Integrity",
+    "⚙️ System"
+])
 ])
 
 with main_tabs[0]:
-    render_overview_tab()
+    render_mission_control_tab()
 
 with main_tabs[1]:
-    render_performance_tab()
+    render_portfolio_snapshot_tab()
 
 with main_tabs[2]:
-    render_risk_tab()
+    render_performance_tab()
 
 with main_tabs[3]:
-    render_governance_tab()
+    render_risk_lab_tab()
 
 with main_tabs[4]:
+    render_adaptive_intelligence_tab()
+
+with main_tabs[5]:
+    render_wave_operations_tab()
+
+with main_tabs[6]:
+    render_governance_tab()
+
+with main_tabs[7]:
+    render_ic_compliance_tab()
+
+with main_tabs[8]:
     render_diagnostics_tab()
+
+with main_tabs[9]:
+    render_research_tab()
+
+with main_tabs[10]:
+    render_signals_tab()
+
+with main_tabs[11]:
+    render_attribution_tab()
+
+with main_tabs[12]:
+    render_data_integrity_tab()
+
+with main_tabs[13]:
+    render_system_tab()
     # ========================================================================
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
