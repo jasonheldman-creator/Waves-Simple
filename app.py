@@ -12567,8 +12567,8 @@ def render_portfolio_snapshot():
     """
     Canonical Portfolio Snapshot entrypoint used by the main tabs.
     """
-    render_portfolio_snapshot_summary()
     render_portfolio_constructor_section()
+
 # ============================================================
 # EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE CARD METRICS)
 # ============================================================
@@ -12622,110 +12622,58 @@ def compute_aggregated_portfolio_metrics():
         st.error("Failed to compute aggregated portfolio metrics")
         st.exception(e)
         return None
-    def load_portfolio_snapshot_dataframe():
-    """
-    Canonical loader for portfolio snapshot data.
-    Single source of truth for:
-    - Portfolio Snapshot summary
-    - Alpha Attribution
-    """
-    try:
-        path = "data/live_snapshot.csv"
-
-        if not os.path.exists(path):
-            st.warning("Portfolio snapshot file not found.")
-            return None
-
-        df = pd.read_csv(path)
-
-        if df.empty:
-            return None
-
-        return df
-
-    except Exception as e:
-        st.error("Failed to load portfolio snapshot dataframe")
-        st.exception(e)
-        return None
-    def render_alpha_attribution_section():
-
-    st.subheader("📊 Alpha Attribution by Wave")
-
-    df = load_portfolio_snapshot_dataframe()
-
-    if df is None or df.empty:
-        st.warning("Alpha attribution data not available.")
-        return
-
-    required_cols = [
-        "wave_name",
-        "portfolio_return_30d",
-        "benchmark_return_30d",
-    ]
-
-    for col in required_cols:
-        if col not in df.columns:
-            st.warning("Alpha attribution columns missing.")
-            return
-
-    df = df.copy()
-    df["alpha_30d"] = df["portfolio_return_30d"] - df["benchmark_return_30d"]
-
-    df = df.sort_values("alpha_30d", ascending=False)
-
-    st.dataframe(
-        df[
-            [
-                "wave_name",
-                "portfolio_return_30d",
-                "benchmark_return_30d",
-                "alpha_30d",
-            ]
-        ].rename(
-            columns={
-                "wave_name": "Wave",
-                "portfolio_return_30d": "Portfolio Return (30D)",
-                "benchmark_return_30d": "Benchmark Return (30D)",
-                "alpha_30d": "Alpha (30D)",
-            }
-        ),
-        use_container_width=True,
-    )
 # ============================================================
 # EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE BOX)
 # ============================================================
+def render_portfolio_snapshot_summary():
+    """
+    Executive summary snapshot for the full portfolio.
+    Intended to show:
+    - 1D / 30D / 60D / 365D returns
+    - 1D / 30D / 60D / 365D alpha
+    - Aggregated portfolio metrics
+    """
+    
+    # NOTE: Full metric computation can be added here safely
 
 
-    st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
-    st.caption(
-        "Consolidated portfolio returns and alpha across "
-        "1D, 30D, 60D, and 365D horizons."
-    )
+# ============================================================
+# VECTOR EXPLAIN — SINGLE, CANONICAL DEFINITION
+# ============================================================
+def render_vector_explain_panel():
+    """
+    Render the Vector Explain panel for generating Wave narratives.
+    Enhanced with performance visualization.
+    """
+    st.subheader("📝 Vector Explain — Narrative Generator")
+    st.write("Generate comprehensive institutional narratives with performance visualizations")
 
-    metrics = compute_aggregated_portfolio_metrics()
+    try:
+        waves = get_available_waves()
 
-    if not metrics:
-        st.warning("Portfolio snapshot metrics are not yet available.")
-        return
+        if not waves:
+            st.warning("No wave data available")
+            return
 
-    cols = st.columns(4)
-    horizons = ["1D", "30D", "60D", "365D"]
-
-    for col, horizon in zip(cols, horizons):
-        data = metrics.get(horizon)
-
-        if not data:
-            col.metric(horizon, "—", "—")
-            continue
-
-        ret = data["return"] * 100
-        alpha = data["alpha"] * 100
-
-        col.metric(
-            label=horizon,
-            value=f"{ret:+.2f}%",
-            delta=f"[α] {alpha:+.2f}%",
+        # Wave selector
+        selected_wave = st.selectbox(
+            "Select Wave",
+            options=waves,
+            key="narrative_wave_selector",
+            help="Choose a wave to generate an institutional narrative"
         )
+
+        # Time period selector
+        time_period = st.selectbox(
+            "Analysis Period",
+            options=[30, 60, 90],
+            format_func=lambda x: f"{x} days",
+            help="Select the time period for analysis"
+        )
+
+        if st.button("Generate Narrative", type="primary"):
+            with st.spinner("Generating comprehensive narrative and analysis..."):
+                wave_data = get_wave_data_filtered(
                     wave_name=selected_wave,
                     days=time_period
                 )
@@ -22644,5 +22592,4 @@ def main():
 # Standard Python Entrypoint (ONLY ONCE)
 # ============================================================
 if __name__ == "__main__":
-    main() 
-    
+    main()
