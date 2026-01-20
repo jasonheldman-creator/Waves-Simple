@@ -22415,7 +22415,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # Proof / build banners
+    # Proof / build banners (safe)
     # --------------------------------------------------------
     if "render_proof_banner" in globals():
         render_proof_banner()
@@ -22450,7 +22450,7 @@ def main():
                 st.exception(e)
 
     # ========================================================
-    # TAB 2: PORTFOLIO SNAPSHOT (EXECUTIVE SUMMARY)
+    # TAB 2: PORTFOLIO SNAPSHOT (BLUE EXECUTIVE BOX)
     # ========================================================
     with tabs[1]:
         st.markdown("## 📦 Portfolio Snapshot")
@@ -22459,13 +22459,39 @@ def main():
             "Returns and alpha shown across multiple horizons."
         )
 
+        # --- BLUE EXECUTIVE SUMMARY BOX (RESTORED)
+        with st.container():
+            st.markdown(
+                """
+                <div style="
+                    background: linear-gradient(135deg, #0b2a3f, #0e3a5c);
+                    border-radius: 14px;
+                    padding: 20px;
+                    margin-top: 12px;
+                    margin-bottom: 18px;
+                    border: 1px solid rgba(255,255,255,0.08);
+                ">
+                    <h3 style="color:#9fd3ff; margin-bottom:6px;">
+                        📦 Portfolio Snapshot — Executive Summary
+                    </h3>
+                    <p style="color:#dbeeff; font-size:15px;">
+                        Consolidated portfolio returns and alpha across
+                        1D, 30D, 60D, and 365D horizons.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         try:
             if "render_portfolio_snapshot_summary" in globals():
                 render_portfolio_snapshot_summary()
+            elif "render_portfolio_snapshot" in globals():
+                render_portfolio_snapshot()
             else:
                 st.info(
-                    "Portfolio Snapshot summary renderer is wired but inactive.\n\n"
-                    "This panel will display aggregated portfolio returns and alpha."
+                    "Portfolio Snapshot renderer is wired but data is not yet active.\n\n"
+                    "This panel will populate once aggregated portfolio metrics are available."
                 )
         except Exception as e:
             st.error("❌ Error rendering Portfolio Snapshot")
@@ -22487,7 +22513,7 @@ def main():
             else:
                 st.info(
                     "Adaptive Intelligence layer is active conceptually.\n\n"
-                    "This tab will surface learning diagnostics and regime signals."
+                    "Learning diagnostics and regime signals will appear here."
                 )
         except Exception as e:
             st.error("❌ Error rendering Adaptive Intelligence")
@@ -22514,6 +22540,5 @@ def main():
 # ============================================================
 # Standard Python Entrypoint (ONLY ONCE)
 # ============================================================
-
 if __name__ == "__main__":
     main()
