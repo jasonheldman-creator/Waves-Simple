@@ -12569,7 +12569,59 @@ def render_portfolio_snapshot():
     """
     render_portfolio_constructor_section()
 
+# ============================================================
+# EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE CARD METRICS)
+# ============================================================
 
+def compute_aggregated_portfolio_metrics():
+    """
+    Compute aggregated portfolio returns and alpha across all Waves.
+
+    Returns:
+        dict with keys:
+        {
+            "1D":  {"return": float, "alpha": float},
+            "30D": {"return": float, "alpha": float},
+            "60D": {"return": float, "alpha": float},
+            "365D":{"return": float, "alpha": float},
+        }
+    """
+    try:
+        df = load_portfolio_snapshot_dataframe()
+
+        if df is None or df.empty:
+            return None
+
+        horizons = {
+            "1D": 1,
+            "30D": 30,
+            "60D": 60,
+            "365D": 365,
+        }
+
+        metrics = {}
+
+        for label, days in horizons.items():
+            port_col = f"portfolio_return_{days}d"
+            bench_col = f"benchmark_return_{days}d"
+
+            if port_col not in df.columns or bench_col not in df.columns:
+                continue
+
+            portfolio_return = df[port_col].mean()
+            benchmark_return = df[bench_col].mean()
+
+            metrics[label] = {
+                "return": float(portfolio_return),
+                "alpha": float(portfolio_return - benchmark_return),
+            }
+
+        return metrics
+
+    except Exception as e:
+        st.error("Failed to compute aggregated portfolio metrics")
+        st.exception(e)
+        return None
 # ============================================================
 # EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE BOX)
 # ============================================================
