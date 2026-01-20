@@ -22405,18 +22405,27 @@ def main():
     Stable, demo-safe orchestration layer.
     """
 
-    # --- Page config (must be first Streamlit call)
+    # --------------------------------------------------------
+    # Page config (MUST be first Streamlit call)
+    # --------------------------------------------------------
     st.set_page_config(
         page_title="WAVES Intelligence™ – Institutional Console",
         layout="wide",
         initial_sidebar_state="expanded",
     )
 
-    # --- Proof / build banners
-    render_proof_banner()
-    render_build_stamp()
+    # --------------------------------------------------------
+    # Proof / build banners
+    # --------------------------------------------------------
+    if "render_proof_banner" in globals():
+        render_proof_banner()
 
-    # --- Top-level navigation tabs (CANONICAL)
+    if "render_build_stamp" in globals():
+        render_build_stamp()
+
+    # --------------------------------------------------------
+    # Top-level navigation tabs (CANONICAL)
+    # --------------------------------------------------------
     tabs = st.tabs([
         "📊 Overview",
         "📦 Portfolio Snapshot",
@@ -22424,22 +22433,25 @@ def main():
         "🧪 Diagnostics",
     ])
 
-    # --------------------------------------------------------
+    # ========================================================
     # TAB 1: OVERVIEW
-    # --------------------------------------------------------
+    # ========================================================
     with tabs[0]:
         try:
             if "render_overview_clean_tab" in globals():
                 render_overview_clean_tab()
-            else:
+            elif "render_overview_tab" in globals():
                 render_overview_tab()
+            else:
+                st.info("Overview panel not available.")
         except Exception as e:
-            st.error("Error rendering Overview tab")
-            st.exception(e)
+            st.error("❌ Error rendering Overview")
+            with st.expander("Debug details"):
+                st.exception(e)
 
-    # --------------------------------------------------------
+    # ========================================================
     # TAB 2: PORTFOLIO SNAPSHOT (EXECUTIVE SUMMARY)
-    # --------------------------------------------------------
+    # ========================================================
     with tabs[1]:
         st.markdown("## 📦 Portfolio Snapshot")
         st.caption(
@@ -22451,21 +22463,23 @@ def main():
             if "render_portfolio_snapshot_summary" in globals():
                 render_portfolio_snapshot_summary()
             else:
-                st.warning(
-                    "Portfolio Snapshot summary renderer not available.\n\n"
-                    "Expected function: render_portfolio_snapshot_summary()"
+                st.info(
+                    "Portfolio Snapshot summary renderer is wired but inactive.\n\n"
+                    "This panel will display aggregated portfolio returns and alpha."
                 )
         except Exception as e:
             st.error("❌ Error rendering Portfolio Snapshot")
             with st.expander("Debug details"):
                 st.exception(e)
 
-    # --------------------------------------------------------
+    # ========================================================
     # TAB 3: ADAPTIVE INTELLIGENCE
-    # --------------------------------------------------------
+    # ========================================================
     with tabs[2]:
         st.markdown("## 🧠 Adaptive Intelligence")
-        st.caption("Adaptive learning, regime detection, and system self-monitoring")
+        st.caption(
+            "Adaptive learning, regime detection, and system self-monitoring."
+        )
 
         try:
             if "render_adaptive_intelligence_tab" in globals():
@@ -22473,104 +22487,33 @@ def main():
             else:
                 st.info(
                     "Adaptive Intelligence layer is active conceptually.\n\n"
-                    "This tab will surface learning diagnostics, regime shifts, "
-                    "and Wave adaptation signals."
+                    "This tab will surface learning diagnostics and regime signals."
                 )
         except Exception as e:
             st.error("❌ Error rendering Adaptive Intelligence")
             with st.expander("Debug details"):
                 st.exception(e)
 
-    # --------------------------------------------------------
+    # ========================================================
     # TAB 4: DIAGNOSTICS
-    # --------------------------------------------------------
+    # ========================================================
     with tabs[3]:
-        try:
-            if "render_diagnostics_tab" in globals():
-                render_diagnostics_tab()
-            else:
-                st.info("Diagnostics panel available in development mode.")
-        except Exception as e:
-            st.error("❌ Error rendering Diagnostics")
-            st.exception(e)
+        st.markdown("## 🧪 Diagnostics")
 
-
-# --- Standard Python entrypoint (ONLY ONCE)
-if __name__ == "__main__":
-    main()
-# ------------------------------------------------------------
-# Standard Python entrypoint
-# ------------------------------------------------------------
-if __name__ == "__main__":
-    main()
-
-    # --------------------------------------------------------
-  # TAB 2: PORTFOLIO SNAPSHOT (CRITICAL FOR DEMO)
-# --------------------------------------------------------
-# TAB 2: PORTFOLIO SNAPSHOT (EXECUTIVE SUMMARY)
-# --------------------------------------------------------
-with tabs[1]:
-    st.markdown("## 📦 Portfolio Snapshot")
-    st.caption(
-        "Aggregated portfolio performance across all Waves. "
-        "Returns and alpha shown across multiple horizons."
-    )
-
-    try:
-        if "render_portfolio_snapshot_summary" in globals():
-            render_portfolio_snapshot_summary()
-        else:
-            st.warning(
-                "Portfolio Snapshot summary is not yet available.\n\n"
-                "This panel requires aggregated portfolio metrics "
-                "(returns and alpha across time horizons)."
-            )
-
-    except Exception as e:
-        st.error("❌ Error rendering Portfolio Snapshot")
-        with st.expander("Debug details"):
-            st.exception(e)
-# ==========================================================
-# TAB 3: ADAPTIVE INTELLIGENCE (SAFE, LIGHTWEIGHT)
-# ==========================================================
-with tabs[2]:
-    st.markdown("## 🧠 Adaptive Intelligence")
-    st.caption("Adaptive learning, regime detection, and system self-monitoring")
-
-    try:
-        if "render_adaptive_intelligence_tab" in globals():
-            render_adaptive_intelligence_tab()
-
-        else:
-            st.info(
-                "Adaptive Intelligence layer is active conceptually.\n\n"
-                "This tab will surface learning diagnostics, regime shifts, "
-                "and Wave adaptation signals as they are enabled."
-            )
-
-    except Exception as e:
-        st.error("🚨 Error rendering Adaptive Intelligence")
-        with st.expander("Debug details"):
-            st.exception(e)
-    # --------------------------------------------------------
-    # TAB 4: DIAGNOSTICS
-    # --------------------------------------------------------
-    with tabs[3]:
         try:
             if "render_diagnostics_tab" in globals():
                 render_diagnostics_tab()
             else:
                 st.info("Diagnostics panel available in debug builds.")
         except Exception as e:
-            st.error("Error rendering Diagnostics")
-            st.exception(e)
+            st.error("❌ Error rendering Diagnostics")
+            with st.expander("Debug details"):
+                st.exception(e)
 
 
-# ========================================================================
-# Module Entrypoint (MUST be at top-level, no indentation)
-# ========================================================================
+# ============================================================
+# Standard Python Entrypoint (ONLY ONCE)
+# ============================================================
 
 if __name__ == "__main__":
     main()
-    
-    
