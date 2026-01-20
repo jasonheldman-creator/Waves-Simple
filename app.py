@@ -12622,7 +12622,7 @@ def compute_aggregated_portfolio_metrics():
         st.error("Failed to compute aggregated portfolio metrics")
         st.exception(e)
         return None
-        def load_portfolio_snapshot_dataframe():
+    def load_portfolio_snapshot_dataframe():
     """
     Canonical loader for portfolio snapshot data.
     Single source of truth for:
