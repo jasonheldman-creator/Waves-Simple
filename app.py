@@ -22417,40 +22417,57 @@ def main():
             st.exception(e)
 
     # --------------------------------------------------------
-    # TAB 2: PORTFOLIO SNAPSHOT (CRITICAL FOR DEMO)
-    # --------------------------------------------------------
-    with tabs[1]:
-        try:
-            if "render_portfolio_snapshot" in globals():
-                render_portfolio_snapshot()
-            elif "render_portfolio_overview" in globals():
-                render_portfolio_overview()
-            else:
-                st.warning("Portfolio Snapshot renderer not found.")
-        except Exception as e:
-            st.error("Error rendering Portfolio Snapshot")
+  # ==========================================================
+# TAB 2: PORTFOLIO SNAPSHOT (CRITICAL FOR DEMO)
+# ==========================================================
+with tabs[1]:
+    st.markdown("## 📦 Portfolio Snapshot")
+
+    try:
+        if "render_portfolio_snapshot" in globals():
+            # Canonical executive snapshot (blue box + metrics)
+            render_portfolio_snapshot()
+
+        elif "render_portfolio_overview" in globals():
+            # Fallback if snapshot renderer is unavailable
+            st.warning("Using fallback Portfolio Overview renderer.")
+            render_portfolio_overview()
+
+        else:
+            st.error("❌ Portfolio Snapshot renderer not found.")
+            st.info(
+                "Expected function: `render_portfolio_snapshot()`\n\n"
+                "This tab requires a canonical snapshot renderer for demo."
+            )
+
+    except Exception as e:
+        st.error("🚨 Error rendering Portfolio Snapshot")
+        with st.expander("Debug details"):
             st.exception(e)
 
-    # --------------------------------------------------------
-    # TAB 3: ADAPTIVE INTELLIGENCE (SAFE, LIGHTWEIGHT)
-    # --------------------------------------------------------
-    with tabs[2]:
-        st.markdown("## 🧠 Adaptive Intelligence")
-        st.caption("Adaptive learning, regime detection, and system self-monitoring")
 
+# ==========================================================
+# TAB 3: ADAPTIVE INTELLIGENCE (SAFE, LIGHTWEIGHT)
+# ==========================================================
+with tabs[2]:
+    st.markdown("## 🧠 Adaptive Intelligence")
+    st.caption("Adaptive learning, regime detection, and system self-monitoring")
+
+    try:
         if "render_adaptive_intelligence_tab" in globals():
-            try:
-                render_adaptive_intelligence_tab()
-            except Exception as e:
-                st.error("Error rendering Adaptive Intelligence")
-                st.exception(e)
+            render_adaptive_intelligence_tab()
+
         else:
             st.info(
                 "Adaptive Intelligence layer is active conceptually.\n\n"
                 "This tab will surface learning diagnostics, regime shifts, "
-                "and Wave adaptation signals."
+                "and Wave adaptation signals as they are enabled."
             )
 
+    except Exception as e:
+        st.error("🚨 Error rendering Adaptive Intelligence")
+        with st.expander("Debug details"):
+            st.exception(e)
     # --------------------------------------------------------
     # TAB 4: DIAGNOSTICS
     # --------------------------------------------------------
