@@ -4457,144 +4457,50 @@ def render_wave_universe_truth_panel():
     
     st.divider()
     
-    # ========================================================================
-    # SECTION 4: OPERATOR CONTROLS
-    # ========================================================================
-    st.markdown("#### ⚡ Operator Controls")
-    
-    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns(3)
-    
-    with ctrl_col1:
-        if st.button(
-            "🔄 Force Reload Universe",
-            use_container_width=True,
-            type="primary",
-            help="Reload the Wave Universe from source"
-        ):
-            try:
-                # Increment wave universe version
-                if "wave_universe_version" not in st.session_state:
-                    st.session_state.wave_universe_version = 1
-                st.session_state.wave_universe_version += 1
-                
-                # Clear wave universe cache using constant
-                for key in WAVE_UNIVERSE_CACHE_KEYS:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                
-                # Set force reload flag
-                st.session_state["force_reload_universe"] = True
-                
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                
-                st.success("✅ Universe reload queued - refreshing...")
-                trigger_rerun("force_reload_universe")
-            except Exception as e:
-                st.error(f"❌ Reload failed: {str(e)}")
-    
-    with ctrl_col2:
-        if st.button(
-            "🧹 Clear Cache + Recompute",
-            use_container_width=True,
-            help="Clear all caches and force recomputation"
-        ):
-            try:
-                # Clear all Streamlit caches
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                
-                # Clear session state caches using constant
-                for key in WAVE_UNIVERSE_CACHE_KEYS:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                
-                # Increment wave universe version
-                if "wave_universe_version" not in st.session_state:
-                    st.session_state.wave_universe_version = 1
-                st.session_state.wave_universe_version += 1
-                
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                
-                st.success("✅ Cache cleared - recomputing...")
-                trigger_rerun("clear_cache_recompute")
-            except Exception as e:
-                st.error(f"❌ Cache clear failed: {str(e)}")
-    
-    with ctrl_col3:
-        # Prepare diagnostics CSV
-        try:
-            # Build comprehensive diagnostics CSV
-            csv_rows = []
-            
-            # Header
-            csv_rows.append("Wave Universe Diagnostics Report")
-            csv_rows.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            csv_rows.append("")
-            
-            # Metrics
-            csv_rows.append("METRICS")
-            csv_rows.append(f"Universe Count,{diagnostics.get('universe_count', 0)}")
-            csv_rows.append(f"Active Waves,{diagnostics.get('active_count', 0)}")
-            csv_rows.append(f"Data-Ready Waves,{diagnostics.get('data_ready_count', 0)}")
-            csv_rows.append(f"History Unique,{diagnostics.get('history_unique_count', 0)}")
-            csv_rows.append(f"Missing Waves,{len(diagnostics.get('missing_waves', []))}")
-            csv_rows.append(f"Orphan Waves,{len(diagnostics.get('orphan_waves', []))}")
-            csv_rows.append(f"Duplicate Waves,{len(diagnostics.get('duplicate_waves', []))}")
-            csv_rows.append("")
-            
-            # Missing Waves
-            if diagnostics.get('missing_waves'):
-                csv_rows.append("MISSING WAVES (in registry but no data)")
-                for wave in diagnostics['missing_waves']:
-                    csv_rows.append(f"{wave}")
-                csv_rows.append("")
-            
-            # Orphan Waves
-            if diagnostics.get('orphan_waves'):
-                csv_rows.append("ORPHAN WAVES (in data but not in registry)")
-                for wave in diagnostics['orphan_waves']:
-                    csv_rows.append(f"{wave}")
-                csv_rows.append("")
-            
-            # Duplicate Waves
-            if diagnostics.get('duplicate_waves'):
-                csv_rows.append("DUPLICATE WAVES (removed during deduplication)")
-                for wave in diagnostics['duplicate_waves']:
-                    csv_rows.append(f"{wave}")
-                csv_rows.append("")
-            
-            # Data Freshness
-            if diagnostics.get('data_freshness'):
-                csv_rows.append("DATA FRESHNESS")
-                csv_rows.append("Wave,Latest Date,Days Old,Staleness")
-                for item in diagnostics['data_freshness']:
-                    wave = item['wave']
-                    latest_date = item['latest_date'] if item['latest_date'] else 'N/A'
-                    days_old = item['days_old'] if item['days_old'] is not None else 'N/A'
-                    staleness = item['staleness']
-                    csv_rows.append(f"{wave},{latest_date},{days_old},{staleness}")
-            
-            csv_content = "\n".join(csv_rows)
-            
-            st.download_button(
-                label="📥 Download Diagnostics CSV",
-                data=csv_content,
-                file_name=f"wave_universe_diagnostics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True,
-                help="Download comprehensive diagnostics as CSV"
-            )
-        except Exception as e:
-            st.button(
-                "📥 Download Diagnostics CSV",
-# ============================================================
+# ========================================================================
 # SECTION 4: OPERATOR CONTROLS
-# ============================================================
+# ========================================================================
+
 st.markdown("#### ⚡ Operator Controls")
 
-st.info("Operator controls temporarily disabled while diagnostics are stabilized.")
+ctrl_col1, ctrl_col2, ctrl_col3 = st.columns(3)
+
+with ctrl_col1:
+    if st.button(
+        "🔄 Force Reload Universe",
+        use_container_width=True,
+        type="primary",
+        help="Reload the Wave Universe from source"
+    ):
+        try:
+            if "wave_universe_version" not in st.session_state:
+                st.session_state.wave_universe_version = 1
+            st.session_state.wave_universe_version += 1
+
+            for key in [
+                "wave_universe",
+                "waves_list",
+                "universe_cache",
+                "force_reload_universe"
+            ]:
+                if key in st.session_state:
+                    del st.session_state[key]
+
+            st.session_state.force_reload_universe = True
+            st.session_state.user_interaction_detected = True
+
+            st.success("✅ Universe reload queued — refreshing…")
+            trigger_rerun("force_reload_universe")
+
+        except Exception as e:
+            st.error(f"❌ Reload failed: {str(e)}")
+
+with ctrl_col2:
+    st.info("Additional operator controls temporarily disabled")
+
+with ctrl_col3:
+    st.caption("Operator controls are in recovery-safe mode")
+
 # ============================================================================
 # SECTION 5: DATA PROCESSING FUNCTIONS
 # ============================================================================
