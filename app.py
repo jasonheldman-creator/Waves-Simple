@@ -9174,137 +9174,144 @@ def render_sidebar_info():
         except Exception as e:
             st.error(f"Debug display error: {str(e)}")
     
-    # ========================================================================
-    # DIAGNOSTICS DEBUG PANEL - Collapsible
-    # ========================================================================
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
-        st.markdown("**Diagnostics & Visibility Panel**")
-        
-        # Initialize exception storage in session state
-        if "data_load_exceptions" not in st.session_state:
-            st.session_state.data_load_exceptions = []
-        
-        try:
-            # Display selected_wave_id
-            selected_wave_id = st.session_state.get("selected_wave_id", "None")
-            st.text(f"selected_wave_id: {selected_wave_id}")
-            
-            # Display selectbox key being used
-            st.text(f"Selectbox key: selected_wave_id_display")
-            
-            # Check wave registry status
-            try:
-                if WAVE_REGISTRY_MANAGER_AVAILABLE:
-                    active_waves_df = get_active_wave_registry()
-                    wave_count = len(active_waves_df)
-                    st.text(f"Wave Registry: Loaded ({wave_count} waves)")
-                else:
-                    st.text("Wave Registry: Module unavailable")
-            except Exception as e:
-                st.text(f"Wave Registry: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Wave Registry",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Check portfolio snapshot status
-            try:
-                snapshot_path = "data/live_snapshot.csv"
-                if os.path.exists(snapshot_path):
-                    snapshot_df = pd.read_csv(snapshot_path)
-                    row_count = len(snapshot_df)
-                    st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
-                else:
-                    st.text("Portfolio Snapshot: File not found")
-            except Exception as e:
-                st.text(f"Portfolio Snapshot: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Portfolio Snapshot",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Check price cache status
-            try:
-                price_cache_path = CANONICAL_CACHE_PATH  # Use canonical path
-                cache_exists = os.path.exists(price_cache_path)
-                st.text(f"Price Cache Path: {price_cache_path}")
-                st.text(f"Price Cache Exists: {cache_exists}")
-                
-                if cache_exists:
-                    # Get file size
-                    file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
-                    st.text(f"Price Cache Size: {file_size:.2f} MB")
-            except Exception as e:
-                st.text(f"Price Cache: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Price Cache",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Portfolio Snapshot Debug Section
-            st.markdown("---")
-            st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
-        if "portfolio_snapshot_debug" in st.session_state:
-            debug_info = st.session_state.portfolio_snapshot_debug
-                    
-                    # Enhanced display with structured sections
-                    if debug_info.get('reason_if_failure'):
-                        st.error(f"**Failure Reason:** {debug_info['reason_if_failure']}")
-                    
-                    # Show exception details if available
-                    if debug_info.get('exception_message'):
-                        with st.expander("🔍 Exception Details", expanded=True):
-                            st.markdown("**Error Message:**")
-                            st.code(debug_info['exception_message'])
-                            
-                            if debug_info.get('exception_traceback'):
-                                st.markdown("**Traceback:**")
-                                st.code(debug_info['exception_traceback'], language='python')
-                    
-                    # Show input summaries
-                    with st.expander("📊 Input Summary", expanded=False):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("Price Book Shape", debug_info.get('price_book_shape', 'N/A'))
-                            st.metric("Active Waves", debug_info.get('active_waves_count', 'N/A'))
-                            st.metric("Tickers Requested", debug_info.get('tickers_requested_count', 'N/A'))
-                        with col2:
-                            st.metric("Date Min", debug_info.get('price_book_index_min', 'N/A'))
-                            st.metric("Date Max", debug_info.get('price_book_index_max', 'N/A'))
-                            st.metric("Tickers Found", debug_info.get('tickers_intersection_count', 'N/A'))
-                        
-                        # Show missing tickers if any
-                        missing = debug_info.get('tickers_missing_sample', [])
-                        if missing:
-                            st.markdown("**Missing Tickers (sample):**")
-                            st.caption(', '.join(missing))
-                    
-                    # Show full JSON for power users
-                    with st.expander("🔧 Full Debug JSON", expanded=False):
-                        import json
-                        st.json(debug_info)
-                else:
-                    st.text("No portfolio snapshot debug info available yet")
-                    st.caption("Navigate to Portfolio View to generate debug data")
-            except Exception as e:
-                st.error(f"Portfolio Snapshot Debug error: {str(e)}")
-            
-            # Display all captured exceptions
-            if st.session_state.data_load_exceptions:
-                st.markdown("---")
-                st.markdown("**🚨 Captured Exceptions:**")
-                for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
-                    with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
-                        st.error(f"**Error:** {exc['error']}")
-                        st.code(exc['traceback'], language="python")
-                        
-            import traceback
-            st.code(traceback.format_exc())
+   # ========================================================================
+# DIAGNOSTICS DEBUG PANEL - Collapsible (SAFE / CLEAN)
+# ========================================================================
 
+st.sidebar.markdown("---")
+
+with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
+    st.markdown("**Diagnostics & Visibility Panel**")
+
+    # --------------------------------------------------------------------
+    # Initialize exception storage
+    # --------------------------------------------------------------------
+    if "data_load_exceptions" not in st.session_state:
+        st.session_state.data_load_exceptions = []
+
+    # --------------------------------------------------------------------
+    # Basic State Diagnostics
+    # --------------------------------------------------------------------
+    selected_wave_id = st.session_state.get("selected_wave_id", "None")
+    st.text(f"selected_wave_id: {selected_wave_id}")
+    st.text("Selectbox key: selected_wave_id_display")
+
+    # --------------------------------------------------------------------
+    # Wave Registry Status
+    # --------------------------------------------------------------------
+    try:
+        if WAVE_REGISTRY_MANAGER_AVAILABLE:
+            active_waves_df = get_active_wave_registry()
+            st.text(f"Wave Registry: Loaded ({len(active_waves_df)} waves)")
+        else:
+            st.text("Wave Registry: Module unavailable")
+    except Exception as e:
+        st.text(f"Wave Registry: Error - {str(e)}")
+        st.session_state.data_load_exceptions.append({
+            "component": "Wave Registry",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+
+    # --------------------------------------------------------------------
+    # Portfolio Snapshot Status
+    # --------------------------------------------------------------------
+    try:
+        snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(snapshot_path):
+            snapshot_df = pd.read_csv(snapshot_path)
+            st.text(f"Portfolio Snapshot: Loaded ({len(snapshot_df)} rows)")
+        else:
+            st.text("Portfolio Snapshot: File not found")
+    except Exception as e:
+        st.text(f"Portfolio Snapshot: Error - {str(e)}")
+        st.session_state.data_load_exceptions.append({
+            "component": "Portfolio Snapshot",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+
+    # --------------------------------------------------------------------
+    # Price Cache Status
+    # --------------------------------------------------------------------
+    try:
+        price_cache_path = CANONICAL_CACHE_PATH
+        cache_exists = os.path.exists(price_cache_path)
+        st.text(f"Price Cache Path: {price_cache_path}")
+        st.text(f"Price Cache Exists: {cache_exists}")
+
+        if cache_exists:
+            file_size_mb = os.path.getsize(price_cache_path) / (1024 * 1024)
+            st.text(f"Price Cache Size: {file_size_mb:.2f} MB")
+    except Exception as e:
+        st.text(f"Price Cache: Error - {str(e)}")
+        st.session_state.data_load_exceptions.append({
+            "component": "Price Cache",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+
+    # --------------------------------------------------------------------
+    # Portfolio Snapshot Debug (Last Run)
+    # --------------------------------------------------------------------
+    st.markdown("---")
+    st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
+
+    if "portfolio_snapshot_debug" in st.session_state:
+        debug_info = st.session_state.portfolio_snapshot_debug
+
+        # Failure reason
+        if debug_info.get("reason_if_failure"):
+            st.error(f"**Failure Reason:** {debug_info['reason_if_failure']}")
+
+        # Exception details
+        if debug_info.get("exception_message"):
+            with st.expander("🔍 Exception Details", expanded=True):
+                st.markdown("**Error Message:**")
+                st.code(debug_info["exception_message"])
+
+                if debug_info.get("exception_traceback"):
+                    st.markdown("**Traceback:**")
+                    st.code(debug_info["exception_traceback"], language="python")
+
+        # Input summary
+        with st.expander("📊 Input Summary", expanded=False):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric("Price Book Shape", debug_info.get("price_book_shape", "N/A"))
+                st.metric("Active Waves", debug_info.get("active_waves_count", "N/A"))
+                st.metric("Tickers Requested", debug_info.get("tickers_requested_count", "N/A"))
+
+            with col2:
+                st.metric("Date Min", debug_info.get("price_book_index_min", "N/A"))
+                st.metric("Date Max", debug_info.get("price_book_index_max", "N/A"))
+                st.metric("Tickers Found", debug_info.get("tickers_intersection_count", "N/A"))
+
+            missing = debug_info.get("tickers_missing_sample", [])
+            if missing:
+                st.markdown("**Missing Tickers (sample):**")
+                st.caption(", ".join(missing))
+
+        # Full debug JSON
+        with st.expander("🔧 Full Debug JSON", expanded=False):
+            st.json(debug_info)
+
+    else:
+        st.text("No portfolio snapshot debug info available yet")
+        st.caption("Navigate to Portfolio View to generate debug data")
+
+    # --------------------------------------------------------------------
+    # Captured Exceptions (Global)
+    # --------------------------------------------------------------------
+    if st.session_state.data_load_exceptions:
+        st.markdown("---")
+        st.markdown("**🚨 Captured Exceptions:**")
+
+        for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
+            with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
+                st.error(f"**Error:** {exc['error']}")
+                st.code(exc["traceback"], language="python")
 
 # ============================================================================
 # SECTION 7: TAB RENDER FUNCTIONS
