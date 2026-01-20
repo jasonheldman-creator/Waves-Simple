@@ -12720,9 +12720,7 @@ def render_portfolio_snapshot_summary():
         st.warning("Portfolio snapshot metrics are not yet available.")
         return
 
-    # --- Display metrics in a clean executive layout
     cols = st.columns(4)
-
     horizons = ["1D", "30D", "60D", "365D"]
 
     for col, horizon in zip(cols, horizons):
@@ -12740,43 +12738,6 @@ def render_portfolio_snapshot_summary():
             value=f"{ret:+.2f}%",
             delta=f"[α] {alpha:+.2f}%",
         )
-# ============================================================
-# VECTOR EXPLAIN — SINGLE, CANONICAL DEFINITION
-# ============================================================
-def render_vector_explain_panel():
-    """
-    Render the Vector Explain panel for generating Wave narratives.
-    Enhanced with performance visualization.
-    """
-    st.subheader("📝 Vector Explain — Narrative Generator")
-    st.write("Generate comprehensive institutional narratives with performance visualizations")
-
-    try:
-        waves = get_available_waves()
-
-        if not waves:
-            st.warning("No wave data available")
-            return
-
-        # Wave selector
-        selected_wave = st.selectbox(
-            "Select Wave",
-            options=waves,
-            key="narrative_wave_selector",
-            help="Choose a wave to generate an institutional narrative"
-        )
-
-        # Time period selector
-        time_period = st.selectbox(
-            "Analysis Period",
-            options=[30, 60, 90],
-            format_func=lambda x: f"{x} days",
-            help="Select the time period for analysis"
-        )
-
-        if st.button("Generate Narrative", type="primary"):
-            with st.spinner("Generating comprehensive narrative and analysis..."):
-                wave_data = get_wave_data_filtered(
                     wave_name=selected_wave,
                     days=time_period
                 )
