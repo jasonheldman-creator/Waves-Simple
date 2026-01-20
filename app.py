@@ -22453,9 +22453,10 @@ def main():
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
     print("[ENTRYPOINT] Running app.py")
-    # STEP 0: Session bootstrap (required for Diagnostics)
+    # STEP 0: Session bootstrap (required)
 if "session_start_time" not in st.session_state:
-    st.session_state.session_start_time = datetime.utcnow()
+    st.session_state.session_start_time = datetime.now()
+    # STEP 0: Session bootstrap (required for Diagnostics)
 
 if "debug_mode" not in st.session_state:
     st.session_state.debug_mode = False
