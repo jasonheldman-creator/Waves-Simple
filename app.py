@@ -7677,10 +7677,10 @@ def render_sidebar_info():
     
     st.sidebar.markdown("---")
     
-    # ========================================================================
-    # OPERATOR CONTROLS - Always Visible
-    # ========================================================================
-    st.sidebar.markdown("### 🛠 Operator Controls")
+# ========================================================================
+# OPERATOR CONTROLS - Always Visible
+# ========================================================================
+st.sidebar.markdown("### 🛠 Operator Controls")
     
     # Define safe logger for operator controls
     logger = logging.getLogger(__name__)
