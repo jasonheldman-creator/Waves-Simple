@@ -9248,7 +9248,6 @@ def render_sidebar_info():
             # Portfolio Snapshot Debug Section
             st.markdown("---")
             st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
-            try:
                 if "portfolio_snapshot_debug" in st.session_state:
                     debug_info = st.session_state.portfolio_snapshot_debug
                     
@@ -9303,8 +9302,6 @@ def render_sidebar_info():
                         st.error(f"**Error:** {exc['error']}")
                         st.code(exc['traceback'], language="python")
                         
-        except Exception as e:
-            st.error(f"Debug panel error: {str(e)}")
             import traceback
             st.code(traceback.format_exc())
 
