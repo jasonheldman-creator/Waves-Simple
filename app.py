@@ -7126,7 +7126,7 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
 
-            ========================================
+
 # DIAGNOSTICS DEBUG PANEL — Collapsible (SAFE, STRUCTURED)
 # ========================================================================
 
