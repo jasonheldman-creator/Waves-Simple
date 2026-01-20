@@ -12474,22 +12474,22 @@ def render_attribution_matrix_section():
 
 def render_portfolio_constructor_section():
     """
-    Render Portfolio Constructor section - multi-wave portfolio builder.
+    Render Portfolio Constructor section – multi-wave portfolio builder.
     """
     st.markdown("### 🏗️ Portfolio Constructor (Multi-Wave)")
     st.write("Build and analyze multi-wave portfolios with custom allocations")
-    
+
     try:
         waves = get_available_waves()
-        
+
         if len(waves) == 0:
             st.warning("No wave data available")
             return
-        
+
         # Initialize session state for portfolio if not exists
         if 'portfolio_waves' not in st.session_state:
             st.session_state['portfolio_waves'] = {}
-        
+
         # Multi-select for waves
         st.markdown("#### Select Waves")
         selected_waves = st.multiselect(
@@ -12498,22 +12498,21 @@ def render_portfolio_constructor_section():
             key="portfolio_wave_selector",
             help="Select multiple waves to construct a portfolio"
         )
-        
+
         if len(selected_waves) == 0:
             st.info("Select at least one wave to begin")
             return
-        
+
         # Weight assignment
         st.markdown("#### Assign Weights")
         st.write("Allocate weights to each selected wave (must sum to 100%)")
-        
+
         weights = {}
         weight_cols = st.columns(min(len(selected_waves), 3))
-        
+
         for i, wave in enumerate(selected_waves):
             col_idx = i % len(weight_cols)
             with weight_cols[col_idx]:
-                # Default equal weight
                 default_weight = 100.0 / len(selected_waves)
                 weights[wave] = st.number_input(
                     f"{wave}",
@@ -12523,105 +12522,50 @@ def render_portfolio_constructor_section():
                     step=1.0,
                     key=f"weight_{wave}"
                 )
-        
-        # Calculate total weight
+
         total_weight = sum(weights.values())
-        
-        # Display weight sum with color coding
+
         if abs(total_weight - 100.0) < 0.01:
             st.success(f"✓ Total weight: {total_weight:.1f}% (Valid)")
         else:
             st.error(f"✗ Total weight: {total_weight:.1f}% (Must equal 100%)")
-        
-        # Normalize button
-        if abs(total_weight - 100.0) > 0.01 and total_weight > 0:
-            if st.button("Normalize Weights to 100%", key="normalize_weights"):
-                # This would require updating the number inputs, which we'll handle via rerun
-                st.info("Please manually adjust weights to sum to 100%")
-        
-        # Analyze button
+
         if abs(total_weight - 100.0) < 0.01:
             time_period = st.selectbox(
                 "Analysis Period",
                 options=[30, 60, 90],
                 format_func=lambda x: f"{x} days",
-                key="portfolio_period",
-                help="Select the time period for portfolio analysis"
+                key="portfolio_period"
             )
-            
-            if st.button("Analyze Portfolio", type="primary", key="analyze_portfolio"):
+
+            if st.button("Analyze Portfolio", type="primary"):
                 with st.spinner("Analyzing portfolio..."):
-                    # Normalize weights to decimal
-                    normalized_weights = {k: v/100.0 for k, v in weights.items()}
-                    
-                    # Calculate portfolio metrics
+                    normalized_weights = {k: v / 100.0 for k, v in weights.items()}
+
                     portfolio_metrics = calculate_portfolio_metrics(
-                        selected_waves, 
-                        normalized_weights, 
+                        selected_waves,
+                        normalized_weights,
                         time_period
                     )
-                    
+
                     if portfolio_metrics is None:
-                        st.error("Unable to calculate portfolio metrics - data unavailable")
+                        st.error("Unable to calculate portfolio metrics")
                         return
-                    
-                    # Display results
+
                     st.success("Portfolio analysis complete!")
-                    
-                    # Show key metrics
-                    st.markdown("#### Portfolio Performance")
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric("Blended Return",
-                                 f"{portfolio_metrics.get('blended_return', 0)*100:.2f}%"
-                                 if portfolio_metrics.get('blended_return') is not None else "N/A")
-                    
-                    with col2:
-                        st.metric("Blended Volatility",
-                                 f"{portfolio_metrics.get('blended_volatility', 0)*100:.2f}%"
-                                 if portfolio_metrics.get('blended_volatility') is not None else "N/A")
-                    
-                    with col3:
-                        st.metric("Max Drawdown",
-                                 f"{portfolio_metrics.get('max_drawdown', 0)*100:.2f}%"
-                                 if portfolio_metrics.get('max_drawdown') is not None else "N/A")
-                    
-                    with col4:
-                        st.metric("Blended WaveScore",
-                                 f"{portfolio_metrics.get('blended_wavescore', 0):.1f}"
-                                 if portfolio_metrics.get('blended_wavescore') is not None else "N/A")
-                    
-                    # Show correlation matrix if available
-                    if portfolio_metrics.get('correlation_matrix') is not None:
-                        st.markdown("#### Portfolio Correlations")
-                        corr_chart = create_correlation_heatmap(
-                            portfolio_metrics['correlation_matrix'],
-                            selected_waves
-                        )
-                        if corr_chart is not None:
-                            waves_key = "_".join(sorted(selected_waves))[:50]  # Limit key length
-                            safe_plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
-                    
-                    # Show weights breakdown
-                    with st.expander("View Portfolio Composition"):
-                        composition_data = []
-                        for wave, weight in weights.items():
-                            composition_data.append({
-                                'Wave': wave,
-                                'Weight': f"{weight:.1f}%",
-                                'Contribution': f"{portfolio_metrics.get('contributions', {}).get(wave, 0)*100:.2f}%"
-                                if portfolio_metrics.get('contributions') else "N/A"
-                            })
-                        composition_df = pd.DataFrame(composition_data)
-                        st.dataframe(composition_df, use_container_width=True, hide_index=True)
-                    
-                    # Warning about WaveScore
-                    st.info("⚠️ Blended WaveScore is a weighted average approximation. Individual wave dynamics may not be fully captured.")
-                    
+
+                    cols = st.columns(4)
+                    cols[0].metric("Blended Return", f"{portfolio_metrics['blended_return']*100:.2f}%")
+                    cols[1].metric("Volatility", f"{portfolio_metrics['blended_volatility']*100:.2f}%")
+                    cols[2].metric("Max Drawdown", f"{portfolio_metrics['max_drawdown']*100:.2f}%")
+                    cols[3].metric("WaveScore", f"{portfolio_metrics['blended_wavescore']:.1f}")
+
     except Exception as e:
         st.error(f"Error rendering Portfolio Constructor section: {str(e)}")
+# --- Canonical alias expected by main() ---
+
+def render_portfolio_snapshot():
+    render_portfolio_constructor_section()
 
 
 def render_vector_explain_panel():
