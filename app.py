@@ -12567,8 +12567,8 @@ def render_portfolio_snapshot():
     """
     Canonical Portfolio Snapshot entrypoint used by the main tabs.
     """
+    render_portfolio_snapshot_summary()
     render_portfolio_constructor_section()
-
 # ============================================================
 # EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE CARD METRICS)
 # ============================================================
