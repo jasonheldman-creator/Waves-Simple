@@ -13089,137 +13089,95 @@ def render_overview_tab():
                 try:
                     price_book = get_cached_price_book()
                     
-                    if price_book is not None and not price_book.empty:
-                        # Get shape
-                        rows, cols = price_book.shape
-                        
-                        # Get index min/max dates
-                        min_date = price_book.index.min().strftime('%Y-%m-%d')
-                        max_date = price_book.index.max().strftime('%Y-%m-%d')
-                        
-                        # Check ticker presence
-                        tickers = price_book.columns.tolist()
-                        
-                        # Required tickers
-                        spy_present = 'SPY' in tickers
-                        qqq_present = 'QQQ' in tickers
-                        iwm_present = 'IWM' in tickers
-                        
-                        # VIX proxy (any of: ^VIX, VIXY, VXX)
-                        vix_proxy = None
-                        for vix_ticker in ['^VIX', 'VIXY', 'VXX']:
-                            if vix_ticker in tickers:
-                                vix_proxy = vix_ticker
-                                break
-                        
-                        # Safe asset (any of: BIL, SHY)
-                        safe_asset = None
-                        for safe_ticker in ['BIL', 'SHY']:
-                            if safe_ticker in tickers:
-                                safe_asset = safe_ticker
-                                break
-                        
-                        # Display metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        with col1:
-                            st.metric("Shape", f"{rows} × {cols}")
-                        
-                        with col2:
-                            st.metric("Index Min Date", min_date)
-                        
-                        with col3:
-                            st.metric("Latest Price Date", max_date)
-                        
-                        with col4:
-                            # Calculate data age
-                            try:
-                                latest_date = datetime.strptime(max_date, '%Y-%m-%d').date()
-                                data_age_days = (datetime.now().date() - latest_date).days
-                                
-                                if data_age_days <= 3:
-                                    age_status = "🟢"
-                                elif data_age_days <= 7:
-                                    age_status = "🟡"
-                                else:
-                                    age_status = "🔴"
-                                
-                                st.metric("Data Age", f"{data_age_days}d {age_status}")
-                            except Exception:
-                                st.metric("Data Age", "N/A")
-                        
-                        # Ticker presence
-                        st.markdown("**Ticker Presence:**")
-                        presence_cols = st.columns(5)
-                        
-                        with presence_cols[0]:
-                            spy_icon = "✅" if spy_present else "❌"
-                            st.caption(f"{spy_icon} SPY")
-                        
-                        with presence_cols[1]:
-                            qqq_icon = "✅" if qqq_present else "❌"
-                            st.caption(f"{qqq_icon} QQQ")
-                        
-                        with presence_cols[2]:
-                            iwm_icon = "✅" if iwm_present else "❌"
-                            st.caption(f"{iwm_icon} IWM")
-                        
-                        with presence_cols[3]:
-                            if vix_proxy:
-                                st.caption(f"✅ VIX: {vix_proxy}")
-                            else:
-                                st.caption("❌ VIX: none")
-                        
-                        with presence_cols[4]:
-                            if safe_asset:
-                                st.caption(f"✅ Safe: {safe_asset}")
-                            else:
-                                st.caption("❌ Safe: none")
-                        
-                        # Missing tickers (first 10)
-                        # Calculate expected tickers from universe
-                        try:
-                            from helpers.ticker_rail import collect_required_tickers
-                            universe = get_canonical_wave_universe(force_reload=False)
-                            expected_tickers = set()
-                            for wave in universe.get('waves', []):
-                                ticker_list = wave.get('tickers', [])
-                                expected_tickers.update(ticker_list)
-                            
-                            # Add benchmark and special tickers
-                            expected_tickers.update(['SPY', 'QQQ', 'IWM', '^VIX', 'VIXY', 'VXX', 'BIL', 'SHY'])
-                            
-                            # Find missing
-                            present_tickers = set(tickers)
-                            missing_tickers = sorted(expected_tickers - present_tickers)
-                            
-                            if missing_tickers:
-                                missing_display = missing_tickers[:10]
-                                missing_text = ", ".join(missing_display)
-                                if len(missing_tickers) > 10:
-                                    missing_text += f" ... ({len(missing_tickers) - 10} more)"
-                                st.caption(f"**Missing tickers ({len(missing_tickers)}):** {missing_text}")
-                            else:
-                                st.caption("**Missing tickers:** None")
-                        except Exception:
-                            # If we can't calculate missing, skip it
-                            pass
-                        
-                    else:
-                        st.error("❌ PRICE_BOOK is empty or None")
-                        st.caption("**Reason:** Failed to load price data from cache")
-                
-                except Exception as e:
-                    st.error(f"❌ Failed to load PRICE_BOOK: {str(e)}")
-                    st.caption(f"**Reason:** {str(e)}")
+        # ===============================
+# PRICE_BOOK – SAFE TRUTH PANEL
+# ===============================
+
+st.markdown("---")
+st.markdown("### 📦 PRICE_BOOK — Data Truth")
+st.caption("Canonical price cache — single source of truth")
+
+try:
+    # Hard guard — never touch price_book unless loader exists
+    if PRICE_BOOK_CONSTANTS_AVAILABLE and callable(get_cached_price_book):
+
+        try:
+            price_book = get_cached_price_book()
+
+            if price_book is None or price_book.empty:
+                st.warning("⚠️ PRICE_BOOK loaded but is empty")
+                st.caption("Reason: cache returned no usable price data")
             else:
-                st.warning("⚠️ PRICE_BOOK module not available")
-        
+                # ---------------------------
+                # Core metadata
+                # ---------------------------
+                rows, cols = price_book.shape
+                min_date = price_book.index.min().date()
+                max_date = price_book.index.max().date()
+                tickers = list(price_book.columns)
+
+                # Required tickers
+                spy_present = "SPY" in tickers
+                qqq_present = "QQQ" in tickers
+                iwm_present = "IWM" in tickers
+
+                # VIX proxy
+                vix_proxy = next(
+                    (t for t in ["^VIX", "VIXY", "VXX"] if t in tickers),
+                    None
+                )
+
+                # Safe asset
+                safe_asset = next(
+                    (t for t in ["BIL", "SHY"] if t in tickers),
+                    None
+                )
+
+                # ---------------------------
+                # Display metrics
+                # ---------------------------
+                c1, c2, c3, c4 = st.columns(4)
+
+                with c1:
+                    st.metric("Shape", f"{rows} × {cols}")
+
+                with c2:
+                    st.metric("Start Date", min_date.strftime("%Y-%m-%d"))
+
+                with c3:
+                    st.metric("Latest Date", max_date.strftime("%Y-%m-%d"))
+
+                with c4:
+                    age_days = (datetime.now().date() - max_date).days
+                    status = "🟢" if age_days <= 3 else "🟡" if age_days <= 7 else "🔴"
+                    st.metric("Data Age", f"{age_days}d {status}")
+
+                # ---------------------------
+                # Ticker presence
+                # ---------------------------
+                st.markdown("**Ticker Presence**")
+                pcols = st.columns(5)
+
+                pcols[0].caption(f"{'✅' if spy_present else '❌'} SPY")
+                pcols[1].caption(f"{'✅' if qqq_present else '❌'} QQQ")
+                pcols[2].caption(f"{'✅' if iwm_present else '❌'} IWM")
+                vix_icon = "✅" if vix_proxy else "❌"
+                safe_icon = "✅" if safe_asset else "❌"
+
+pcols[3].caption(f"{vix_icon} VIX: {vix_proxy if vix_proxy else 'none'}")
+pcols[4].caption(f"{safe_icon} Safe: {safe_asset if safe_asset else 'none'}")
+
         except Exception as e:
-            st.error(f"⚠️ PRICE_BOOK Truth Panel error: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-        
+            st.error("❌ Failed to load PRICE_BOOK")
+            st.caption(str(e))
+
+    else:
+        st.info("ℹ️ PRICE_BOOK not initialized yet")
+
+except Exception as e:
+    st.error("⚠️ PRICE_BOOK Truth Panel error")
+    import traceback
+    st.code(traceback.format_exc())
         # ========================================================================
         # TRUTHFRAME - Canonical Data Source for All Waves
         # ========================================================================
