@@ -9,6 +9,10 @@ import html
 from datetime import datetime, timedelta
 import json
 import pandas as pd
+
+# --- PRICE BOOK SAFETY DEFAULTS ---
+get_price_book = None
+PRICE_BOOK_CONSTANTS_AVAILABLE = False
     
 """
 Institutional Console v2 - Executive Layer v2
