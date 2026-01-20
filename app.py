@@ -12636,7 +12636,47 @@ def render_portfolio_snapshot_summary():
     
     # NOTE: Full metric computation can be added here safely
 
+def render_portfolio_snapshot_summary():
+    """
+    Executive summary snapshot for the full portfolio.
+    Intended to show:
+    - 1D / 30D / 60D / 365D returns
+    - 1D / 30D / 60D / 365D alpha
+    - Aggregated portfolio metrics
+    """
 
+    st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
+    st.caption(
+        "Consolidated portfolio returns and alpha across "
+        "1D, 30D, 60D, and 365D horizons."
+    )
+
+    metrics = compute_aggregated_portfolio_metrics()
+
+    if not metrics:
+        st.warning("Portfolio snapshot metrics are not yet available.")
+        return
+
+    # --- Display metrics in a clean executive layout
+    cols = st.columns(4)
+
+    horizons = ["1D", "30D", "60D", "365D"]
+
+    for col, horizon in zip(cols, horizons):
+        data = metrics.get(horizon)
+
+        if not data:
+            col.metric(horizon, "—", "—")
+            continue
+
+        ret = data["return"] * 100
+        alpha = data["alpha"] * 100
+
+        col.metric(
+            label=horizon,
+            value=f"{ret:+.2f}%",
+            delta=f"[α] {alpha:+.2f}%",
+        )
 # ============================================================
 # VECTOR EXPLAIN — SINGLE, CANONICAL DEFINITION
 # ============================================================
