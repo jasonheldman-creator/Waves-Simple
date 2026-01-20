@@ -22429,483 +22429,101 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
             st.exception(e)
 
 
-# ============================================================================
-# SECTION 8: MAIN APPLICATION ENTRY POINT
-# ============================================================================
+# ============================================================
+# SECTION 8: MAIN APPLICATION ENTRY POINT (CANONICAL / DEMO)
+# ============================================================
 
 def main():
     """
-    Main application entry point - Executive Layer v2.
-    Orchestrates the entire Institutional Console UI with enhanced analytics.
+    Canonical application entry point.
+    Stable, demo-safe orchestration layer.
     """
-    # ========================================================================
-    # STEP -1: Page Configuration (must be first Streamlit call)
-    # ========================================================================
-    st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
-    
-    # ========================================================================
-    # STEP -0.5: Render Proof Banner and Build Stamp
-    # ========================================================================
+
+    # --- Page config (must be first Streamlit call)
+    st.set_page_config(
+        page_title="WAVES Intelligence™ – Institutional Console",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    # --- Proof / build banners
     render_proof_banner()
     render_build_stamp()
-    
-    # ========================================================================
-    # ENTRYPOINT FINGERPRINT
-    # ========================================================================
-    print("[ENTRYPOINT] Running app.py")
-    
-    # ========================================================================
-    # STEP 0: Initialize Safe Mode (Default ON)
-    # ========================================================================
-    
-    # Initialize Safe Mode flag (default: ON for stability)
-    if "safe_mode_no_fetch" not in st.session_state:
-        st.session_state.safe_mode_no_fetch = True  # Default to ON
-    
-    # Initialize loop detection flag
-    if "loop_detected" not in st.session_state:
-        st.session_state.loop_detected = False
-    
-    # ========================================================================
-    # STEP 1: Run Guard Counter (Hard Circuit Breaker) - Enhanced Loop Detection
-    # ========================================================================
-    
-    # Initialize run_count if not present (tracks consecutive runs without user action)
-    if "run_count" not in st.session_state:
-        st.session_state.run_count = 0
-    
-    # Initialize user_interaction_detected flag
-    if "user_interaction_detected" not in st.session_state:
-        st.session_state.user_interaction_detected = False
-    
-    # Reset run_count if user interaction was detected in previous run
-    if st.session_state.user_interaction_detected:
-        st.session_state.run_count = 0
-        st.session_state.user_interaction_detected = False
-    
-    # Increment run_count
-    st.session_state.run_count += 1
-    
-    # Check run_count threshold (max 3 iterations without user action)
-    if st.session_state.run_count > 3:
-        st.session_state.loop_detected = True
-        # Log loop detection but continue rendering UI
-        logger.warning(f"Loop detection triggered: {st.session_state.run_count} consecutive runs without user interaction")
-        # Display warning banner but allow UI to continue
-        if st.session_state.get("debug_mode", False):
-            st.warning("⚠️ Loop detection: Multiple consecutive runs detected. Debug mode allows continued execution.")
-        # st.stop()  # REMOVED: Allow UI to render instead of halting
-    
-    # ========================================================================
-    # STEP 1.5: Rerun Throttle Safety Fuse (Prevent Rapid Reruns)
-    # ========================================================================
-    
-    # Initialize rerun throttle state
-    if "last_rerun_time" not in st.session_state:
-        st.session_state.last_rerun_time = time.time()
-        st.session_state.rapid_rerun_count = 0
-    else:
-        current_time = time.time()
-        time_since_last_rerun = current_time - st.session_state.last_rerun_time
-        
-        # Check if rerun is happening too quickly (configurable threshold)
-        if time_since_last_rerun < RERUN_THROTTLE_THRESHOLD:
-            st.session_state.rapid_rerun_count += 1
-            
-            # If we've exceeded max rapid reruns, log but continue
-            if st.session_state.rapid_rerun_count >= MAX_RAPID_RERUNS:
-                # Log rapid rerun detection but continue rendering UI
-                logger.warning(f"Rapid rerun detection triggered: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s")
-                # Display warning banner but allow UI to continue
-                if st.session_state.get("debug_mode", False):
-                    st.warning(f"⚠️ Rapid rerun detected: {st.session_state.rapid_rerun_count} reruns within {RERUN_THROTTLE_THRESHOLD}s. Debug mode allows continued execution.")
-                # st.stop()  # REMOVED: Allow UI to render instead of halting
-        else:
-            # Reset rapid rerun counter if enough time has passed
-            st.session_state.rapid_rerun_count = 0
-        
-        # Update last rerun time
-        st.session_state.last_rerun_time = current_time
-    
-    # ========================================================================
-    # STEP 2: Run ID Counter & Trigger Diagnostics (Infinite Loop Prevention)
-    # ========================================================================
-    
-    # Initialize run_id counter if not present
-    if "run_id" not in st.session_state:
-        st.session_state.run_id = 0
-        st.session_state.run_trigger = "initial_load"
-        st.session_state.initial_load_complete = False
-    else:
-        st.session_state.run_id += 1
-        
-        # Determine what triggered this rerun
-        if st.session_state.get("_last_button_clicked"):
-            st.session_state.run_trigger = f"button: {st.session_state._last_button_clicked}"
-            st.session_state._last_button_clicked = None
-            st.session_state.user_interaction_detected = True  # Mark user interaction
-        elif st.session_state.get("_widget_interaction"):
-            st.session_state.run_trigger = "widget_interaction"
-            st.session_state._widget_interaction = False
-            st.session_state.user_interaction_detected = True  # Mark user interaction
-        elif st.session_state.get("auto_refresh_enabled") and not st.session_state.get("safe_mode_no_fetch", True):
-            st.session_state.run_trigger = "auto_refresh"
-            # Auto-refresh does NOT count as user interaction
-        else:
-            st.session_state.run_trigger = "user_interaction"
-            st.session_state.user_interaction_detected = True  # Mark user interaction
-    
-    # ONE RUN ONLY latch: After initial load, require user interaction for any computations
-    st.session_state.one_run_only_block = (
-        st.session_state.initial_load_complete and 
-        not st.session_state.user_interaction_detected
-    )
-    if st.session_state.run_trigger == "initial_load":
-        st.session_state.initial_load_complete = True
-    
-    # Display run diagnostics at the very top (only in debug mode)
-    if st.session_state.get("debug_mode", False):
-        st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
-    
-    # ========================================================================
-    # STEP 2.5: Run Trace Banner & Safety Latch
-    # ========================================================================
-    
-    # Calculate run trace values (but don't display unless debug mode)
-    run_seq = st.session_state.get("run_seq", 0)
-    delta_seconds = st.session_state.get("delta_seconds", 0.0)
-    last_trigger = st.session_state.get("last_trigger", "unknown")
-    buttons_clicked = st.session_state.get("buttons_clicked", [])
-    
-    # Format buttons clicked
-    buttons_str = ", ".join(buttons_clicked[-3:]) if buttons_clicked else "None"
-    
-    # Display banner (only in debug mode)
-    if st.session_state.get("debug_mode", False):
-        st.info(f"""
-**🔄 RUN TRACE**  
-• **Run #:** {run_seq}  
-• **Delta:** {delta_seconds:.2f}s  
-• **Last Trigger:** {last_trigger}  
-• **Recent Buttons:** {buttons_str}
-""")
-    
-    # Safety Latch: STOP after 2 runs unless debug mode enabled
-    # Initialize debug mode checkbox state
-    if "allow_continuous_reruns" not in st.session_state:
-        st.session_state.allow_continuous_reruns = False
-    
-    # Check if we should engage the loop trap
-    # Note: We check this AFTER the sidebar is rendered so users can toggle the checkbox
-    st.session_state.loop_trap_should_engage = (
-        run_seq >= 2 and not st.session_state.allow_continuous_reruns
-    )
-    
-    # Display warning if loop trap will engage (only in debug mode)
-    if st.session_state.loop_trap_should_engage and st.session_state.get("debug_mode", False):
-        st.error("⚠️ **Loop Trap Engaged: Blocking reruns**")
-        st.warning(f"""
-The application has completed {run_seq} runs. To prevent infinite loops, 
-further automatic reruns are blocked.
 
-**To continue:**
-1. Enable "Allow Continuous Reruns (Debug)" in the sidebar, or
-2. Refresh the page manually
-""")
-    
-    # ========================================================================
-    # STEP 3: Top Banner with Status Information (Moved to Debug Mode)
-    # ========================================================================
-    
-    # Get snapshot timestamp if available (for debug display later)
-    snapshot_timestamp = "Unknown"
-    try:
-        import os
-        from datetime import datetime
-        snapshot_path = "data/live_snapshot.csv"
-        if os.path.exists(snapshot_path):
-            mtime = os.path.getmtime(snapshot_path)
-            snapshot_timestamp = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        pass
-    
-    # Display status banner (only in debug mode)
-    if st.session_state.get("debug_mode", False):
-        safe_mode_status = "🔴 ON" if st.session_state.safe_mode_no_fetch else "🟢 OFF"
-        loop_status = "⚠️ YES" if st.session_state.loop_detected else "✅ NO"
-        
-        st.info(f"""
-**System Status**  
-• **Safe Mode:** {safe_mode_status}  
-• **Loop Detected:** {loop_status}  
-• **Last Snapshot:** {snapshot_timestamp}
-""")
-    
-    # ========================================================================
-    # STALE SNAPSHOT BANNER - Display warning if snapshots are stale (debug mode only)
-    # ========================================================================
-    if st.session_state.get("debug_mode", False):
+    # --- Top-level navigation tabs (CANONICAL)
+    tabs = st.tabs([
+        "📊 Overview",
+        "📦 Portfolio Snapshot",
+        "🧠 Adaptive Intelligence",
+        "🧪 Diagnostics",
+    ])
+
+    # --------------------------------------------------------
+    # TAB 1: OVERVIEW
+    # --------------------------------------------------------
+    with tabs[0]:
         try:
-            from helpers.compute_gate import check_stale_snapshot
-            
-            # Check main snapshot
-            live_snapshot_path = "data/live_snapshot.csv"
-            is_stale, age_minutes = check_stale_snapshot(
-                live_snapshot_path,
-                st.session_state,
-                build_key="engine_snapshot"
+            # Prefer clean demo overview if available
+            if "render_overview_clean_tab" in globals():
+                render_overview_clean_tab()
+            else:
+                render_overview_tab()
+        except Exception as e:
+            st.error("Error rendering Overview tab")
+            st.exception(e)
+
+    # --------------------------------------------------------
+    # TAB 2: PORTFOLIO SNAPSHOT (CRITICAL FOR DEMO)
+    # --------------------------------------------------------
+    with tabs[1]:
+        try:
+            if "render_portfolio_snapshot" in globals():
+                render_portfolio_snapshot()
+            elif "render_portfolio_overview" in globals():
+                render_portfolio_overview()
+            else:
+                st.warning("Portfolio Snapshot renderer not found.")
+        except Exception as e:
+            st.error("Error rendering Portfolio Snapshot")
+            st.exception(e)
+
+    # --------------------------------------------------------
+    # TAB 3: ADAPTIVE INTELLIGENCE (SAFE, LIGHTWEIGHT)
+    # --------------------------------------------------------
+    with tabs[2]:
+        st.markdown("## 🧠 Adaptive Intelligence")
+        st.caption("Adaptive learning, regime detection, and system self-monitoring")
+
+        if "render_adaptive_intelligence_tab" in globals():
+            try:
+                render_adaptive_intelligence_tab()
+            except Exception as e:
+                st.error("Error rendering Adaptive Intelligence")
+                st.exception(e)
+        else:
+            st.info(
+                "Adaptive Intelligence layer is active conceptually.\n\n"
+                "This tab will surface learning diagnostics, regime shifts, "
+                "and Wave adaptation signals."
             )
-            
-            if is_stale and age_minutes != float('inf'):
-                # Snapshot exists but is stale
-                age_hours = age_minutes / 60
-                st.warning(f"""
-⚠️ **Stale Snapshot Detected**  
-The live snapshot is {age_hours:.1f} hours old (threshold: 1 hour).  
-Click a rebuild button in the sidebar to refresh the data.
-""")
-            elif not os.path.exists(live_snapshot_path):
-                # Snapshot is missing
-                st.warning("""
-⚠️ **Snapshot Missing**  
-No live snapshot found. Click a rebuild button in the sidebar to generate data.
-""")
-        except Exception as e:
-            # Silently fail if stale check fails
-            pass
-    
-    # ========================================================================
-    # WALL-CLOCK WATCHDOG - Enforce 3-second timeout in Safe Mode
-    # ========================================================================
-    elapsed_time = time.time() - WATCHDOG_START_TIME
-    if st.session_state.safe_mode_no_fetch and elapsed_time > 3.0:
-        # Log watchdog timeout but continue rendering UI
-        logger.warning(f"Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed (threshold: 3.0s)")
-        # Display warning banner but allow UI to continue
-        if st.session_state.get("debug_mode", False):
-            st.warning(f"⏱️ Safe Mode watchdog timeout: {elapsed_time:.2f}s elapsed. Debug mode allows continued execution.")
-        # st.stop()  # REMOVED: Allow UI to render instead of halting
-    
-    # Debug trace: Mark that we passed the watchdog
-    if st.session_state.get("debug_mode", False):
-        st.caption(f"🔍 Trace: Passed watchdog check (elapsed: {elapsed_time:.2f}s)")
-    
-    # ========================================================================
-    # Wave Registry CSV Self-Healing - Validate and Auto-Rebuild
-    # ========================================================================
-    
-    # Validate wave registry CSV on startup (only once per session)
-    if "wave_registry_validated" not in st.session_state:
+
+    # --------------------------------------------------------
+    # TAB 4: DIAGNOSTICS
+    # --------------------------------------------------------
+    with tabs[3]:
         try:
-            from wave_registry_manager import auto_heal_wave_registry
-            
-            # Auto-heal will validate and rebuild if necessary
-            healed = auto_heal_wave_registry()
-            
-            if healed:
-                print("✅ Wave registry CSV validated successfully")
+            if "render_diagnostics_tab" in globals():
+                render_diagnostics_tab()
             else:
-                print("⚠️ Wave registry CSV validation/rebuild failed - some waves may not load")
-            
-            st.session_state.wave_registry_validated = True
+                st.info("Diagnostics panel available in debug builds.")
         except Exception as e:
-            print(f"⚠️ Warning: Could not validate wave registry CSV: {e}")
-            st.session_state.wave_registry_validated = False
-            # Store exception for debug panel
-            if "data_load_exceptions" not in st.session_state:
-                st.session_state.data_load_exceptions = []
-            st.session_state.data_load_exceptions.append({
-                "component": "Wave Registry Validation",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            })
-    
-    # ========================================================================
-    # Wave Universe Validation - Verify Active Waves (UPDATED for Active/Inactive Split)
-    # ========================================================================
-    
-    # Validate that we have the expected number of active waves on startup
-    if "wave_universe_validated" not in st.session_state:
-        try:
-            from waves_engine import get_all_waves_universe
-            from wave_registry_manager import get_active_wave_registry
-            
-            universe = get_all_waves_universe()
-            
-            # Get expected count from active waves in CSV registry
-            active_waves_df = get_active_wave_registry()
-            expected_active_count = len(active_waves_df)
-            
-            actual_count = universe.get('count', 0)
-            
-            if expected_active_count == 0:
-                # CSV not available, skip validation
-                st.session_state.wave_universe_validation_failed = False
-                print(f"⚠️ Could not load active wave registry, skipping validation")
-            elif actual_count != expected_active_count:
-                # Get inactive waves for informative message
-                all_waves_df = active_waves_df  # We only have active waves loaded
-                inactive_count = 0
-                inactive_names = ''
-                try:
-                    import pandas as pd
-                    full_registry = pd.read_csv("data/wave_registry.csv")
-                    inactive_waves = full_registry[full_registry['active'] == False]
-                    inactive_count = len(inactive_waves)
-                    inactive_names = ', '.join(inactive_waves['wave_name'].tolist()) if len(inactive_waves) > 0 else ''
-                except:
-                    pass
-                
-                # Only mark as validation failure if the discrepancy is NOT explained by inactive waves
-                # If actual + inactive = expected, then this is normal and not a failure
-                total_waves = actual_count + inactive_count
-                if total_waves == expected_active_count + inactive_count or actual_count == expected_active_count:
-                    # This is expected - we have active waves loaded, and inactive waves are properly excluded
-                    st.session_state.wave_universe_validation_failed = False
-                    st.session_state.wave_universe_validated_count = f"{actual_count}/{actual_count} active waves"
-                    if inactive_count > 0 and inactive_names:
-                        st.session_state.wave_universe_inactive_info = f"{inactive_count} inactive wave(s): {inactive_names}"
-                    print(f"✅ Wave Universe Validated: {actual_count}/{actual_count} active waves loaded")
-                    if inactive_count > 0:
-                        print(f"ℹ️ {inactive_count} inactive wave(s) properly excluded: {inactive_names}")
-                else:
-                    # Genuine mismatch - mark as failure
-                    st.session_state.wave_universe_validation_failed = True
-                    st.session_state.wave_universe_discrepancy = f"Expected {expected_active_count} active waves, found {actual_count}"
-                    if inactive_count > 0 and inactive_names:
-                        st.session_state.wave_universe_inactive_info = f"Inactive waves: {inactive_names}"
-                    print(f"⚠️ Wave Universe Validation Failed: {st.session_state.wave_universe_discrepancy}")
-            else:
-                st.session_state.wave_universe_validation_failed = False
-                st.session_state.wave_universe_validated_count = f"{actual_count}/{actual_count} active waves"
-                print(f"✅ Wave Universe Validated: {actual_count}/{actual_count} active waves")
-                
-                # Check for inactive waves for informational purposes
-                try:
-                    import pandas as pd
-                    full_registry = pd.read_csv("data/wave_registry.csv")
-                    inactive_waves = full_registry[full_registry['active'] == False]
-                    if len(inactive_waves) > 0:
-                        inactive_names = ', '.join(inactive_waves['wave_name'].tolist())
-                        st.session_state.wave_universe_inactive_info = f"{len(inactive_waves)} inactive wave(s): {inactive_names}"
-                        print(f"ℹ️ {len(inactive_waves)} inactive wave(s) properly excluded: {inactive_names}")
-                except:
-                    pass
-            
-            st.session_state.wave_universe_validated = True
-        except Exception as e:
-            print(f"⚠️ Warning: Could not validate wave universe: {e}")
-            st.session_state.wave_universe_validation_failed = False
-            # Store exception for debug panel
-            if "data_load_exceptions" not in st.session_state:
-                st.session_state.data_load_exceptions = []
-            st.session_state.data_load_exceptions.append({
-                "component": "Wave Universe Validation",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            })
-    
-    # ========================================================================
-# Global Compute Lock - Prevent duplicate heavy computations
-# ========================================================================
-
-# Initialize compute lock if not present
-if "compute_lock" not in st.session_state:
-    st.session_state.compute_lock = False
-    st.session_state.compute_lock_reason = None
-
-# Initialize compute operations tracker
-if "compute_operations_done" not in st.session_state:
-    st.session_state.compute_operations_done = set()
-
-# ========================================================================
-# Snapshot Auto-Build and Staleness Management (SAFE MODE ONLY)
-# ========================================================================
-
-# Debug trace marker
-if st.session_state.get("debug_mode", False):
-    st.caption("🔍 Trace: Entering snapshot validation section")
-
-# Validate snapshot existence WITHOUT triggering any build
-if "snapshot_validated" not in st.session_state:
-    st.session_state.snapshot_validated = True
-
-    import os
-    from datetime import datetime
-    import traceback
-
-    snapshot_path = "data/live_snapshot.csv"
-
-    try:
-        if os.path.exists(snapshot_path):
-            mtime = os.path.getmtime(snapshot_path)
-            age_minutes = (datetime.now() - datetime.fromtimestamp(mtime)).total_seconds() / 60.0
-
-            st.session_state.snapshot_exists = True
-            st.session_state.snapshot_fresh = age_minutes <= 15
-            st.session_state.snapshot_age_minutes = age_minutes
-            st.session_state.snapshot_rebuilt = False
-            st.session_state.snapshot_error = None
-            st.session_state.snapshot_stale_fallback = False
-            st.session_state.snapshot_build_suppressed = True
-            st.session_state.snapshot_suppression_reason = "Safe Mode – auto-build disabled"
-
-            print(f"ℹ️ Snapshot exists (age: {age_minutes:.1f} min). Safe Mode prevents rebuild.")
-
-        else:
-            st.session_state.snapshot_exists = False
-            st.session_state.snapshot_fresh = False
-            st.session_state.snapshot_age_minutes = None
-            st.session_state.snapshot_rebuilt = False
-            st.session_state.snapshot_error = "Snapshot file not found"
-            st.session_state.snapshot_stale_fallback = False
-            st.session_state.snapshot_build_suppressed = True
-            st.session_state.snapshot_suppression_reason = "Safe Mode – auto-build disabled"
-
-            print("ℹ️ Snapshot does not exist. Safe Mode prevents auto-build.")
-
-    except Exception as e:
-        print(f"⚠️ Snapshot validation error: {e}")
-
-        st.session_state.snapshot_exists = False
-        st.session_state.snapshot_fresh = False
-        st.session_state.snapshot_error = str(e)
-
-        if "data_load_exceptions" not in st.session_state:
-            st.session_state.data_load_exceptions = []
-
-        st.session_state.data_load_exceptions.append({
-            "component": "Snapshot Validation",
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        })
-
-# ========================================================================
-# Session State Initialization (ONE-TIME)
-# ========================================================================
-
-if "initialized" not in st.session_state:
-    st.session_state.initialized = True
-
-    try:
-        from analytics_pipeline import print_readiness_report
-        print_readiness_report()
-
-    except Exception as e:
-        print(f"⚠️ Readiness report failed: {e}")
-
-        import traceback
-
-        if "data_load_exceptions" not in st.session_state:
-            st.session_state.data_load_exceptions = []
-
-        st.session_state.data_load_exceptions.append({
-            "component": "Readiness Report",
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-        })
+            st.error("Error rendering Diagnostics")
+            st.exception(e)
 
 
+# --- Standard Python entrypoint
+if __name__ == "__main__":
+    main()
 # ========================================================================
 # Module Entrypoint (MUST be at top-level, no indentation)
 # ========================================================================
