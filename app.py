@@ -12563,26 +12563,47 @@ def render_portfolio_constructor_section():
     except Exception as e:
         st.error(f"Error rendering Portfolio Constructor section: {str(e)}")
 # --- Canonical alias expected by main() ---
-
 def render_portfolio_snapshot():
+    """
+    Canonical Portfolio Snapshot entrypoint used by the main tabs.
+    """
     render_portfolio_constructor_section()
 
 
+# ============================================================
+# EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE BOX)
+# ============================================================
+def render_portfolio_snapshot_summary():
+    """
+    Executive summary snapshot for the full portfolio.
+    Intended to show:
+    - 1D / 30D / 60D / 365D returns
+    - 1D / 30D / 60D / 365D alpha
+    - Aggregated portfolio metrics
+    """
+    st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
+    st.info("Portfolio snapshot summary renderer is wired and ready.")
+    # NOTE: Full metric computation can be added here safely
+
+
+# ============================================================
+# VECTOR EXPLAIN — SINGLE, CANONICAL DEFINITION
+# ============================================================
 def render_vector_explain_panel():
     """
     Render the Vector Explain panel for generating Wave narratives.
     Enhanced with performance visualization.
     """
-    st.subheader("📝 Vector Explain - Narrative Generator")
+    st.subheader("📝 Vector Explain — Narrative Generator")
     st.write("Generate comprehensive institutional narratives with performance visualizations")
-    
+
     try:
         waves = get_available_waves()
-        
-        if len(waves) == 0:
+
+        if not waves:
             st.warning("No wave data available")
             return
-        
+
         # Wave selector
         selected_wave = st.selectbox(
             "Select Wave",
@@ -12590,7 +12611,7 @@ def render_vector_explain_panel():
             key="narrative_wave_selector",
             help="Choose a wave to generate an institutional narrative"
         )
-        
+
         # Time period selector
         time_period = st.selectbox(
             "Analysis Period",
@@ -12598,93 +12619,94 @@ def render_vector_explain_panel():
             format_func=lambda x: f"{x} days",
             help="Select the time period for analysis"
         )
-        
+
         if st.button("Generate Narrative", type="primary"):
             with st.spinner("Generating comprehensive narrative and analysis..."):
-                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=time_period)
-                
-                if wave_data is not None:
-                    # Generate narrative
-                    narrative = generate_wave_narrative(selected_wave, wave_data)
-                    
-                    # Store in session state
-                    st.session_state['current_narrative'] = narrative
-                    st.session_state['current_narrative_wave'] = selected_wave
-                    st.session_state['current_narrative_data'] = wave_data
-                    st.session_state['current_narrative_timeframe'] = time_period
-                else:
+                wave_data = get_wave_data_filtered(
+                    wave_name=selected_wave,
+                    days=time_period
+                )
+
+                if wave_data is None:
                     st.error(f"Unable to load data for {selected_wave}")
                     return
-        
-        # Display narrative and visualization if available
-        if 'current_narrative' in st.session_state:
+
+                narrative = generate_wave_narrative(selected_wave, wave_data)
+
+                # Persist results
+                st.session_state["current_narrative"] = narrative
+                st.session_state["current_narrative_wave"] = selected_wave
+                st.session_state["current_narrative_data"] = wave_data
+                st.session_state["current_narrative_timeframe"] = time_period
+
+        # ----------------------------------------------------
+        # OUTPUT SECTION
+        # ----------------------------------------------------
+        if "current_narrative" in st.session_state:
             st.divider()
-            
-            # Display confidence band for the wave - NEW
-            if 'current_narrative_data' in st.session_state and 'current_narrative_wave' in st.session_state:
-                wave_name_conf = st.session_state['current_narrative_wave']
-                wave_data_conf = st.session_state['current_narrative_data']
-                
-                try:
-                    engine = get_attribution_engine()
-                    components_conf = engine.compute_attribution(wave_data_conf, wave_name_conf)
-                    
-                    st.markdown("#### 📊 Attribution Confidence")
-                    conf_col1, conf_col2 = st.columns([3, 1])
-                    
-                    with conf_col1:
-                        render_confidence_band(wave_name_conf, components_conf, compact=False)
-                    
-                    with conf_col2:
-                        if components_conf.reconciled:
-                            st.success("✅ Reconciled")
-                        else:
-                            st.warning("⚠️ Partial")
-                    
-                    st.divider()
-                except Exception as conf_error:
-                    st.info(f"⚠️ Confidence band unavailable: {str(conf_error)}")
-            
-            # Display performance chart first
-            if 'current_narrative_data' in st.session_state and 'current_narrative_wave' in st.session_state:
-                chart = create_wave_performance_chart(
-                    st.session_state['current_narrative_data'],
-                    st.session_state['current_narrative_wave']
+
+            # Attribution confidence band
+            try:
+                engine = get_attribution_engine()
+                components = engine.compute_attribution(
+                    st.session_state["current_narrative_data"],
+                    st.session_state["current_narrative_wave"]
                 )
-                if chart is not None:
-                    selected_wave_id = st.session_state['current_narrative_wave']
-                    timeframe = st.session_state.get('current_narrative_timeframe', 30)
-                    safe_plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
-            
+
+                st.markdown("#### 📊 Attribution Confidence")
+                c1, c2 = st.columns([3, 1])
+
+                with c1:
+                    render_confidence_band(
+                        st.session_state["current_narrative_wave"],
+                        components,
+                        compact=False
+                    )
+
+                with c2:
+                    st.success("✅ Reconciled" if components.reconciled else "⚠️ Partial")
+
+                st.divider()
+            except Exception as conf_err:
+                st.info(f"⚠️ Confidence band unavailable: {conf_err}")
+
+            # Performance chart
+            chart = create_wave_performance_chart(
+                st.session_state["current_narrative_data"],
+                st.session_state["current_narrative_wave"]
+            )
+
+            if chart is not None:
+                safe_plotly_chart(
+                    chart,
+                    use_container_width=True,
+                    key=f"vector_explain_{st.session_state['current_narrative_wave']}_{time_period}"
+                )
+
             st.divider()
-            
-            # Display narrative
-            st.markdown(st.session_state['current_narrative'])
-            
+            st.markdown(st.session_state["current_narrative"])
+
             # Export options
             st.divider()
             st.markdown("### 📤 Export Options")
-            
+
             col1, col2 = st.columns(2)
+
             with col1:
                 if st.button("📋 View as Text", use_container_width=True):
-                    st.code(st.session_state['current_narrative'], language=None)
-                    st.success("Narrative displayed above - use your browser to copy")
-            
+                    st.code(st.session_state["current_narrative"])
+
             with col2:
-                # Download button
                 st.download_button(
                     label="💾 Download Narrative",
-                    data=st.session_state['current_narrative'],
-                    file_name=f"wave_narrative_{st.session_state.get('current_narrative_wave', 'wave')}_{datetime.now().strftime('%Y%m%d')}.md",
+                    data=st.session_state["current_narrative"],
+                    file_name=f"wave_narrative_{st.session_state['current_narrative_wave']}_{datetime.now().strftime('%Y%m%d')}.md",
                     mime="text/markdown",
                     use_container_width=True
                 )
-    
+
     except Exception as e:
-        st.error(f"Error rendering Vector Explain panel: {str(e)}")
-
-
+        st.error(f"Error rendering Vector Explain panel: {e}")
 def render_compare_waves_panel():
     """
     Render the Compare Waves panel for head-to-head wave comparison.
