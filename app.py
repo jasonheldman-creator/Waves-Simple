@@ -8787,8 +8787,7 @@ def render_sidebar_info():
                     except Exception as e:
                         st.error(f"❌ Error warming cache: {str(e)}")
                         # Don't crash - let user continue working
-                
-                st.markdown("---")
+        
                 
                 # ========================================================================
                 # OPERATOR CONTROLS - Auto-Refresh Control
