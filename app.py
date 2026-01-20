@@ -22453,7 +22453,24 @@ def main():
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
     print("[ENTRYPOINT] Running app.py")
-    
+        # ========================================================================
+    # STEP 0.1: PRIMARY UI TAB ROUTING (RESTORED)
+    # ========================================================================
+
+    tabs = st.tabs([
+        "Overview",
+        "Diagnostics",
+        "Mission Control",
+    ])
+
+    with tabs[0]:
+        render_overview_tab()
+
+    with tabs[1]:
+        render_diagnostics_tab()
+
+    with tabs[2]:
+        render_mission_control_tab()
     # ========================================================================
     # STEP 0: Initialize Safe Mode (Default ON)
     # ========================================================================
