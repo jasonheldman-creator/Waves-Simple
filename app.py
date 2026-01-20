@@ -4458,49 +4458,14 @@ def render_wave_universe_truth_panel():
     st.divider()
     
 # ========================================================================
-# SECTION 4: OPERATOR CONTROLS
+# SECTION 4: OPERATOR CONTROLS (TEMPORARILY DISABLED)
 # ========================================================================
 
-st.markdown("#### ⚡ Operator Controls")
-
-ctrl_col1, ctrl_col2, ctrl_col3 = st.columns(3)
-
-with ctrl_col1:
-    if st.button(
-        "🔄 Force Reload Universe",
-        use_container_width=True,
-        type="primary",
-        help="Reload the Wave Universe from source"
-    ):
-        try:
-            if "wave_universe_version" not in st.session_state:
-                st.session_state.wave_universe_version = 1
-            st.session_state.wave_universe_version += 1
-
-            for key in [
-                "wave_universe",
-                "waves_list",
-                "universe_cache",
-                "force_reload_universe"
-            ]:
-                if key in st.session_state:
-                    del st.session_state[key]
-
-            st.session_state.force_reload_universe = True
-            st.session_state.user_interaction_detected = True
-
-            st.success("✅ Universe reload queued — refreshing…")
-            trigger_rerun("force_reload_universe")
-
-        except Exception as e:
-            st.error(f"❌ Reload failed: {str(e)}")
-
-with ctrl_col2:
-    st.info("Additional operator controls temporarily disabled")
-
-with ctrl_col3:
-    st.caption("Operator controls are in recovery-safe mode")
-
+st.markdown("#### ⚠️ Operator Controls")
+st.info(
+    "Operator controls are temporarily disabled while the system stabilizes. "
+    "Core analytics, Waves, and reporting are unaffected."
+)
 # ============================================================================
 # SECTION 5: DATA PROCESSING FUNCTIONS
 # ============================================================================
