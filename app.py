@@ -22453,6 +22453,12 @@ def main():
     # ENTRYPOINT FINGERPRINT
     # ========================================================================
     print("[ENTRYPOINT] Running app.py")
+    # STEP 0: Session bootstrap (required for Diagnostics)
+if "session_start_time" not in st.session_state:
+    st.session_state.session_start_time = datetime.utcnow()
+
+if "debug_mode" not in st.session_state:
+    st.session_state.debug_mode = False
         # ========================================================================
     # STEP 0.1: PRIMARY UI TAB ROUTING (RESTORED)
     # ========================================================================
