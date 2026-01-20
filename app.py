@@ -12581,8 +12581,7 @@ def render_portfolio_snapshot_summary():
     - 1D / 30D / 60D / 365D alpha
     - Aggregated portfolio metrics
     """
-    st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
-    st.info("Portfolio snapshot summary renderer is wired and ready.")
+    
     # NOTE: Full metric computation can be added here safely
 
 
