@@ -22469,7 +22469,6 @@ main_tabs = st.tabs([
     "📂 Data Integrity",
     "⚙️ System"
 ])
-])
 
 with main_tabs[0]:
     render_mission_control_tab()
