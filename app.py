@@ -12622,19 +12622,82 @@ def compute_aggregated_portfolio_metrics():
         st.error("Failed to compute aggregated portfolio metrics")
         st.exception(e)
         return None
+        def load_portfolio_snapshot_dataframe():
+    """
+    Canonical loader for portfolio snapshot data.
+    Single source of truth for:
+    - Portfolio Snapshot summary
+    - Alpha Attribution
+    """
+    try:
+        path = "data/live_snapshot.csv"
+
+        if not os.path.exists(path):
+            st.warning("Portfolio snapshot file not found.")
+            return None
+
+        df = pd.read_csv(path)
+
+        if df.empty:
+            return None
+
+        return df
+
+    except Exception as e:
+        st.error("Failed to load portfolio snapshot dataframe")
+        st.exception(e)
+        return None
+    def render_alpha_attribution_section():
+    """
+    Executive alpha attribution across Waves.
+    Shows which Waves contributed positive or negative alpha.
+    """
+
+    st.subheader("📊 Alpha Attribution by Wave")
+
+    df = load_portfolio_snapshot_dataframe()
+
+    if df is None or df.empty:
+        st.warning("Alpha attribution data not available.")
+        return
+
+    required_cols = [
+        "wave_name",
+        "portfolio_return_30d",
+        "benchmark_return_30d",
+    ]
+
+    for col in required_cols:
+        if col not in df.columns:
+            st.warning("Alpha attribution columns missing.")
+            return
+
+    df = df.copy()
+    df["alpha_30d"] = df["portfolio_return_30d"] - df["benchmark_return_30d"]
+
+    df = df.sort_values("alpha_30d", ascending=False)
+
+    st.dataframe(
+        df[
+            [
+                "wave_name",
+                "portfolio_return_30d",
+                "benchmark_return_30d",
+                "alpha_30d",
+            ]
+        ].rename(
+            columns={
+                "wave_name": "Wave",
+                "portfolio_return_30d": "Portfolio Return (30D)",
+                "benchmark_return_30d": "Benchmark Return (30D)",
+                "alpha_30d": "Alpha (30D)",
+            }
+        ),
+        use_container_width=True,
+    )
 # ============================================================
 # EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE BOX)
 # ============================================================
-def render_portfolio_snapshot_summary():
-    """
-    Executive summary snapshot for the full portfolio.
-    Intended to show:
-    - 1D / 30D / 60D / 365D returns
-    - 1D / 30D / 60D / 365D alpha
-    - Aggregated portfolio metrics
-    """
-    
-    # NOTE: Full metric computation can be added here safely
 
 def render_portfolio_snapshot_summary():
     """
