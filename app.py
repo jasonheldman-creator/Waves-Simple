@@ -13219,7 +13219,6 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
     except Exception as e:
         st.error(f"Error rendering Compare Waves panel: {str(e)}")
 
-
 def render_overview_tab():
     """
     Render the new comprehensive Overview tab with Wave Lens selector.
@@ -13236,7 +13235,20 @@ def render_overview_tab():
     try:
         st.header("📊 Platform Overview")
         st.caption("Executive-level intelligence across all waves")
-        
+
+        # ===============================
+        # ALPHA ATTRIBUTION (OVERVIEW)
+        # ===============================
+        st.subheader("🧠 Alpha Attribution")
+
+        render_alpha_heat_index()
+        render_strategy_alpha_attribution()
+
+        # (rest of the overview continues below…)
+
+    except Exception as e:
+        st.error("⚠️ Error rendering Overview tab")
+        st.exception(e)
         # ========================================================================
         # WAVE REGISTRY VALIDATOR - Diagnostics Panel
         # ========================================================================
