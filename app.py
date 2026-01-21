@@ -13204,29 +13204,16 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 ## Winner
 {winner}: {notes}
 
-## Correlation
-Return Correlation: {correlation if correlation is not None else 'N/A'}
-"""
-            
-            st.download_button(
-                label="💾 Download Comparison Report",
-                data=export_text,
-                file_name=f"wave_comparison_{datetime.now().strftime('%Y%m%d')}.md",
-                mime="text/markdown",
-                use_container_width=True
-            )
-    
-    except Exception as e:
-        st.error(f"Error rendering Compare Waves panel: {str(e)}")
 def render_strategy_alpha_attribution():
     """
     Render strategy-level alpha attribution for the Overview tab.
-    Breaks down alpha contribution by non-VIX strategy overlays.
+
+    This table shows benchmark-relative alpha by wave, acting as a
+    proxy for strategy / overlay contributions (momentum, rotation, etc.).
     """
-    st.error("DEBUG: ENTERED render_strategy_alpha_attribution")
     try:
-        # Load wave snapshot data
         snapshot_path = "data/live_snapshot.csv"
+
         if not os.path.exists(snapshot_path):
             st.warning("Alpha attribution unavailable — snapshot file not found.")
             return
@@ -13238,11 +13225,12 @@ def render_strategy_alpha_attribution():
             "Alpha_1D",
             "Alpha_30D",
             "Alpha_60D",
-            "Alpha_365D"
+            "Alpha_365D",
         ]
 
-        if not all(col in df.columns for col in required_cols):
-            st.warning("Alpha attribution unavailable — required columns missing.")
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            st.warning(f"Alpha attribution unavailable — missing columns: {missing}")
             return
 
         # Aggregate by wave (strategy proxy)
@@ -13250,7 +13238,7 @@ def render_strategy_alpha_attribution():
             df.groupby("wave_name")[required_cols[1:]]
             .mean()
             .reset_index()
-            .rename(columns={"wave_name": "Wave / Strategy"})
+            .rename(columns={"wave_name": "Wave"})
         )
 
         st.markdown("#### 📐 Strategy / Overlay Alpha Contribution")
