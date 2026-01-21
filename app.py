@@ -512,37 +512,43 @@ def load_portfolio_snapshot_dataframe():
 def compute_wave_alpha_attribution():
     """
     Compute per-wave alpha attribution from live_snapshot.csv.
-
-    Uses canonical portfolio snapshot as the single source of truth.
-
-    Returns:
-        pd.DataFrame with columns:
-        Wave, Alpha_1D, Alpha_30D, Alpha_60D, Alpha_365D
+    Robust to missing alpha columns.
     """
     df = load_portfolio_snapshot_dataframe()
 
     if df is None or df.empty:
         return None
 
-    required_cols = [
-        "Wave",
-        "Alpha_1D",
-        "Alpha_30D",
-        "Alpha_60D",
-        "Alpha_365D",
+    # Identify alpha columns that actually exist
+    alpha_cols = [
+        c for c in [
+            "Alpha_1D",
+            "Alpha_30D",
+            "Alpha_60D",
+            "Alpha_365D",
+        ]
+        if c in df.columns
     ]
 
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        st.warning(f"Missing alpha attribution columns: {missing}")
+    if "Wave" not in df.columns or not alpha_cols:
+        st.warning("Alpha attribution columns not present in snapshot.")
         return None
 
-    return (
-        df[required_cols]
+    out = (
+        df[["Wave"] + alpha_cols]
         .groupby("Wave", as_index=False)
         .mean()
-        .sort_values("Alpha_30D", ascending=False)
     )
+
+    # Drop waves with no alpha data at all
+    out = out.dropna(subset=alpha_cols, how="all")
+
+    if out.empty:
+        return None
+
+    # Sort by best available horizon
+    sort_col = "Alpha_30D" if "Alpha_30D" in out.columns else alpha_cols[-1]
+    return out.sort_values(sort_col, ascending=False)
 # -------------------------------
 # WAVE ALPHA ATTRIBUTION RENDER
 # -------------------------------
