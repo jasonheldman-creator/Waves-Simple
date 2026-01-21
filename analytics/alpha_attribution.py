@@ -7,8 +7,8 @@ import pandas as pd
 # Paths
 # -------------------------------------------------------------------
 
-ATTRIBUTION_PATH = "data/alpha_attribution_snapshot.csv"
 LIVE_SNAPSHOT_PATH = "data/live_snapshot.csv"
+ATTRIBUTION_PATH = "data/alpha_attribution_snapshot.csv"
 
 
 # -------------------------------------------------------------------
@@ -17,17 +17,16 @@ LIVE_SNAPSHOT_PATH = "data/live_snapshot.csv"
 
 def build_alpha_attribution_snapshot():
     """
-    Generate strategy-level alpha attribution by source.
+    Build alpha attribution snapshot directly from live_snapshot.csv.
 
-    Snapshot schema assumptions (from live_snapshot.csv):
-        - Wave_ID   (canonical identifier)
-        - Wave      (display name)
-        - Alpha_1D
-        - Benchmark_Return_1D
-        - Return_1D
-        - VIX_Regime
-        - strategy_state
-        - strategy_stack_applied
+    Attribution logic:
+    - Uses Alpha_60D as primary institutional signal (falls back to Alpha_1D)
+    - Decomposes alpha into:
+        * Market beta contribution
+        * VIX / volatility overlay
+        * Momentum / trend overlays
+        * Rotation / beta drift effects
+        * Residual stock selection
 
     Output columns:
         - wave_id
@@ -51,56 +50,91 @@ def build_alpha_attribution_snapshot():
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
 
+    if df.empty:
+        return False, "live_snapshot.csv is empty"
+
     # Required identifiers
-    required_cols = ["Wave_ID", "Wave", "Alpha_1D"]
+    required_cols = ["Wave_ID", "Wave"]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         return False, f"Missing required columns: {missing}"
 
-    # Optional columns (graceful degradation)
-    has_benchmark = "Benchmark_Return_1D" in df.columns
-    has_return = "Return_1D" in df.columns
-    has_vix = "VIX_Regime" in df.columns
-    has_strategy_stack = "strategy_stack_applied" in df.columns
+    # Determine best alpha column (institutional preference)
+    if "Alpha_60D" in df.columns:
+        alpha_col = "Alpha_60D"
+    elif "Alpha_30D" in df.columns:
+        alpha_col = "Alpha_30D"
+    elif "Alpha_1D" in df.columns:
+        alpha_col = "Alpha_1D"
+    else:
+        return False, "No Alpha column found (Alpha_60D / Alpha_30D / Alpha_1D)"
+
+    rows = []
 
     # ---------------------------------------------------------------
     # Attribution logic
     # ---------------------------------------------------------------
-    rows = []
-
     for _, r in df.iterrows():
         try:
-            alpha_total = float(r["Alpha_1D"])
+            wave_id = r.get("Wave_ID")
+            wave_name = r.get("Wave")
+
+            alpha_total = float(r.get(alpha_col, 0.0))
+            if pd.isna(alpha_total):
+                alpha_total = 0.0
 
             # -------------------------------------------------------
-            # Market alpha
+            # Market beta contribution
             # -------------------------------------------------------
-            if has_benchmark and has_return:
-                alpha_market = float(r["Return_1D"] - r["Benchmark_Return_1D"])
-            else:
-                alpha_market = alpha_total
+            beta_real = r.get("Beta_Real", 1.0)
+            try:
+                beta_real = float(beta_real)
+            except Exception:
+                beta_real = 1.0
+
+            alpha_market = (beta_real - 1.0) * alpha_total * 0.20
 
             # -------------------------------------------------------
-            # VIX overlay attribution
+            # VIX / volatility overlay
             # -------------------------------------------------------
             alpha_vix = 0.0
-            if has_vix and str(r["VIX_Regime"]).lower() in {"low", "risk_off", "risk-off"}:
-                alpha_vix = alpha_total * 0.30
+            vix_regime = str(r.get("VIX_Regime", "")).lower()
+
+            if "low" in vix_regime or "risk-off" in vix_regime:
+                # Use explicit adjustment if present, else proportional
+                adj = r.get("VIX_Adjustment_Pct", None)
+                if pd.notna(adj):
+                    try:
+                        alpha_vix = float(adj)
+                    except Exception:
+                        alpha_vix = alpha_total * 0.25
+                else:
+                    alpha_vix = alpha_total * 0.25
 
             # -------------------------------------------------------
-            # Strategy overlays (momentum / rotation)
+            # Momentum / trend overlays
             # -------------------------------------------------------
             alpha_momentum = 0.0
             alpha_rotation = 0.0
 
-            if has_strategy_stack and isinstance(r["strategy_stack_applied"], str):
-                stack = r["strategy_stack_applied"].lower()
+            stack = str(r.get("strategy_stack", "")).lower()
+            stack_applied = str(r.get("strategy_stack_applied", "")).lower()
+            combined_stack = f"{stack} {stack_applied}"
 
-                if "momentum" in stack:
-                    alpha_momentum = alpha_total * 0.25
+            if "momentum" in combined_stack or "trend" in combined_stack:
+                alpha_momentum = alpha_total * 0.35
 
-                if "rotation" in stack or "trend_confirmation" in stack:
-                    alpha_rotation = alpha_total * 0.20
+            # -------------------------------------------------------
+            # Rotation / beta drift effects
+            # -------------------------------------------------------
+            beta_drift = r.get("Beta_Drift", 0.0)
+            try:
+                beta_drift = float(beta_drift)
+            except Exception:
+                beta_drift = 0.0
+
+            if beta_drift != 0:
+                alpha_rotation = -beta_drift * 0.15
 
             # -------------------------------------------------------
             # Residual = stock selection
@@ -115,8 +149,8 @@ def build_alpha_attribution_snapshot():
 
             rows.append(
                 {
-                    "wave_id": r["Wave_ID"],
-                    "wave_name": r["Wave"],
+                    "wave_id": wave_id,
+                    "wave_name": wave_name,
                     "alpha_market": alpha_market,
                     "alpha_vix": alpha_vix,
                     "alpha_momentum": alpha_momentum,
@@ -127,7 +161,7 @@ def build_alpha_attribution_snapshot():
             )
 
         except Exception:
-            # Never crash the app because of one bad row
+            # Never allow a single bad row to break attribution
             continue
 
     if not rows:
