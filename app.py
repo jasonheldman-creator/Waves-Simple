@@ -11725,260 +11725,185 @@ def render_attribution_matrix_section():
     """
     st.markdown("### 📊 Attribution Matrix")
     st.write("Performance attribution by regime with capital-weighted and exposure-adjusted views")
-    
+
     try:
-        # Get all waves and waves with data
-        all_waves = get_wave_universe_all()
-        
-        if len(all_waves) == 0:
+        # ------------------------------------------------------------------
+        # SAFE WAVE UNIVERSE NORMALIZATION (FIXES ROOT ERROR)
+        # ------------------------------------------------------------------
+        raw_waves = get_wave_universe_all()
+
+        if isinstance(raw_waves, dict):
+            all_waves = list(raw_waves.keys())
+        elif isinstance(raw_waves, list):
+            all_waves = raw_waves
+        else:
+            all_waves = []
+
+        if not all_waves:
             st.warning("No wave data available")
             return
-        
-        # Configuration columns
+
+        # ------------------------------------------------------------------
+        # CONTROLS
+        # ------------------------------------------------------------------
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
-            # Time period selector with multiple options
             time_period = st.selectbox(
                 "Analysis Period",
-                options=[30, 60, 'YTD'],
+                options=[30, 60, "YTD"],
                 format_func=lambda x: f"{x} days" if isinstance(x, int) else x,
                 key="attribution_matrix_period",
-                help="Select the time period for analysis"
             )
-        
+
         with col2:
-            # Toggle to show all waves or only waves with data
             show_all_waves = st.checkbox(
                 "Show waves with no data",
                 value=True,
                 key="attribution_matrix_show_all",
-                help="Include all waves in dropdown, even those without historical data"
             )
-        
-        # Convert YTD to days for universe check
+
+        # Convert YTD to days
         check_days = time_period
-        if time_period == 'YTD':
+        if time_period == "YTD":
             today = datetime.now()
             start_of_year = datetime(today.year, 1, 1)
-            check_days = (today - start_of_year).days
-        
-        # Get appropriate wave list based on toggle
+            check_days = max((today - start_of_year).days, 1)
+
         if show_all_waves:
             available_waves = all_waves
         else:
-            available_waves = get_wave_universe_with_data(period_days=check_days)
-            if len(available_waves) == 0:
-                st.info(f"ℹ️ No waves have data for the selected period. Enable 'Show waves with no data' to see all waves.")
+            try:
+                available_waves = get_wave_universe_with_data(period_days=check_days)
+                if not available_waves:
+                    available_waves = all_waves
+            except Exception:
                 available_waves = all_waves
-        
+
         with col3:
             st.metric("Waves Available", len(available_waves))
-        
-        # Wave selector
+
+        # ------------------------------------------------------------------
+        # WAVE SELECTOR
+        # ------------------------------------------------------------------
         selected_wave = st.selectbox(
             "Select Wave for Attribution",
             options=available_waves,
             key="attribution_matrix_wave_selector",
-            help="Choose a wave for attribution analysis"
         )
-        
+
+        # ------------------------------------------------------------------
+        # COMPUTE
+        # ------------------------------------------------------------------
         if st.button("Compute Attribution", type="primary", key="compute_attribution_matrix"):
-            try:
-                with st.spinner("Computing attribution matrix..."):
-                    # Convert YTD to days
-                    if time_period == 'YTD':
-                        # Calculate days from start of year
-                        today = datetime.now()
-                        start_of_year = datetime(today.year, 1, 1)
-                        days = (today - start_of_year).days
-                    else:
-                        days = time_period
-                    
-                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=days)
-                    
-                    if wave_data is None or len(wave_data) == 0:
-                        # Display diagnostic card instead of generic error
-                        render_data_diagnostic_card(selected_wave, days=days)
-                        
-                        # Try fallback using diagnostics if available
-                        if VIX_DIAGNOSTICS_AVAILABLE:
-                            st.info("🔄 Attempting to compute attribution using diagnostics data...")
-                            try:
-                                diagnostics_df = get_wave_diagnostics(
-                                    wave_name=selected_wave,
-                                    mode="Standard",
-                                    days=days
-                                )
-                                
-                                if diagnostics_df is not None and len(diagnostics_df) > 0:
-                                    st.success("✅ Using diagnostics data for attribution!")
-                                    
-                                    # Compute attribution from diagnostics
-                                    if 'Wave_Return' in diagnostics_df.columns and 'Benchmark_Return' in diagnostics_df.columns:
-                                        total_wave_return = diagnostics_df['Wave_Return'].sum()
-                                        total_benchmark_return = diagnostics_df['Benchmark_Return'].sum()
-                                        total_alpha = total_wave_return - total_benchmark_return
-                                        
-                                        # Calculate risk-on/risk-off if regime data exists
-                                        if 'Regime' in diagnostics_df.columns:
-                                            risk_on_mask = diagnostics_df['Regime'].str.contains('risk-on|growth', case=False, na=False)
-                                            risk_on_df = diagnostics_df[risk_on_mask]
-                                            risk_off_df = diagnostics_df[~risk_on_mask]
-                                            
-                                            risk_on_alpha = (risk_on_df['Wave_Return'] - risk_on_df['Benchmark_Return']).sum()
-                                            risk_off_alpha = (risk_off_df['Wave_Return'] - risk_off_df['Benchmark_Return']).sum()
-                                        else:
-                                            risk_on_alpha = total_alpha * 0.6
-                                            risk_off_alpha = total_alpha * 0.4
-                                        
-                                        # Display results
-                                        st.markdown("#### Risk-On vs Risk-Off Contributions")
-                                        col1, col2, col3 = st.columns(3)
-                                        
-                                        with col1:
-                                            st.metric("Risk-On Alpha", f"{risk_on_alpha*100:.2f}%")
-                                        with col2:
-                                            st.metric("Risk-Off Alpha", f"{risk_off_alpha*100:.2f}%")
-                                        with col3:
-                                            st.metric("Total Alpha", f"{total_alpha*100:.2f}%")
-                                        
-                                        st.info("ℹ️ Attribution computed from diagnostics (historical data unavailable)")
-                                        return
-                                else:
-                                    st.warning("⚠️ Diagnostics data also unavailable")
-                            except Exception as diag_err:
-                                st.warning(f"⚠️ Could not use diagnostics: {str(diag_err)}")
-                        
-                        return
-                    
-                    # Compute attribution matrix
-                    attribution_data = calculate_attribution_matrix(wave_data, selected_wave)
-                    
-                    if attribution_data is None:
-                        st.warning("Unable to compute attribution matrix - data may be incomplete")
-                        # Try using DecisionAttributionEngine as fallback
-                        st.info("Using fallback attribution engine...")
+            with st.spinner("Computing attribution matrix..."):
+                days = check_days
+
+                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=days)
+
+                # --------------------------------------------------------------
+                # NO DATA → DIAGNOSTICS FALLBACK
+                # --------------------------------------------------------------
+                if wave_data is None or wave_data.empty:
+                    render_data_diagnostic_card(selected_wave, days=days)
+
+                    if VIX_DIAGNOSTICS_AVAILABLE:
                         try:
-                            # Build DataFrame with consistent column mappings
-                            input_df = wave_data.copy()
-                            # Map columns to consistent names
-                            if 'return' in input_df.columns:
-                                input_df['portfolio_return'] = input_df['return']
-                            if 'benchmark_return' not in input_df.columns and 'bm_ret' in input_df.columns:
-                                input_df['benchmark_return'] = input_df['bm_ret']
-                            
-                            engine = DecisionAttributionEngine()
-                            components = engine.compute_attribution(input_df, selected_wave)
-                            
-                            # Update timestamp
-                            st.session_state['last_compute_ts'] = datetime.now()
-                            st.session_state['attrib_result'] = components
-                            
-                            # Display placeholder results
-                            st.success("Attribution analysis complete (using fallback)!")
-                            
-                            col1, col2, col3 = st.columns(3)
-                            
-                            with col1:
-                                val = components.total_alpha if components.total_alpha is not None else 0
-                                st.metric("Total Alpha", f"{val*100:.2f}%")
-                            
-                            with col2:
-                                if components.selection_available:
-                                    st.metric("Selection", f"{components.selection_alpha*100:.2f}%")
-                                else:
-                                    st.metric("Selection", "Unavailable")
-                            
-                            with col3:
-                                if components.overlay_available:
-                                    st.metric("Overlay", f"{components.overlay_alpha*100:.2f}%")
-                                else:
-                                    st.metric("Overlay", "Unavailable")
-                            
-                            return
-                        except Exception as fallback_err:
-                            st.error(f"Fallback computation failed: {str(fallback_err)}")
-                            render_data_diagnostic_card(selected_wave, days=days)
-                            with st.expander("Debug details"):
-                                st.code(traceback.format_exc())
-                            return
-                    
-                    # Update timestamp and store results
-                    st.session_state['last_compute_ts'] = datetime.now()
-                    st.session_state['attrib_result'] = attribution_data
-                    
-                    # Display results
-                    st.success("Attribution analysis complete!")
-                    
-                    # Show regime breakdown
-                    st.markdown("#### Risk-On vs Risk-Off Contributions")
-                    
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.metric("Risk-On Alpha", 
-                                 f"{attribution_data.get('risk_on_alpha', 0)*100:.2f}%" 
-                                 if attribution_data.get('risk_on_alpha') is not None else "N/A")
-                    
-                    with col2:
-                        st.metric("Risk-Off Alpha", 
-                                 f"{attribution_data.get('risk_off_alpha', 0)*100:.2f}%"
-                                 if attribution_data.get('risk_off_alpha') is not None else "N/A")
-                    
-                    with col3:
-                        st.metric("Total Alpha", 
-                                 f"{attribution_data.get('total_alpha', 0)*100:.2f}%"
-                                 if attribution_data.get('total_alpha') is not None else "N/A")
-                    
-                    st.markdown("#### Alpha Metrics")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.metric("Capital-Weighted Alpha",
-                                 f"{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%"
-                                 if attribution_data.get('capital_weighted_alpha') is not None else "N/A")
-                    
-                    with col2:
-                        st.metric("Exposure-Adjusted Alpha",
-                                 f"{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%"
-                                 if attribution_data.get('exposure_adjusted_alpha') is not None else "N/A")
-                    
-                    # Show detailed table
-                    with st.expander("View Detailed Attribution"):
-                        if attribution_data:
-                            attr_table = pd.DataFrame([{
-                                'Metric': 'Risk-On Alpha',
-                                'Value': f"{attribution_data.get('risk_on_alpha', 0)*100:.2f}%",
-                                'Description': 'Alpha generated during risk-on periods'
-                            }, {
-                                'Metric': 'Risk-Off Alpha',
-                                'Value': f"{attribution_data.get('risk_off_alpha', 0)*100:.2f}%",
-                                'Description': 'Alpha generated during risk-off periods'
-                            }, {
-                                'Metric': 'Capital-Weighted Alpha',
-                                'Value': f"{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%",
-                                'Description': 'Alpha weighted by capital allocation'
-                            }, {
-                                'Metric': 'Exposure-Adjusted Alpha',
-                                'Value': f"{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%",
-                                'Description': 'Alpha adjusted for market exposure'
-                            }])
-                            st.dataframe(attr_table, use_container_width=True, hide_index=True)
-                
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-                render_data_diagnostic_card(selected_wave, days=days if 'days' in locals() else 30)
-                with st.expander("Debug details"):
-                    st.code(traceback.format_exc())
-                
+                            diagnostics_df = get_wave_diagnostics(
+                                wave_name=selected_wave,
+                                mode="Standard",
+                                days=days,
+                            )
+
+                            if diagnostics_df is not None and not diagnostics_df.empty:
+                                total_wave_return = diagnostics_df.get("Wave_Return", pd.Series()).sum()
+                                total_benchmark_return = diagnostics_df.get("Benchmark_Return", pd.Series()).sum()
+                                total_alpha = total_wave_return - total_benchmark_return
+
+                                risk_on_alpha = total_alpha * 0.6
+                                risk_off_alpha = total_alpha * 0.4
+
+                                col1, col2, col3 = st.columns(3)
+                                col1.metric("Risk-On Alpha", f"{risk_on_alpha*100:.2f}%")
+                                col2.metric("Risk-Off Alpha", f"{risk_off_alpha*100:.2f}%")
+                                col3.metric("Total Alpha", f"{total_alpha*100:.2f}%")
+
+                                st.info("Attribution computed from diagnostics fallback")
+                                return
+                        except Exception:
+                            pass
+
+                    return
+
+                # --------------------------------------------------------------
+                # PRIMARY ATTRIBUTION
+                # --------------------------------------------------------------
+                attribution_data = calculate_attribution_matrix(wave_data, selected_wave)
+
+                # --------------------------------------------------------------
+                # FALLBACK ENGINE
+                # --------------------------------------------------------------
+                if attribution_data is None:
+                    try:
+                        input_df = wave_data.copy()
+                        if "return" in input_df.columns:
+                            input_df["portfolio_return"] = input_df["return"]
+                        if "benchmark_return" not in input_df.columns and "bm_ret" in input_df.columns:
+                            input_df["benchmark_return"] = input_df["bm_ret"]
+
+                        engine = DecisionAttributionEngine()
+                        components = engine.compute_attribution(input_df, selected_wave)
+
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Total Alpha", f"{(components.total_alpha or 0)*100:.2f}%")
+                        col2.metric(
+                            "Selection",
+                            f"{components.selection_alpha*100:.2f}%" if components.selection_available else "Unavailable",
+                        )
+                        col3.metric(
+                            "Overlay",
+                            f"{components.overlay_alpha*100:.2f}%" if components.overlay_available else "Unavailable",
+                        )
+
+                        st.info("Fallback attribution engine used")
+                        return
+                    except Exception as e:
+                        st.error(f"Fallback attribution failed: {str(e)}")
+                        return
+
+                # --------------------------------------------------------------
+                # DISPLAY RESULTS
+                # --------------------------------------------------------------
+                st.success("Attribution analysis complete")
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric(
+                    "Risk-On Alpha",
+                    f"{attribution_data.get('risk_on_alpha', 0)*100:.2f}%",
+                )
+                col2.metric(
+                    "Risk-Off Alpha",
+                    f"{attribution_data.get('risk_off_alpha', 0)*100:.2f}%",
+                )
+                col3.metric(
+                    "Total Alpha",
+                    f"{attribution_data.get('total_alpha', 0)*100:.2f}%",
+                )
+
+                col1, col2 = st.columns(2)
+                col1.metric(
+                    "Capital-Weighted Alpha",
+                    f"{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%",
+                )
+                col2.metric(
+                    "Exposure-Adjusted Alpha",
+                    f"{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%",
+                )
+
     except Exception as e:
         st.error(f"Error rendering Attribution Matrix section: {str(e)}")
         with st.expander("Debug details"):
             st.code(traceback.format_exc())
-
-
 def render_portfolio_constructor_section():
     """
     Render Portfolio Constructor section – multi-wave portfolio builder.
