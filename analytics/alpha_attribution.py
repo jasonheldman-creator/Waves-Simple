@@ -1,29 +1,42 @@
 import os
 import pandas as pd
-import streamlit as st
 
+# -------------------------------------------------------------------
+# Paths
+# -------------------------------------------------------------------
 
 ATTRIBUTION_PATH = "data/alpha_attribution_snapshot.csv"
 LIVE_SNAPSHOT_PATH = "data/live_snapshot.csv"
 
 
-def build_alpha_attribution_snapshot():
+# -------------------------------------------------------------------
+# Core generator
+# -------------------------------------------------------------------
+
+def generate_alpha_attribution_snapshot():
     """
-    Builds strategy-level alpha attribution by source:
-    - Market
-    - VIX / Volatility overlay
-    - Momentum overlay
-    - Rotation / factor overlay
-    - Stock selection (residual)
+    Generate strategy-level alpha attribution by source.
+
+    Output columns:
+        - wave_name
+        - alpha_market
+        - alpha_vix
+        - alpha_momentum
+        - alpha_rotation
+        - alpha_stock_selection
+        - alpha_total
+
+    This function is SAFE TO CALL from app.py.
+    It writes data/alpha_attribution_snapshot.csv if inputs are valid.
     """
 
+    # --- Preconditions ------------------------------------------------
     if not os.path.exists(LIVE_SNAPSHOT_PATH):
-        st.warning("Alpha attribution unavailable — live snapshot missing")
-        return
+        return False, "live_snapshot.csv not found"
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
 
-    required = [
+    required_cols = [
         "wave_name",
         "Alpha_1D",
         "benchmark_return_1D",
@@ -33,30 +46,37 @@ def build_alpha_attribution_snapshot():
         "rotation_state",
     ]
 
-    missing = [c for c in required if c not in df.columns]
+    missing = [c for c in required_cols if c not in df.columns]
     if missing:
-        st.warning(f"Alpha attribution unavailable — missing columns: {missing}")
-        return
+        return False, f"Missing required columns: {missing}"
 
-    out = []
+    # --- Attribution logic -------------------------------------------
+    rows = []
 
     for _, r in df.iterrows():
-        alpha_total = r["Alpha_1D"]
+        alpha_total = float(r["Alpha_1D"])
 
-        alpha_market = r["strategy_return_1D"] - r["benchmark_return_1D"]
+        # Market-relative alpha
+        alpha_market = float(
+            r["strategy_return_1D"] - r["benchmark_return_1D"]
+        )
 
+        # VIX / volatility overlay attribution
         alpha_vix = 0.0
-        if r["vix_regime"] == "RISK_OFF":
+        if str(r["vix_regime"]).upper() == "RISK_OFF":
             alpha_vix = alpha_total * 0.30
 
+        # Momentum overlay attribution
         alpha_momentum = 0.0
-        if r["momentum_state"] == "ON":
+        if str(r["momentum_state"]).upper() == "ON":
             alpha_momentum = alpha_total * 0.25
 
+        # Rotation / factor overlay attribution
         alpha_rotation = 0.0
-        if r["rotation_state"] == "ON":
+        if str(r["rotation_state"]).upper() == "ON":
             alpha_rotation = alpha_total * 0.20
 
+        # Residual = stock selection
         alpha_stock_selection = (
             alpha_total
             - alpha_market
@@ -65,17 +85,33 @@ def build_alpha_attribution_snapshot():
             - alpha_rotation
         )
 
-        out.append(
+        rows.append(
             {
                 "wave_name": r["wave_name"],
-                "alpha_total": alpha_total,
                 "alpha_market": alpha_market,
                 "alpha_vix": alpha_vix,
                 "alpha_momentum": alpha_momentum,
                 "alpha_rotation": alpha_rotation,
                 "alpha_stock_selection": alpha_stock_selection,
+                "alpha_total": alpha_total,
             }
         )
 
-    out_df = pd.DataFrame(out)
+    # --- Write output -------------------------------------------------
+    out_df = pd.DataFrame(rows)
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(ATTRIBUTION_PATH), exist_ok=True)
+
     out_df.to_csv(ATTRIBUTION_PATH, index=False)
+
+    return True, f"Wrote {len(out_df)} rows to {ATTRIBUTION_PATH}"
+
+
+# -------------------------------------------------------------------
+# Optional CLI entry (safe if someone runs file directly)
+# -------------------------------------------------------------------
+
+if __name__ == "__main__":
+    ok, msg = generate_alpha_attribution_snapshot()
+    print(msg)
