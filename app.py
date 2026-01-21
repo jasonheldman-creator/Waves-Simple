@@ -543,6 +543,32 @@ def compute_wave_alpha_attribution():
         .mean()
         .sort_values("Alpha_30D", ascending=False)
     )
+# -------------------------------
+# WAVE ALPHA ATTRIBUTION RENDER
+# -------------------------------
+
+def render_wave_alpha_attribution():
+    """
+    Render per-wave alpha attribution table.
+    """
+    df = compute_wave_alpha_attribution()
+
+    if df is None or df.empty:
+        st.warning("Alpha attribution data not available.")
+        return
+
+    st.markdown("### 🧠 Wave Alpha Attribution")
+    st.caption("Average benchmark-relative alpha by wave across time horizons.")
+
+    st.dataframe(
+        df.style.format({
+            "Alpha_1D": "{:+.2%}",
+            "Alpha_30D": "{:+.2%}",
+            "Alpha_60D": "{:+.2%}",
+            "Alpha_365D": "{:+.2%}",
+        }),
+        use_container_width=True,
+    )
 # ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
 # ============================================================================
