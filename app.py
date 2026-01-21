@@ -1201,534 +1201,219 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
 
 
 # ============================================================================
-# STICKY HEADER COMPONENT - Pinned Tab Header
+# STICKY HEADER COMPONENT - Pinned Tab Header (HARDENED)
 # ============================================================================
 
 def render_sticky_header(selected_wave: str, mode: str):
     """
     Render a sticky header that appears at the top of every tab.
-    
-    Displays:
-    - Selected Wave name
-    - Active Mode
-    - Benchmark name
-    - Exposure %
-    - Cash %
-    - Today Return
-    - Today Alpha
-    
-    Args:
-        selected_wave: The name of the currently selected wave
-        mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
+    Safe, non-fatal, and schema-agnostic.
     """
     try:
-        # Get wave data for today's metrics
-        wave_data = get_wave_data_filtered(wave_name=selected_wave, days=5)
-        
-        # Initialize default values
+        # Defaults
         benchmark_name = "SPY"
         exposure_pct = "N/A"
         cash_pct = "N/A"
         today_return = "N/A"
         today_alpha = "N/A"
-        
-        # Calculate metrics if data is available
-        if wave_data is not None and len(wave_data) > 0:
-            # Get benchmark name from config
-            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
-            if os.path.exists(wave_config_path):
-                config_df = pd.read_csv(wave_config_path)
-                wave_config = config_df[config_df['Wave'] == selected_wave]
-                if len(wave_config) > 0:
-                    benchmark_name = wave_config.iloc[0].get('Benchmark', 'SPY')
-            
-            # Get latest day metrics
-            if 'exposure' in wave_data.columns:
-                latest_exposure = wave_data['exposure'].iloc[-1] if len(wave_data) > 0 else 0
-                exposure_pct = f"{latest_exposure * 100:.1f}%"
-                cash_pct = f"{(1 - latest_exposure) * 100:.1f}%"
-            
-            if 'portfolio_return' in wave_data.columns:
-                latest_return = wave_data['portfolio_return'].iloc[-1] if len(wave_data) > 0 else 0
-                today_return = f"{latest_return * 100:.2f}%"
-            
-            if 'portfolio_return' in wave_data.columns and 'benchmark_return' in wave_data.columns:
-                latest_alpha = wave_data['portfolio_return'].iloc[-1] - wave_data['benchmark_return'].iloc[-1] if len(wave_data) > 0 else 0
-                today_alpha = f"{latest_alpha * 100:.2f}%"
-        
-        # Create sticky header HTML
-        sticky_header_html = f"""
+
+        # Attempt to load recent wave data
+        try:
+            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=5)
+        except Exception:
+            wave_data = None
+
+        if wave_data is not None and not wave_data.empty:
+            # Exposure
+            if "Exposure" in wave_data.columns:
+                exp = float(wave_data["Exposure"].iloc[-1])
+                exposure_pct = f"{exp * 100:.1f}%"
+                cash_pct = f"{(1 - exp) * 100:.1f}%"
+
+            # Returns
+            if "Return_1D" in wave_data.columns:
+                today_return = f"{wave_data['Return_1D'].iloc[-1] * 100:.2f}%"
+
+            # Alpha
+            if "Alpha_1D" in wave_data.columns:
+                today_alpha = f"{wave_data['Alpha_1D'].iloc[-1] * 100:.2f}%"
+
+            # Benchmark
+            if "Benchmark" in wave_data.columns:
+                benchmark_name = str(wave_data["Benchmark"].iloc[-1])
+
+        sticky_html = f"""
         <style>
-            .sticky-header {{
-                position: sticky;
-                top: 0;
-                z-index: 999;
-                background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
-                border-bottom: 3px solid #00d9ff;
-                padding: 12px 20px;
-                margin-bottom: 15px;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-                border-radius: 0 0 8px 8px;
-            }}
-            
-            .sticky-header-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-                gap: 12px;
-                align-items: center;
-            }}
-            
-            .sticky-header-item {{
-                text-align: center;
-                padding: 5px;
-            }}
-            
-            .sticky-header-label {{
-                color: #00d9ff;
-                font-size: 11px;
-                font-weight: bold;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                margin-bottom: 3px;
-            }}
-            
-            .sticky-header-value {{
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: bold;
-            }}
-            
-            .sticky-header-wave {{
-                color: #ffd700;
-                font-size: 16px;
-                font-weight: bold;
-            }}
+        .sticky-header {{
+            position: sticky;
+            top: 0;
+            z-index: 999;
+            background: linear-gradient(135deg, #1f2933, #111827);
+            border-bottom: 3px solid #00d9ff;
+            padding: 10px 18px;
+            border-radius: 0 0 10px 10px;
+        }}
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+        }}
+        .label {{
+            font-size: 11px;
+            color: #00d9ff;
+            text-transform: uppercase;
+        }}
+        .value {{
+            font-size: 14px;
+            font-weight: bold;
+            color: white;
+        }}
+        .wave {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #ffd700;
+        }}
         </style>
-        
         <div class="sticky-header">
-            <div class="sticky-header-grid">
-                <div class="sticky-header-item">
-                    <div class="sticky-header-label">Wave</div>
-                    <div class="sticky-header-wave">{selected_wave}</div>
-                </div>
-                <div class="sticky-header-item">
-                    <div class="sticky-header-label">Mode</div>
-                    <div class="sticky-header-value">{mode}</div>
-                </div>
-                <div class="sticky-header-item">
-                    <div class="sticky-header-label">Benchmark</div>
-                    <div class="sticky-header-value">{benchmark_name}</div>
-                </div>
-                <div class="sticky-header-item">
-                    <div class="sticky-header-label">Exposure</div>
-                    <div class="sticky-header-value">{exposure_pct}</div>
-                </div>
-                <div class="sticky-header-item">
-                    <div class="sticky-header-label">Cash</div>
-                    <div class="sticky-header-value">{cash_pct}</div>
-                </div>
-                <div class="sticky-header-item">
-                    <div class="sticky-header-label">Today Return</div>
-                    <div class="sticky-header-value">{today_return}</div>
-                </div>
-                <div class="sticky-header-item">
-                    <div class="sticky-header-label">Today Alpha</div>
-                    <div class="sticky-header-value">{today_alpha}</div>
-                </div>
-            </div>
+          <div class="grid">
+            <div><div class="label">Wave</div><div class="wave">{selected_wave}</div></div>
+            <div><div class="label">Mode</div><div class="value">{mode}</div></div>
+            <div><div class="label">Benchmark</div><div class="value">{benchmark_name}</div></div>
+            <div><div class="label">Exposure</div><div class="value">{exposure_pct}</div></div>
+            <div><div class="label">Cash</div><div class="value">{cash_pct}</div></div>
+            <div><div class="label">Today Return</div><div class="value">{today_return}</div></div>
+            <div><div class="label">Today Alpha</div><div class="value">{today_alpha}</div></div>
+          </div>
         </div>
         """
-        
-        # Render using safe HTML rendering
-        render_html_safe(sticky_header_html, height=100, scrolling=False)
-        
-    except Exception as e:
-        # Silent fail - don't disrupt tab rendering
+        render_html_safe(sticky_html, height=110, scrolling=False)
+
+    except Exception:
         pass
 
 
 # ============================================================================
-# WAVE LINEUP CONFIGURATION - Equity Lineup Reset v1
+# WAVE UNIVERSE — SINGLE SOURCE OF TRUTH (LOCKED)
 # ============================================================================
 
-# Legacy Crypto Waves to exclude (removed per requirement)
-# All legacy crypto waves have been replaced with new crypto lineup:
-# - 5 Crypto Growth Waves (L1, DeFi, L2, AI, Broad)
-# - 1 Crypto Income Wave
-# Legacy waves no longer exist in the system
-EXCLUDED_CRYPTO_WAVES = set()  # Empty - all legacy waves removed
+CACHE_BUSTER = "UNIVERSE_RESET_2026_01"
 
-# Crypto sector classification for CSE universe identification
-# Based on institutional crypto classification standards (Grayscale, 21Shares, MarketVector)
-CRYPTO_SECTORS = [
-    'Store of Value / Settlement',
-    'Smart Contract Platforms (Layer 1)',
-    'Scaling Solutions (Layer 2)',
-    'Decentralized Finance (DeFi)',
-    'Infrastructure',
-    'AI / Compute / Data',
-    'Gaming / Metaverse',
-    'Payments / Remittance',
-    'Yield/Staking',
-    'Stablecoin Infrastructure'
-]
+def _normalize_wave_name(name):
+    return str(name).strip() if isinstance(name, str) else ""
 
-# All Equity Waves that should be included in the lineup
-# Includes restored waves + 5 new waves (per requirement)
-INCLUDED_EQUITY_WAVES = {
-    # Core Index Waves
-    "S&P 500 Wave",
-    "Growth Wave",
-    "Small Cap Growth Wave", 
-    "Small-Mid Cap Growth Wave",
-    
-    # Thematic/Sector Waves (restored + new)
-    "Future Power & Energy Wave",
-    "Quantum Computing Wave",
-    "Clean Transit-Infrastructure Wave",
-    
-    # Income & Fixed Income Waves (restored)
-    "Income Wave",
-    
-    # New Equity Waves (5 new thematic waves per requirement)
-    "US MegaCap Core Wave",
-    "AI & Cloud MegaCap Wave",
-    "Next-Gen Compute & Semis Wave",
-    "US Small-Cap Disruptors Wave",
-    "Demas Fund Wave"
-}
+def _safe_list(val):
+    return val if isinstance(val, list) else []
 
-# Single Crypto Wave (sole crypto representation)
-CRYPTO_INCOME_WAVE = "Crypto Income Wave"
+def _safe_dict(val):
+    return val if isinstance(val, dict) else {}
 
-# Crypto Selection Engine (CSE) - Top 1-200 cryptos
-# Represented as a virtual wave for analytics and selection
-CSE_WAVE_NAME = "Crypto Selection Engine (CSE Top 200)"
-
-# ============================================================================
-# INDEX REFERENCE WAVES - Russell 3000 Integration
-# ============================================================================
-
-# Index reference waves with fallback mappings for attributes
-# Russell 3000 Wave is an index reference wave tracked via IWV ETF
-INDEX_REFERENCE_WAVES = {
-    "Russell 3000 Wave": {
-        "ticker": "IWV",
-        "benchmark": "IWV",
-        "description": "iShares Russell 3000 ETF - Broad US equity market"
-    }
-}
-
-
-# ============================================================================
-# WAVE UNIVERSE LOADER - Deduplication and Dynamic Reload
-# ============================================================================
-
-def normalize_wave_name(name: str) -> str:
+@st.cache_data(ttl=30)
+def get_canonical_wave_universe(force_reload=False):
     """
-    Clean wave names by trimming whitespace and casefolding.
-    
-    Args:
-        name: Wave name to normalize
-        
-    Returns:
-        Normalized wave name (trimmed and lowercased)
+    Canonical wave universe.
+    ALWAYS returns a valid structure.
     """
-    if not isinstance(name, str):
-        return ""
-    return name.strip().casefold()
-
-
-def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
-    """
-    Deduplicate wave names while preserving original order.
-    
-    Removes duplicates based on normalized names (case-insensitive, trimmed).
-    
-    Args:
-        names: List of wave names (may contain duplicates)
-        
-    Returns:
-        Tuple of (deduplicated_names, removed_duplicates)
-        - deduplicated_names: List of unique wave names in original order
-        - removed_duplicates: List of duplicate names that were removed
-    """
-    if not names:
-        return [], []
-    
-    seen_normalized = set()
-    deduplicated = []
-    removed = []
-    
-    for name in names:
-        normalized = normalize_wave_name(name)
-        if normalized and normalized not in seen_normalized:
-            seen_normalized.add(normalized)
-            deduplicated.append(name)
-        elif normalized:
-            removed.append(name)
-    
-    return deduplicated, removed
-
-CACHE_BUSTER = "RESET_2026_01_15_v2"
-
-
-def _normalize_wave_universe(universe):
-    """
-    Normalize wave universe dictionary to ensure all expected keys are present.
-    
-    This defensive function guarantees schema consistency by providing defaults
-    for any missing keys, preventing potential runtime errors from incomplete data.
-    
-    Args:
-        universe: Dictionary that may or may not have all expected keys
-        
-    Returns:
-        Normalized dictionary with guaranteed schema:
-        - waves: list (default: [])
-        - removed_duplicates: list (default: [])
-        - source: str (default: "unknown")
-        - timestamp: str (preserved or default: "")
-        - enabled_flags: dict (preserved or default: {})
-    """
-    if not isinstance(universe, dict):
-        universe = {}
-    
-    # Use .get() with defaults, and handle None values explicitly
-    waves = universe.get("waves", [])
-    removed_duplicates = universe.get("removed_duplicates", [])
-    source = universe.get("source", "unknown")
-    timestamp = universe.get("timestamp", "")
-    enabled_flags = universe.get("enabled_flags", {})
-    
-    return {
-        "waves": waves if waves is not None else [],
-        "removed_duplicates": removed_duplicates if removed_duplicates is not None else [],
-        "source": source if source is not None else "unknown",
-        "timestamp": timestamp if timestamp is not None else "",
-        "enabled_flags": enabled_flags if enabled_flags is not None else {}
-    }
-
-
-@st.cache_data(ttl=15)
-def get_canonical_wave_universe(
-    force_reload: bool = False,
-    _wave_universe_version: int = 0,
-    _cache_buster: str = CACHE_BUSTER,
-):
-    """
-    Fetch, deduplicate, and return canonical wave universe data.
-    
-    UPDATED: Now uses waves_engine.get_all_waves_universe() as the SINGLE SOURCE OF TRUTH.
-    All 28 waves from the registry will be included - NO SILENT FILTERING.
-    
-    Uses wave list from waves_engine or falls back to static list.
-    Caches result in session state for performance.
-    
-    Args:
-        force_reload: If True, bypass cache and rebuild universe
-        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
-        
-    Returns:
-        Dictionary with:
-        - waves: Deduplicated list of wave names (28 waves from registry)
-        - removed_duplicates: List of removed duplicates
-        - source: Data source ("registry", "engine", "fallback")
-        - timestamp: Current timestamp for tracking
-        - enabled_flags: Dictionary mapping wave names to enabled status (default True)
-    """
-    from datetime import datetime
-    
-    # Check cache unless force reload
     if not force_reload and "wave_universe" in st.session_state:
-        cached = st.session_state["wave_universe"]
-        # Normalize cached data to ensure schema consistency
-        return _normalize_wave_universe(cached)
-    
-    # Build wave universe
-    wave_list = []
+        return st.session_state["wave_universe"]
+
+    waves = []
     source = "fallback"
-    
+
+    # Priority 1 — waves_engine registry
     try:
-        # PRIORITY 1: Use get_all_waves_universe() from waves_engine (single source of truth)
         if WAVES_ENGINE_AVAILABLE:
-            try:
-                from waves_engine import get_all_waves_universe
-                universe_data = get_all_waves_universe()
-                wave_list = universe_data['waves']
-                source = universe_data['source']  # Should be "wave_registry"
-            except (ImportError, AttributeError):
-                # Fall through to legacy methods
-                pass
-        
-        # PRIORITY 2: Try to get waves from engine_get_all_waves (legacy)
-        if not wave_list and WAVES_ENGINE_AVAILABLE and engine_get_all_waves is not None:
-            wave_list = engine_get_all_waves()
-            source = "engine"
-        elif not wave_list and WAVE_WEIGHTS:
-            # Fallback: directly access WAVE_WEIGHTS
-            wave_list = sorted(list(WAVE_WEIGHTS.keys()))
-            source = "engine"
-    except Exception as e:
-        import traceback
-        print(f"Warning: Error getting waves from engine: {e}")
-        traceback.print_exc()
-    
-    # If engine unavailable, use fallback static list (should never happen)
-    if not wave_list:
-        # Fallback: combine INCLUDED_EQUITY_WAVES with other known waves
-        wave_list = list(INCLUDED_EQUITY_WAVES)
-        wave_list.append(CRYPTO_INCOME_WAVE)
-        wave_list.append(CSE_WAVE_NAME)
-        source = "fallback"
-    
-    # Deduplicate
-    deduplicated_waves, removed_duplicates = dedupe_waves(wave_list)
-    
-    # Load wave_config.csv if available to get enabled flags
-    enabled_flags = {}
-    wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
-    if os.path.exists(wave_config_path):
-        try:
-            config_df = pd.read_csv(wave_config_path)
-            # Default enabled to True if column doesn't exist or value is missing
-            if 'enabled' in config_df.columns:
-                for _, row in config_df.iterrows():
-                    wave_name = row.get('Wave', '')
-                    enabled_value = row.get('enabled', True)
-                    # Handle NaN or empty values - default to True
-                    if pd.isna(enabled_value) or enabled_value == '':
-                        enabled_value = True
-                    enabled_flags[wave_name] = bool(enabled_value)
-        except Exception:
-            pass  # If CSV reading fails, continue with defaults
-    
-    # Initialize enabled flags from session state if available (for runtime changes)
-    session_enabled = st.session_state.get("wave_enabled_flags", {})
-    
-    # Build final enabled flags - default all waves to enabled=True
-    final_enabled = {}
-    for wave in deduplicated_waves:
-        # Priority: session state > CSV config > default True
-        if wave in session_enabled:
-            final_enabled[wave] = session_enabled[wave]
-        elif wave in enabled_flags:
-            final_enabled[wave] = enabled_flags[wave]
-        else:
-            final_enabled[wave] = True  # Default to enabled
-    
-    # Build universe dictionary
+            from waves_engine import get_all_waves_universe
+            data = get_all_waves_universe()
+            waves = data.get("waves", [])
+            source = data.get("source", "engine")
+    except Exception:
+        pass
+
+    # Priority 2 — WAVE_WEIGHTS fallback
+    if not waves and "WAVE_WEIGHTS" in globals():
+        waves = list(WAVE_WEIGHTS.keys())
+        source = "weights"
+
+    # Absolute fallback
+    if not waves:
+        waves = [
+            "S&P 500 Wave",
+            "Russell 3000 Wave",
+            "Income Wave",
+            "US MegaCap Core Wave",
+            "AI & Cloud MegaCap Wave",
+            "Quantum Computing Wave",
+            "Clean Transit-Infrastructure Wave",
+            "Crypto Income Wave",
+        ]
+        source = "static_fallback"
+
+    # Normalize + dedupe
+    seen = set()
+    deduped = []
+    for w in waves:
+        nw = _normalize_wave_name(w)
+        key = nw.casefold()
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(nw)
+
     universe = {
-        "waves": deduplicated_waves,
-        "removed_duplicates": removed_duplicates,
+        "waves": deduped,
         "source": source,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "enabled_flags": final_enabled
+        "timestamp": datetime.now().isoformat(),
+        "enabled_flags": {w: True for w in deduped},
     }
-    
-    # Cache in session state
+
     st.session_state["wave_universe"] = universe
-    
     return universe
 
 
 def get_wave_universe():
     """
-    Centralized Wave Universe Function - Single Source of Truth.
-    
-    This function serves as the canonical source for all wave lists and counts
-    throughout the application. It ensures:
-    - Deduplication of wave names
-    - "Russell 3000 Wave" is included exactly once
-    - Consistent wave lists across all tabs and views
-    
-    Returns:
-        list: Deduplicated, sorted list of all wave names
+    Public accessor — always returns sorted wave list.
     """
     try:
-        # Get wave universe version from session state
-        wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        
-        # Use canonical wave universe (which already deduplicates and ensures Russell 3000 Wave)
-        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-        
-        # Extract waves list
-        waves = universe.get("waves", [])
-        
-        # Return deduplicated, sorted list
-        return sorted(set(waves))
+        universe = get_canonical_wave_universe()
+        return sorted(_safe_list(universe.get("waves")))
     except Exception:
-        # Fallback: return empty list
         return []
 
 
-def validate_wave_data(wave_name: str, mode: str, days: int, df=None) -> tuple[bool, list[str]]:
+# ============================================================================
+# WAVE DATA VALIDATION (DETERMINISTIC)
+# ============================================================================
+
+def validate_wave_data(wave_name: str, mode: str, days: int, df=None):
     """
-    Validate wave data availability and quality.
-    
-    This function checks if wave data is available and suitable for display.
-    It returns detailed reasons when data is unavailable to provide user clarity.
-    
-    Args:
-        wave_name: Name of the wave to validate
-        mode: Mode/strategy being used (e.g., "Standard", "Aggressive")
-        days: Number of days of data required
-        df: Optional pre-loaded DataFrame to validate (if None, will load)
-        
-    Returns:
-        tuple: (ok: bool, reasons: list[str])
-            - ok: True if data is valid and available, False otherwise
-            - reasons: List of validation failure reasons (empty if ok=True)
+    Validate wave data before rendering.
+    No silent assumptions.
     """
     reasons = []
-    
-    try:
-        # Load wave data if not provided
-        if df is None:
-            wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            df = get_wave_data_filtered(wave_name=wave_name, days=days, _wave_universe_version=wave_universe_version)
-        
-        # Check if data exists
-        if df is None:
-            reasons.append(f"No historical data available for '{wave_name}'")
-            return (False, reasons)
-        
-        # Check if data is empty
-        if len(df) == 0:
-            reasons.append(f"Historical data for '{wave_name}' is empty")
-            return (False, reasons)
-        
-        # Check minimum data points
-        if len(df) < 5:
-            reasons.append(f"Insufficient data points: {len(df)} rows (minimum 5 required)")
-        
-        # Check date range coverage
-        if 'date' in df.columns:
-            data_days = (df['date'].max() - df['date'].min()).days
-            if data_days < days * 0.5:  # At least 50% coverage
-                reasons.append(f"Data coverage insufficient: {data_days} days available, {days} days requested")
-        
-        # Check required columns
-        required_columns = ['date']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            reasons.append(f"Missing required columns: {', '.join(missing_columns)}")
-        
-        # Check for portfolio_return or benchmark_return for alpha calculations
-        if 'portfolio_return' not in df.columns and 'benchmark_return' not in df.columns:
-            reasons.append("Missing return data (portfolio_return or benchmark_return)")
-        
-        # If we have reasons, validation failed
-        if reasons:
-            return (False, reasons)
-        
-        # All checks passed
-        return (True, [])
-        
-    except Exception as e:
-        reasons.append(f"Validation error: {str(e)}")
-        return (False, reasons)
 
+    try:
+        if df is None:
+            df = get_wave_data_filtered(wave_name=wave_name, days=days)
+
+        if df is None:
+            return False, ["No data returned"]
+
+        if df.empty:
+            return False, ["Empty dataframe"]
+
+        if "Date" in df.columns:
+            span = (df["Date"].max() - df["Date"].min()).days
+            if span < max(3, days // 2):
+                reasons.append("Insufficient date coverage")
+
+        required_any = {"Return_1D", "Alpha_1D"}
+        if not required_any.intersection(df.columns):
+            reasons.append("Missing return / alpha columns")
+
+        return (len(reasons) == 0), reasons
+
+    except Exception as e:
+        return False, [f"Validation error: {str(e)}"]
 
 # ============================================================================
 # SECTION 2: UTILITY FUNCTIONS
