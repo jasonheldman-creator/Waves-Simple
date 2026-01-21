@@ -19,24 +19,12 @@ def build_alpha_attribution_snapshot():
     """
     Build alpha attribution snapshot directly from live_snapshot.csv.
 
-    Attribution logic:
-    - Uses Alpha_60D as primary institutional signal (falls back to Alpha_1D)
-    - Decomposes alpha into:
-        * Market beta contribution
-        * VIX / volatility overlay
-        * Momentum / trend overlays
-        * Rotation / beta drift effects
-        * Residual stock selection
-
-    Output columns:
-        - wave_id
-        - wave_name
-        - alpha_market
-        - alpha_vix
-        - alpha_momentum
-        - alpha_rotation
-        - alpha_stock_selection
-        - alpha_total
+    HARD RULES (non-negotiable):
+    - Only real Waves (must have Wave_ID)
+    - No benchmark placeholder rows
+    - No cash-only waves
+    - Alpha must be numeric and finite
+    - One row in → one row out (never all-or-nothing failure)
 
     Returns:
         (bool, str)
@@ -53,13 +41,14 @@ def build_alpha_attribution_snapshot():
     if df.empty:
         return False, "live_snapshot.csv is empty"
 
-    # Required identifiers
-    required_cols = ["Wave_ID", "Wave"]
+    required_cols = ["Wave_ID", "Wave", "Category"]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         return False, f"Missing required columns: {missing}"
 
-    # Determine best alpha column (institutional preference)
+    # ---------------------------------------------------------------
+    # Determine preferred alpha column (institutional priority)
+    # ---------------------------------------------------------------
     if "Alpha_60D" in df.columns:
         alpha_col = "Alpha_60D"
     elif "Alpha_30D" in df.columns:
@@ -70,25 +59,51 @@ def build_alpha_attribution_snapshot():
         return False, "No Alpha column found (Alpha_60D / Alpha_30D / Alpha_1D)"
 
     rows = []
+    skipped = 0
 
     # ---------------------------------------------------------------
-    # Attribution logic
+    # Attribution logic (ROW-SAFE)
     # ---------------------------------------------------------------
     for _, r in df.iterrows():
         try:
             wave_id = r.get("Wave_ID")
             wave_name = r.get("Wave")
+            category = str(r.get("Category", "")).lower()
 
-            alpha_total = float(r.get(alpha_col, 0.0))
-            if pd.isna(alpha_total):
-                alpha_total = 0.0
+            # -------------------------------------------------------
+            # HARD FILTERS
+            # -------------------------------------------------------
+            if pd.isna(wave_id) or str(wave_id).strip() == "":
+                skipped += 1
+                continue
+
+            if "benchmark" in str(wave_name).lower():
+                skipped += 1
+                continue
+
+            if category in {"cash", "money market", "money_market"}:
+                skipped += 1
+                continue
+
+            # -------------------------------------------------------
+            # Alpha (must be valid)
+            # -------------------------------------------------------
+            alpha_total = r.get(alpha_col, None)
+            if alpha_total is None or pd.isna(alpha_total):
+                skipped += 1
+                continue
+
+            try:
+                alpha_total = float(alpha_total)
+            except Exception:
+                skipped += 1
+                continue
 
             # -------------------------------------------------------
             # Market beta contribution
             # -------------------------------------------------------
-            beta_real = r.get("Beta_Real", 1.0)
             try:
-                beta_real = float(beta_real)
+                beta_real = float(r.get("Beta_Real", 1.0))
             except Exception:
                 beta_real = 1.0
 
@@ -100,41 +115,31 @@ def build_alpha_attribution_snapshot():
             alpha_vix = 0.0
             vix_regime = str(r.get("VIX_Regime", "")).lower()
 
-            if "low" in vix_regime or "risk-off" in vix_regime:
-                # Use explicit adjustment if present, else proportional
-                adj = r.get("VIX_Adjustment_Pct", None)
-                if pd.notna(adj):
-                    try:
-                        alpha_vix = float(adj)
-                    except Exception:
-                        alpha_vix = alpha_total * 0.25
-                else:
+            if "low" in vix_regime or "risk" in vix_regime:
+                try:
+                    adj = float(r.get("VIX_Adjustment_Pct", 0.0))
+                    alpha_vix = adj if adj != 0 else alpha_total * 0.25
+                except Exception:
                     alpha_vix = alpha_total * 0.25
 
             # -------------------------------------------------------
             # Momentum / trend overlays
             # -------------------------------------------------------
             alpha_momentum = 0.0
-            alpha_rotation = 0.0
+            stack = f"{r.get('strategy_stack', '')} {r.get('strategy_stack_applied', '')}".lower()
 
-            stack = str(r.get("strategy_stack", "")).lower()
-            stack_applied = str(r.get("strategy_stack_applied", "")).lower()
-            combined_stack = f"{stack} {stack_applied}"
-
-            if "momentum" in combined_stack or "trend" in combined_stack:
+            if "momentum" in stack or "trend" in stack:
                 alpha_momentum = alpha_total * 0.35
 
             # -------------------------------------------------------
-            # Rotation / beta drift effects
+            # Rotation / beta drift
             # -------------------------------------------------------
-            beta_drift = r.get("Beta_Drift", 0.0)
             try:
-                beta_drift = float(beta_drift)
+                beta_drift = float(r.get("Beta_Drift", 0.0))
             except Exception:
                 beta_drift = 0.0
 
-            if beta_drift != 0:
-                alpha_rotation = -beta_drift * 0.15
+            alpha_rotation = -beta_drift * 0.15 if beta_drift != 0 else 0.0
 
             # -------------------------------------------------------
             # Residual = stock selection
@@ -161,21 +166,21 @@ def build_alpha_attribution_snapshot():
             )
 
         except Exception:
-            # Never allow a single bad row to break attribution
+            skipped += 1
             continue
 
+    # ---------------------------------------------------------------
+    # Final validation
+    # ---------------------------------------------------------------
     if not rows:
-        return False, "No valid rows produced for attribution"
+        return False, f"No valid attribution rows produced (skipped={skipped})"
 
-    # ---------------------------------------------------------------
-    # Write output
-    # ---------------------------------------------------------------
     out_df = pd.DataFrame(rows)
 
     os.makedirs(os.path.dirname(ATTRIBUTION_PATH), exist_ok=True)
     out_df.to_csv(ATTRIBUTION_PATH, index=False)
 
-    return True, f"Wrote {len(out_df)} rows to {ATTRIBUTION_PATH}"
+    return True, f"Wrote {len(out_df)} rows to {ATTRIBUTION_PATH} (skipped={skipped})"
 
 
 # -------------------------------------------------------------------
