@@ -13337,7 +13337,41 @@ def render_overview_tab():
                 else:
                     with st.expander("✓ Wave Registry Validation: Passed", expanded=False):
                         st.code(validation_result.get_detailed_report(), language="text")
+def render_alpha_attribution_breakdown():
+    import pandas as pd
+    import os
+    import streamlit as st
 
+    path = "data/alpha_attribution_snapshot.csv"
+
+    if not os.path.exists(path):
+        st.warning("Alpha attribution breakdown not yet generated")
+        return
+
+    df = pd.read_csv(path)
+
+    st.markdown("#### 🧠 Alpha Source Breakdown")
+    st.caption("Where benchmark-relative alpha is coming from")
+
+    display_cols = [
+        "wave_name",
+        "alpha_market",
+        "alpha_vix",
+        "alpha_momentum",
+        "alpha_rotation",
+        "alpha_stock_selection",
+        "alpha_total",
+    ]
+
+    missing = [c for c in display_cols if c not in df.columns]
+    if missing:
+        st.error(f"Missing attribution columns: {missing}")
+        return
+
+    st.dataframe(
+        df[display_cols].style.format("{:+.2%}"),
+        use_container_width=True,
+    )
             except Exception as e:
                 st.warning(f"⚠️ Failed to validate wave registry: {str(e)}")
         # ========================================================================
