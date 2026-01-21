@@ -17,6 +17,24 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+# =========================================================
+# CANONICAL TRUTHFRAME ACCESSOR
+# =========================================================
+def get_active_truthframe():
+    """
+    Single canonical accessor for TruthFrame.
+
+    Always returns a dictionary.
+    Safe in degraded mode.
+    """
+    tf = st.session_state.get("CANONICAL_TRUTHFRAME")
+
+    if isinstance(tf, dict):
+        return tf
+
+    # Fail-safe: empty TruthFrame
+    return {}
+
 # ============================================================================
 # ALPHA ATTRIBUTION ENGINE (SIMPLE, TRANSPARENT)
 # ============================================================================
