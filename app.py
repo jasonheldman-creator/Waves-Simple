@@ -130,9 +130,10 @@ def compute_alpha_attribution(wave, days=60):
 # Populate alpha attribution
 truth = get_active_truthframe()
 
-for wave in truth["waves"].keys():
-    alpha = compute_alpha_attribution(wave)
-    truth["waves"][wave]["alpha"] = alpha
+if isinstance(truth, dict):
+    for wave in truth.keys():
+        alpha = compute_alpha_attribution(wave)
+        truth[wave]["alpha"] = alpha
 
 st.session_state["CANONICAL_TRUTHFRAME"] = truth
 
