@@ -12778,7 +12778,6 @@ def compute_aggregated_portfolio_metrics():
         st.exception(e)
         return None
 
-
 def render_portfolio_snapshot_summary():
     """
     Executive summary snapshot for the full portfolio.
@@ -12806,6 +12805,11 @@ def render_portfolio_snapshot_summary():
                 value=f"{ret:.2%}" if ret is not None else "—",
                 delta=f"α {alpha:.2%}" if alpha is not None else None,
             )
+
+    # 👇 ADD THIS LINE (this is the missing link)
+    st.divider()
+    render_wave_alpha_attribution()
+
 # ============================================================
 # VECTOR EXPLAIN — SINGLE, CANONICAL DEFINITION
 # ============================================================
