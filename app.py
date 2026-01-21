@@ -13218,7 +13218,56 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
     
     except Exception as e:
         st.error(f"Error rendering Compare Waves panel: {str(e)}")
+def render_strategy_alpha_attribution():
+    """
+    Render strategy-level alpha attribution for the Overview tab.
+    Breaks down alpha contribution by non-VIX strategy overlays.
+    """
+    try:
+        # Load wave snapshot data
+        snapshot_path = "data/live_snapshot.csv"
+        if not os.path.exists(snapshot_path):
+            st.warning("Alpha attribution unavailable — snapshot file not found.")
+            return
 
+        df = pd.read_csv(snapshot_path)
+
+        required_cols = [
+            "wave_name",
+            "Alpha_1D",
+            "Alpha_30D",
+            "Alpha_60D",
+            "Alpha_365D"
+        ]
+
+        if not all(col in df.columns for col in required_cols):
+            st.warning("Alpha attribution unavailable — required columns missing.")
+            return
+
+        # Aggregate by wave (strategy proxy)
+        agg = (
+            df.groupby("wave_name")[required_cols[1:]]
+            .mean()
+            .reset_index()
+            .rename(columns={"wave_name": "Wave / Strategy"})
+        )
+
+        st.markdown("#### 📐 Strategy / Overlay Alpha Contribution")
+        st.caption("Benchmark-relative alpha by wave (proxy for strategy overlays).")
+
+        st.dataframe(
+            agg.style.format({
+                "Alpha_1D": "{:+.2%}",
+                "Alpha_30D": "{:+.2%}",
+                "Alpha_60D": "{:+.2%}",
+                "Alpha_365D": "{:+.2%}",
+            }),
+            use_container_width=True,
+        )
+
+    except Exception as e:
+        st.error("⚠️ Failed to render strategy alpha attribution.")
+        st.exception(e)
 def render_overview_tab():
     """
     Render the new comprehensive Overview tab with Wave Lens selector.
