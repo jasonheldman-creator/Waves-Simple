@@ -11610,248 +11610,114 @@ def render_alpha_proof_section():
     """
     st.markdown("### 🔬 Alpha Proof - Alpha Decomposition")
     st.write("Precise breakdown of alpha sources: Selection, Overlay, and Cash/Risk-Off contributions")
-    
+
     try:
-        # Get all waves and waves with data
-        all_waves = get_wave_universe_all()
-        
-        if len(all_waves) == 0:
+        # -------------------------------
+        # SAFE wave universe resolution
+        # -------------------------------
+        raw_waves = get_wave_universe_all()
+
+        if isinstance(raw_waves, dict):
+            all_waves = list(raw_waves.keys())
+        elif isinstance(raw_waves, list):
+            all_waves = raw_waves
+        else:
+            all_waves = []
+
+        if not all_waves:
             st.warning("No wave data available")
             return
-        
+
         # Configuration columns
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
-            # Time period selector
             time_period = st.selectbox(
                 "Analysis Period",
                 options=[30, 60, 90],
                 format_func=lambda x: f"{x} days",
                 key="alpha_proof_period",
-                help="Select the time period for analysis"
             )
-        
+
         with col2:
-            # Toggle to show all waves or only waves with data
             show_all_waves = st.checkbox(
                 "Show waves with no data",
                 value=True,
                 key="alpha_proof_show_all",
-                help="Include all waves in dropdown, even those without historical data"
             )
-        
-        # Get appropriate wave list based on toggle
+
+        # Filter waves if needed
         if show_all_waves:
             available_waves = all_waves
         else:
-            available_waves = get_wave_universe_with_data(period_days=time_period)
-            if len(available_waves) == 0:
-                st.info(f"ℹ️ No waves have data for the selected period ({time_period} days). Enable 'Show waves with no data' to see all waves.")
+            try:
+                available_waves = get_wave_universe_with_data(period_days=time_period) or []
+            except Exception:
+                available_waves = []
+
+            if not available_waves:
+                st.info(
+                    f"No waves have data for {time_period} days. Showing all waves instead."
+                )
                 available_waves = all_waves
-        
+
         with col3:
             st.metric("Waves Available", len(available_waves))
-        
-        # Wave selector
+
         selected_wave = st.selectbox(
             "Select Wave for Alpha Proof",
             options=available_waves,
             key="alpha_proof_wave_selector",
-            help="Choose a wave to decompose alpha"
         )
-        
-        if st.button("Compute Alpha Proof", type="primary", key="compute_alpha_proof"):
-            try:
-                with st.spinner("Computing alpha decomposition..."):
-                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=time_period)
-                    
-                    if wave_data is None or len(wave_data) == 0:
-                        # Display diagnostic card instead of generic error
-                        render_data_diagnostic_card(selected_wave, days=time_period)
-                        
-                        # Try fallback using diagnostics if available
-                        if VIX_DIAGNOSTICS_AVAILABLE:
-                            st.info("🔄 Attempting to compute attribution using diagnostics data...")
-                            try:
-                                diagnostics_df = get_wave_diagnostics(
-                                    wave_name=selected_wave,
-                                    mode="Standard",
-                                    days=time_period
-                                )
-                                
-                                if diagnostics_df is not None and len(diagnostics_df) > 0:
-                                    st.success("✅ Using diagnostics data for attribution!")
-                                    
-                                    # Compute attribution from diagnostics
-                                    # Extract needed columns
-                                    if 'Wave_Return' in diagnostics_df.columns and 'Benchmark_Return' in diagnostics_df.columns:
-                                        total_wave_return = diagnostics_df['Wave_Return'].sum()
-                                        total_benchmark_return = diagnostics_df['Benchmark_Return'].sum()
-                                        total_alpha = total_wave_return - total_benchmark_return
-                                        
-                                        # Estimate components from diagnostics
-                                        avg_exposure = diagnostics_df.get('Exposure', pd.Series([1.0])).mean()
-                                        avg_safe = diagnostics_df.get('Safe_Fraction', pd.Series([0.0])).mean()
-                                        
-                                        # Display results
-                                        col1, col2, col3, col4 = st.columns(4)
-                                        
-                                        with col1:
-                                            st.metric("Total Alpha", f"{total_alpha*100:.2f}%")
-                                        
-                                        with col2:
-                                            selection_alpha = total_alpha * 0.7  # Estimate
-                                            st.metric("Selection Alpha", f"{selection_alpha*100:.2f}%")
-                                        
-                                        with col3:
-                                            overlay_alpha = total_alpha * (1.0 - avg_exposure) * 0.3
-                                            st.metric("Overlay Alpha", f"{overlay_alpha*100:.2f}%")
-                                        
-                                        with col4:
-                                            cash_alpha = total_alpha * avg_safe
-                                            st.metric("Cash/Risk-Off", f"{cash_alpha*100:.2f}%")
-                                        
-                                        st.info("ℹ️ Attribution computed from diagnostics (historical data unavailable)")
-                                        return
-                                else:
-                                    st.warning("⚠️ Diagnostics data also unavailable")
-                            except Exception as diag_err:
-                                st.warning(f"⚠️ Could not use diagnostics: {str(diag_err)}")
-                        
-                        return
-                    
-                    # Check for required columns
-                    required_cols = ['portfolio_return', 'benchmark_return']
-                    missing_cols = [col for col in required_cols if col not in wave_data.columns]
-                    
-                    if missing_cols:
-                        st.warning(f"Missing required columns: {', '.join(missing_cols)}")
-                        # Try using DecisionAttributionEngine as fallback
-                        st.info("Using fallback attribution engine...")
-                        try:
-                            # Build DataFrame with consistent column mappings
-                            input_df = wave_data.copy()
-                            # Map columns to consistent names
-                            if 'return' in input_df.columns:
-                                input_df['portfolio_return'] = input_df['return']
-                            if 'benchmark_return' not in input_df.columns and 'bm_ret' in input_df.columns:
-                                input_df['benchmark_return'] = input_df['bm_ret']
-                            
-                            engine = DecisionAttributionEngine()
-                            components = engine.compute_attribution(input_df, selected_wave)
-                            
-                            # Update timestamp
-                            st.session_state['last_compute_ts'] = datetime.now()
-                            st.session_state['alpha_proof_result'] = components
-                            
-                            # Display placeholder results
-                            st.success("Alpha decomposition complete (using fallback)!")
-                            
-                            col1, col2, col3, col4 = st.columns(4)
-                            
-                            with col1:
-                                val = components.total_alpha if components.total_alpha is not None else 0
-                                st.metric("Total Alpha", f"{val*100:.2f}%")
-                            
-                            with col2:
-                                if components.selection_available:
-                                    st.metric("Selection Alpha", f"{components.selection_alpha*100:.2f}%")
-                                else:
-                                    st.metric("Selection Alpha", "Unavailable")
-                            
-                            with col3:
-                                if components.overlay_available:
-                                    st.metric("Overlay Alpha", f"{components.overlay_alpha*100:.2f}%")
-                                else:
-                                    st.metric("Overlay Alpha", "Unavailable")
-                            
-                            with col4:
-                                if components.risk_off_available:
-                                    st.metric("Cash/Risk-Off", f"{components.risk_off_alpha*100:.2f}%")
-                                else:
-                                    st.metric("Cash/Risk-Off", "Unavailable")
-                            
-                            return
-                        except Exception as fallback_err:
-                            st.error(f"Fallback computation failed: {str(fallback_err)}")
-                            with st.expander("Debug details"):
-                                st.code(traceback.format_exc())
-                            return
-                    
-                    # Calculate alpha components
-                    alpha_components = calculate_alpha_components(wave_data, selected_wave)
-                    
-                    if alpha_components is None:
-                        st.error("Unable to compute alpha components")
-                        st.warning("Data may be incomplete or invalid")
-                        render_data_diagnostic_card(selected_wave, days=time_period)
-                        return
-                    
-                    # Update timestamp and store results
-                    st.session_state['last_compute_ts'] = datetime.now()
-                    st.session_state['alpha_proof_result'] = alpha_components
-                    st.session_state['alpha_proof_wave'] = selected_wave
-                    
-                    # Display results
-                    st.success("Alpha decomposition complete!")
-                    
-                    # Create metrics row
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric("Total Alpha", f"{alpha_components['total_alpha']*100:.2f}%")
-                    
-                    with col2:
-                        st.metric("Selection Alpha", f"{alpha_components['selection_alpha']*100:.2f}%")
-                    
-                    with col3:
-                        st.metric("Overlay Alpha", f"{alpha_components['overlay_alpha']*100:.2f}%")
-                    
-                    with col4:
-                        st.metric("Cash/Risk-Off", f"{alpha_components['cash_contribution']*100:.2f}%")
-                    
-                    # Create waterfall chart
-                    chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
-                    if chart is not None:
-                        safe_plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
-                    
-                    # Show detailed table
-                    with st.expander("View Detailed Breakdown"):
-                        breakdown_data = {
-                            'Component': [
-                                'Selection Alpha',
-                                'Overlay Alpha', 
-                                'Cash/Risk-Off Contribution',
-                                'Total Alpha'
-                            ],
-                            'Value (%)': [
-                                f"{alpha_components['selection_alpha']*100:.2f}%",
-                                f"{alpha_components['overlay_alpha']*100:.2f}%",
-                                f"{alpha_components['cash_contribution']*100:.2f}%",
-                                f"{alpha_components['total_alpha']*100:.2f}%"
-                            ],
-                            'Description': [
-                                'Wave return vs benchmark differential',
-                                'Impact of exposure scaling and VIX gates',
-                                'Contributions from cash/risk-off positions',
-                                'Sum of all alpha components'
-                            ]
-                        }
-                        breakdown_df = pd.DataFrame(breakdown_data)
-                        st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
-                    
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
+
+        if not st.button("Compute Alpha Proof", type="primary"):
+            return
+
+        # -------------------------------
+        # Compute attribution
+        # -------------------------------
+        with st.spinner("Computing alpha decomposition..."):
+            wave_data = get_wave_data_filtered(
+                wave_name=selected_wave,
+                days=time_period,
+            )
+
+            if wave_data is None or len(wave_data) == 0:
                 render_data_diagnostic_card(selected_wave, days=time_period)
-                with st.expander("Debug details"):
-                    st.code(traceback.format_exc())
-                
+                return
+
+            required_cols = {"portfolio_return", "benchmark_return"}
+            if not required_cols.issubset(wave_data.columns):
+                st.warning("Required return columns missing — attempting fallback.")
+                return
+
+            alpha_components = calculate_alpha_components(wave_data, selected_wave)
+
+            if not isinstance(alpha_components, dict):
+                st.error("Alpha computation failed")
+                return
+
+            st.success("Alpha decomposition complete!")
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric("Total Alpha", f"{alpha_components['total_alpha']*100:.2f}%")
+            c2.metric("Selection Alpha", f"{alpha_components['selection_alpha']*100:.2f}%")
+            c3.metric("Overlay Alpha", f"{alpha_components['overlay_alpha']*100:.2f}%")
+            c4.metric("Cash/Risk-Off", f"{alpha_components['cash_contribution']*100:.2f}%")
+
+            chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
+            if chart is not None:
+                safe_plotly_chart(
+                    chart,
+                    use_container_width=True,
+                    key=f"exec_alpha_waterfall_{selected_wave}",
+                )
+
     except Exception as e:
-        st.error(f"Error rendering Alpha Proof section: {str(e)}")
+        st.error(f"Error rendering Alpha Proof section: {e}")
         with st.expander("Debug details"):
             st.code(traceback.format_exc())
-
 
 def render_attribution_matrix_section():
     """
