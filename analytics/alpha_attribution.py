@@ -1,3 +1,5 @@
+# analytics/alpha_attribution.py
+
 import os
 import pandas as pd
 
@@ -10,10 +12,10 @@ LIVE_SNAPSHOT_PATH = "data/live_snapshot.csv"
 
 
 # -------------------------------------------------------------------
-# Core generator
+# Core generator (SAFE to call from app.py)
 # -------------------------------------------------------------------
 
-def generate_alpha_attribution_snapshot():
+def build_alpha_attribution_snapshot():
     """
     Generate strategy-level alpha attribution by source.
 
@@ -26,11 +28,13 @@ def generate_alpha_attribution_snapshot():
         - alpha_stock_selection
         - alpha_total
 
-    This function is SAFE TO CALL from app.py.
-    It writes data/alpha_attribution_snapshot.csv if inputs are valid.
+    Returns:
+        (bool, str): success flag and status message
     """
 
-    # --- Preconditions ------------------------------------------------
+    # ---------------------------------------------------------------
+    # Preconditions
+    # ---------------------------------------------------------------
     if not os.path.exists(LIVE_SNAPSHOT_PATH):
         return False, "live_snapshot.csv not found"
 
@@ -50,68 +54,78 @@ def generate_alpha_attribution_snapshot():
     if missing:
         return False, f"Missing required columns: {missing}"
 
-    # --- Attribution logic -------------------------------------------
+    # ---------------------------------------------------------------
+    # Attribution logic
+    # ---------------------------------------------------------------
     rows = []
 
     for _, r in df.iterrows():
-        alpha_total = float(r["Alpha_1D"])
+        try:
+            alpha_total = float(r["Alpha_1D"])
 
-        # Market-relative alpha
-        alpha_market = float(
-            r["strategy_return_1D"] - r["benchmark_return_1D"]
-        )
+            # Market alpha (strategy vs benchmark)
+            alpha_market = float(
+                r["strategy_return_1D"] - r["benchmark_return_1D"]
+            )
 
-        # VIX / volatility overlay attribution
-        alpha_vix = 0.0
-        if str(r["vix_regime"]).upper() == "RISK_OFF":
-            alpha_vix = alpha_total * 0.30
+            # VIX / volatility overlay
+            alpha_vix = 0.0
+            if str(r["vix_regime"]).upper() == "RISK_OFF":
+                alpha_vix = alpha_total * 0.30
 
-        # Momentum overlay attribution
-        alpha_momentum = 0.0
-        if str(r["momentum_state"]).upper() == "ON":
-            alpha_momentum = alpha_total * 0.25
+            # Momentum overlay
+            alpha_momentum = 0.0
+            if str(r["momentum_state"]).upper() == "ON":
+                alpha_momentum = alpha_total * 0.25
 
-        # Rotation / factor overlay attribution
-        alpha_rotation = 0.0
-        if str(r["rotation_state"]).upper() == "ON":
-            alpha_rotation = alpha_total * 0.20
+            # Rotation / factor overlay
+            alpha_rotation = 0.0
+            if str(r["rotation_state"]).upper() == "ON":
+                alpha_rotation = alpha_total * 0.20
 
-        # Residual = stock selection
-        alpha_stock_selection = (
-            alpha_total
-            - alpha_market
-            - alpha_vix
-            - alpha_momentum
-            - alpha_rotation
-        )
+            # Residual = stock selection
+            alpha_stock_selection = (
+                alpha_total
+                - alpha_market
+                - alpha_vix
+                - alpha_momentum
+                - alpha_rotation
+            )
 
-        rows.append(
-            {
-                "wave_name": r["wave_name"],
-                "alpha_market": alpha_market,
-                "alpha_vix": alpha_vix,
-                "alpha_momentum": alpha_momentum,
-                "alpha_rotation": alpha_rotation,
-                "alpha_stock_selection": alpha_stock_selection,
-                "alpha_total": alpha_total,
-            }
-        )
+            rows.append(
+                {
+                    "wave_name": r["wave_name"],
+                    "alpha_market": alpha_market,
+                    "alpha_vix": alpha_vix,
+                    "alpha_momentum": alpha_momentum,
+                    "alpha_rotation": alpha_rotation,
+                    "alpha_stock_selection": alpha_stock_selection,
+                    "alpha_total": alpha_total,
+                }
+            )
 
-    # --- Write output -------------------------------------------------
+        except Exception:
+            # Skip malformed rows but do not crash
+            continue
+
+    if not rows:
+        return False, "No valid rows produced for attribution"
+
+    # ---------------------------------------------------------------
+    # Write output
+    # ---------------------------------------------------------------
     out_df = pd.DataFrame(rows)
 
-    # Ensure directory exists
     os.makedirs(os.path.dirname(ATTRIBUTION_PATH), exist_ok=True)
-
     out_df.to_csv(ATTRIBUTION_PATH, index=False)
 
     return True, f"Wrote {len(out_df)} rows to {ATTRIBUTION_PATH}"
 
 
 # -------------------------------------------------------------------
-# Optional CLI entry (safe if someone runs file directly)
+# Optional CLI execution
 # -------------------------------------------------------------------
 
 if __name__ == "__main__":
-    ok, msg = generate_alpha_attribution_snapshot()
+    ok, msg = build_alpha_attribution_snapshot()
     print(msg)
