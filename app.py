@@ -16,24 +16,43 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-from analytics.alpha_attribution import build_alpha_attribution_snapshot
 
-# -------------------------------------------------
-# Ensure alpha attribution snapshot exists
-# -------------------------------------------------
+# ============================================================
+# Alpha Attribution (import once, build once)
+# ============================================================
 try:
-    ok, msg = build_alpha_attribution_snapshot()
-    if not ok:
-        st.warning(f"Alpha attribution not generated: {msg}")
+    from analytics.alpha_attribution import build_alpha_attribution_snapshot
+    ALPHA_ATTRIBUTION_AVAILABLE = True
 except Exception as e:
-    st.warning(f"Alpha attribution build failed: {e}")
+    ALPHA_ATTRIBUTION_AVAILABLE = False
+    build_alpha_attribution_snapshot = None
 
-# ---------------------------------------
-# Ensure alpha attribution snapshot exists
-# ---------------------------------------
+# ============================================================
+# Logging
+# ============================================================
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
 
+# ============================================================
+# Alpha Attribution Snapshot Bootstrap (RUN ONCE PER LOAD)
+# ============================================================
+if ALPHA_ATTRIBUTION_AVAILABLE:
+    try:
+        ok, msg = build_alpha_attribution_snapshot()
+        if not ok:
+            st.warning(f"Alpha attribution not generated: {msg}")
+        else:
+            logger.info(msg)
+    except Exception as e:
+        st.warning(f"Alpha attribution build failed: {e}")
+        logger.exception(e)
+
+# ============================================================
+# App metadata
+# ============================================================
 """
-Institutional Console v2 - Executive Layer v2
+Institutional Console v2 – Executive Layer v2
 Full implementation with advanced analytics and visualization
 
 Modular structure:
@@ -46,46 +65,13 @@ Modular structure:
 7. Render functions for tabs and analytics
 8. Main entry point
 
-FULL MULTI-TAB CONSOLE UI - Post PR #336
+FULL MULTI-TAB CONSOLE UI – Post PR #336
 Includes all analytics, monitoring, and governance features.
 """
 
-
 # ============================================================
-# Logging
+# RUN TRACE – Prevent infinite reruns / aid diagnostics
 # ============================================================
-logger = logging.getLogger("waves_app")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
-
-
-# ============================================================
-# Alpha Attribution Snapshot Builder (CRITICAL)
-# ============================================================
-try:
-    from analytics.alpha_attribution import build_alpha_attribution_snapshot
-    ALPHA_ATTRIBUTION_BUILDER_AVAILABLE = True
-except Exception as e:
-    ALPHA_ATTRIBUTION_BUILDER_AVAILABLE = False
-    logger.warning(f"Alpha attribution builder unavailable: {e}")
-
-
-# ------------------------------------------------------------
-# Ensure alpha attribution snapshot exists (runs once per load)
-# ------------------------------------------------------------
-if ALPHA_ATTRIBUTION_BUILDER_AVAILABLE:
-    try:
-        build_alpha_attribution_snapshot()
-        logger.info("Alpha attribution snapshot built / verified")
-    except Exception as e:
-        st.warning(f"Alpha attribution snapshot build failed: {e}")
-        logger.exception(e)
-
-# ============================================================================
-# RUN TRACE - Track script execution and prevent infinite rerun loops
-# ============================================================================
-
-# Initialize run sequence counter and timing
 if "run_seq" not in st.session_state:
     st.session_state.run_seq = 0
     st.session_state.last_run_time = datetime.now()
@@ -93,16 +79,14 @@ if "run_seq" not in st.session_state:
     st.session_state.buttons_clicked = []
     st.session_state.trigger_set_by_rerun = False
 else:
-    # Increment run sequence
     st.session_state.run_seq += 1
-    
-    # Calculate delta since last run
-    current_time = datetime.now()
-    delta_seconds = (current_time - st.session_state.last_run_time).total_seconds()
-    st.session_state.delta_seconds = delta_seconds
-    st.session_state.last_run_time = current_time
-    
-    # Detect what triggered this run (only if not already set by trigger_rerun)
+
+    now = datetime.now()
+    st.session_state.delta_seconds = (
+        now - st.session_state.last_run_time
+    ).total_seconds()
+    st.session_state.last_run_time = now
+
     if not st.session_state.get("trigger_set_by_rerun", False):
         if st.session_state.get("_last_button_clicked"):
             st.session_state.last_trigger = f"button:{st.session_state._last_button_clicked}"
@@ -115,17 +99,13 @@ else:
             st.session_state.last_trigger = "auto_refresh"
         else:
             st.session_state.last_trigger = "unknown"
-    
-    # Reset the flag after reading
+
     st.session_state.trigger_set_by_rerun = False
 
-# ============================================================================
-# WAVE PROFILE UI TOGGLE - Feature Flag
-# ============================================================================
-# Toggle constant to enable/disable the new Wave Profile tab and banner
-# Set to False to instantly revert to the original UI layout
+# ============================================================
+# Feature flags
+# ============================================================
 ENABLE_WAVE_PROFILE = True
-
 # ============================================================================
 # NEW FEATURE FLAGS - Wave Intelligence Center Enhancements
 # ============================================================================
