@@ -13223,6 +13223,7 @@ def render_strategy_alpha_attribution():
     Render strategy-level alpha attribution for the Overview tab.
     Breaks down alpha contribution by non-VIX strategy overlays.
     """
+    st.error("DEBUG: ENTERED render_strategy_alpha_attribution")
     try:
         # Load wave snapshot data
         snapshot_path = "data/live_snapshot.csv"
