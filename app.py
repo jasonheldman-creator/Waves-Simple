@@ -9,7 +9,20 @@ import html
 from datetime import datetime, timedelta
 
 import pandas as pd
-    
+
+# Alpha attribution builder (creates alpha_attribution_snapshot.csv)
+from analytics.alpha_attribution import build_alpha_attribution_snapshot
+
+# ---------------------------------------
+# Ensure alpha attribution snapshot exists
+# ---------------------------------------
+try:
+    build_alpha_attribution_snapshot()
+except Exception as e:
+    st.warning(f"Alpha attribution snapshot build failed: {e}")
+
+from analytics.alpha_attribution import build_alpha_attribution_snapshot
+
 """
 Institutional Console v2 - Executive Layer v2
 Full implementation with advanced analytics and visualization
