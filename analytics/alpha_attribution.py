@@ -19,7 +19,18 @@ def build_alpha_attribution_snapshot():
     """
     Generate strategy-level alpha attribution by source.
 
+    Snapshot schema assumptions (from live_snapshot.csv):
+        - Wave_ID   (canonical identifier)
+        - Wave      (display name)
+        - Alpha_1D
+        - Benchmark_Return_1D
+        - Return_1D
+        - VIX_Regime
+        - strategy_state
+        - strategy_stack_applied
+
     Output columns:
+        - wave_id
         - wave_name
         - alpha_market
         - alpha_vix
@@ -28,12 +39,8 @@ def build_alpha_attribution_snapshot():
         - alpha_stock_selection
         - alpha_total
 
-    This function is SAFE TO CALL from app.py.
-    It is schema-tolerant and will gracefully degrade if
-    strategy-state columns are missing.
-
     Returns:
-        (bool, str): success flag and status message
+        (bool, str)
     """
 
     # ---------------------------------------------------------------
@@ -44,31 +51,17 @@ def build_alpha_attribution_snapshot():
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
 
-    # ---------------------------------------------------------------
-    # Normalize wave identifier (CRITICAL FIX)
-    # ---------------------------------------------------------------
-    if "wave_name" not in df.columns:
-        if "display_name" in df.columns:
-            df["wave_name"] = df["display_name"]
-        elif "wave" in df.columns:
-            df["wave_name"] = df["wave"]
-        elif "wave_id" in df.columns:
-            df["wave_name"] = df["wave_id"]
-        else:
-            return False, "Missing wave identifier (wave_name / display_name / wave_id)"
+    # Required identifiers
+    required_cols = ["Wave_ID", "Wave", "Alpha_1D"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        return False, f"Missing required columns: {missing}"
 
-    # ---------------------------------------------------------------
-    # Minimal required columns
-    # ---------------------------------------------------------------
-    if "Alpha_1D" not in df.columns:
-        return False, "Missing required column: Alpha_1D"
-
-    # Optional strategy-state columns (graceful fallback)
-    has_benchmark = "benchmark_return_1D" in df.columns
-    has_strategy = "strategy_return_1D" in df.columns
-    has_vix = "vix_regime" in df.columns
-    has_momentum = "momentum_state" in df.columns
-    has_rotation = "rotation_state" in df.columns
+    # Optional columns (graceful degradation)
+    has_benchmark = "Benchmark_Return_1D" in df.columns
+    has_return = "Return_1D" in df.columns
+    has_vix = "VIX_Regime" in df.columns
+    has_strategy_stack = "strategy_stack_applied" in df.columns
 
     # ---------------------------------------------------------------
     # Attribution logic
@@ -79,36 +72,39 @@ def build_alpha_attribution_snapshot():
         try:
             alpha_total = float(r["Alpha_1D"])
 
-            # Market-relative alpha
-            if has_benchmark and has_strategy:
-                alpha_market = float(
-                    r["strategy_return_1D"] - r["benchmark_return_1D"]
-                )
+            # -------------------------------------------------------
+            # Market alpha
+            # -------------------------------------------------------
+            if has_benchmark and has_return:
+                alpha_market = float(r["Return_1D"] - r["Benchmark_Return_1D"])
             else:
                 alpha_market = alpha_total
 
-            # VIX / volatility overlay
-            alpha_vix = (
-                alpha_total * 0.30
-                if has_vix and str(r.get("vix_regime", "")).upper() == "RISK_OFF"
-                else 0.0
-            )
+            # -------------------------------------------------------
+            # VIX overlay attribution
+            # -------------------------------------------------------
+            alpha_vix = 0.0
+            if has_vix and str(r["VIX_Regime"]).lower() in {"low", "risk_off", "risk-off"}:
+                alpha_vix = alpha_total * 0.30
 
-            # Momentum overlay
-            alpha_momentum = (
-                alpha_total * 0.25
-                if has_momentum and str(r.get("momentum_state", "")).upper() == "ON"
-                else 0.0
-            )
+            # -------------------------------------------------------
+            # Strategy overlays (momentum / rotation)
+            # -------------------------------------------------------
+            alpha_momentum = 0.0
+            alpha_rotation = 0.0
 
-            # Rotation / factor overlay
-            alpha_rotation = (
-                alpha_total * 0.20
-                if has_rotation and str(r.get("rotation_state", "")).upper() == "ON"
-                else 0.0
-            )
+            if has_strategy_stack and isinstance(r["strategy_stack_applied"], str):
+                stack = r["strategy_stack_applied"].lower()
 
+                if "momentum" in stack:
+                    alpha_momentum = alpha_total * 0.25
+
+                if "rotation" in stack or "trend_confirmation" in stack:
+                    alpha_rotation = alpha_total * 0.20
+
+            # -------------------------------------------------------
             # Residual = stock selection
+            # -------------------------------------------------------
             alpha_stock_selection = (
                 alpha_total
                 - alpha_market
@@ -119,7 +115,8 @@ def build_alpha_attribution_snapshot():
 
             rows.append(
                 {
-                    "wave_name": r["wave_name"],
+                    "wave_id": r["Wave_ID"],
+                    "wave_name": r["Wave"],
                     "alpha_market": alpha_market,
                     "alpha_vix": alpha_vix,
                     "alpha_momentum": alpha_momentum,
@@ -130,7 +127,7 @@ def build_alpha_attribution_snapshot():
             )
 
         except Exception:
-            # Skip malformed rows, never crash the app
+            # Never crash the app because of one bad row
             continue
 
     if not rows:
@@ -140,6 +137,7 @@ def build_alpha_attribution_snapshot():
     # Write output
     # ---------------------------------------------------------------
     out_df = pd.DataFrame(rows)
+
     os.makedirs(os.path.dirname(ATTRIBUTION_PATH), exist_ok=True)
     out_df.to_csv(ATTRIBUTION_PATH, index=False)
 
@@ -147,7 +145,7 @@ def build_alpha_attribution_snapshot():
 
 
 # -------------------------------------------------------------------
-# Optional CLI execution
+# CLI support
 # -------------------------------------------------------------------
 
 if __name__ == "__main__":
