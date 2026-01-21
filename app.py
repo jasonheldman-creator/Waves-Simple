@@ -13821,217 +13821,113 @@ def render_alpha_attribution_breakdown():
 def render_wave_data_readiness_panel():
     """
     Render Wave Data Readiness panel showing coverage, history, and actionable diagnostics.
-    
-    Displays per wave:
-    - Coverage %
-    - History days
-    - Max data freshness age
-    - Missing/Stale tickers
-    - Readiness Badge (Operational/Partial/Unavailable)
-    - Analytics Ready flag
-    - Actionable suggestions
     """
     try:
+        import pandas as pd
+        import streamlit as st
         from analytics_pipeline import (
             compute_data_ready_status,
             MIN_COVERAGE_FOR_ANALYTICS,
             MIN_DAYS_FOR_ANALYTICS,
-            MIN_COVERAGE_OPERATIONAL,
-            MIN_COVERAGE_PARTIAL,
-            MIN_COVERAGE_FULL,
-            MIN_DAYS_OPERATIONAL,
-            MIN_DAYS_PARTIAL,
-            MIN_DAYS_FULL
         )
         from waves_engine import get_all_wave_ids
-        
+
         with st.expander("🌊 Wave Data Readiness", expanded=False):
             st.markdown("#### Wave Data Coverage & Readiness Status")
-            st.caption("Comprehensive diagnostic view of data availability, coverage, and analytics readiness for all waves")
-            
-            # Get all waves
+            st.caption(
+                "Diagnostic view of data availability, freshness, and analytics readiness"
+            )
+
             wave_ids = get_all_wave_ids()
-            
-            # Compute readiness for all waves
-            readiness_data = []
+            rows = []
+
             for wave_id in wave_ids:
-                diagnostics = compute_data_ready_status(wave_id)
-                
-                # Determine badge emoji and text
-                status = diagnostics['readiness_status']
-                if status == 'full':
-                    badge = "🟢 Full"
-                elif status == 'partial':
-                    badge = "🟡 Partial"
-                elif status == 'operational':
-                    badge = "🟠 Operational"
-                else:
-                    badge = "🔴 Unavailable"
-                
-                # Determine analytics ready status
-                analytics_ready = diagnostics.get('analytics_ready', False)
+                d = compute_data_ready_status(wave_id)
+
+                status = d.get("readiness_status", "unavailable")
+                badge = {
+                    "full": "🟢 Full",
+                    "partial": "🟡 Partial",
+                    "operational": "🟠 Operational",
+                    "unavailable": "🔴 Unavailable",
+                }.get(status, "🔴 Unavailable")
+
+                analytics_ready = d.get("analytics_ready", False)
                 analytics_badge = "✅ Ready" if analytics_ready else "⚠️ Limited"
-                
-                # Get stale days
-                stale_days = diagnostics.get('stale_days_max', 0)
-                freshness = f"{stale_days}d" if stale_days > 0 else "Current"
-                
-                # Format missing tickers
-                missing = diagnostics.get('missing_tickers', [])
-                missing_str = ', '.join(missing[:5])  # Show first 5
-                if len(missing) > 5:
-                    missing_str += f" (+{len(missing)-5} more)"
-                
-                # Format stale tickers
-                stale = diagnostics.get('stale_tickers', [])
-                stale_str = ', '.join(stale[:3])  # Show first 3
-                if len(stale) > 3:
-                    stale_str += f" (+{len(stale)-3} more)"
-                
-                readiness_data.append({
-                    'Wave': diagnostics['display_name'],
-                    'Badge': badge,
-                    'Coverage %': f"{diagnostics.get('coverage_pct', 0):.1f}%",
-                    'History Days': diagnostics.get('history_days', 0),
-                    'Freshness': freshness,
-                    'Analytics': analytics_badge,
-                    'Missing Tickers': missing_str if missing else '—',
-                    'Stale Tickers': stale_str if stale else '—'
+
+                stale_days = d.get("stale_days_max", 0)
+                freshness = "Current" if stale_days == 0 else f"{stale_days}d"
+
+                missing = d.get("missing_tickers", [])
+                stale = d.get("stale_tickers", [])
+
+                rows.append({
+                    "Wave": d.get("display_name", wave_id),
+                    "Badge": badge,
+                    "Coverage %": f"{d.get('coverage_pct', 0):.1f}%",
+                    "History Days": d.get("history_days", 0),
+                    "Freshness": freshness,
+                    "Analytics": analytics_badge,
+                    "Missing Tickers": ", ".join(missing[:5]) if missing else "—",
+                    "Stale Tickers": ", ".join(stale[:3]) if stale else "—",
                 })
-            
-            # Create DataFrame
-            readiness_df = pd.DataFrame(readiness_data)
-            
-            # Display summary metrics
+
+            df = pd.DataFrame(rows)
+
+            # =========================
+            # Summary Metrics
+            # =========================
             st.markdown("##### 📊 Readiness Summary")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                full_count = readiness_df['Badge'].str.contains('🟢').sum()
-                st.metric("🟢 Full", full_count, delta=f"{full_count/len(readiness_df)*100:.0f}%")
-            
-            with col2:
-                partial_count = readiness_df['Badge'].str.contains('🟡').sum()
-                st.metric("🟡 Partial", partial_count, delta=f"{partial_count/len(readiness_df)*100:.0f}%")
-            
-            with col3:
-                operational_count = readiness_df['Badge'].str.contains('🟠').sum()
-                st.metric("🟠 Operational", operational_count, delta=f"{operational_count/len(readiness_df)*100:.0f}%")
-            
-            with col4:
-                unavailable_count = readiness_df['Badge'].str.contains('🔴').sum()
-                st.metric("🔴 Unavailable", unavailable_count, delta=f"{unavailable_count/len(readiness_df)*100:.0f}%")
-            
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric("🟢 Full", df["Badge"].str.contains("🟢").sum())
+            c2.metric("🟡 Partial", df["Badge"].str.contains("🟡").sum())
+            c3.metric("🟠 Operational", df["Badge"].str.contains("🟠").sum())
+            c4.metric("🔴 Unavailable", df["Badge"].str.contains("🔴").sum())
+
             st.divider()
-            
-            # Display analytics readiness
+
+            # =========================
+            # Analytics Readiness
+            # =========================
             st.markdown("##### 📈 Analytics Readiness")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                analytics_ready_count = readiness_df['Analytics'].str.contains('✅').sum()
-                st.metric("✅ Analytics Ready", analytics_ready_count, 
-                         delta=f"{analytics_ready_count/len(readiness_df)*100:.0f}%")
-            
-            with col2:
-                analytics_limited_count = readiness_df['Analytics'].str.contains('⚠️').sum()
-                st.metric("⚠️ Analytics Limited", analytics_limited_count,
-                         delta=f"{analytics_limited_count/len(readiness_df)*100:.0f}%")
-            
-            # Show thresholds
-            st.caption(f"**Analytics Ready Criteria:** Coverage ≥ {MIN_COVERAGE_FOR_ANALYTICS*100:.0f}%, History ≥ {MIN_DAYS_FOR_ANALYTICS} days")
-            
+            c1, c2 = st.columns(2)
+
+            c1.metric("✅ Ready", df["Analytics"].str.contains("✅").sum())
+            c2.metric("⚠️ Limited", df["Analytics"].str.contains("⚠️").sum())
+
+            st.caption(
+                f"Analytics Ready = Coverage ≥ {MIN_COVERAGE_FOR_ANALYTICS*100:.0f}% "
+                f"and History ≥ {MIN_DAYS_FOR_ANALYTICS} days"
+            )
+
             st.divider()
-            
-            # Display full table
+
+            # =========================
+            # Detailed Table
+            # =========================
             st.markdown("##### 📋 Detailed Readiness Table")
-            st.dataframe(readiness_df, use_container_width=True, hide_index=True, height=400)
-            
+            st.dataframe(df, use_container_width=True, hide_index=True, height=420)
+
             st.divider()
-            
-            # Show actionable suggestions for waves with issues
-            st.markdown("##### 💡 Actionable Suggestions")
-            
-            # Get waves with issues
-            issue_waves = []
-            for wave_id in wave_ids:
-                diagnostics = compute_data_ready_status(wave_id)
-                if diagnostics['readiness_status'] == 'unavailable' or not diagnostics.get('analytics_ready', False):
-                    suggestions = diagnostics.get('suggested_actions', [])
-                    missing = diagnostics.get('missing_tickers', [])
-                    
-                    if suggestions or missing:
-                        issue_waves.append({
-                            'wave': diagnostics['display_name'],
-                            'wave_id': wave_id,
-                            'status': diagnostics['readiness_status'],
-                            'coverage': diagnostics.get('coverage_pct', 0),
-                            'history': diagnostics.get('history_days', 0),
-                            'missing': missing,
-                            'suggestions': suggestions
-                        })
-            
-            if issue_waves:
-                # Group by severity
-                unavailable = [w for w in issue_waves if w['status'] == 'unavailable']
-                limited = [w for w in issue_waves if w['status'] != 'unavailable']
-                
-                if unavailable:
-                    st.markdown("**🔴 Unavailable Waves (High Priority):**")
-                    for wave in unavailable[:3]:  # Show top 3
-                        with st.expander(f"{wave['wave']}", expanded=False):
-                            st.write(f"**Status:** {wave['status'].title()}")
-                            st.write(f"**Coverage:** {wave['coverage']:.1f}%")
-                            st.write(f"**History:** {wave['history']} days")
-                            
-                            if wave['missing']:
-                                st.write(f"**Missing Tickers ({len(wave['missing'])}):** {', '.join(wave['missing'][:10])}")
-                                if len(wave['missing']) > 10:
-                                    st.write(f"... and {len(wave['missing'])-10} more")
-                                
-                                st.markdown("**💡 To enable full analytics:**")
-                                st.markdown(f"- Add these tickers to price data: `{', '.join(wave['missing'][:5])}`")
-                                st.markdown(f"- Run: `python analytics_pipeline.py --wave {wave['wave_id']}`")
-                            
-                            if wave['suggestions']:
-                                st.markdown("**📝 Suggested Actions:**")
-                                for suggestion in wave['suggestions'][:3]:
-                                    st.markdown(f"- {suggestion}")
-                
-                if limited:
-                    st.markdown("**⚠️ Analytics Limited Waves:**")
-                    for wave in limited[:5]:  # Show top 5
-                        with st.expander(f"{wave['wave']}", expanded=False):
-                            st.write(f"**Coverage:** {wave['coverage']:.1f}% (need {MIN_COVERAGE_FOR_ANALYTICS*100:.0f}%)")
-                            st.write(f"**History:** {wave['history']} days (need {MIN_DAYS_FOR_ANALYTICS} days)")
-                            
-                            if wave['coverage'] < MIN_COVERAGE_FOR_ANALYTICS * 100:
-                                st.markdown(f"**💡 Improve coverage from {wave['coverage']:.1f}% to {MIN_COVERAGE_FOR_ANALYTICS*100:.0f}%:**")
-                                if wave['missing']:
-                                    st.markdown(f"- Fix {len(wave['missing'])} missing ticker(s): `{', '.join(wave['missing'][:5])}`")
-                            
-                            if wave['history'] < MIN_DAYS_FOR_ANALYTICS:
-                                st.markdown(f"**💡 Increase history from {wave['history']} to {MIN_DAYS_FOR_ANALYTICS} days:**")
-                                st.markdown(f"- Run: `python analytics_pipeline.py --wave {wave['wave_id']} --lookback=60`")
-            else:
-                st.success("✅ All waves are analytics-ready! No action required.")
-            
-            # Legend
-            st.divider()
+
+            # =========================
+            # Badge Legend (SAFE)
+            # =========================
             st.markdown("##### 📖 Badge Legend")
-            st.markdown("""
-            - **🟢 Full**: Coverage ≥ 90%, History ≥ 365 days — All analytics available
-            - **🟡 Partial**: Coverage ≥ 70%, History ≥ 7 days — Basic analytics available
-            - **🟠 Operational**: Coverage ≥ 50%, History ≥ 1 day — Current state display only
-            - **🔴 Unavailable**: Coverage < 50% or History < 1 day — Cannot display
-            """)
-            
+            st.markdown(
+                """
+- **🟢 Full** — High coverage & sufficient history  
+- **🟡 Partial** — Coverage ≥ 70%  
+- **🟠 Operational** — Coverage ≥ 50%  
+- **🔴 Unavailable** — Coverage < 50%
+                """
+            )
+
     except Exception as e:
-        st.error(f"Error rendering Wave Data Readiness panel: {str(e)}")
         import traceback
+        st.error("❌ Error rendering Wave Data Readiness panel")
         st.code(traceback.format_exc())
-
-
 def render_ticker_failure_diagnostics_panel():
     """
     Render a collapsible panel showing ticker failure root cause analysis.
