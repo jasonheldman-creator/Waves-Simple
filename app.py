@@ -13270,65 +13270,75 @@ def render_strategy_alpha_attribution():
         st.exception(e)
 def render_overview_tab():
     """
-    Render the new comprehensive Overview tab with Wave Lens selector.
-    
-    This tab provides:
-    - Wave Lens dropdown to switch between "All Waves (System View)" and individual wave views
-    - System View: Platform-wide summaries, rankings, attribution, narratives
-    - Individual Wave View: Wave-specific metrics, attribution, narratives
-    - Data readiness status for all waves
-    - WAVE SNAPSHOT LEDGER for 28/28 coverage
-    
-    Reuses existing data pipelines for consistency with Wave cards.
+    Render the comprehensive Overview tab.
+
+    Includes:
+    - Platform-wide executive overview
+    - Alpha attribution (heat + strategy / overlay breakdown)
+    - Registry diagnostics on failure
     """
     try:
+        # --------------------------------------------------
+        # HEADER
+        # --------------------------------------------------
         st.header("📊 Platform Overview")
         st.caption("Executive-level intelligence across all waves")
 
-        # ===============================
+        # --------------------------------------------------
         # ALPHA ATTRIBUTION (OVERVIEW)
-        # ===============================
+        # --------------------------------------------------
         st.subheader("🧠 Alpha Attribution")
 
+        # Alpha Heat Index (existing component)
         render_alpha_heat_index()
+
+        # Strategy / Overlay Alpha Attribution
         render_strategy_alpha_attribution()
-        st.info("DEBUG: render_strategy_alpha_attribution() CALLED")
-        # (rest of the overview continues below…)
+
+        # Minimal confirmation signal
+        st.info("DEBUG: Overview → strategy alpha attribution rendered")
+
+        # --------------------------------------------------
+        # (rest of overview content continues below)
+        # --------------------------------------------------
 
     except Exception as e:
         st.error("⚠️ Error rendering Overview tab")
         st.exception(e)
-        # ========================================================================
-        # WAVE REGISTRY VALIDATOR - Diagnostics Panel
-        # ========================================================================
+
+        # --------------------------------------------------
+        # WAVE REGISTRY VALIDATOR (DIAGNOSTICS)
+        # --------------------------------------------------
         if WAVE_REGISTRY_VALIDATOR_AVAILABLE:
             try:
-                # Run validation
                 validation_result = validate_wave_registry(
                     registry_path="config/wave_registry.json",
-                    wave_weights=WAVE_WEIGHTS if WAVES_ENGINE_AVAILABLE else None
+                    wave_weights=WAVE_WEIGHTS if WAVES_ENGINE_AVAILABLE else None,
                 )
-                
-                # Display validation status
+
                 if not validation_result.is_valid:
-                    # Show errors prominently
-                    st.error(f"⚠️ Wave Registry Validation Failed: {validation_result.error_count} errors, {validation_result.warning_count} warnings")
-                    
+                    st.error(
+                        f"⚠️ Wave Registry Validation Failed: "
+                        f"{validation_result.error_count} errors, "
+                        f"{validation_result.warning_count} warnings"
+                    )
                     with st.expander("🔍 Registry Validation Report", expanded=True):
                         st.code(validation_result.get_detailed_report(), language="text")
+
                 elif validation_result.warning_count > 0:
-                    # Show warnings in collapsible panel
-                    st.warning(f"⚠️ Wave Registry: {validation_result.warning_count} warnings (registry is valid)")
-                    
+                    st.warning(
+                        f"⚠️ Wave Registry warnings: "
+                        f"{validation_result.warning_count}"
+                    )
                     with st.expander("🔍 Registry Validation Report", expanded=False):
                         st.code(validation_result.get_detailed_report(), language="text")
+
                 else:
-                    # Show success in collapsible panel
                     with st.expander("✓ Wave Registry Validation: Passed", expanded=False):
                         st.code(validation_result.get_detailed_report(), language="text")
+
             except Exception as e:
                 st.warning(f"⚠️ Failed to validate wave registry: {str(e)}")
-        
         # ========================================================================
         # PRICE_BOOK TRUTH PANEL - Data Truth
         # ========================================================================
