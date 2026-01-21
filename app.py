@@ -20525,10 +20525,10 @@ def render_adaptive_intelligence_tab():
     """
     Adaptive Intelligence Center (MONITORING ONLY)
 
-    This tab is read-only.
+    This tab is strictly read-only.
     It NEVER mutates strategy state, parameters, weights, or execution logic.
 
-    All data is pulled defensively from the active TruthFrame.
+    All data is read defensively from the active TruthFrame.
     """
 
     st.markdown("# 🧠 Adaptive Intelligence Center")
@@ -20543,7 +20543,7 @@ def render_adaptive_intelligence_tab():
     st.divider()
 
     # =====================================================================
-    # LOAD TRUTHFRAME (SAFE SOURCE)
+    # LOAD TRUTHFRAME (SINGLE SOURCE OF TRUTH)
     # =====================================================================
     truthframe = get_active_truthframe()
 
@@ -20557,14 +20557,14 @@ def render_adaptive_intelligence_tab():
     st.divider()
 
     # =====================================================================
-    # SECTION 1 — WAVE HEALTH MONITOR (SAFE)
+    # SECTION 1 — WAVE HEALTH MONITOR
     # =====================================================================
     st.subheader("🌊 Wave Health Monitor")
     st.markdown(
         "Recent alpha, beta drift, exposure, and volatility alignment for each wave."
     )
 
-    rows = []
+    health_rows = []
 
     for wave, wave_data in truthframe.items():
         if not isinstance(wave_data, dict):
@@ -20574,22 +20574,44 @@ def render_adaptive_intelligence_tab():
         if not isinstance(health, dict):
             health = {}
 
-        score = health.get("score")
-        label = health.get("label", "unknown")
-        notes = health.get("notes", "")
+        alpha = wave_data.get("alpha", {})
+        if not isinstance(alpha, dict):
+            alpha = {}
 
-        rows.append({
+        health_rows.append({
             "Wave": wave,
-            "Health Score": f"{score:.1f}" if isinstance(score, (int, float)) else "—",
-            "Status": label.capitalize() if isinstance(label, str) else "Unknown",
-            "Notes": notes if isinstance(notes, str) else ""
+            "Health Score": (
+                f"{health.get('score'):.1f}"
+                if isinstance(health.get("score"), (int, float))
+                else "—"
+            ),
+            "Status": (
+                health.get("label", "unknown").capitalize()
+                if isinstance(health.get("label"), str)
+                else "Unknown"
+            ),
+            "Alpha (Total)": (
+                f"{alpha.get('total') * 100:.2f}%"
+                if isinstance(alpha.get("total"), (int, float))
+                else "—"
+            ),
+            "Alpha (Selection)": (
+                f"{alpha.get('selection') * 100:.2f}%"
+                if isinstance(alpha.get("selection"), (int, float))
+                else "—"
+            ),
+            "Alpha (Overlay)": (
+                f"{alpha.get('overlay') * 100:.2f}%"
+                if isinstance(alpha.get("overlay"), (int, float))
+                else "—"
+            ),
         })
 
-    if not rows:
+    if not health_rows:
         st.info("ℹ️ Wave health diagnostics not yet available.")
     else:
         st.dataframe(
-            pd.DataFrame(rows),
+            pd.DataFrame(health_rows),
             use_container_width=True,
             hide_index=True
         )
@@ -20597,7 +20619,7 @@ def render_adaptive_intelligence_tab():
     st.divider()
 
     # =====================================================================
-    # SECTION 2 — REGIME INTELLIGENCE (SAFE)
+    # SECTION 2 — REGIME INTELLIGENCE
     # =====================================================================
     st.subheader("📊 Regime Intelligence")
     st.markdown("Current volatility regime and wave alignment summary.")
@@ -20632,7 +20654,7 @@ def render_adaptive_intelligence_tab():
     st.divider()
 
     # =====================================================================
-    # SECTION 3 — LEARNING SIGNALS (SAFE)
+    # SECTION 3 — LEARNING SIGNALS
     # =====================================================================
     st.subheader("🔔 Learning Signals")
     st.markdown("Detected patterns and anomalies that may warrant attention.")
@@ -20660,124 +20682,6 @@ def render_adaptive_intelligence_tab():
         "Note: This Adaptive Intelligence Center is read-only. "
         "All diagnostics are observational and do not modify system state."
     )
-    
-    # ========================================================================
-    # SECTION 2: REGIME INTELLIGENCE
-    # ========================================================================
-    st.subheader("📊 Regime Intelligence")
-    st.markdown("**Current volatility regime and wave alignment summary.**")
-    
-    try:
-        # Analyze regime intelligence
-        regime = analyze_regime_intelligence(truth_df)
-        
-        # Display regime overview
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Current Regime", regime['current_regime'])
-        
-        with col2:
-            st.metric("Aligned Waves", regime['aligned_waves'])
-        
-        with col3:
-            st.metric("Misaligned Waves", regime['misaligned_waves'])
-        
-        with col4:
-            st.metric("Alignment %", f"{regime['alignment_pct']:.1f}%")
-        
-        # Regime description
-        st.info(f"**Regime Description:** {regime['regime_description']}")
-        
-        # Regime summary
-        st.caption(f"**Summary:** {regime['regime_summary']}")
-    
-    except Exception as e:
-        st.error(f"⚠️ Error analyzing regime intelligence: {e}")
-    
-    st.markdown("---")
-    
-    # ========================================================================
-    # SECTION 3: LEARNING SIGNALS
-    # ========================================================================
-    st.subheader("🔔 Learning Signals")
-    st.markdown("**Detected patterns and anomalies that may warrant attention.**")
-    
-    try:
-        # Detect learning signals
-        signals = detect_learning_signals(truth_df)
-        
-        if not signals:
-            st.success("✓ No learning signals detected - all waves operating within normal parameters.")
-        else:
-            st.warning(f"⚠️ Detected {len(signals)} learning signals")
-            
-            # Group signals by severity
-            critical_signals = [s for s in signals if s['severity'] == 'critical']
-            warning_signals = [s for s in signals if s['severity'] == 'warning']
-            info_signals = [s for s in signals if s['severity'] == 'info']
-            
-            # Display critical signals
-            if critical_signals:
-                st.markdown("**🔴 Critical Signals:**")
-                for signal in critical_signals:
-                    with st.expander(f"🔴 {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
-                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
-                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
-                        st.markdown(f"**Description:** {signal['description']}")
-                        if signal['metric_value'] is not None:
-                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
-            
-            # Display warning signals
-            if warning_signals:
-                st.markdown("**🟡 Warning Signals:**")
-                for signal in warning_signals:
-                    with st.expander(f"🟡 {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
-                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
-                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
-                        st.markdown(f"**Description:** {signal['description']}")
-                        if signal['metric_value'] is not None:
-                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
-            
-            # Display info signals
-            if info_signals:
-                st.markdown("**ℹ️ Info Signals:**")
-                for signal in info_signals:
-                    with st.expander(f"ℹ️ {signal['display_name']} - {signal['signal_type'].replace('_', ' ').title()}"):
-                        st.markdown(f"**Wave:** {signal['display_name']} (`{signal['wave_id']}`)")
-                        st.markdown(f"**Type:** {signal['signal_type'].replace('_', ' ').title()}")
-                        st.markdown(f"**Description:** {signal['description']}")
-                        if signal['metric_value'] is not None:
-                            st.markdown(f"**Metric Value:** {signal['metric_value']:.4f}")
-            
-            # Summary by severity
-            st.markdown("---")
-            st.markdown("**Signal Summary:**")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Critical", len(critical_signals))
-            
-            with col2:
-                st.metric("Warning", len(warning_signals))
-            
-            with col3:
-                st.metric("Info", len(info_signals))
-    
-    except Exception as e:
-        st.error(f"⚠️ Error detecting learning signals: {e}")
-    
-    st.markdown("---")
-    
-    # ========================================================================
-    # FOOTER
-    # ========================================================================
-    st.caption("""
-    **Note:** This Adaptive Intelligence Center is the foundation for future adaptive learning advancements.
-    All diagnostics are read-only and do not modify any trading behavior or system state.
-    """)
-
-
 def render_bottom_ticker_bar():
     """
     Render the bottom ticker bar with scrolling animation.
