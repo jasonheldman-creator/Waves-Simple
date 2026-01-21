@@ -29,7 +29,8 @@ def build_alpha_attribution_snapshot():
         - alpha_total
 
     This function is SAFE TO CALL from app.py.
-    It will gracefully degrade if strategy-state columns are missing.
+    It is schema-tolerant and will gracefully degrade if
+    strategy-state columns are missing.
 
     Returns:
         (bool, str): success flag and status message
@@ -43,11 +44,24 @@ def build_alpha_attribution_snapshot():
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
 
+    # ---------------------------------------------------------------
+    # Normalize wave identifier (CRITICAL FIX)
+    # ---------------------------------------------------------------
+    if "wave_name" not in df.columns:
+        if "display_name" in df.columns:
+            df["wave_name"] = df["display_name"]
+        elif "wave" in df.columns:
+            df["wave_name"] = df["wave"]
+        elif "wave_id" in df.columns:
+            df["wave_name"] = df["wave_id"]
+        else:
+            return False, "Missing wave identifier (wave_name / display_name / wave_id)"
+
+    # ---------------------------------------------------------------
     # Minimal required columns
-    required_cols = ["wave_name", "Alpha_1D"]
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        return False, f"Missing required columns: {missing}"
+    # ---------------------------------------------------------------
+    if "Alpha_1D" not in df.columns:
+        return False, "Missing required column: Alpha_1D"
 
     # Optional strategy-state columns (graceful fallback)
     has_benchmark = "benchmark_return_1D" in df.columns
@@ -71,7 +85,6 @@ def build_alpha_attribution_snapshot():
                     r["strategy_return_1D"] - r["benchmark_return_1D"]
                 )
             else:
-                # Fallback: treat all alpha as market-relative
                 alpha_market = alpha_total
 
             # VIX / volatility overlay
@@ -117,7 +130,7 @@ def build_alpha_attribution_snapshot():
             )
 
         except Exception:
-            # Skip malformed rows, never crash
+            # Skip malformed rows, never crash the app
             continue
 
     if not rows:
@@ -127,7 +140,6 @@ def build_alpha_attribution_snapshot():
     # Write output
     # ---------------------------------------------------------------
     out_df = pd.DataFrame(rows)
-
     os.makedirs(os.path.dirname(ATTRIBUTION_PATH), exist_ok=True)
     out_df.to_csv(ATTRIBUTION_PATH, index=False)
 
