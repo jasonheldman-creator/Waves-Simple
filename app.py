@@ -110,7 +110,7 @@ def compute_alpha_attribution(wave, days=60):
     }
     
 # Populate alpha attribution
-truth = get_truthframe()
+truth = get_active_truthframe()
 
 for wave in truth["waves"].keys():
     alpha = compute_alpha_attribution(wave)
