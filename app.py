@@ -1,48 +1,7 @@
+# ============================================================
+# Core imports
+# ============================================================
 import streamlit as st
-import logging
-import subprocess
-import os
-import traceback
-import time
-import itertools
-import html
-from datetime import datetime, timedelta
-
-import pandas as pd
-
-# Alpha attribution builder (creates alpha_attribution_snapshot.csv)
-from analytics.alpha_attribution import build_alpha_attribution_snapshot
-
-# ---------------------------------------
-# Ensure alpha attribution snapshot exists
-# ---------------------------------------
-try:
-    build_alpha_attribution_snapshot()
-except Exception as e:
-    st.warning(f"Alpha attribution snapshot build failed: {e}")
-
-from analytics.alpha_attribution import build_alpha_attribution_snapshot
-
-"""
-Institutional Console v2 - Executive Layer v2
-Full implementation with advanced analytics and visualization
-
-Modular structure:
-1. Configuration and styling
-2. Utility functions  
-3. Safe data-loading helpers
-4. Data processing and calculation functions
-5. Visualization components
-6. Reusable UI components
-7. Render functions for tabs and analytics
-8. Main entry point
-
-FULL MULTI-TAB CONSOLE UI - Post PR #336
-Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
-Includes all analytics, monitoring, and governance features.
-"""
-
-# ================================
 import logging
 import subprocess
 import os
@@ -58,188 +17,55 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+
+"""
+Institutional Console v2 - Executive Layer v2
+Full implementation with advanced analytics and visualization
+
+Modular structure:
+1. Configuration and styling
+2. Utility functions
+3. Safe data-loading helpers
+4. Data processing and calculation functions
+5. Visualization components
+6. Reusable UI components
+7. Render functions for tabs and analytics
+8. Main entry point
+
+FULL MULTI-TAB CONSOLE UI - Post PR #336
+Includes all analytics, monitoring, and governance features.
+"""
+
+
+# ============================================================
+# Logging
+# ============================================================
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
 
-
-# Import alpha attribution module
+# ============================================================
+# Alpha Attribution Snapshot Builder (CRITICAL)
+# ============================================================
 try:
-    from alpha_attribution import (
-        compute_alpha_attribution_series,
-        format_attribution_summary_table,
-        format_daily_attribution_sample
-    )
-    ALPHA_ATTRIBUTION_AVAILABLE = True
-except ImportError:
-    ALPHA_ATTRIBUTION_AVAILABLE = False
+    from analytics.alpha_attribution import build_alpha_attribution_snapshot
+    ALPHA_ATTRIBUTION_BUILDER_AVAILABLE = True
+except Exception as e:
+    ALPHA_ATTRIBUTION_BUILDER_AVAILABLE = False
+    logger.warning(f"Alpha attribution builder unavailable: {e}")
 
-# Import VIX overlay diagnostics module
-try:
-    from vix_overlay_diagnostics import get_wave_diagnostics
-    VIX_DIAGNOSTICS_AVAILABLE = True
-except ImportError:
-    VIX_DIAGNOSTICS_AVAILABLE = False
 
-# Import VIX overlay configuration
-try:
-    from config.vix_overlay_config import (
-        get_vix_overlay_config,
-        is_vix_overlay_live,
-        get_vix_overlay_status
-    )
-    from waves_engine import (
-        get_vix_overlay_status_for_wave,
-        is_vix_overlay_active_for_wave
-    )
-    VIX_CONFIG_AVAILABLE = True
-except ImportError:
-    VIX_CONFIG_AVAILABLE = False
-
-# Import waves engine for wave definitions (single source of truth)
-try:
-    from waves_engine import (
-        get_all_waves as engine_get_all_waves, 
-        WAVE_WEIGHTS,
-        get_wave_id_from_display_name,
-        get_display_name_from_wave_id
-    )
-    WAVES_ENGINE_AVAILABLE = True
-except ImportError:
-    WAVES_ENGINE_AVAILABLE = False
-    engine_get_all_waves = None
-    WAVE_WEIGHTS = {}
-    get_wave_id_from_display_name = None
-    get_display_name_from_wave_id = None
-
-# Import wave registry manager
-try:
-    from wave_registry_manager import get_active_wave_registry
-    WAVE_REGISTRY_MANAGER_AVAILABLE = True
-except ImportError:
-    WAVE_REGISTRY_MANAGER_AVAILABLE = False
-    get_active_wave_registry = None
-
-# V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
-try:
-    from helpers.ticker_rail import render_bottom_ticker_v3
-    TICKER_V3_AVAILABLE = True
-except ImportError:
-    TICKER_V3_AVAILABLE = False
-
-# Import auto-refresh configuration
-try:
-    from auto_refresh_config import (
-        DEFAULT_AUTO_REFRESH_ENABLED,
-        DEFAULT_REFRESH_INTERVAL_MS,
-        REFRESH_INTERVAL_OPTIONS,
-        get_default_settings,
-        validate_refresh_interval,
-        get_interval_display_name,
-        should_refresh_component,
-        AUTO_PAUSE_ON_ERROR,
-        MAX_CONSECUTIVE_ERRORS,
-        STATUS_FORMAT
-    )
-    AUTO_REFRESH_CONFIG_AVAILABLE = True
-except ImportError:
-    AUTO_REFRESH_CONFIG_AVAILABLE = False
-    # Fallback defaults if config module is unavailable
-    # Auto-refresh OFF by default to prevent infinite reruns
-    DEFAULT_AUTO_REFRESH_ENABLED = False
-    DEFAULT_REFRESH_INTERVAL_MS = 60000
-    REFRESH_INTERVAL_OPTIONS = {"1 minute": 60000, "2 minutes": 120000}
-    AUTO_PAUSE_ON_ERROR = True
-    MAX_CONSECUTIVE_ERRORS = 3
-    STATUS_FORMAT = {"enabled": "🟢 ON", "disabled": "🔴 OFF", "paused": "🟡 PAUSED", "error": "⚠️ ERROR"}
-
-# Import wave registry validator
-try:
-    from helpers.wave_registry_validator import validate_wave_registry, load_wave_registry, get_enabled_waves
-    WAVE_REGISTRY_VALIDATOR_AVAILABLE = True
-except ImportError:
-    WAVE_REGISTRY_VALIDATOR_AVAILABLE = False
-
-# Import executive summary generator
-try:
-    from helpers.executive_summary import generate_executive_summary
-    EXECUTIVE_SUMMARY_AVAILABLE = True
-except ImportError:
-    EXECUTIVE_SUMMARY_AVAILABLE = False
-
-# Import diagnostics artifact loader
-try:
-    from helpers.diagnostics_artifact import load_diagnostics_artifact
-    DIAGNOSTICS_ARTIFACT_AVAILABLE = True
-except ImportError:
-    DIAGNOSTICS_ARTIFACT_AVAILABLE = False
-
-# Import operator toolbox helper functions
-try:
-    from helpers.operator_toolbox import (
-        get_data_health_metadata,
-        rebuild_price_cache as rebuild_price_cache_toolbox,
-        rebuild_wave_history,
-        run_self_test,
-        force_ledger_recompute
-    )
-    OPERATOR_TOOLBOX_AVAILABLE = True
-except ImportError:
-    OPERATOR_TOOLBOX_AVAILABLE = False
-
-# Import price_book constants for Mission Control
-# UI uses price_book as source of truth to prevent divergence
-try:
-    from helpers.price_book import (
-        PRICE_CACHE_OK_DAYS, 
-        PRICE_CACHE_DEGRADED_DAYS,
-        CANONICAL_CACHE_PATH,
-        compute_system_health,
-        get_price_book
-    )
-    PRICE_BOOK_CONSTANTS_AVAILABLE = True
-    # Legacy aliases for backward compatibility - mapping to canonical names:
-    # - DEGRADED_DAYS_THRESHOLD = threshold for transitioning FROM OK TO DEGRADED (14 days)
-    # - STALE_DAYS_THRESHOLD = threshold for transitioning FROM DEGRADED TO STALE (30 days)
-    # These maintain backward compatibility with code that uses the old threshold names.
-    DEGRADED_DAYS_THRESHOLD = PRICE_CACHE_OK_DAYS
-    STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS
-except ImportError:
-    PRICE_BOOK_CONSTANTS_AVAILABLE = False
-    # Fallback defaults if price_book is unavailable
-    PRICE_CACHE_OK_DAYS = 14
-    PRICE_CACHE_DEGRADED_DAYS = 30
-    STALE_DAYS_THRESHOLD = 30
-    DEGRADED_DAYS_THRESHOLD = 14
-    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"  # Canonical path
-    compute_system_health = None
-    get_price_book = None
-
-# Import wave performance functions for portfolio metrics
-# DEPRECATED: Legacy PRICE_BOOK-based portfolio snapshot (replaced by TruthFrame)
-try:
-    from helpers.wave_performance import compute_portfolio_snapshot as _legacy_compute_portfolio_snapshot
-    WAVE_PERFORMANCE_AVAILABLE = True
-except ImportError:
-    WAVE_PERFORMANCE_AVAILABLE = False
-    _legacy_compute_portfolio_snapshot = None
-
-# Import TruthFrame-based portfolio snapshot (NEW: replaces legacy PRICE_BOOK aggregation)
-try:
-    from analytics_truth import compute_portfolio_snapshot_from_truth
-    TRUTHFRAME_PORTFOLIO_AVAILABLE = True
-except ImportError:
-    TRUTHFRAME_PORTFOLIO_AVAILABLE = False
-    compute_portfolio_snapshot_from_truth = None
-
-# Import snapshot ledger for portfolio snapshot loading
-try:
-    from snapshot_ledger import generate_snapshot
-    SNAPSHOT_LEDGER_AVAILABLE = True
-except ImportError:
-    SNAPSHOT_LEDGER_AVAILABLE = False
-    generate_snapshot = None
+# ------------------------------------------------------------
+# Ensure alpha attribution snapshot exists (runs once per load)
+# ------------------------------------------------------------
+if ALPHA_ATTRIBUTION_BUILDER_AVAILABLE:
+    try:
+        build_alpha_attribution_snapshot()
+        logger.info("Alpha attribution snapshot built / verified")
+    except Exception as e:
+        st.warning(f"Alpha attribution snapshot build failed: {e}")
+        logger.exception(e)
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
