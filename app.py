@@ -20950,8 +20950,6 @@ def render_bottom_ticker_bar():
         # Fail silently - don't disrupt the app if ticker bar fails
         pass
 
-
-Let me ask you this. While I have the T-tab to replace that block I just sent you before, is it okay to commit that now and then return to this step?
 # ============================================================================
 # SECTION 7.5: OVERVIEW (CLEAN) TAB - Demo-Ready First Screen (SAFE)
 # ============================================================================
