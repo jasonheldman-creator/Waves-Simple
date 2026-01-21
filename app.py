@@ -20422,145 +20422,143 @@ def render_diagnostics_tab():
 
 def render_adaptive_intelligence_tab():
     """
-    Render the Adaptive Intelligence Center tab.
-    
-    MONITORING-ONLY TAB - This tab provides read-only diagnostics and insights.
-    It does NOT modify any trading behavior, strategies, parameters, or execution logic.
-    
-    This tab provides:
-    - Wave Health Monitor: Alpha trends, beta drift, exposure analysis
-    - Regime Intelligence: Volatility regime and wave alignment
-    - Learning Signals: Detected patterns and anomalies
-    
-    All data is read from TruthFrame with no writes or modifications.
+    Adaptive Intelligence Center (MONITORING ONLY)
+
+    This tab is read-only.
+    It NEVER mutates strategy state, parameters, weights, or execution logic.
+
+    All data is pulled defensively from the active TruthFrame.
     """
+
     st.markdown("# 🧠 Adaptive Intelligence Center")
-    st.markdown("### Monitoring and Diagnostics - Read-Only System")
-    
-    # ========================================================================
-    # PROMINENT DISCLAIMER
-    # ========================================================================
-    st.info("""
-    **📋 DISCLAIMER: Monitoring-Only System**
-    
-    This center is for **monitoring and diagnostics only**. No actions are taken, and no trading behavior is modified.
-    All diagnostics pull from TruthFrame data. No strategies, parameters, weights, or execution logic are changed.
-    """)
-    
-    st.markdown("---")
-    
-    # ========================================================================
-    # LOAD TRUTHFRAME DATA
-    # ========================================================================
-    try:
-        from analytics_truth import get_truth_frame
-        from adaptive_intelligence import (
-            get_wave_health_summary,
-            analyze_regime_intelligence,
-            detect_learning_signals
-        )
-        
-        # Get safe mode setting
-        safe_mode = st.session_state.get("safe_mode_no_fetch", True)
-        
-        # Load TruthFrame (read-only)
-        with st.spinner("Loading TruthFrame data..."):
-            truth_df = get_truth_frame(safe_mode=safe_mode)
-        
-        # Check if TruthFrame is properly initialized (object-based check)
-        if truth_df is None or not hasattr(truth_df, "portfolio") or getattr(truth_df, "status", None) != "initialized":
-            st.warning("⚠️ TruthFrame data not available. Please ensure data is loaded.")
-            return
-        
-        st.success(f"✓ TruthFrame loaded: {len(truth_df.waves)} waves available")
-        
-    except ImportError as e:
-        st.error(f"⚠️ Required modules not available: {e}")
-        st.info("Please ensure `analytics_truth` and `adaptive_intelligence` modules are installed.")
+    st.markdown("### Monitoring and Diagnostics — Read-Only System")
+
+    st.info(
+        "**📋 DISCLAIMER: Monitoring-Only System**\n\n"
+        "This center is for diagnostics only. No actions are taken. "
+        "No strategies, parameters, weights, or execution logic are modified."
+    )
+
+    st.divider()
+
+    # =====================================================================
+    # LOAD TRUTHFRAME (SAFE SOURCE)
+    # =====================================================================
+    truthframe = get_active_truthframe()
+
+    if not isinstance(truthframe, dict) or len(truthframe) == 0:
+        st.warning("⚠️ TruthFrame not populated yet.")
+        st.caption("System is running in degraded monitoring mode.")
         return
-    except Exception as e:
-        st.error(f"⚠️ Error loading data: {e}")
-        return
-    
-    st.markdown("---")
-    
-    # ========================================================================
-    # SECTION 1: WAVE HEALTH MONITOR
-    # ========================================================================
+
+    st.success(f"✓ TruthFrame loaded: {len(truthframe)} waves available")
+
+    st.divider()
+
+    # =====================================================================
+    # SECTION 1 — WAVE HEALTH MONITOR (SAFE)
+    # =====================================================================
     st.subheader("🌊 Wave Health Monitor")
-    st.markdown("**Recent alpha, beta drift, exposure, and volatility alignment for each wave.**")
-    
-    try:
-        # Get wave health summary
-        wave_health = get_wave_health_summary(truth_df)
-        
-        if not wave_health:
-            st.warning("No wave health data available.")
-        else:
-            # Convert to DataFrame for display
-            import pandas as pd
-            health_df = pd.DataFrame(wave_health)
-            
-            # Select columns for display
-            display_cols = [
-                'display_name', 'alpha_30d', 'alpha_60d', 'alpha_direction',
-                'beta_drift', 'exposure_pct', 'health_label', 'health_score'
-            ]
-            
-            # Filter columns that exist
-            display_cols = [col for col in display_cols if col in health_df.columns]
-            health_display = health_df[display_cols].copy()
-            
-            # Format percentages
-            if 'alpha_30d' in health_display.columns:
-                health_display['alpha_30d'] = health_display['alpha_30d'].apply(
-                    lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
-                )
-            if 'alpha_60d' in health_display.columns:
-                health_display['alpha_60d'] = health_display['alpha_60d'].apply(
-                    lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
-                )
-            if 'beta_drift' in health_display.columns:
-                health_display['beta_drift'] = health_display['beta_drift'].apply(
-                    lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
-                )
-            if 'exposure_pct' in health_display.columns:
-                health_display['exposure_pct'] = health_display['exposure_pct'].apply(
-                    lambda x: f"{x*100:.1f}%" if pd.notna(x) else "N/A"
-                )
-            if 'health_score' in health_display.columns:
-                health_display['health_score'] = health_display['health_score'].apply(
-                    lambda x: f"{x}" if pd.notna(x) else "N/A"
-                )
-            
-            # Rename columns for display
-            health_display.columns = [
-                col.replace('_', ' ').title() for col in health_display.columns
-            ]
-            
-            # Display table
-            st.dataframe(health_display, use_container_width=True, height=400)
-            
-            # Summary metrics
-            st.markdown("**Health Summary:**")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                healthy_count = sum(1 for h in wave_health if h['health_label'] == 'healthy')
-                st.metric("Healthy Waves", healthy_count)
-            
-            with col2:
-                watch_count = sum(1 for h in wave_health if h['health_label'] == 'watch')
-                st.metric("Watch List", watch_count)
-            
-            with col3:
-                intervention_count = sum(1 for h in wave_health if h['health_label'] == 'intervention_candidate')
-                st.metric("Intervention Candidates", intervention_count)
-    
-    except Exception as e:
-        st.error(f"⚠️ Error analyzing wave health: {e}")
-    
-    st.markdown("---")
+    st.markdown(
+        "Recent alpha, beta drift, exposure, and volatility alignment for each wave."
+    )
+
+    rows = []
+
+    for wave, wave_data in truthframe.items():
+        if not isinstance(wave_data, dict):
+            continue
+
+        health = wave_data.get("health", {})
+        if not isinstance(health, dict):
+            health = {}
+
+        score = health.get("score")
+        label = health.get("label", "unknown")
+        notes = health.get("notes", "")
+
+        rows.append({
+            "Wave": wave,
+            "Health Score": f"{score:.1f}" if isinstance(score, (int, float)) else "—",
+            "Status": label.capitalize() if isinstance(label, str) else "Unknown",
+            "Notes": notes if isinstance(notes, str) else ""
+        })
+
+    if not rows:
+        st.info("ℹ️ Wave health diagnostics not yet available.")
+    else:
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.divider()
+
+    # =====================================================================
+    # SECTION 2 — REGIME INTELLIGENCE (SAFE)
+    # =====================================================================
+    st.subheader("📊 Regime Intelligence")
+    st.markdown("Current volatility regime and wave alignment summary.")
+
+    aligned = 0
+    misaligned = 0
+
+    for wave_data in truthframe.values():
+        if not isinstance(wave_data, dict):
+            continue
+
+        regime = wave_data.get("regime", {})
+        if not isinstance(regime, dict):
+            continue
+
+        if regime.get("aligned") is True:
+            aligned += 1
+        elif regime.get("aligned") is False:
+            misaligned += 1
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("Aligned Waves", aligned)
+
+    with col2:
+        st.metric("Misaligned Waves", misaligned)
+
+    if aligned == 0 and misaligned == 0:
+        st.info("ℹ️ Regime diagnostics not populated yet.")
+
+    st.divider()
+
+    # =====================================================================
+    # SECTION 3 — LEARNING SIGNALS (SAFE)
+    # =====================================================================
+    st.subheader("🔔 Learning Signals")
+    st.markdown("Detected patterns and anomalies that may warrant attention.")
+
+    signal_count = 0
+
+    for wave_data in truthframe.values():
+        if not isinstance(wave_data, dict):
+            continue
+
+        learning = wave_data.get("learning", {})
+        if not isinstance(learning, dict):
+            continue
+
+        signals = learning.get("signals")
+        if isinstance(signals, list):
+            signal_count += len(signals)
+
+    if signal_count == 0:
+        st.info("ℹ️ No learning signals detected.")
+    else:
+        st.warning(f"⚠️ Detected {signal_count} learning signals across waves.")
+
+    st.caption(
+        "Note: This Adaptive Intelligence Center is read-only. "
+        "All diagnostics are observational and do not modify system state."
+    )
     
     # ========================================================================
     # SECTION 2: REGIME INTELLIGENCE
