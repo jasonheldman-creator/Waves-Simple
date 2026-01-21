@@ -475,6 +475,33 @@ SAFE_ASSET_TICKERS = ["^IRX", "^FVX", "^TNX", "SHY", "IEF", "TLT", "BIL"]
 # Snapshot Ledger maximum runtime (seconds) - prevents infinite hangs
 SNAPSHOT_MAX_RUNTIME_SECONDS = 300
 
+def load_portfolio_snapshot_dataframe():
+    """
+    Canonical loader for live portfolio snapshot data.
+    Single source of truth for:
+    - Portfolio Snapshot
+    - Executive Summary
+    - Alpha Attribution
+    """
+    try:
+        path = "data/live_snapshot.csv"
+
+        if not os.path.exists(path):
+            st.warning("Portfolio snapshot file not found.")
+            return None
+
+        df = pd.read_csv(path)
+
+        if df.empty:
+            st.warning("Portfolio snapshot file is empty.")
+            return None
+
+        return df
+
+    except Exception as e:
+        st.error("Failed to load portfolio snapshot data")
+        st.exception(e)
+        return None
 # ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
 # ============================================================================
