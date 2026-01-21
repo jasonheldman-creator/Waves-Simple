@@ -17,6 +17,107 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+# ============================================================================
+# ALPHA ATTRIBUTION ENGINE (SIMPLE, TRANSPARENT)
+# ============================================================================
+
+def compute_alpha_attribution(wave, days=60):
+    """
+    Returns explicit alpha components for a wave.
+    """
+    df = get_wave_data_filtered(wave, days)
+
+    if df is None or df.empty:
+        return {
+            "total": 0.0,
+            "selection": 0.0,
+            "overlay": 0.0,
+            "cash": 0.0
+        }
+
+    # Required columns
+    if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
+        return {
+            "total": 0.0,
+            "selection": 0.0,
+            "overlay": 0.0,
+            "cash": 0.0
+        }
+
+    df = df.copy()
+    df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
+
+    total_alpha = df["alpha"].sum()
+
+    # Heuristic decomposition (transparent + explainable)
+    exposure = df["exposure"].mean() if "exposure" in df.columns else 1.0
+
+    selection_alpha = total_alpha * exposure
+    overlay_alpha = total_alpha * (1 - exposure) * 0.7
+    cash_alpha = total_alpha * (1 - exposure) * 0.3
+
+    return {
+        "total": total_alpha,
+        "selection": selection_alpha,
+        "overlay": overlay_alpha,
+        "cash": cash_alpha
+    }
+    
+# ============================================================================
+# ALPHA ATTRIBUTION ENGINE (SIMPLE, TRANSPARENT)
+# ============================================================================
+
+def compute_alpha_attribution(wave, days=60):
+    """
+    Returns explicit alpha components for a wave.
+    """
+    df = get_wave_data_filtered(wave, days)
+
+    if df is None or df.empty:
+        return {
+            "total": 0.0,
+            "selection": 0.0,
+            "overlay": 0.0,
+            "cash": 0.0
+        }
+
+    # Required columns
+    if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
+        return {
+            "total": 0.0,
+            "selection": 0.0,
+            "overlay": 0.0,
+            "cash": 0.0
+        }
+
+    df = df.copy()
+    df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
+
+    total_alpha = df["alpha"].sum()
+
+    # Heuristic decomposition (transparent + explainable)
+    exposure = df["exposure"].mean() if "exposure" in df.columns else 1.0
+
+    selection_alpha = total_alpha * exposure
+    overlay_alpha = total_alpha * (1 - exposure) * 0.7
+    cash_alpha = total_alpha * (1 - exposure) * 0.3
+
+    return {
+        "total": total_alpha,
+        "selection": selection_alpha,
+        "overlay": overlay_alpha,
+        "cash": cash_alpha
+    }
+    
+# Populate alpha attribution
+truth = get_truthframe()
+
+for wave in truth["waves"].keys():
+    alpha = compute_alpha_attribution(wave)
+    truth["waves"][wave]["alpha"] = alpha
+
+st.session_state["CANONICAL_TRUTHFRAME"] = truth
+
 # ============================================================
 # TRUTHFRAME OVERRIDE (FAIL-SAFE / DEGRADED MODE)
 # Ensures all downstream sections receive a valid TruthFrame
