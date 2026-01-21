@@ -17,16 +17,27 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
-# ---------------------------------------------------------------------------
-# DEBUG FAIL-OPEN MODE — disable st.stop globally (temporary)
-# ---------------------------------------------------------------------------
-_original_st_stop = st.stop
 
-def patched_stop(*args, **kwargs):
-    st.warning("DEBUG: st.stop() was called — execution suppressed")
-    return
+# ============================================================
+# DEBUG FAIL-OPEN MODE — TEMPORARY SAFETY PATCH
+# Disables st.stop() so we can locate hidden execution halts
+# ============================================================
 
-st.stop = patched_stop
+# Default: ENABLED for debugging
+if "_DEBUG_ALLOW_FAILOPEN" not in st.session_state:
+    st.session_state["_DEBUG_ALLOW_FAILOPEN"] = True
+
+# Apply patch only once per session
+if st.session_state.get("_DEBUG_ALLOW_FAILOPEN", False):
+    if "_original_st_stop" not in st.session_state:
+        st.session_state["_original_st_stop"] = st.stop
+
+        def patched_stop(*args, **kwargs):
+            st.warning("🟡 DEBUG: st.stop() was called — execution suppressed")
+            return
+
+        st.stop = patched_stop
+
 
 # ============================================================
 # Alpha Attribution (import once, build once)
