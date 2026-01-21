@@ -28,6 +28,9 @@ def build_alpha_attribution_snapshot():
         - alpha_stock_selection
         - alpha_total
 
+    This function is SAFE TO CALL from app.py.
+    It will gracefully degrade if strategy-state columns are missing.
+
     Returns:
         (bool, str): success flag and status message
     """
@@ -40,19 +43,18 @@ def build_alpha_attribution_snapshot():
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
 
-    required_cols = [
-        "wave_name",
-        "Alpha_1D",
-        "benchmark_return_1D",
-        "strategy_return_1D",
-        "vix_regime",
-        "momentum_state",
-        "rotation_state",
-    ]
-
+    # Minimal required columns
+    required_cols = ["wave_name", "Alpha_1D"]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         return False, f"Missing required columns: {missing}"
+
+    # Optional strategy-state columns (graceful fallback)
+    has_benchmark = "benchmark_return_1D" in df.columns
+    has_strategy = "strategy_return_1D" in df.columns
+    has_vix = "vix_regime" in df.columns
+    has_momentum = "momentum_state" in df.columns
+    has_rotation = "rotation_state" in df.columns
 
     # ---------------------------------------------------------------
     # Attribution logic
@@ -63,25 +65,35 @@ def build_alpha_attribution_snapshot():
         try:
             alpha_total = float(r["Alpha_1D"])
 
-            # Market alpha (strategy vs benchmark)
-            alpha_market = float(
-                r["strategy_return_1D"] - r["benchmark_return_1D"]
-            )
+            # Market-relative alpha
+            if has_benchmark and has_strategy:
+                alpha_market = float(
+                    r["strategy_return_1D"] - r["benchmark_return_1D"]
+                )
+            else:
+                # Fallback: treat all alpha as market-relative
+                alpha_market = alpha_total
 
             # VIX / volatility overlay
-            alpha_vix = 0.0
-            if str(r["vix_regime"]).upper() == "RISK_OFF":
-                alpha_vix = alpha_total * 0.30
+            alpha_vix = (
+                alpha_total * 0.30
+                if has_vix and str(r.get("vix_regime", "")).upper() == "RISK_OFF"
+                else 0.0
+            )
 
             # Momentum overlay
-            alpha_momentum = 0.0
-            if str(r["momentum_state"]).upper() == "ON":
-                alpha_momentum = alpha_total * 0.25
+            alpha_momentum = (
+                alpha_total * 0.25
+                if has_momentum and str(r.get("momentum_state", "")).upper() == "ON"
+                else 0.0
+            )
 
             # Rotation / factor overlay
-            alpha_rotation = 0.0
-            if str(r["rotation_state"]).upper() == "ON":
-                alpha_rotation = alpha_total * 0.20
+            alpha_rotation = (
+                alpha_total * 0.20
+                if has_rotation and str(r.get("rotation_state", "")).upper() == "ON"
+                else 0.0
+            )
 
             # Residual = stock selection
             alpha_stock_selection = (
@@ -105,7 +117,7 @@ def build_alpha_attribution_snapshot():
             )
 
         except Exception:
-            # Skip malformed rows but do not crash
+            # Skip malformed rows, never crash
             continue
 
     if not rows:
