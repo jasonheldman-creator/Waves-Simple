@@ -33,7 +33,8 @@ if st.session_state.get("_DEBUG_ALLOW_FAILOPEN", False):
         st.session_state["_original_st_stop"] = st.stop
 
         def patched_stop(*args, **kwargs):
-            st.warning("🟡 DEBUG: st.stop() was called — execution suppressed")
+            st.error("🛑 DEBUG: st.stop() intercepted")
+            st.code("".join(traceback.format_stack(limit=12)))
             return
 
         st.stop = patched_stop
