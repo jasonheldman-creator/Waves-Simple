@@ -17,7 +17,16 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
-
+# ---------------------------------------
+# Ensure alpha attribution snapshot exists
+# ---------------------------------------
+try:
+    from analytics.alpha_attribution import generate_alpha_attribution_snapshot
+    ok, msg = generate_alpha_attribution_snapshot()
+    if not ok:
+        st.warning(f"Alpha attribution not generated: {msg}")
+except Exception as e:
+    st.warning(f"Alpha attribution generation failed: {e}")
 """
 Institutional Console v2 - Executive Layer v2
 Full implementation with advanced analytics and visualization
