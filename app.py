@@ -13294,7 +13294,7 @@ def render_overview_tab():
 
         # Strategy / Overlay Alpha Attribution
         render_strategy_alpha_attribution()
-
+        render_alpha_attribution_breakdown()
         # Minimal confirmation signal
         st.info("DEBUG: Overview → strategy alpha attribution rendered")
 
