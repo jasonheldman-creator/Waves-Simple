@@ -17,6 +17,46 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+# ============================================================
+# TRUTHFRAME OVERRIDE (FAIL-SAFE / DEGRADED MODE)
+# Ensures all downstream sections receive a valid TruthFrame
+# even when data pipelines are incomplete or unavailable.
+# ============================================================
+
+def build_truthframe_override():
+    """
+    Build a minimal, safe TruthFrame structure.
+    This prevents runtime crashes in health, regime,
+    and learning sections when real data is unavailable.
+    """
+    truthframe = {}
+
+    try:
+        waves = get_wave_universe_all()
+    except Exception:
+        waves = []
+
+    for wave in waves:
+        truthframe[wave] = {
+            "health": {},     # required by Wave Health Monitor
+            "regime": {},     # required by Regime Intelligence
+            "learning": {},   # required by Learning Signals
+        }
+
+    return truthframe
+
+
+# Initialize TruthFrame override ONCE
+if "TRUTHFRAME_OVERRIDE" not in st.session_state:
+    st.session_state["TRUTHFRAME_OVERRIDE"] = build_truthframe_override()
+
+
+def get_active_truthframe():
+    """
+    Single source of truth for TruthFrame access.
+    Always returns a safe dictionary.
+    """
+    return st.session_state.get("TRUTHFRAME_OVERRIDE", {})
 
 # ============================================================
 # DEBUG FAIL-OPEN MODE — TEMPORARY SAFETY PATCH
