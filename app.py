@@ -12741,14 +12741,9 @@ def compute_aggregated_portfolio_metrics():
         }
     """
     try:
-        # --- Load snapshot directly (NO external helper) ---
-        snapshot_path = "data/live_snapshot.csv"
-        if not os.path.exists(snapshot_path):
-            return None
+        df = load_portfolio_snapshot_dataframe()
 
-        df = pd.read_csv(snapshot_path)
-
-        if df.empty:
+        if df is None or df.empty:
             return None
 
         horizons = ["1D", "30D", "60D", "365D"]
@@ -12761,11 +12756,9 @@ def compute_aggregated_portfolio_metrics():
             portfolio_return = None
             alpha = None
 
-            # Portfolio return
             if return_col in df.columns:
                 portfolio_return = df[return_col].dropna().mean()
 
-            # Alpha handling
             if label == "30D" and "Benchmark_Return_30D" in df.columns:
                 benchmark = df["Benchmark_Return_30D"].dropna().mean()
                 if portfolio_return is not None and benchmark is not None:
