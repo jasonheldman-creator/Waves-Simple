@@ -13243,7 +13243,7 @@ def render_overview_tab():
 
         render_alpha_heat_index()
         render_strategy_alpha_attribution()
-
+        st.info("DEBUG: render_strategy_alpha_attribution() CALLED")
         # (rest of the overview continues below…)
 
     except Exception as e:
