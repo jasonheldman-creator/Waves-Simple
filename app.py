@@ -465,6 +465,9 @@ def get_selected_wave_display_name():
     # Delegate to canonical context resolver
     ctx = resolve_app_context()
     return ctx["selected_wave_name"]
+# ============================================================================
+# WAVE ALPHA ATTRIBUTION (PORTFOLIO SNAPSHOT DERIVED)
+# ============================================================================
 
 # Cache TTL for price downloads (in seconds) - 1 hour default
 PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
@@ -475,13 +478,15 @@ SAFE_ASSET_TICKERS = ["^IRX", "^FVX", "^TNX", "SHY", "IEF", "TLT", "BIL"]
 # Snapshot Ledger maximum runtime (seconds) - prevents infinite hangs
 SNAPSHOT_MAX_RUNTIME_SECONDS = 300
 
+
 def load_portfolio_snapshot_dataframe():
     """
     Canonical loader for live portfolio snapshot data.
+
     Single source of truth for:
     - Portfolio Snapshot
     - Executive Summary
-    - Alpha Attribution
+    - Wave Alpha Attribution
     """
     try:
         path = "data/live_snapshot.csv"
@@ -502,6 +507,42 @@ def load_portfolio_snapshot_dataframe():
         st.error("Failed to load portfolio snapshot data")
         st.exception(e)
         return None
+
+
+def compute_wave_alpha_attribution():
+    """
+    Compute per-wave alpha attribution from live_snapshot.csv.
+
+    Uses canonical portfolio snapshot as the single source of truth.
+
+    Returns:
+        pd.DataFrame with columns:
+        Wave, Alpha_1D, Alpha_30D, Alpha_60D, Alpha_365D
+    """
+    df = load_portfolio_snapshot_dataframe()
+
+    if df is None or df.empty:
+        return None
+
+    required_cols = [
+        "Wave",
+        "Alpha_1D",
+        "Alpha_30D",
+        "Alpha_60D",
+        "Alpha_365D",
+    ]
+
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.warning(f"Missing alpha attribution columns: {missing}")
+        return None
+
+    return (
+        df[required_cols]
+        .groupby("Wave", as_index=False)
+        .mean()
+        .sort_values("Alpha_30D", ascending=False)
+    )
 # ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
 # ============================================================================
