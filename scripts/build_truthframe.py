@@ -1,64 +1,84 @@
 import sys
 from pathlib import Path
 
-# ------------------------------------------------------------
-# Ensure repo root is on PYTHONPATH (CI-safe)
-# ------------------------------------------------------------
+# Ensure repo root is on PYTHONPATH
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import json
+import pandas as pd
 from datetime import datetime, timezone
 
-import pandas as pd
-
-from helpers.price_book import get_price_book
-from helpers.wave_registry import get_wave_registry
-from helpers.wave_data import get_wave_data_filtered
+from helpers.wave_registry import get_active_wave_registry
 
 
-def build_truthframe(days: int = 60):
-    price_book = get_price_book()
+TRUTHFRAME_OUTPUT_PATH = "data/truthframe.json"
+LIVE_SNAPSHOT_PATH = "data/live_snapshot.csv"
 
-    if price_book is None or price_book.empty:
-        raise RuntimeError("PRICE_BOOK is empty — cannot build TruthFrame")
 
-    wave_registry = get_wave_registry()
-    if wave_registry is None or wave_registry.empty:
-        raise RuntimeError("Wave registry is empty — cannot build TruthFrame")
-
-    wave_ids = wave_registry["wave_id"].tolist()
+def build_truthframe() -> dict:
+    """
+    Build TruthFrame from canonical live_snapshot.csv.
+    This NEVER raises — degraded waves are allowed.
+    """
 
     truth = {
         "_meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "lookback_days": days,
-            "price_book_rows": len(price_book),
-            "price_book_cols": len(price_book.columns),
-            "wave_count": len(wave_ids),
+            "source": "live_snapshot.csv",
         },
         "waves": {},
     }
 
+    # Load wave registry (canonical wave list)
+    try:
+        registry = get_active_wave_registry()
+        wave_ids = registry["wave_id"].tolist()
+    except Exception:
+        wave_ids = []
+
+    # Load live snapshot
+    if not Path(LIVE_SNAPSHOT_PATH).exists():
+        truth["_meta"]["error"] = "live_snapshot.csv missing"
+        return truth
+
+    snapshot = pd.read_csv(LIVE_SNAPSHOT_PATH)
+
     for wave_id in wave_ids:
+        wave_rows = snapshot[snapshot["wave_id"] == wave_id]
+
+        if wave_rows.empty:
+            truth["waves"][wave_id] = {
+                "alpha": {
+                    "total": 0.0,
+                    "selection": 0.0,
+                    "overlay": 0.0,
+                    "cash": 0.0,
+                },
+                "health": {"status": "MISSING"},
+                "learning": {},
+            }
+            continue
+
         try:
-            df = get_wave_data_filtered(wave_id, days)
+            total_alpha = float(wave_rows["alpha"].sum())
 
-            if df is None or df.empty:
-                raise ValueError("No wave data available")
-
-            df = df.copy()
-            df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
-
-            total_alpha = float(df["alpha"].sum())
-            exposure = float(df["exposure"].mean()) if "exposure" in df.columns else 1.0
+            selection = float(
+                wave_rows.get("selection_alpha", wave_rows["alpha"]).sum()
+            )
+            overlay = float(
+                wave_rows.get("overlay_alpha", 0.0).sum()
+            )
+            cash = float(
+                wave_rows.get("cash_alpha", 0.0).sum()
+            )
 
             truth["waves"][wave_id] = {
                 "alpha": {
                     "total": total_alpha,
-                    "selection": total_alpha * exposure,
-                    "overlay": total_alpha * (1 - exposure) * 0.7,
-                    "cash": total_alpha * (1 - exposure) * 0.3,
+                    "selection": selection,
+                    "overlay": overlay,
+                    "cash": cash,
                 },
                 "health": {"status": "OK"},
                 "learning": {},
@@ -72,10 +92,7 @@ def build_truthframe(days: int = 60):
                     "overlay": 0.0,
                     "cash": 0.0,
                 },
-                "health": {
-                    "status": "DEGRADED",
-                    "error": str(e),
-                },
+                "health": {"status": "DEGRADED", "error": str(e)},
                 "learning": {},
             }
 
@@ -85,10 +102,7 @@ def build_truthframe(days: int = 60):
 if __name__ == "__main__":
     truthframe = build_truthframe()
 
-    output_path = Path("data/truthframe.json")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w") as f:
+    with open(TRUTHFRAME_OUTPUT_PATH, "w") as f:
         json.dump(truthframe, f, indent=2)
 
-    print(f"✅ TruthFrame written to {output_path.resolve()}")
+    print("✅ TruthFrame written to data/truthframe.json")
