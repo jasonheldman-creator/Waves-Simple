@@ -1093,21 +1093,15 @@ def get_cached_price_book_internal(_cache_buster=None):
         return pd.DataFrame()
 
 
-def get_cached_price_book():
+def get_cached_price_book(force_reload: bool = False):
     """
-    Get cached PRICE_BOOK with automatic cache-busting.
-    
-    This function automatically detects changes to the underlying price cache file
-    and invalidates the Streamlit cache when the file is updated.
-    
-    Returns:
-        DataFrame: Cached price book (index=dates, columns=tickers)
+    Get cached PRICE_BOOK with optional forced reload.
     """
-    # Get cache file timestamp for cache-busting
+    if force_reload:
+        st.cache_resource.clear()
+
     cache_timestamp = get_cache_file_timestamp(CANONICAL_CACHE_PATH)
     return get_cached_price_book_internal(_cache_buster=cache_timestamp)
-
-
 def calculate_wavescore(wave_data):
     """
     Calculate WaveScore for a wave based on cumulative alpha over 30 days.
