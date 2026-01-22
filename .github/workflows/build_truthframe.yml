@@ -1,0 +1,32 @@
+name: Build TruthFrame
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build-truthframe:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build TruthFrame
+        run: |
+          python scripts/build_truthframe.py
+
+      - name: Upload TruthFrame artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: truthframe
+          path: data/truthframe.json
