@@ -157,23 +157,6 @@ def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
     except Exception as e:
         logger.debug(f"[Alpha] degraded for {wave}: {e}")
         return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
-# ============================================================
-# POPULATE ALPHA INTO TRUTHFRAME (IDEMPOTENT)
-# ============================================================
-
-if not st.session_state.get("_TRUTHFRAME_POPULATED", False):
-    truth = get_active_truthframe()
-
-    if truth:
-        for wave in truth:
-            truth[wave]["alpha"] = compute_alpha_attribution(wave)
-
-        st.session_state["CANONICAL_TRUTHFRAME"] = truth
-        st.session_state["_TRUTHFRAME_POPULATED"] = True
-        logger.info(f"[TruthFrame] alpha populated | waves={len(truth)}")
-    else:
-        logger.warning("[TruthFrame] empty — degraded mode")
-
 
 # ============================================================
 # DEBUG FAIL-OPEN MODE (SAFE, TEMPORARY)
