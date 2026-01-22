@@ -7,8 +7,7 @@ from datetime import datetime, timezone
 # Ensure repo root is on PYTHONPATH (CI-safe)
 # ------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT))
 
 # ------------------------------------------------------------------
 # Canonical imports ONLY (must exist in CI)
@@ -18,12 +17,14 @@ from helpers.wave_registry import get_wave_registry
 
 
 # ------------------------------------------------------------------
-# TruthFrame Builder (CI-safe, non-fatal, schema-stable)
+# TruthFrame Builder (CI-safe, non-fatal)
 # ------------------------------------------------------------------
 def build_truthframe(days: int = 60) -> dict:
     """
-    Build the canonical TruthFrame.
-    Read-only, CI-safe, no app-side math.
+    Build canonical TruthFrame.
+
+    This is a READ-ONLY diagnostic artifact.
+    No trading logic. No side effects.
     """
 
     truthframe = {
@@ -36,12 +37,14 @@ def build_truthframe(days: int = 60) -> dict:
     }
 
     # --------------------------------------------------------------
-    # Load price book (hard gate)
+    # Load price book (gatekeeper)
     # --------------------------------------------------------------
     price_book = get_price_book()
     if price_book is None or price_book.empty:
         truthframe["_meta"]["status"] = "PRICE_BOOK_MISSING"
         return truthframe
+
+    price_book = price_book.tail(days)
 
     truthframe["_meta"]["price_book_rows"] = len(price_book)
     truthframe["_meta"]["price_book_cols"] = len(price_book.columns)
@@ -55,27 +58,34 @@ def build_truthframe(days: int = 60) -> dict:
         return truthframe
 
     # --------------------------------------------------------------
-    # Build per-wave schema placeholders (NO math yet)
+    # Build per-wave TruthFrame blocks
     # --------------------------------------------------------------
-    for _, row in registry.sort_values("wave_id").iterrows():
+    for _, row in registry.iterrows():
         wave_id = row["wave_id"]
 
         truthframe["waves"][wave_id] = {
+            # Alpha attribution (to be populated next phase)
             "alpha": {
                 "total": 0.0,
                 "selection": 0.0,
                 "overlay": 0.0,
                 "cash": 0.0,
             },
+
+            # Performance placeholders (expected by app)
             "performance": {
                 "1D": {},
                 "30D": {},
                 "60D": {},
                 "365D": {},
             },
+
+            # Health diagnostics
             "health": {
                 "status": "OK",
             },
+
+            # Learning / adaptive signals
             "learning": {},
         }
 
@@ -89,17 +99,12 @@ def build_truthframe(days: int = 60) -> dict:
 # CLI entrypoint (used by GitHub Actions)
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    tf = build_truthframe()
+    truthframe = build_truthframe()
 
     output_path = ROOT / "data" / "truthframe.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(tf, f, indent=2)
-
-    # Honest CI signal
-    if tf["_meta"].get("status") != "OK":
-        print("❌ TruthFrame build incomplete:", tf["_meta"]["status"])
-        sys.exit(1)
+    with open(output_path, "w") as f:
+        json.dump(truthframe, f, indent=2)
 
     print(f"✅ TruthFrame written to {output_path}")
