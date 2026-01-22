@@ -11200,131 +11200,87 @@ def render_portfolio_snapshot():
 
 # ============================================================
 # EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE CARD METRICS)
+# PRICE_BOOK-ONLY — SNAPSHOT-FREE — FAIL-SAFE
 # ============================================================
 
 def compute_aggregated_portfolio_metrics():
     """
     Compute aggregated portfolio returns and alpha across all Waves
-    using the live_snapshot.csv as the single source of truth.
+    directly from PRICE_BOOK.
+
+    SNAPSHOT-FREE.
+    FAIL-OPEN.
+    NEVER THROWS.
 
     Returns:
-        dict with keys:
+        dict | None
         {
-            "1D":   {"return": float, "alpha": float},
-            "30D":  {"return": float, "alpha": float},
-            "60D":  {"return": float, "alpha": float},
-            "365D": {"return": float, "alpha": float},
+            "1D":   {"return": float | None, "alpha": None},
+            "30D":  {"return": float | None, "alpha": None},
+            "60D":  {"return": float | None, "alpha": None},
+            "365D": {"return": float | None, "alpha": None},
         }
     """
     try:
-        df = load_portfolio_snapshot_dataframe()
-
-        if df is None or df.empty:
+        if "get_cached_price_book" not in globals():
             return None
 
-        horizons = ["1D", "30D", "60D", "365D"]
-        metrics = {}
+        PRICE_BOOK = get_cached_price_book()
 
-        for label in horizons:
-            return_col = f"Return_{label}"
-            alpha_col = f"Alpha_{label}"
+        if PRICE_BOOK is None or PRICE_BOOK.empty:
+            return None
 
-            if return_col not in df.columns:
-                continue
+        returns_df = PRICE_BOOK.pct_change().dropna()
+        if returns_df.empty:
+            return None
 
-            portfolio_return = df[return_col].mean()
+        portfolio_returns = returns_df.mean(axis=1)
 
-            # Prefer explicit alpha column if available
-            if alpha_col in df.columns:
-                alpha_value = df[alpha_col].mean()
+        def safe_compounded(series):
+            try:
+                if (series <= -1).any():
+                    return None
+                return float(np.expm1(np.log1p(series).sum()))
+            except Exception:
+                return None
 
-            # Fallback: compute 30D alpha from benchmark if needed
-            elif label == "30D" and "Benchmark_Return_30D" in df.columns:
-                benchmark_return = df["Benchmark_Return_30D"].mean()
-                alpha_value = portfolio_return - benchmark_return
-
-            else:
-                alpha_value = None
-
-            metrics[label] = {
-                "return": float(portfolio_return),
-                "alpha": float(alpha_value) if alpha_value is not None else None,
-            }
-
-        return metrics
-
-    except Exception as e:
-        st.error("Failed to compute aggregated portfolio metrics")
-        st.exception(e)
-        return None
-# ============================================================
-# EXECUTIVE PORTFOLIO SNAPSHOT (SUMMARY / BLUE CARD METRICS)
-# ============================================================
-
-def compute_aggregated_portfolio_metrics():
-    """
-    Compute aggregated portfolio returns and alpha across all Waves
-    using live_snapshot.csv as the single source of truth.
-
-    Returns:
-        dict with keys:
-        {
-            "1D":   {"return": float | None, "alpha": float | None},
-            "30D":  {"return": float | None, "alpha": float | None},
-            "60D":  {"return": float | None, "alpha": float | None},
-            "365D": {"return": float | None, "alpha": float | None},
+        metrics = {
+            "1D": {
+                "return": float(portfolio_returns.iloc[-1]) if len(portfolio_returns) >= 1 else None,
+                "alpha": None,
+            },
+            "30D": {
+                "return": safe_compounded(portfolio_returns.iloc[-30:]) if len(portfolio_returns) >= 30 else None,
+                "alpha": None,
+            },
+            "60D": {
+                "return": safe_compounded(portfolio_returns.iloc[-60:]) if len(portfolio_returns) >= 60 else None,
+                "alpha": None,
+            },
+            "365D": {
+                "return": safe_compounded(portfolio_returns.iloc[-252:]) if len(portfolio_returns) >= 252 else None,
+                "alpha": None,
+            },
         }
-    """
-    try:
-        df = load_portfolio_snapshot_dataframe()
-
-        if df is None or df.empty:
-            return None
-
-        horizons = ["1D", "30D", "60D", "365D"]
-        metrics = {}
-
-        for label in horizons:
-            return_col = f"Return_{label}"
-            alpha_col = f"Alpha_{label}"
-
-            portfolio_return = None
-            alpha = None
-
-            if return_col in df.columns:
-                portfolio_return = df[return_col].dropna().mean()
-
-            if label == "30D" and "Benchmark_Return_30D" in df.columns:
-                benchmark = df["Benchmark_Return_30D"].dropna().mean()
-                if portfolio_return is not None and benchmark is not None:
-                    alpha = portfolio_return - benchmark
-            elif alpha_col in df.columns:
-                alpha = df[alpha_col].dropna().mean()
-
-            metrics[label] = {
-                "return": float(portfolio_return) if portfolio_return is not None else None,
-                "alpha": float(alpha) if alpha is not None else None,
-            }
 
         return metrics
 
-    except Exception as e:
-        st.error("Failed to compute aggregated portfolio metrics")
-        st.exception(e)
+    except Exception:
         return None
+
 
 def render_portfolio_snapshot_summary():
     """
     Executive summary snapshot for the full portfolio.
-    Shows aggregated returns and alpha across all horizons.
+    Snapshot-free, safe, deterministic.
     """
     metrics = compute_aggregated_portfolio_metrics()
 
-    if not metrics:
-        st.warning("Portfolio snapshot data not available.")
-        return
-
     st.markdown("### 📦 Portfolio Snapshot — Executive Summary")
+
+    if not metrics:
+        st.info("Portfolio snapshot unavailable — insufficient PRICE_BOOK data.")
+        return
 
     cols = st.columns(4)
     order = ["1D", "30D", "60D", "365D"]
@@ -11332,19 +11288,18 @@ def render_portfolio_snapshot_summary():
     for i, label in enumerate(order):
         data = metrics.get(label, {})
         ret = data.get("return")
-        alpha = data.get("alpha")
 
         with cols[i]:
             st.metric(
                 label=f"{label} Return",
                 value=f"{ret:.2%}" if ret is not None else "—",
-                delta=f"α {alpha:.2%}" if alpha is not None else None,
             )
 
-    # 👇 ADD THIS LINE (this is the missing link)
     st.divider()
-    render_wave_alpha_attribution()
 
+    # Optional, safe enhancement — only if available
+    if "render_wave_alpha_attribution" in globals():
+        render_wave_alpha_attribution()
 # ============================================================
 # VECTOR EXPLAIN — SINGLE, CANONICAL DEFINITION
 # ============================================================
