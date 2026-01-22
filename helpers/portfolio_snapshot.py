@@ -114,3 +114,4 @@ def build_portfolio_snapshot_from_truthframe(
     )
 
     return df
+    
