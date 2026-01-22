@@ -1,516 +1,156 @@
-{
-  "_meta": {
-    "generated_at": "2026-01-22T15:52:08.864668+00:00",
-    "lookback_days": 60,
-    "status": "OK",
-    "price_book_rows": 3650,
-    "price_book_cols": 124,
-    "wave_count": 28
-  },
-  "waves": {
-    "ai_cloud_megacap_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "clean_transit_infrastructure_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "crypto_ai_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "crypto_broad_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "crypto_defi_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "crypto_income_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "crypto_l1_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "crypto_l2_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "demas_fund_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "ev_infrastructure_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "future_energy_ev_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "future_power_energy_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "gold_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "income_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "infinity_multi_asset_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "next_gen_compute_semis_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "quantum_computing_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "russell_3000_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "small_cap_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "small_to_mid_cap_growth_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "smartsafe_tax_free_money_market_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "smartsafe_treasury_cash_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "sp500_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "us_megacap_core_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "us_mid_small_growth_semis_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "us_small_cap_disruptors_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "vector_muni_ladder_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    },
-    "vector_treasury_ladder_wave": {
-      "alpha": {
-        "total": 0.0,
-        "selection": 0.0,
-        "overlay": 0.0,
-        "cash": 0.0
-      },
-      "performance": {
-        "1D": {},
-        "30D": {},
-        "60D": {},
-        "365D": {}
-      },
-      "health": {
-        "status": "OK"
-      },
-      "learning": {}
-    }
-  }
+import sys
+from pathlib import Path
+import json
+from datetime import datetime, timezone
+
+import pandas as pd
+
+# ------------------------------------------------------------------
+# Ensure repo root is on PYTHONPATH (CI-safe)
+# ------------------------------------------------------------------
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+# ------------------------------------------------------------------
+# Canonical imports (must exist in CI)
+# ------------------------------------------------------------------
+from helpers.price_book import get_price_book
+from helpers.wave_registry import get_wave_registry
+
+# ------------------------------------------------------------------
+# Canonical horizons (days)
+# ------------------------------------------------------------------
+HORIZONS = {
+    "1D": 1,
+    "30D": 30,
+    "60D": 60,
+    "365D": 365,
 }
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+def _safe_float(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
+
+
+def _compound_return(returns: pd.Series) -> float | None:
+    if returns is None or returns.empty:
+        return None
+    try:
+        return (1.0 + returns).prod() - 1.0
+    except Exception:
+        return None
+
+
+# ------------------------------------------------------------------
+# TruthFrame Builder (CI-safe, read-only)
+# ------------------------------------------------------------------
+def build_truthframe(days: int = 365) -> dict:
+    truthframe = {
+        "_meta": {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "lookback_days": days,
+            "status": "INIT",
+        },
+        "waves": {},
+    }
+
+    # --------------------------------------------------------------
+    # Load price book (gatekeeper)
+    # --------------------------------------------------------------
+    price_book = get_price_book()
+    if price_book is None or price_book.empty:
+        truthframe["_meta"]["status"] = "PRICE_BOOK_MISSING"
+        return truthframe
+
+    price_book = price_book.tail(days)
+
+    truthframe["_meta"]["price_book_rows"] = len(price_book)
+    truthframe["_meta"]["price_book_cols"] = len(price_book.columns)
+
+    # --------------------------------------------------------------
+    # Load wave registry
+    # --------------------------------------------------------------
+    registry = get_wave_registry()
+    if registry is None or registry.empty:
+        truthframe["_meta"]["status"] = "WAVE_REGISTRY_MISSING"
+        return truthframe
+
+    # --------------------------------------------------------------
+    # Build per-wave TruthFrame
+    # --------------------------------------------------------------
+    for _, row in registry.iterrows():
+        wave_id = row["wave_id"]
+
+        wave_block = {
+            "alpha": {
+                "total": 0.0,
+                "selection": 0.0,
+                "overlay": 0.0,
+                "cash": 0.0,
+            },
+            "performance": {},
+            "health": {
+                "status": "OK",
+            },
+            "learning": {},
+        }
+
+        wave_return_col = f"{wave_id}_return"
+        bench_return_col = f"{wave_id}_benchmark_return"
+
+        for label, horizon_days in HORIZONS.items():
+            perf_block = {}
+
+            if (
+                wave_return_col in price_book.columns
+                and bench_return_col in price_book.columns
+                and len(price_book) >= horizon_days
+            ):
+                wave_slice = price_book[wave_return_col].tail(horizon_days)
+                bench_slice = price_book[bench_return_col].tail(horizon_days)
+
+                wave_ret = _compound_return(wave_slice)
+                bench_ret = _compound_return(bench_slice)
+
+                alpha = (
+                    wave_ret - bench_ret
+                    if wave_ret is not None and bench_ret is not None
+                    else None
+                )
+
+                perf_block["return"] = _safe_float(wave_ret)
+                perf_block["benchmark_return"] = _safe_float(bench_ret)
+                perf_block["alpha"] = _safe_float(alpha)
+
+                # accumulate total alpha
+                if alpha is not None:
+                    wave_block["alpha"]["total"] += alpha
+
+            wave_block["performance"][label] = perf_block
+
+        truthframe["waves"][wave_id] = wave_block
+
+    truthframe["_meta"]["wave_count"] = len(truthframe["waves"])
+    truthframe["_meta"]["status"] = "OK"
+
+    return truthframe
+
+
+# ------------------------------------------------------------------
+# CLI Entrypoint (GitHub Actions)
+# ------------------------------------------------------------------
+if __name__ == "__main__":
+    tf = build_truthframe()
+
+    output_path = ROOT / "data" / "truthframe.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "w") as f:
+        json.dump(tf, f, indent=2)
+
+    print(f"✅ TruthFrame written to {output_path}")
