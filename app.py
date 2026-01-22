@@ -1,3 +1,34 @@
+from __future__ import annotations
+
+# ============================================================
+# CORE IMPORTS (CANONICAL, FAIL-SAFE)
+# ============================================================
+import os
+import json
+import logging
+from typing import Dict, Any, List, Tuple
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+# ============================================================
+# LOGGING (SINGLE, CANONICAL SETUP)
+# ============================================================
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+# ============================================================
+# CANONICAL HORIZONS
+# ============================================================
+HORIZONS: List[Tuple[str, int]] = [
+    ("1D", 1),
+    ("30D", 30),
+    ("60D", 60),
+    ("365D", 365),
+]
+
 def build_portfolio_snapshot_from_truthframe(
     truthframe: Dict[str, Any]
 ) -> pd.DataFrame:
