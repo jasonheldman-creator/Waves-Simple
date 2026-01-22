@@ -4,13 +4,10 @@ from __future__ import annotations
 # CORE IMPORTS (CANONICAL, FAIL-SAFE)
 # ============================================================
 import os
-import subprocess
-import time
 import logging
 import traceback
 from datetime import datetime, timezone
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from typing import Dict, Any
 
 import streamlit as st
 import pandas as pd
@@ -27,27 +24,29 @@ if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
 # ============================================================
-# CANONICAL PRICE_BOOK BINDING (SINGLE SOURCE OF TRUTH)
+# CANONICAL PRICE_BOOK (SINGLE SOURCE OF TRUTH)
 # ============================================================
 try:
     from helpers.price_book import (
-        get_price_book,
         get_cached_price_book,
         CANONICAL_CACHE_PATH,
     )
 
-    # Load once, globally, at app start
     PRICE_BOOK = get_cached_price_book()
 
+    if PRICE_BOOK is None or PRICE_BOOK.empty:
+        raise ValueError("PRICE_BOOK loaded but empty")
+
     logger.info(
-        f"PRICE_BOOK loaded at startup | rows={len(PRICE_BOOK)}"
+        f"[PRICE_BOOK] loaded | rows={len(PRICE_BOOK)} cols={len(PRICE_BOOK.columns)}"
     )
 
 except Exception as e:
-    logger.exception("FAILED to initialize PRICE_BOOK")
+    logger.exception("[PRICE_BOOK] FAILED to initialize")
     PRICE_BOOK = pd.DataFrame()
+
 # ============================================================
-# FEATURE FLAGS & ENVIRONMENT CONFIG (SAFE ORDER)
+# FEATURE FLAGS & ENVIRONMENT CONFIG
 # ============================================================
 RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "true").lower() == "true"
 SAFE_MODE = os.environ.get("SAFE_MODE", "false").lower() == "true"
@@ -55,31 +54,23 @@ PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
 ENABLE_WAVE_PROFILE = True
 
 # ============================================================
-# TEMP DIAGNOSTIC — PRICE_BOOK VISIBILITY (REMOVE AFTER CONFIRM)
-# ============================================================
-try:
-    _pb = get_price_book()
-    st.caption(
-        f"DIAGNOSTIC: PRICE_BOOK rows={len(_pb)} | "
-        f"cols={len(_pb.columns)} | "
-        f"path={CANONICAL_CACHE_PATH}"
-    )
-except Exception as e:
-    st.caption(f"DIAGNOSTIC: PRICE_BOOK ERROR — {e}")
-
-# ============================================================
-# TRUTHFRAME — SINGLE CANONICAL SOURCE
+# TRUTHFRAME — CANONICAL, PRICE_BOOK-GATED
 # ============================================================
 
 def build_canonical_truthframe() -> Dict[str, Any]:
     """
-    Build a complete, always-safe TruthFrame.
-    NEVER raises. NEVER blocks app startup.
+    Build a safe TruthFrame.
+    Assumes PRICE_BOOK is valid.
+    NEVER raises.
     """
     truth: Dict[str, Any] = {}
 
     try:
-        waves = get_wave_universe_all() if "get_wave_universe_all" in globals() else []
+        waves = (
+            get_wave_universe_all()
+            if "get_wave_universe_all" in globals()
+            else []
+        )
     except Exception as e:
         logger.warning(f"[TruthFrame] wave universe unavailable: {e}")
         waves = []
@@ -100,18 +91,35 @@ def build_canonical_truthframe() -> Dict[str, Any]:
     return truth
 
 
-if "CANONICAL_TRUTHFRAME" not in st.session_state:
-    st.session_state["CANONICAL_TRUTHFRAME"] = build_canonical_truthframe()
-    logger.info(
-        f"[TruthFrame] initialized | waves={len(st.session_state['CANONICAL_TRUTHFRAME'])}"
-    )
+def ensure_truthframe_initialized() -> None:
+    """
+    Build TruthFrame exactly once,
+    AFTER PRICE_BOOK is valid.
+    """
+    if "CANONICAL_TRUTHFRAME" in st.session_state:
+        return
+
+    if PRICE_BOOK is None or PRICE_BOOK.empty:
+        logger.warning("[TruthFrame] NOT built — PRICE_BOOK unavailable")
+        return
+
+    try:
+        st.session_state["CANONICAL_TRUTHFRAME"] = build_canonical_truthframe()
+        logger.info(
+            f"[TruthFrame] initialized | waves={len(st.session_state['CANONICAL_TRUTHFRAME'])}"
+        )
+    except Exception:
+        logger.exception("[TruthFrame] FAILED to initialize")
+
+
+# 🔑 THIS LINE IS CRITICAL — DO NOT REMOVE
+ensure_truthframe_initialized()
 
 
 def get_active_truthframe() -> Dict[str, Any]:
     """Single authoritative TruthFrame accessor."""
     tf = st.session_state.get("CANONICAL_TRUTHFRAME")
     return tf if isinstance(tf, dict) else {}
-
 
 # ============================================================
 # ALPHA ATTRIBUTION ENGINE (SAFE, NON-BLOCKING)
@@ -120,7 +128,7 @@ def get_active_truthframe() -> Dict[str, Any]:
 def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
     """
     Deterministic alpha attribution.
-    NEVER raises. NEVER blocks app startup.
+    NEVER raises.
     """
     try:
         if "get_wave_data_filtered" not in globals():
@@ -150,8 +158,6 @@ def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
     except Exception as e:
         logger.debug(f"[Alpha] degraded for {wave}: {e}")
         return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
-
-
 # ============================================================
 # POPULATE ALPHA INTO TRUTHFRAME (IDEMPOTENT)
 # ============================================================
