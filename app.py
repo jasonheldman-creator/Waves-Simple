@@ -201,6 +201,13 @@ if isinstance(truth, dict) and truth:
 
     st.session_state["CANONICAL_TRUTHFRAME"] = truth
 
+# TEMP DIAGNOSTIC — confirm TruthFrame population (safe, no side effects)
+if isinstance(truth, dict):
+    logging.info(
+        f"[TruthFrame] populated with {len(truth)} waves | keys sample: {list(truth.keys())[:5]}"
+    )
+else:
+    logging.warning("[TruthFrame] population failed — truth is not a dict")
 # ============================================================
 # DEBUG FAIL-OPEN MODE — TEMPORARY SAFETY PATCH
 # Disables st.stop() so we can locate hidden execution halts
