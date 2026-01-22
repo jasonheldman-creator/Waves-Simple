@@ -20,7 +20,14 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 # ============================================================
-# PRICE_BOOK — CANONICAL IMPORT (EARLY, EXPLICIT)
+# LOGGING (SINGLE, CANONICAL SETUP)
+# ============================================================
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+# ============================================================
+# CANONICAL PRICE_BOOK BINDING (SINGLE SOURCE OF TRUTH)
 # ============================================================
 try:
     from helpers.price_book import (
@@ -28,17 +35,17 @@ try:
         get_cached_price_book,
         CANONICAL_CACHE_PATH,
     )
-except Exception as e:
-    # Hard fail visibility — do NOT silently continue
-    st.error(f"CRITICAL: Failed to import PRICE_BOOK — {e}")
-    raise
 
-# ============================================================
-# LOGGING (SINGLE, CANONICAL SETUP)
-# ============================================================
-logger = logging.getLogger("waves_app")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
+    # Load once, globally, at app start
+    PRICE_BOOK = get_cached_price_book()
+
+    logger.info(
+        f"PRICE_BOOK loaded at startup | rows={len(PRICE_BOOK)} | cols={len(PRICE_BOOK.columns)}"
+    )
+
+except Exception as e:
+    logger.exception("FAILED to initialize PRICE_BOOK")
+    PRICE_BOOK = pd.DataFrame()
 
 # ============================================================
 # FEATURE FLAGS & ENVIRONMENT CONFIG (SAFE ORDER)
