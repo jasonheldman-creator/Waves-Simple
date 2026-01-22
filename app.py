@@ -1,10 +1,13 @@
 # ============================================================
-# CORE IMPORTS
+# CORE IMPORTS (ORDER GUARANTEED)
 # ============================================================
+import os
 import streamlit as st
 import logging
 import traceback
 from datetime import datetime, timezone
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Any
 
 import pandas as pd
 import numpy as np
@@ -14,7 +17,7 @@ from plotly.subplots import make_subplots
 
 
 # ============================================================
-# LOGGING (SINGLE SETUP)
+# LOGGING (SINGLE, CANONICAL SETUP)
 # ============================================================
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
@@ -22,13 +25,24 @@ if not logger.handlers:
 
 
 # ============================================================
-# CANONICAL TRUTHFRAME — SINGLE SOURCE OF TRUTH
+# FEATURE FLAGS & ENVIRONMENT CONFIG (SAFE ORDER)
+# ============================================================
+RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "true").lower() == "true"
+SAFE_MODE = os.environ.get("SAFE_MODE", "false").lower() == "true"
+
+PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
+
+ENABLE_WAVE_PROFILE = True
+
+
+# ============================================================
+# TRUTHFRAME — SINGLE CANONICAL SOURCE OF TRUTH
 # ============================================================
 
 def build_canonical_truthframe():
     """
     Build a complete, always-safe TruthFrame.
-    This MUST succeed for the UI to function.
+    This function MUST NEVER FAIL.
     """
     truth = {}
 
@@ -54,18 +68,18 @@ def build_canonical_truthframe():
     return truth
 
 
-# Initialize TruthFrame ONCE, EARLY
+# Initialize TruthFrame ONCE, EARLY, FAIL-SAFE
 if "CANONICAL_TRUTHFRAME" not in st.session_state:
     st.session_state["CANONICAL_TRUTHFRAME"] = build_canonical_truthframe()
     logger.info(
-        f"[TruthFrame] initialized with {len(st.session_state['CANONICAL_TRUTHFRAME'])} waves"
+        f"[TruthFrame] initialized | waves={len(st.session_state['CANONICAL_TRUTHFRAME'])}"
     )
 
 
-def get_active_truthframe():
+def get_active_truthframe() -> Dict[str, Any]:
     """
     Single authoritative TruthFrame accessor.
-    UI + analytics MUST read from here.
+    ALL UI + analytics read from here.
     """
     tf = st.session_state.get("CANONICAL_TRUTHFRAME")
     return tf if isinstance(tf, dict) else {}
@@ -75,19 +89,19 @@ def get_active_truthframe():
 # ALPHA ATTRIBUTION ENGINE (SAFE, NON-BLOCKING)
 # ============================================================
 
-def compute_alpha_attribution(wave, days=60):
+def compute_alpha_attribution(wave, days: int = 60) -> Dict[str, float]:
     """
     Transparent, deterministic alpha attribution.
-    NEVER raises. NEVER blocks TruthFrame population.
+    NEVER raises. NEVER blocks app startup.
     """
     try:
         df = get_wave_data_filtered(wave, days)
 
         if df is None or df.empty:
-            return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
+            raise ValueError("No data")
 
         if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
-            return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
+            raise ValueError("Missing required columns")
 
         df = df.copy()
         df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
@@ -103,8 +117,13 @@ def compute_alpha_attribution(wave, days=60):
         }
 
     except Exception as e:
-        logger.warning(f"[Alpha] failed for {wave}: {e}")
-        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
+        logger.debug(f"[Alpha] degraded for {wave}: {e}")
+        return {
+            "total": 0.0,
+            "selection": 0.0,
+            "overlay": 0.0,
+            "cash": 0.0,
+        }
 
 
 # ============================================================
@@ -122,11 +141,9 @@ if not st.session_state.get("_TRUTHFRAME_POPULATED", False):
         st.session_state["CANONICAL_TRUTHFRAME"] = truth
         st.session_state["_TRUTHFRAME_POPULATED"] = True
 
-        logger.info(
-            f"[TruthFrame] alpha populated | waves={len(truth)}"
-        )
+        logger.info(f"[TruthFrame] alpha populated | waves={len(truth)}")
     else:
-        logger.warning("[TruthFrame] empty — degraded mode active")
+        logger.warning("[TruthFrame] empty — running in degraded mode")
 
 
 # ============================================================
@@ -146,765 +163,19 @@ if st.session_state.get("_DEBUG_ALLOW_FAILOPEN", False):
             return
 
         st.stop = patched_stop
+
+
 # ============================================================
-# RUN TRACE – Prevent infinite reruns / aid diagnostics
+# RUN TRACE — RERUN & DIAGNOSTICS CONTROL
 # ============================================================
+
 if "run_seq" not in st.session_state:
     st.session_state.run_seq = 0
-    st.session_state.last_run_time = datetime.now()
+    st.session_state.last_run_time = datetime.now(timezone.utc)
     st.session_state.last_trigger = "initial_load"
-    st.session_state.buttons_clicked = []
-    st.session_state.trigger_set_by_rerun = False
 else:
     st.session_state.run_seq += 1
-
-    now = datetime.now()
-    st.session_state.delta_seconds = (
-        now - st.session_state.last_run_time
-    ).total_seconds()
-    st.session_state.last_run_time = now
-
-    if not st.session_state.get("trigger_set_by_rerun", False):
-        if st.session_state.get("_last_button_clicked"):
-            st.session_state.last_trigger = f"button:{st.session_state._last_button_clicked}"
-            st.session_state.buttons_clicked.append(st.session_state._last_button_clicked)
-            st.session_state._last_button_clicked = None
-        elif st.session_state.get("_widget_changed"):
-            st.session_state.last_trigger = f"widget:{st.session_state._widget_changed}"
-            st.session_state._widget_changed = None
-        elif st.session_state.get("auto_refresh_enabled", False):
-            st.session_state.last_trigger = "auto_refresh"
-        else:
-            st.session_state.last_trigger = "unknown"
-
-    st.session_state.trigger_set_by_rerun = False
-
-# ============================================================
-# Feature flags
-# ============================================================
-ENABLE_WAVE_PROFILE = True
-# ============================================================================
-# NEW FEATURE FLAGS - Wave Intelligence Center Enhancements
-# ============================================================================
-# RENDER_RICH_HTML: Enable/disable rich HTML rendering via st.components.v1.html
-# Set to False to use plain st.markdown rendering instead
-RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
-
-# SAFE_MODE: Enable/disable safe mode for error handling
-# When enabled, catches exceptions in Wave Intelligence Center and falls back gracefully
-SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
-
-# ============================================================================
-# RERUN THROTTLE CONFIGURATION
-# ============================================================================
-# Rerun throttle settings to prevent rapid consecutive reruns
-RERUN_THROTTLE_THRESHOLD = 0.5  # Minimum seconds between reruns (below this triggers counter)
-MAX_RAPID_RERUNS = 3  # Number of rapid reruns before halting execution
-
-# ============================================================================
-# ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
-# To restore: cp app.py.decision-engine-backup app.py
-# ============================================================================
-
-# ============================================================================
-# DATA-READY CONFIGURATION - Price Caching and Wave Status
-# ============================================================================
-# Minimum days of price history required for a wave to be considered "Data-Ready"
-# LOWERED from 60 to 7 to support partial data availability
-MIN_DAYS_READY = 7
-
-# Wave validation thresholds (must match performance table requirements)
-WAVE_VALIDATION_MIN_COVERAGE_PCT = 100.0  # Require 100% ticker coverage
-WAVE_VALIDATION_MIN_HISTORY_DAYS = 30  # Require 30 days minimum history
-
-# Batch size for ticker price downloads to reduce rate-limit risks
-PRICE_DOWNLOAD_BATCH_SIZE = 100
-
-# Pause duration (seconds) between batches to avoid rate limiting
-PRICE_DOWNLOAD_BATCH_PAUSE = 1
-
-# ============================================================================
-# AI EXECUTIVE BRIEFING CONFIGURATION
-# ============================================================================
-# Thresholds for AI Executive Briefing signals and assessments
-# These values can be adjusted to calibrate signal sensitivity
-
-# System Confidence thresholds
-CONFIDENCE_HIGH_COVERAGE_PCT = 90.0  # Coverage % for High confidence
-CONFIDENCE_MODERATE_COVERAGE_PCT = 70.0  # Coverage % for Moderate confidence
-
-# Risk Regime thresholds (VIX-based)
-RISK_REGIME_VIX_LOW = 15.0  # VIX below this = Risk-On
-RISK_REGIME_VIX_HIGH = 25.0  # VIX above this = Risk-Off
-
-# Risk Regime fallback thresholds (performance-based when VIX unavailable)
-RISK_REGIME_PERF_RISK_ON = 0.5  # Average 1D return % for Risk-On
-RISK_REGIME_PERF_RISK_OFF = -0.5  # Average 1D return % for Risk-Off
-
-# Alpha Quality thresholds
-ALPHA_QUALITY_STRONG_RETURN = 0.5  # Average 1D return % for Strong
-ALPHA_QUALITY_STRONG_RATIO = 0.6  # Ratio of positive strategies for Strong
-ALPHA_QUALITY_MIXED_RATIO = 0.5  # Ratio of positive strategies for Mixed
-
-# Performance posture assessment thresholds
-POSTURE_STRONG_POSITIVE = 0.5  # Avg 1D return % for "strong positive momentum"
-POSTURE_WEAK_NEGATIVE = -0.5  # Avg 1D return % for "defensive positioning"
-
-# Dispersion thresholds for risk assessment
-DISPERSION_HIGH = 2.0  # Std dev % for "elevated dispersion"
-DISPERSION_LOW = 0.5  # Std dev % for "low volatility"
-
-# Data Integrity thresholds
-DATA_INTEGRITY_VERIFIED_COVERAGE = 95.0  # Coverage % for Verified
-DATA_INTEGRITY_DEGRADED_COVERAGE = 80.0  # Coverage % for Degraded
-
-# ============================================================================
-# PORTFOLIO VIEW CONFIGURATION
-# ============================================================================
-# Constants for portfolio-level snapshot rendering
-PORTFOLIO_VIEW_PLACEHOLDER = "NONE"  # Placeholder value indicating no wave selected
-PORTFOLIO_VIEW_TITLE = "Portfolio Snapshot (All Waves)"  # Display title for portfolio view
-PORTFOLIO_VIEW_ICON = "🏛️"  # Icon for portfolio view
-WAVE_VIEW_ICON = "🌊"  # Icon for individual wave view
-
-# Leaderboard thresholds
-NEGLIGIBLE_RETURN_THRESHOLD = 0.1  # Return % below which to show context message
-
-# Default signal values (used if calculation fails)
-DEFAULT_ALPHA_QUALITY = "Mixed"
-DEFAULT_RISK_REGIME = "Neutral"
-DEFAULT_DATA_INTEGRITY = "Degraded"
-DEFAULT_CONFIDENCE = "Moderate"
-BATCH_PAUSE_MIN = 0.5
-BATCH_PAUSE_MAX = 1.5
-
-# Executive Summary attribution constants
-ATTRIBUTION_TILT_STRENGTH = 0.8  # Momentum tilt strength for attribution calculation
-ATTRIBUTION_BASE_EXPOSURE = 1.0  # Base exposure level for attribution calculation
-ATTRIBUTION_TIMEFRAME_DAYS = 30  # Default timeframe for Executive Summary attribution display
-
-# ============================================================================
-# WAVE SELECTION HELPER FUNCTIONS
-# ============================================================================
-
-def resolve_app_context():
-    """
-    Canonical context resolver - Single source of truth for app context.
-    
-    This function resolves the current application context based on wave selection
-    and mode settings in session state. It serves as the authoritative driver for
-    all context-dependent rendering throughout the app.
-    
-    Returns:
-        dict: Context dictionary with the following keys:
-            - selected_wave_id (str or None): The unique wave ID, or None for portfolio
-            - selected_wave_name (str or None): Display name for the wave, or None for portfolio
-            - mode (str): Current mode (e.g., 'Standard', 'Aggressive', etc.)
-            - context_key (str): Normalized cache key in format "{mode}:{selected_wave_id or 'PORTFOLIO'}"
-    
-    Example:
-        >>> ctx = resolve_app_context()
-        >>> print(ctx)
-        {
-            'selected_wave_id': 'wave_gold',
-            'selected_wave_name': 'Gold Wave',
-            'mode': 'Standard',
-            'context_key': 'Standard:wave_gold'
-        }
-    """
-    # Get wave_id from session state (authoritative source)
-    selected_wave_id = st.session_state.get("selected_wave_id")
-    
-    # Derive display name from wave_id
-    selected_wave_name = None
-    if selected_wave_id is not None:
-        if WAVES_ENGINE_AVAILABLE and get_display_name_from_wave_id is not None:
-            try:
-                selected_wave_name = get_display_name_from_wave_id(selected_wave_id)
-            except (KeyError, ValueError, AttributeError):
-                # Fallback: use wave_id as name if conversion fails
-                selected_wave_name = f"Wave ({selected_wave_id})"
-        else:
-            # Fallback: use wave_id as name if engine unavailable
-            selected_wave_name = f"Wave ({selected_wave_id})"
-    
-    # Get mode from session state
-    mode = st.session_state.get("mode", "Standard")
-    
-    # Build normalized cache key
-    wave_part = selected_wave_id if selected_wave_id is not None else "PORTFOLIO"
-    context_key = f"{mode}:{wave_part}"
-    
-    return {
-        "selected_wave_id": selected_wave_id,
-        "selected_wave_name": selected_wave_name,
-        "mode": mode,
-        "context_key": context_key
-    }
-
-
-def get_selected_wave_display_name():
-    """
-    Get the display name for the currently selected wave.
-    
-    .. deprecated:: 2.0
-        Use :func:`resolve_app_context` instead. This function will be removed in version 3.0.
-        
-        Instead of::
-        
-            display_name = get_selected_wave_display_name()
-            
-        Use::
-        
-            ctx = resolve_app_context()
-            display_name = ctx["selected_wave_name"]
-    
-    Returns None if portfolio view is active, otherwise returns the
-    display name corresponding to the wave_id stored in session_state.
-    
-    Returns:
-        str or None: Display name of selected wave, or None for portfolio view
-    """
-    import warnings
-    warnings.warn(
-        "get_selected_wave_display_name() is deprecated and will be removed in version 3.0. "
-        "Use resolve_app_context()['selected_wave_name'] instead.",
-        DeprecationWarning,
-        stacklevel=2
-    )
-    # Delegate to canonical context resolver
-    ctx = resolve_app_context()
-    return ctx["selected_wave_name"]
-# ============================================================================
-# WAVE ALPHA ATTRIBUTION (PORTFOLIO SNAPSHOT DERIVED)
-# ============================================================================
-
-# Cache TTL for price downloads (in seconds) - 1 hour default
-PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
-
-# Safe asset tickers for overlays (cash, treasuries, etc.)
-SAFE_ASSET_TICKERS = ["^IRX", "^FVX", "^TNX", "SHY", "IEF", "TLT", "BIL"]
-
-# Snapshot Ledger maximum runtime (seconds) - prevents infinite hangs
-SNAPSHOT_MAX_RUNTIME_SECONDS = 300
-
-
-def load_portfolio_snapshot_dataframe():
-    """
-    Canonical loader for live portfolio snapshot data.
-
-    Single source of truth for:
-    - Portfolio Snapshot
-    - Executive Summary
-    - Wave Alpha Attribution
-    """
-    try:
-        path = "data/live_snapshot.csv"
-
-        if not os.path.exists(path):
-            st.warning("Portfolio snapshot file not found.")
-            return None
-
-        df = pd.read_csv(path)
-
-        if df.empty:
-            st.warning("Portfolio snapshot file is empty.")
-            return None
-
-        return df
-
-    except Exception as e:
-        st.error("Failed to load portfolio snapshot data")
-        st.exception(e)
-        return None
-
-
-def compute_wave_alpha_attribution():
-    """
-    Compute per-wave alpha attribution from live_snapshot.csv.
-    Robust to missing alpha columns.
-    """
-    df = load_portfolio_snapshot_dataframe()
-
-    if df is None or df.empty:
-        return None
-
-    # Identify alpha columns that actually exist
-    alpha_cols = [
-        c for c in [
-            "Alpha_1D",
-            "Alpha_30D",
-            "Alpha_60D",
-            "Alpha_365D",
-        ]
-        if c in df.columns
-    ]
-
-    if "Wave" not in df.columns or not alpha_cols:
-        st.warning("Alpha attribution columns not present in snapshot.")
-        return None
-
-    out = (
-        df[["Wave"] + alpha_cols]
-        .groupby("Wave", as_index=False)
-        .mean()
-    )
-
-    # Drop waves with no alpha data at all
-    out = out.dropna(subset=alpha_cols, how="all")
-
-    if out.empty:
-        return None
-
-    # Sort by best available horizon
-    sort_col = "Alpha_30D" if "Alpha_30D" in out.columns else alpha_cols[-1]
-    return out.sort_values(sort_col, ascending=False)
-# -------------------------------
-# WAVE ALPHA ATTRIBUTION RENDER
-# -------------------------------
-
-def render_wave_alpha_attribution():
-    """
-    Render per-wave alpha attribution table.
-    """
-    df = compute_wave_alpha_attribution()
-
-    if df is None or df.empty:
-        st.warning("Alpha attribution data not available.")
-        return
-
-    st.markdown("### 🧠 Wave Alpha Attribution")
-    st.caption("Average benchmark-relative alpha by wave across time horizons.")
-
-    st.dataframe(
-        df.style.format({
-            "Alpha_1D": "{:+.2%}",
-            "Alpha_30D": "{:+.2%}",
-            "Alpha_60D": "{:+.2%}",
-            "Alpha_365D": "{:+.2%}",
-        }),
-        use_container_width=True,
-    )
-# ============================================================================
-# DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
-# ============================================================================
-
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
-def metric_alpha_predecomp(value, *, label="Cumulative Alpha (Pre-Decomposition)"):
-    """
-    UI-only helper to render alpha metrics safely.
-    No math changes. Presentation only.
-    """
-    try:
-        display = f"{value:.2%}" if value is not None else "Pending"
-    except Exception:
-        display = "Pending"
-
-    st.metric(
-        label,
-        display,
-        help="Cumulative benchmark-relative alpha shown prior to full attribution decomposition."
-    )
-    st.caption("Benchmark-relative · Capital-weighted · Since inception")
-
-def _fmt_pct_or_status(v, status):
-    """
-    Centralized helper for formatting alpha values in percentage terms or displaying a status.
-    
-    Args:
-        v: Numeric value (in decimal form, e.g., 0.01 = 1%)
-        status: Status label to display if v is None (e.g., "Pending", "Derived", "Reserved")
-    
-    Returns:
-        Formatted string with percentage or status label
-    """
-    try:
-        if v is None:
-            return status
-        return f"{v:+.2%}" if abs(v) <= 5 else f"{v:+.2f}%"
-    except Exception:
-        return status
-
-@dataclass
-class DecisionAttributionComponents:
-    """
-    Observable components of Wave performance decomposition.
-    All values in decimal form (e.g., 0.01 = 1%).
-    """
-    # Core components
-    selection_alpha: Optional[float] = None  # Asset selection contribution
-    overlay_alpha: Optional[float] = None  # Exposure scaling & VIX gates vs fully invested
-    risk_off_alpha: Optional[float] = None  # Cash contribution
-    residual_alpha: Optional[float] = None  # Unexplained effects
-    
-    # Reconciliation
-    total_alpha: Optional[float] = None  # Total realized alpha
-    reconciled: bool = False  # Whether reconciliation succeeded
-    reconciliation_error: Optional[float] = None
-    
-    # Availability flags
-    selection_available: bool = False
-    overlay_available: bool = False
-    risk_off_available: bool = False
-    residual_available: bool = False
-    
-    # Metadata
-    data_completeness: float = 0.0  # 0.0 to 1.0
-    warnings: List[str] = None
-    
-    def __post_init__(self):
-        if self.warnings is None:
-            self.warnings = []
-    
-    def get_confidence_level(self) -> str:
-        """Get confidence level based on data completeness."""
-        if self.data_completeness >= 0.9:
-            return "High"
-        elif self.data_completeness >= 0.6:
-            return "Medium"
-        elif self.data_completeness >= 0.3:
-            return "Low"
-        else:
-            return "Very Low"
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for display."""
-        return {
-            'Selection Alpha': self.selection_alpha,
-            'Overlay Alpha': self.overlay_alpha,
-            'Risk-Off Alpha': self.risk_off_alpha,
-            'Residual Alpha': self.residual_alpha,
-            'Total Alpha': self.total_alpha,
-            'Reconciled': self.reconciled,
-            'Data Completeness': f"{self.data_completeness * 100:.1f}%",
-            'Confidence': self.get_confidence_level(),
-            'Warnings': len(self.warnings)
-        }
-
-
-@dataclass
-class AuditTrailEntry:
-    """Immutable audit trail entry for attribution calculations."""
-    timestamp: datetime
-    app_version: str
-    git_commit: str
-    git_branch: str
-    wave_name: str
-    calculation_type: str
-    data_available: Dict[str, bool]
-    calculations_performed: List[str]
-    calculations_skipped: List[str]
-    warnings: List[str]
-    success: bool
-    error_message: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for display."""
-        return {
-            'Timestamp': self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            'App Version': self.app_version,
-            'Git Commit': self.git_commit,
-            'Git Branch': self.git_branch,
-            'Wave': self.wave_name,
-            'Calculation': self.calculation_type,
-            'Data Available': ', '.join([k for k, v in self.data_available.items() if v]),
-            'Performed': ', '.join(self.calculations_performed) if self.calculations_performed else 'None',
-            'Skipped': ', '.join(self.calculations_skipped) if self.calculations_skipped else 'None',
-            'Warnings': len(self.warnings),
-            'Success': '✅' if self.success else '❌',
-            'Error': self.error_message or 'None'
-        }
-
-
-class DecisionAttributionEngine:
-    """
-    Decision Attribution Engine - Decomposes Wave performance into observable components.
-    
-    Components:
-    1. Selection Alpha: Performance from asset selection
-    2. Overlay Alpha: Performance from exposure scaling and VIX gates vs fully invested benchmark
-    3. Risk-Off Alpha: Performance contribution from cash positions
-    4. Residual Alpha: Unexplained performance effects
-    
-    Features:
-    - Labels components as "Observed" or "Unavailable"
-    - Reconciles to total return vs benchmark
-    - Graceful degradation when data is incomplete
-    """
-    
-    def __init__(self):
-        self.audit_trail: List[AuditTrailEntry] = []
-    
-    def compute_attribution(
-        self,
-        wave_data: pd.DataFrame,
-        wave_name: str,
-        benchmark_data: Optional[pd.DataFrame] = None
-    ) -> DecisionAttributionComponents:
-        """
-        Compute decision attribution for a wave.
-        
-        Args:
-            wave_data: DataFrame with wave performance data
-            wave_name: Name of the wave
-            benchmark_data: Optional benchmark data for comparison
-            
-        Returns:
-            DecisionAttributionComponents with observed and unavailable components
-        """
-        warnings = []
-        calculations_performed = []
-        calculations_skipped = []
-        data_available = {}
-        
-        try:
-            # Initialize components
-            components = DecisionAttributionComponents()
-            
-            # Check data availability
-            has_alpha = 'alpha' in wave_data.columns
-            has_return = 'return' in wave_data.columns
-            has_benchmark = 'benchmark_return' in wave_data.columns or benchmark_data is not None
-            has_exposure = 'exposure' in wave_data.columns
-            has_cash = 'cash_pct' in wave_data.columns or 'safe_pct' in wave_data.columns
-            has_vix = 'vix' in wave_data.columns
-            
-            data_available = {
-                'alpha': has_alpha,
-                'return': has_return,
-                'benchmark': has_benchmark,
-                'exposure': has_exposure,
-                'cash': has_cash,
-                'vix': has_vix
-            }
-            
-            # Calculate total alpha (if possible)
-            if has_alpha:
-                components.total_alpha = wave_data['alpha'].sum()
-                calculations_performed.append('total_alpha')
-            elif has_return and has_benchmark:
-                wave_return = wave_data['return'].sum()
-                if benchmark_data is not None:
-                    benchmark_return = benchmark_data['return'].sum()
-                else:
-                    benchmark_return = wave_data['benchmark_return'].sum()
-                components.total_alpha = wave_return - benchmark_return
-                calculations_performed.append('total_alpha_from_returns')
-            else:
-                warnings.append("Total alpha unavailable - missing return or benchmark data")
-                calculations_skipped.append('total_alpha')
-            
-            # Component 1: Selection Alpha (from underlying asset performance)
-            if ALPHA_ATTRIBUTION_AVAILABLE and has_return:
-                try:
-                    # Use existing alpha attribution if available
-                    from alpha_attribution import compute_alpha_attribution_series
-                    
-                    # Prepare data for attribution - transform column names
-                    wave_data_copy = wave_data.copy()
-                    
-                    # Ensure date is index
-                    if 'date' in wave_data_copy.columns:
-                        wave_data_copy = wave_data_copy.set_index('date')
-                    
-                    # Transform column names: return -> wave_ret, benchmark_return -> bm_ret
-                    if 'return' in wave_data_copy.columns and has_benchmark:
-                        wave_data_copy['wave_ret'] = wave_data_copy['return']
-                        if 'benchmark_return' in wave_data_copy.columns:
-                            wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
-                        elif benchmark_data is not None and 'return' in benchmark_data.columns:
-                            wave_data_copy['bm_ret'] = benchmark_data['return']
-                        else:
-                            wave_data_copy['bm_ret'] = 0.0
-                    elif 'portfolio_return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
-                        wave_data_copy['wave_ret'] = wave_data_copy['portfolio_return']
-                        wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
-                    else:
-                        warnings.append("Selection alpha unavailable - missing return columns")
-                        calculations_skipped.append('selection_alpha')
-                        raise ValueError("Missing required return columns")
-                    
-                    # Call with correct parameter order: wave_name, mode, history_df
-                    _, summary = compute_alpha_attribution_series(
-                        wave_name=wave_name,
-                        mode=st.session_state.get("mode", "Standard"),
-                        history_df=wave_data_copy
-                    )
-                    
-                    if summary and hasattr(summary, 'asset_selection_alpha'):
-                        components.selection_alpha = summary.asset_selection_alpha
-                        components.selection_available = True
-                        calculations_performed.append('selection_alpha')
-                    else:
-                        warnings.append("Selection alpha computation returned no results")
-                        calculations_skipped.append('selection_alpha')
-                except Exception as e:
-                    warnings.append(f"Selection alpha unavailable: {str(e)}")
-                    calculations_skipped.append('selection_alpha')
-            else:
-                warnings.append("Selection alpha unavailable - missing attribution module or return data")
-                calculations_skipped.append('selection_alpha')
-            
-            # Component 2: Overlay Alpha (exposure scaling & VIX gates)
-            if has_exposure and has_return and has_benchmark:
-                try:
-                    # Calculate overlay alpha as difference between actual and fully invested
-                    if 'exposure' in wave_data.columns:
-                        # Fully invested would be exposure = 1.0 always
-                        actual_exposure = wave_data['exposure'].fillna(1.0)
-                        exposure_impact = wave_data['return'] * (actual_exposure - 1.0)
-                        components.overlay_alpha = exposure_impact.sum()
-                        components.overlay_available = True
-                        calculations_performed.append('overlay_alpha')
-                    else:
-                        warnings.append("Overlay alpha unavailable - missing exposure data")
-                        calculations_skipped.append('overlay_alpha')
-                except Exception as e:
-                    warnings.append(f"Overlay alpha calculation failed: {str(e)}")
-                    calculations_skipped.append('overlay_alpha')
-            else:
-                warnings.append("Overlay alpha unavailable - missing exposure, return, or benchmark data")
-                calculations_skipped.append('overlay_alpha')
-            
-            # Component 3: Risk-Off Alpha (cash contribution)
-            if has_cash and has_return:
-                try:
-                    cash_col = 'cash_pct' if 'cash_pct' in wave_data.columns else 'safe_pct'
-                    cash_pct = wave_data[cash_col].fillna(0.0)
-                    
-                    # Cash contribution: opportunity cost of holding cash vs being invested
-                    # Positive if market went down while holding cash, negative if market went up
-                    if has_benchmark:
-                        if benchmark_data is not None:
-                            benchmark_return = benchmark_data['return']
-                        else:
-                            benchmark_return = wave_data['benchmark_return']
-                        
-                        # Cash benefit = cash% * (-benchmark_return)
-                        # Positive when benchmark negative and we held cash
-                        components.risk_off_alpha = (cash_pct * (-benchmark_return)).sum()
-                        components.risk_off_available = True
-                        calculations_performed.append('risk_off_alpha')
-                    else:
-                        warnings.append("Risk-off alpha partial - no benchmark for comparison")
-                        calculations_skipped.append('risk_off_alpha')
-                except Exception as e:
-                    warnings.append(f"Risk-off alpha calculation failed: {str(e)}")
-                    calculations_skipped.append('risk_off_alpha')
-            else:
-                warnings.append("Risk-off alpha unavailable - missing cash or return data")
-                calculations_skipped.append('risk_off_alpha')
-            
-            # Component 4: Residual Alpha (unexplained)
-            if components.total_alpha is not None:
-                # Residual = Total - (Selection + Overlay + Risk-Off)
-                known_components = 0.0
-                if components.selection_alpha is not None:
-                    known_components += components.selection_alpha
-                if components.overlay_alpha is not None:
-                    known_components += components.overlay_alpha
-                if components.risk_off_alpha is not None:
-                    known_components += components.risk_off_alpha
-                
-                components.residual_alpha = components.total_alpha - known_components
-                components.residual_available = True
-                calculations_performed.append('residual_alpha')
-            else:
-                warnings.append("Residual alpha unavailable - total alpha unknown")
-                calculations_skipped.append('residual_alpha')
-            
-            # Reconciliation check
-            if components.total_alpha is not None:
-                reconstructed = 0.0
-                if components.selection_alpha is not None:
-                    reconstructed += components.selection_alpha
-                if components.overlay_alpha is not None:
-                    reconstructed += components.overlay_alpha
-                if components.risk_off_alpha is not None:
-                    reconstructed += components.risk_off_alpha
-                if components.residual_alpha is not None:
-                    reconstructed += components.residual_alpha
-                
-                components.reconciliation_error = abs(components.total_alpha - reconstructed)
-                components.reconciled = components.reconciliation_error < 0.0001  # 0.01% tolerance
-                
-                if not components.reconciled:
-                    warnings.append(f"Reconciliation error: {components.reconciliation_error*100:.4f}%")
-            
-            # Calculate data completeness
-            available_count = sum([
-                components.selection_available,
-                components.overlay_available,
-                components.risk_off_available,
-                components.residual_available
-            ])
-            components.data_completeness = available_count / 4.0
-            
-            # Store warnings
-            components.warnings = warnings
-            
-            # Create audit trail entry
-            audit_entry = AuditTrailEntry(
-                timestamp=datetime.now(),
-                app_version="v2.0-attribution",
-                git_commit=get_git_commit_hash(),
-                git_branch=get_git_branch_name(),
-                wave_name=wave_name,
-                calculation_type="Decision Attribution",
-                data_available=data_available,
-                calculations_performed=calculations_performed,
-                calculations_skipped=calculations_skipped,
-                warnings=warnings,
-                success=True
-            )
-            self.audit_trail.append(audit_entry)
-            
-            return components
-            
-        except Exception as e:
-            # Create error audit trail entry
-            audit_entry = AuditTrailEntry(
-                timestamp=datetime.now(),
-                app_version="v2.0-attribution",
-                git_commit=get_git_commit_hash(),
-                git_branch=get_git_branch_name(),
-                wave_name=wave_name,
-                calculation_type="Decision Attribution",
-                data_available=data_available,
-                calculations_performed=calculations_performed,
-                calculations_skipped=calculations_skipped,
-                warnings=warnings,
-                success=False,
-                error_message=str(e)
-            )
-            self.audit_trail.append(audit_entry)
-            
-            # Return empty components with error
-            components = DecisionAttributionComponents()
-            components.warnings = warnings + [f"Attribution failed: {str(e)}"]
-            return components
-    
-    def get_audit_trail(self) -> List[AuditTrailEntry]:
-        """Get the complete audit trail."""
-        return self.audit_trail
-    
-    def get_latest_audit_entry(self) -> Optional[AuditTrailEntry]:
-        """Get the most recent audit trail entry."""
-        return self.audit_trail[-1] if self.audit_trail else None
-
-
-# Global instance of the attribution engine
-_attribution_engine = None
-
-def get_attribution_engine() -> DecisionAttributionEngine:
-    """Get or create the global attribution engine instance."""
-    global _attribution_engine
-    if _attribution_engine is None:
-        _attribution_engine = DecisionAttributionEngine()
-    return _attribution_engine
-
-
+    st.session_state.last_run_time = datetime.now(timezone.utc)
 # ============================================================================
 # SECTION 1: CONFIGURATION AND STYLING
 # ============================================================================
