@@ -16,6 +16,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+import logging
 
 # =========================================================
 # CANONICAL TRUTHFRAME ACCESSOR
@@ -177,6 +178,28 @@ def get_active_truthframe():
     Always returns a safe dictionary.
     """
     return st.session_state.get("TRUTHFRAME_OVERRIDE", {})
+
+# =====================================================
+# POPULATE REAL ALPHA ATTRIBUTION (SAFE INITIALIZATION)
+# =====================================================
+truth = get_active_truthframe()
+
+if isinstance(truth, dict) and truth:
+    for wave in list(truth.keys()):
+        try:
+            alpha = compute_alpha_attribution(wave)
+
+            # Ensure wave structure exists
+            truth.setdefault(wave, {})
+            truth[wave]["alpha"] = alpha
+            truth[wave].setdefault("health", {})
+            truth[wave].setdefault("regime", {})
+            truth[wave].setdefault("learning", {})
+
+        except Exception as e:
+            logging.warning(f"Alpha attribution failed for {wave}: {e}")
+
+    st.session_state["CANONICAL_TRUTHFRAME"] = truth
 
 # ============================================================
 # DEBUG FAIL-OPEN MODE — TEMPORARY SAFETY PATCH
