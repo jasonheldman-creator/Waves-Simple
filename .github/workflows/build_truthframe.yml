@@ -3,7 +3,7 @@ name: Build & Commit TruthFrame
 on:
   workflow_dispatch:
   schedule:
-    # Daily after US market close (9:30 PM ET ≈ 02:30 UTC next day)
+    # Runs after US market close (9:30pm ET ≈ 02:30 UTC next day)
     - cron: "30 2 * * 2-6"
 
 permissions:
@@ -14,46 +14,63 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------------------------------------------
+      # Checkout repo
+      # ------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # ------------------------------------------------------------
+      # Python setup
+      # ------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      # ------------------------------------------------------------
+      # Install dependencies
+      # ------------------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt
 
+      # ------------------------------------------------------------
+      # Build TruthFrame
+      # ------------------------------------------------------------
       - name: Build TruthFrame
         run: |
-          mkdir -p data
           python scripts/build_truthframe.py
-          echo "TruthFrame build completed"
 
-      - name: Verify TruthFrame output
+      # ------------------------------------------------------------
+      # Validate output exists
+      # ------------------------------------------------------------
+      - name: Validate TruthFrame output
         run: |
           if [ ! -f data/truthframe.json ]; then
             echo "❌ data/truthframe.json not found"
             exit 1
           fi
-          echo "✅ data/truthframe.json exists"
-          ls -lh data/truthframe.json
+          echo "✅ TruthFrame file exists"
+          wc -l data/truthframe.json
 
-      - name: Commit TruthFrame to repo
+      # ------------------------------------------------------------
+      # Commit & push TruthFrame
+      # ------------------------------------------------------------
+      - name: Commit TruthFrame
         run: |
           git config user.name "github-actions"
-          git config user.email "actions@github.com"
+          git config user.email "github-actions@github.com"
 
           git add data/truthframe.json
 
           if git diff --cached --quiet; then
-            echo "No TruthFrame changes to commit"
-          else
-            git commit -m "Update TruthFrame (auto)"
-            git push
+            echo "ℹ️ No TruthFrame changes to commit"
+            exit 0
           fi
+
+          git commit -m "TruthFrame: rebuild canonical snapshot"
+          git push origin HEAD:main
