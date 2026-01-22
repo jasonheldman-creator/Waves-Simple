@@ -1,15 +1,10 @@
 # ============================================================
-# Core imports
+# CORE IMPORTS
 # ============================================================
 import streamlit as st
 import logging
-import subprocess
-import os
 import traceback
-import time
-import itertools
-import html
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pandas as pd
 import numpy as np
@@ -19,170 +14,128 @@ from plotly.subplots import make_subplots
 
 
 # ============================================================
-# TRUTHFRAME — SINGLE CANONICAL SOURCE
+# LOGGING (SINGLE SETUP)
+# ============================================================
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+
+# ============================================================
+# CANONICAL TRUTHFRAME — SINGLE SOURCE OF TRUTH
 # ============================================================
 
-def get_active_truthframe():
+def build_canonical_truthframe():
     """
-    Canonical TruthFrame accessor.
-    Always returns a dictionary.
+    Build a complete, always-safe TruthFrame.
+    This MUST succeed for the UI to function.
     """
-    tf = st.session_state.get("TRUTHFRAME")
-    return tf if isinstance(tf, dict) else {}
-
-
-# ============================================================
-# ALPHA ATTRIBUTION ENGINE (SIMPLE, TRANSPARENT)
-# ============================================================
-
-def compute_alpha_attribution(wave, days=60):
-    """
-    Returns explicit alpha components for a wave.
-    Safe, deterministic, and explainable.
-    """
-    try:
-        df = get_wave_data_filtered(wave, days)
-    except Exception:
-        df = None
-
-    if df is None or df.empty:
-        return {
-            "total": 0.0,
-            "selection": 0.0,
-            "overlay": 0.0,
-            "cash": 0.0,
-        }
-
-    if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
-        return {
-            "total": 0.0,
-            "selection": 0.0,
-            "overlay": 0.0,
-            "cash": 0.0,
-        }
-
-    df = df.copy()
-    df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
-
-    total_alpha = float(df["alpha"].sum())
-    exposure = float(df["exposure"].mean()) if "exposure" in df.columns else 1.0
-
-    return {
-        "total": total_alpha,
-        "selection": total_alpha * exposure,
-        "overlay": total_alpha * (1 - exposure) * 0.7,
-        "cash": total_alpha * (1 - exposure) * 0.3,
-    }
-
-
-# ============================================================
-# BUILD + POPULATE TRUTHFRAME (RUN ONCE)
-# ============================================================
-
-if "TRUTHFRAME" not in st.session_state:
-
     truth = {}
 
     try:
         waves = get_wave_universe_all()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[TruthFrame] wave universe unavailable: {e}")
         waves = []
 
     for wave in waves:
-        try:
-            alpha = compute_alpha_attribution(wave)
-        except Exception as e:
-            logging.warning(f"Alpha attribution failed for {wave}: {e}")
-            alpha = {
+        truth[wave] = {
+            "alpha": {
                 "total": 0.0,
                 "selection": 0.0,
                 "overlay": 0.0,
                 "cash": 0.0,
-            }
-
-        truth[wave] = {
-            "alpha": alpha,
+            },
             "health": {},
             "regime": {},
             "learning": {},
         }
 
-    st.session_state["TRUTHFRAME"] = truth
-
-    logging.info(
-        f"[TruthFrame] initialized with {len(truth)} waves | "
-        f"sample: {list(truth.keys())[:5]}"
-    )
-# ============================================================================
-# TRUTHFRAME BOOTSTRAP + SINGLE SOURCE OF TRUTH
-# ============================================================================
-
-def build_minimal_truthframe():
-    """
-    Always-safe TruthFrame skeleton.
-    """
-    truth = {}
-    try:
-        waves = get_wave_universe_all()
-    except Exception:
-        waves = []
-
-    for wave in waves:
-        truth[wave] = {
-            "alpha": {},
-            "health": {},
-            "regime": {},
-            "learning": {},
-        }
     return truth
 
 
-# Initialize canonical TruthFrame ONCE
+# Initialize TruthFrame ONCE, EARLY
 if "CANONICAL_TRUTHFRAME" not in st.session_state:
-    st.session_state["CANONICAL_TRUTHFRAME"] = build_minimal_truthframe()
+    st.session_state["CANONICAL_TRUTHFRAME"] = build_canonical_truthframe()
+    logger.info(
+        f"[TruthFrame] initialized with {len(st.session_state['CANONICAL_TRUTHFRAME'])} waves"
+    )
 
 
 def get_active_truthframe():
     """
     Single authoritative TruthFrame accessor.
-    UI + analytics always read from here.
+    UI + analytics MUST read from here.
     """
-    return st.session_state.get("CANONICAL_TRUTHFRAME", {})
+    tf = st.session_state.get("CANONICAL_TRUTHFRAME")
+    return tf if isinstance(tf, dict) else {}
 
 
-# ============================================================================
-# POPULATE REAL ALPHA ATTRIBUTION (RUN ONCE PER SESSION)
-# ============================================================================
+# ============================================================
+# ALPHA ATTRIBUTION ENGINE (SAFE, NON-BLOCKING)
+# ============================================================
+
+def compute_alpha_attribution(wave, days=60):
+    """
+    Transparent, deterministic alpha attribution.
+    NEVER raises. NEVER blocks TruthFrame population.
+    """
+    try:
+        df = get_wave_data_filtered(wave, days)
+
+        if df is None or df.empty:
+            return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
+
+        if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
+            return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
+
+        df = df.copy()
+        df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
+
+        total_alpha = float(df["alpha"].sum())
+        exposure = float(df["exposure"].mean()) if "exposure" in df.columns else 1.0
+
+        return {
+            "total": total_alpha,
+            "selection": total_alpha * exposure,
+            "overlay": total_alpha * (1 - exposure) * 0.7,
+            "cash": total_alpha * (1 - exposure) * 0.3,
+        }
+
+    except Exception as e:
+        logger.warning(f"[Alpha] failed for {wave}: {e}")
+        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
+
+
+# ============================================================
+# POPULATE ALPHA INTO TRUTHFRAME (IDEMPOTENT)
+# ============================================================
 
 if not st.session_state.get("_TRUTHFRAME_POPULATED", False):
 
     truth = get_active_truthframe()
 
-    if isinstance(truth, dict) and truth:
-        for wave in list(truth.keys()):
-            try:
-                truth[wave]["alpha"] = compute_alpha_attribution(wave)
-            except Exception as e:
-                logging.warning(f"[Alpha] failed for {wave}: {e}")
+    if truth:
+        for wave in truth.keys():
+            truth[wave]["alpha"] = compute_alpha_attribution(wave)
 
         st.session_state["CANONICAL_TRUTHFRAME"] = truth
         st.session_state["_TRUTHFRAME_POPULATED"] = True
 
-        logging.info(
-            f"[TruthFrame] populated with {len(truth)} waves | sample: {list(truth.keys())[:5]}"
+        logger.info(
+            f"[TruthFrame] alpha populated | waves={len(truth)}"
         )
     else:
-        logging.warning("[TruthFrame] population skipped — empty universe")
+        logger.warning("[TruthFrame] empty — degraded mode active")
+
+
 # ============================================================
-# DEBUG FAIL-OPEN MODE — TEMPORARY SAFETY PATCH
-# Disables st.stop() so we can locate hidden execution halts
+# DEBUG FAIL-OPEN MODE (TEMPORARY, SAFE)
 # ============================================================
 
-# Default: ENABLED for debugging
 if "_DEBUG_ALLOW_FAILOPEN" not in st.session_state:
     st.session_state["_DEBUG_ALLOW_FAILOPEN"] = True
 
-# Apply patch only once per session
 if st.session_state.get("_DEBUG_ALLOW_FAILOPEN", False):
     if "_original_st_stop" not in st.session_state:
         st.session_state["_original_st_stop"] = st.stop
@@ -193,60 +146,6 @@ if st.session_state.get("_DEBUG_ALLOW_FAILOPEN", False):
             return
 
         st.stop = patched_stop
-
-
-# ============================================================
-# Alpha Attribution (import once, build once)
-# ============================================================
-try:
-    from analytics.alpha_attribution import build_alpha_attribution_snapshot
-    ALPHA_ATTRIBUTION_AVAILABLE = True
-except Exception as e:
-    ALPHA_ATTRIBUTION_AVAILABLE = False
-    build_alpha_attribution_snapshot = None
-
-# ============================================================
-# Logging
-# ============================================================
-logger = logging.getLogger("waves_app")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
-
-# ============================================================
-# Alpha Attribution Snapshot Bootstrap (RUN ONCE PER LOAD)
-# ============================================================
-if ALPHA_ATTRIBUTION_AVAILABLE:
-    try:
-        ok, msg = build_alpha_attribution_snapshot()
-        if not ok:
-            st.warning(f"Alpha attribution not generated: {msg}")
-        else:
-            logger.info(msg)
-    except Exception as e:
-        st.warning(f"Alpha attribution build failed: {e}")
-        logger.exception(e)
-
-# ============================================================
-# App metadata
-# ============================================================
-"""
-Institutional Console v2 – Executive Layer v2
-Full implementation with advanced analytics and visualization
-
-Modular structure:
-1. Configuration and styling
-2. Utility functions
-3. Safe data-loading helpers
-4. Data processing and calculation functions
-5. Visualization components
-6. Reusable UI components
-7. Render functions for tabs and analytics
-8. Main entry point
-
-FULL MULTI-TAB CONSOLE UI – Post PR #336
-Includes all analytics, monitoring, and governance features.
-"""
-
 # ============================================================
 # RUN TRACE – Prevent infinite reruns / aid diagnostics
 # ============================================================
