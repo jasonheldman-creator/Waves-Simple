@@ -11205,7 +11205,7 @@ def render_portfolio_snapshot():
 
 def compute_aggregated_portfolio_metrics():
     """
-    Compute aggregated portfolio returns and alpha across all Waves
+    Compute aggregated portfolio returns across all Waves
     directly from PRICE_BOOK.
 
     SNAPSHOT-FREE.
@@ -11215,22 +11215,22 @@ def compute_aggregated_portfolio_metrics():
     Returns:
         dict | None
         {
-            "1D":   {"return": float | None, "alpha": None},
-            "30D":  {"return": float | None, "alpha": None},
-            "60D":  {"return": float | None, "alpha": None},
-            "365D": {"return": float | None, "alpha": None},
+            "1D":   {"return": float | None},
+            "30D":  {"return": float | None},
+            "60D":  {"return": float | None},
+            "365D": {"return": float | None},
         }
     """
     try:
         if "get_cached_price_book" not in globals():
             return None
 
-        PRICE_BOOK = get_cached_price_book()
+        price_book = get_cached_price_book()
 
-        if PRICE_BOOK is None or PRICE_BOOK.empty:
+        if price_book is None or price_book.empty:
             return None
 
-        returns_df = PRICE_BOOK.pct_change().dropna()
+        returns_df = price_book.pct_change().dropna()
         if returns_df.empty:
             return None
 
@@ -11247,19 +11247,15 @@ def compute_aggregated_portfolio_metrics():
         metrics = {
             "1D": {
                 "return": float(portfolio_returns.iloc[-1]) if len(portfolio_returns) >= 1 else None,
-                "alpha": None,
             },
             "30D": {
                 "return": safe_compounded(portfolio_returns.iloc[-30:]) if len(portfolio_returns) >= 30 else None,
-                "alpha": None,
             },
             "60D": {
                 "return": safe_compounded(portfolio_returns.iloc[-60:]) if len(portfolio_returns) >= 60 else None,
-                "alpha": None,
             },
             "365D": {
                 "return": safe_compounded(portfolio_returns.iloc[-252:]) if len(portfolio_returns) >= 252 else None,
-                "alpha": None,
             },
         }
 
@@ -11297,7 +11293,7 @@ def render_portfolio_snapshot_summary():
 
     st.divider()
 
-    # Optional, safe enhancement — only if available
+    # Optional enhancement — only if attribution exists
     if "render_wave_alpha_attribution" in globals():
         render_wave_alpha_attribution()
 # ============================================================
