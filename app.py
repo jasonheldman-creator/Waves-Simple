@@ -138,6 +138,14 @@ if isinstance(truth, dict):
 
 st.session_state["CANONICAL_TRUTHFRAME"] = truth
 
+# HARD SYNC — expose populated TruthFrame to UI readers
+if (
+    isinstance(truth, dict)
+    and truth
+    and "TRUTHFRAME_OVERRIDE" not in st.session_state
+):
+    st.session_state["TRUTHFRAME_OVERRIDE"] = truth
+
 # ============================================================
 # TRUTHFRAME OVERRIDE (FAIL-SAFE / DEGRADED MODE)
 # Ensures all downstream sections receive a valid TruthFrame
