@@ -73,7 +73,46 @@ def load_truthframe() -> Dict[str, Any]:
             "_error": f"TruthFrame unavailable: {e}",
             "waves": {},
         }
+def build_portfolio_snapshot(truthframe: dict) -> pd.DataFrame:
+    """
+    Build portfolio-level snapshot table from TruthFrame.
+    Safe, read-only, never raises.
+    """
+    rows = []
 
+    waves = truthframe.get("waves", {})
+    if not isinstance(waves, dict):
+        return pd.DataFrame()
+
+    for wave_name, data in waves.items():
+        alpha = data.get("alpha", {})
+
+        rows.append({
+            "Wave": wave_name,
+            "Alpha_Total": alpha.get("total", 0.0),
+            "Alpha_Selection": alpha.get("selection", 0.0),
+            "Alpha_Overlay": alpha.get("overlay", 0.0),
+            "Alpha_Cash": alpha.get("cash", 0.0),
+            "Health": data.get("health", {}).get("status", "UNKNOWN"),
+        })
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return df
+
+    # Portfolio rollup row
+    portfolio_row = {
+        "Wave": "PORTFOLIO",
+        "Alpha_Total": df["Alpha_Total"].sum(),
+        "Alpha_Selection": df["Alpha_Selection"].sum(),
+        "Alpha_Overlay": df["Alpha_Overlay"].sum(),
+        "Alpha_Cash": df["Alpha_Cash"].sum(),
+        "Health": "OK" if (df["Health"] == "OK").all() else "DEGRADED",
+    }
+
+    df = pd.concat([pd.DataFrame([portfolio_row]), df], ignore_index=True)
+    return df
 
 TRUTHFRAME: Dict[str, Any] = load_truthframe()
 
