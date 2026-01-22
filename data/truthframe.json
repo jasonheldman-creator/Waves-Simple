@@ -1,12 +1,967 @@
 {
   "_meta": {
-    "generated_at": "2026-01-22T19:52:24.010602+00:00",
+    "generated_at": "2026-01-22T21:03:43.035639+00:00",
     "lookback_days": 365,
-    "status": "RETURN_PIPELINE_FAILED",
-    "validated": false,
+    "status": "OK",
+    "validated": true,
     "price_book_rows": 3650,
     "price_book_cols": 124,
-    "error": "compute_wave_returns_pipeline() got an unexpected keyword argument 'price_book'"
+    "wave_count": 28,
+    "validated_waves": 27,
+    "validation_source": "TEMP_SHIM"
   },
-  "waves": {}
+  "waves": {
+    "ai_cloud_megacap_wave": {
+      "alpha": {
+        "total": 0.0747311565747999,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": -0.006198532647565536,
+          "alpha": -0.014685623589643093,
+          "benchmark_return": 0.008487090942077558
+        },
+        "60D": {
+          "return": 0.005595616900143208,
+          "alpha": -0.019332642793589594,
+          "benchmark_return": 0.0249282596937328
+        },
+        "365D": {
+          "return": 0.40587528080422763,
+          "alpha": 0.10874942295803258,
+          "benchmark_return": 0.29712585784619505
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "clean_transit_infrastructure_wave": {
+      "alpha": {
+        "total": -0.24358360015377956,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": -0.014678208880759658,
+          "alpha": -0.035387847946279805,
+          "benchmark_return": 0.020709639065520147
+        },
+        "60D": {
+          "return": -0.013723649077433286,
+          "alpha": -0.06708771087816467,
+          "benchmark_return": 0.05336406180073139
+        },
+        "365D": {
+          "return": 0.11758794673720607,
+          "alpha": -0.14110804132933508,
+          "benchmark_return": 0.25869598806654115
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "crypto_ai_growth_wave": {
+      "alpha": {
+        "total": 0.002537943422590838,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0009394482428328743,
+          "alpha": -0.0021381985713140317,
+          "benchmark_return": 0.003077646814146906
+        },
+        "30D": {
+          "return": 0.1907065310889131,
+          "alpha": 0.024333109616952786,
+          "benchmark_return": 0.16637342147196033
+        },
+        "60D": {
+          "return": -0.11626433790020829,
+          "alpha": -0.008803708222022033,
+          "benchmark_return": -0.10746062967818626
+        },
+        "365D": {
+          "return": -0.4595965966791581,
+          "alpha": -0.010853259401025883,
+          "benchmark_return": -0.4487433372781322
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "crypto_broad_growth_wave": {
+      "alpha": {
+        "total": -0.2945166654741873,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": -0.009867860261170924,
+          "alpha": -0.0029865356140950094,
+          "benchmark_return": -0.006881324647075915
+        },
+        "30D": {
+          "return": -0.008196556256375165,
+          "alpha": 0.015116855440316046,
+          "benchmark_return": -0.02331341169669121
+        },
+        "60D": {
+          "return": -0.16664009020101134,
+          "alpha": -0.051576318804165466,
+          "benchmark_return": -0.11506377139684587
+        },
+        "365D": {
+          "return": -0.28380843837472247,
+          "alpha": -0.2550706664962429,
+          "benchmark_return": -0.02873777187847959
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "crypto_defi_growth_wave": {
+      "alpha": {
+        "total": -0.16480729477703016,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": -0.010113760062132715,
+          "alpha": -0.012791007130629528,
+          "benchmark_return": 0.002677247068496813
+        },
+        "30D": {
+          "return": -0.08089104967026928,
+          "alpha": -0.018609467402192603,
+          "benchmark_return": -0.062281582268076674
+        },
+        "60D": {
+          "return": -0.1948226643886919,
+          "alpha": -0.039037620407018636,
+          "benchmark_return": -0.15578504398167325
+        },
+        "365D": {
+          "return": -0.3843014423064377,
+          "alpha": -0.09436919983718939,
+          "benchmark_return": -0.2899322424692483
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "crypto_income_wave": {
+      "alpha": {
+        "total": -0.022288918282988512,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0005476862286726281,
+          "alpha": 0.006108510239011711,
+          "benchmark_return": -0.005560824010339083
+        },
+        "30D": {
+          "return": -0.0776126501531178,
+          "alpha": 0.008084563415973522,
+          "benchmark_return": -0.08569721356909132
+        },
+        "60D": {
+          "return": -0.14017858723188725,
+          "alpha": -0.018205956182687055,
+          "benchmark_return": -0.1219726310492002
+        },
+        "365D": {
+          "return": -0.1807226099253294,
+          "alpha": -0.01827603575528669,
+          "benchmark_return": -0.1624465741700427
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "crypto_l1_growth_wave": {
+      "alpha": {
+        "total": -0.13996855082506132,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": -0.0038227088238927953,
+          "alpha": 0.0019558322067002587,
+          "benchmark_return": -0.005778541030593054
+        },
+        "30D": {
+          "return": 0.009891968138686646,
+          "alpha": 0.015316405510889641,
+          "benchmark_return": -0.005424437372202995
+        },
+        "60D": {
+          "return": -0.18775283281540234,
+          "alpha": -0.050085798146148997,
+          "benchmark_return": -0.13766703466925334
+        },
+        "365D": {
+          "return": -0.4668709093014153,
+          "alpha": -0.10715499039650223,
+          "benchmark_return": -0.35971591890491306
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "crypto_l2_growth_wave": {
+      "alpha": {
+        "total": 0.40387279690349276,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": -0.0006923596984365066,
+          "alpha": 0.0001259368969264152,
+          "benchmark_return": -0.0008182965953629218
+        },
+        "30D": {
+          "return": -0.03660613519602729,
+          "alpha": 0.019119732110357335,
+          "benchmark_return": -0.055725867306384624
+        },
+        "60D": {
+          "return": -0.0721746253292953,
+          "alpha": 0.025454829847335936,
+          "benchmark_return": -0.09762945517663124
+        },
+        "365D": {
+          "return": 0.0770278717629338,
+          "alpha": 0.3591722980488731,
+          "benchmark_return": -0.2821444262859393
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "demas_fund_wave": {
+      "alpha": {
+        "total": -0.03465728320296124,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.021353103835283438,
+          "alpha": 0.005523948043254956,
+          "benchmark_return": 0.015829155792028482
+        },
+        "60D": {
+          "return": 0.039249716818879454,
+          "alpha": 0.0079062023207912,
+          "benchmark_return": 0.031343514498088254
+        },
+        "365D": {
+          "return": 0.15864857087861317,
+          "alpha": -0.0480874335670074,
+          "benchmark_return": 0.20673600444562057
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "ev_infrastructure_wave": {
+      "alpha": {
+        "total": 0.07940582034431931,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.007552456594891899,
+          "alpha": -0.013157182470628248,
+          "benchmark_return": 0.020709639065520147
+        },
+        "60D": {
+          "return": 0.025702160137225594,
+          "alpha": -0.027661901663505795,
+          "benchmark_return": 0.05336406180073139
+        },
+        "365D": {
+          "return": 0.3789208925449945,
+          "alpha": 0.12022490447845335,
+          "benchmark_return": 0.25869598806654115
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "future_energy_ev_wave": {
+      "alpha": {
+        "total": -0.09961027112768384,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": -0.005872470305948507,
+          "alpha": -0.030922678944330206,
+          "benchmark_return": 0.0250502086383817
+        },
+        "60D": {
+          "return": -0.015877889456203942,
+          "alpha": -0.022991444822044516,
+          "benchmark_return": 0.007113555365840574
+        },
+        "365D": {
+          "return": 0.2774303884200542,
+          "alpha": -0.045696147361309114,
+          "benchmark_return": 0.3231265357813633
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "future_power_energy_wave": {
+      "alpha": {
+        "total": 0.339031146229803,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.018879214389101007,
+          "alpha": -0.006170994249280692,
+          "benchmark_return": 0.0250502086383817
+        },
+        "60D": {
+          "return": -0.03507085598391413,
+          "alpha": -0.0421844113497547,
+          "benchmark_return": 0.007113555365840574
+        },
+        "365D": {
+          "return": 0.7105130876102017,
+          "alpha": 0.3873865518288384,
+          "benchmark_return": 0.3231265357813633
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "gold_wave": {
+      "alpha": {
+        "total": 0.0,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.05399899698566579,
+          "alpha": 0.0,
+          "benchmark_return": 0.05399899698566579
+        },
+        "60D": {
+          "return": 0.09110769415152098,
+          "alpha": 0.0,
+          "benchmark_return": 0.09110769415152098
+        },
+        "365D": {
+          "return": 0.6707843742879518,
+          "alpha": 0.0,
+          "benchmark_return": 0.6707843742879518
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "income_wave": {
+      "alpha": {
+        "total": 0.2115604759322105,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.01840834358271648,
+          "alpha": 0.01840834358271648,
+          "benchmark_return": 0.0
+        },
+        "60D": {
+          "return": 0.04283095105307799,
+          "alpha": 0.04283095105307799,
+          "benchmark_return": 0.0
+        },
+        "365D": {
+          "return": 0.15032118129641603,
+          "alpha": 0.15032118129641603,
+          "benchmark_return": 0.0
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "infinity_multi_asset_growth_wave": {
+      "alpha": {
+        "total": 0.10567162558424104,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": -0.0015552408678174423,
+          "alpha": -0.0003352748412072115,
+          "benchmark_return": -0.0012199660266102308
+        },
+        "30D": {
+          "return": 0.0035654190896425852,
+          "alpha": 0.002429226326319034,
+          "benchmark_return": 0.0011361927633235513
+        },
+        "60D": {
+          "return": 0.0009042777269923086,
+          "alpha": 0.01371675672805206,
+          "benchmark_return": -0.012812479001059751
+        },
+        "365D": {
+          "return": 0.270527909174443,
+          "alpha": 0.08986091737107715,
+          "benchmark_return": 0.18066699180336587
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "next_gen_compute_semis_wave": {
+      "alpha": {
+        "total": -0.030778361972849,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.027129451470692345,
+          "alpha": -0.000879186108611929,
+          "benchmark_return": 0.028008637579304274
+        },
+        "60D": {
+          "return": 0.015627678151848956,
+          "alpha": -0.04469245926887355,
+          "benchmark_return": 0.06032013742072251
+        },
+        "365D": {
+          "return": 0.421601023903424,
+          "alpha": 0.014793283404636481,
+          "benchmark_return": 0.40680774049878754
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "quantum_computing_wave": {
+      "alpha": {
+        "total": 0.9640284247791168,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": -0.014311903430627049,
+          "alpha": -0.00909356451675325,
+          "benchmark_return": -0.005218338913873799
+        },
+        "60D": {
+          "return": -0.04501635136251059,
+          "alpha": -0.045258161989593315,
+          "benchmark_return": 0.00024181062708272805
+        },
+        "365D": {
+          "return": 1.2632864330702027,
+          "alpha": 1.0183801512854633,
+          "benchmark_return": 0.2449062817847394
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "russell_3000_wave": {
+      "alpha": {
+        "total": 0.0,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "60D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "365D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "small_cap_growth_wave": {
+      "alpha": {
+        "total": 0.00011268695280564067,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.017417328838489565,
+          "alpha": -0.0006228670177597095,
+          "benchmark_return": 0.018040195856249275
+        },
+        "60D": {
+          "return": 0.06322526409500329,
+          "alpha": 0.003280278257589586,
+          "benchmark_return": 0.0599449858374137
+        },
+        "365D": {
+          "return": 0.17727530284764725,
+          "alpha": -0.002544724287024236,
+          "benchmark_return": 0.1798200271346715
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "small_to_mid_cap_growth_wave": {
+      "alpha": {
+        "total": 0.01499539359785107,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.014722954412126343,
+          "alpha": 0.010583616730249767,
+          "benchmark_return": 0.004139337681876576
+        },
+        "60D": {
+          "return": 0.049767141412360605,
+          "alpha": 0.01861372997749644,
+          "benchmark_return": 0.031153411434864164
+        },
+        "365D": {
+          "return": 0.14828554449282016,
+          "alpha": -0.014201953109895138,
+          "benchmark_return": 0.1624874976027153
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "smartsafe_tax_free_money_market_wave": {
+      "alpha": {
+        "total": -0.0003957557986749016,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.006725825452478018,
+          "alpha": -0.0008248398821364411,
+          "benchmark_return": 0.007550665334614459
+        },
+        "60D": {
+          "return": 0.006697983813167108,
+          "alpha": -0.00029584620190514777,
+          "benchmark_return": 0.0069938300150722554
+        },
+        "365D": {
+          "return": 0.04813408139027664,
+          "alpha": 0.0007249302853666872,
+          "benchmark_return": 0.04740915110490995
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "smartsafe_treasury_cash_wave": {
+      "alpha": {
+        "total": 0.014288872603763547,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.0023077727390663494,
+          "alpha": -0.0007051589235875788,
+          "benchmark_return": 0.003012931662653928
+        },
+        "60D": {
+          "return": 0.0006760048351477366,
+          "alpha": -0.005639045653276664,
+          "benchmark_return": 0.006315050488424401
+        },
+        "365D": {
+          "return": 0.06187714833725866,
+          "alpha": 0.02063307718062779,
+          "benchmark_return": 0.04124407115663087
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "sp500_wave": {
+      "alpha": {
+        "total": 0.0,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.0100859879123405,
+          "alpha": 0.0,
+          "benchmark_return": 0.0100859879123405
+        },
+        "60D": {
+          "return": 0.0192107357844451,
+          "alpha": 0.0,
+          "benchmark_return": 0.0192107357844451
+        },
+        "365D": {
+          "return": 0.20970318364470808,
+          "alpha": 0.0,
+          "benchmark_return": 0.20970318364470808
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "us_megacap_core_wave": {
+      "alpha": {
+        "total": 0.00775966184857535,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.01920956282607067,
+          "alpha": 0.00912357491373017,
+          "benchmark_return": 0.0100859879123405
+        },
+        "60D": {
+          "return": 0.018768618059058273,
+          "alpha": -0.0004421177253868258,
+          "benchmark_return": 0.0192107357844451
+        },
+        "365D": {
+          "return": 0.20878138830494009,
+          "alpha": -0.0009217953397679945,
+          "benchmark_return": 0.20970318364470808
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "us_mid_small_growth_semis_wave": {
+      "alpha": {
+        "total": 0.1352782739939702,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.02042434532801707,
+          "alpha": 0.016285007646140492,
+          "benchmark_return": 0.004139337681876576
+        },
+        "60D": {
+          "return": 0.059544111687993784,
+          "alpha": 0.02839070025312962,
+          "benchmark_return": 0.031153411434864164
+        },
+        "365D": {
+          "return": 0.2530900636974154,
+          "alpha": 0.09060256609470008,
+          "benchmark_return": 0.1624874976027153
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "us_small_cap_disruptors_wave": {
+      "alpha": {
+        "total": -0.22333172011848368,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": -0.06363779775143197,
+          "alpha": -0.08167799360768124,
+          "benchmark_return": 0.018040195856249275
+        },
+        "60D": {
+          "return": -0.1547485976433558,
+          "alpha": -0.2146935834807695,
+          "benchmark_return": 0.0599449858374137
+        },
+        "365D": {
+          "return": 0.25285988410463855,
+          "alpha": 0.07303985696996707,
+          "benchmark_return": 0.1798200271346715
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "vector_muni_ladder_wave": {
+      "alpha": {
+        "total": 0.0012372906407207562,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.007670387563522674,
+          "alpha": 0.0009529567398747218,
+          "benchmark_return": 0.006717430823647952
+        },
+        "60D": {
+          "return": 0.008467888667896384,
+          "alpha": 0.0011784645674668415,
+          "benchmark_return": 0.007289424100429542
+        },
+        "365D": {
+          "return": 0.044986765063789624,
+          "alpha": -0.0008941306666208071,
+          "benchmark_return": 0.04588089573041043
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    },
+    "vector_treasury_ladder_wave": {
+      "alpha": {
+        "total": 0.006973898343294316,
+        "selection": 0.0,
+        "overlay": 0.0,
+        "cash": 0.0
+      },
+      "performance": {
+        "1D": {
+          "return": 0.0,
+          "alpha": 0.0,
+          "benchmark_return": 0.0
+        },
+        "30D": {
+          "return": 0.002128277205600826,
+          "alpha": 4.909055129065365e-06,
+          "benchmark_return": 0.0021233681504717605
+        },
+        "60D": {
+          "return": -7.596842455592778e-05,
+          "alpha": 0.0006499506726587168,
+          "benchmark_return": -0.0007259190972146445
+        },
+        "365D": {
+          "return": 0.07300966866407821,
+          "alpha": 0.006319038615506534,
+          "benchmark_return": 0.06669063004857168
+        }
+      },
+      "health": {
+        "status": "OK"
+      },
+      "learning": {}
+    }
+  }
 }
