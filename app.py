@@ -1,8 +1,9 @@
 # ============================================================
-# CORE IMPORTS (ORDER GUARANTEED, COMPLETE)
+# CORE IMPORTS (CANONICAL, FAIL-SAFE)
 # ============================================================
 import os
 import subprocess
+import time
 import streamlit as st
 import logging
 import traceback
@@ -35,22 +36,18 @@ ENABLE_WAVE_PROFILE = True
 
 
 # ============================================================
-# TRUTHFRAME — SINGLE CANONICAL SOURCE OF TRUTH
+# TRUTHFRAME — SINGLE CANONICAL SOURCE
 # ============================================================
 
 def build_canonical_truthframe() -> Dict[str, Any]:
     """
     Build a complete, always-safe TruthFrame.
-    This function MUST NEVER FAIL.
+    NEVER raises. NEVER blocks app startup.
     """
     truth: Dict[str, Any] = {}
 
-    waves: List[str] = []
     try:
-        if "get_wave_universe_all" in globals():
-            waves = get_wave_universe_all() or []
-        else:
-            logger.warning("[TruthFrame] get_wave_universe_all not yet defined")
+        waves = get_wave_universe_all() if "get_wave_universe_all" in globals() else []
     except Exception as e:
         logger.warning(f"[TruthFrame] wave universe unavailable: {e}")
         waves = []
@@ -71,7 +68,6 @@ def build_canonical_truthframe() -> Dict[str, Any]:
     return truth
 
 
-# Initialize TruthFrame ONCE, EARLY, FAIL-SAFE
 if "CANONICAL_TRUTHFRAME" not in st.session_state:
     st.session_state["CANONICAL_TRUTHFRAME"] = build_canonical_truthframe()
     logger.info(
@@ -80,10 +76,7 @@ if "CANONICAL_TRUTHFRAME" not in st.session_state:
 
 
 def get_active_truthframe() -> Dict[str, Any]:
-    """
-    Single authoritative TruthFrame accessor.
-    ALL UI + analytics read from here.
-    """
+    """Single authoritative TruthFrame accessor."""
     tf = st.session_state.get("CANONICAL_TRUTHFRAME")
     return tf if isinstance(tf, dict) else {}
 
@@ -94,7 +87,7 @@ def get_active_truthframe() -> Dict[str, Any]:
 
 def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
     """
-    Transparent, deterministic alpha attribution.
+    Deterministic alpha attribution.
     NEVER raises. NEVER blocks app startup.
     """
     try:
@@ -124,12 +117,7 @@ def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
 
     except Exception as e:
         logger.debug(f"[Alpha] degraded for {wave}: {e}")
-        return {
-            "total": 0.0,
-            "selection": 0.0,
-            "overlay": 0.0,
-            "cash": 0.0,
-        }
+        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
 
 
 # ============================================================
@@ -137,195 +125,85 @@ def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
 # ============================================================
 
 if not st.session_state.get("_TRUTHFRAME_POPULATED", False):
-
     truth = get_active_truthframe()
 
     if truth:
-        for wave in list(truth.keys()):
+        for wave in truth:
             truth[wave]["alpha"] = compute_alpha_attribution(wave)
 
         st.session_state["CANONICAL_TRUTHFRAME"] = truth
         st.session_state["_TRUTHFRAME_POPULATED"] = True
-
         logger.info(f"[TruthFrame] alpha populated | waves={len(truth)}")
     else:
-        logger.warning("[TruthFrame] empty — running in degraded mode")
+        logger.warning("[TruthFrame] empty — degraded mode")
 
 
 # ============================================================
-# DEBUG FAIL-OPEN MODE (TEMPORARY, SAFE)
+# DEBUG FAIL-OPEN MODE (SAFE, TEMPORARY)
 # ============================================================
 
 if "_DEBUG_ALLOW_FAILOPEN" not in st.session_state:
     st.session_state["_DEBUG_ALLOW_FAILOPEN"] = True
 
-if st.session_state.get("_DEBUG_ALLOW_FAILOPEN", False):
-    if "_original_st_stop" not in st.session_state:
-        st.session_state["_original_st_stop"] = st.stop
+if st.session_state["_DEBUG_ALLOW_FAILOPEN"] and "_original_st_stop" not in st.session_state:
+    st.session_state["_original_st_stop"] = st.stop
 
-        def patched_stop(*args, **kwargs):
-            st.error("🛑 DEBUG: st.stop() intercepted")
-            st.code("".join(traceback.format_stack(limit=12)))
-            return
+    def patched_stop(*args, **kwargs):
+        st.error("🛑 DEBUG: st.stop() intercepted")
+        st.code("".join(traceback.format_stack(limit=12)))
+        return
 
-        st.stop = patched_stop
-
-
-# ============================================================
-# RUN TRACE — RERUN & DIAGNOSTICS CONTROL
-# ============================================================
-
-if "run_seq" not in st.session_state:
-    st.session_state.run_seq = 0
-    st.session_state.last_run_time = datetime.now(timezone.utc)
-    st.session_state.last_trigger = "initial_load"
-else:
-    st.session_state.run_seq += 1
-    st.session_state.last_run_time = datetime.now(timezone.utc)
+    st.stop = patched_stop
 
 
 # ============================================================
-# PROOF BANNER - Diagnostics and Visibility
+# WATCHDOG (DISABLED — FAIL-OPEN)
 # ============================================================
 
-def render_proof_banner():
+def init_watchdog():
     """
-    Render proof banner with diagnostics information.
-    Safe for Streamlit Cloud and local execution.
+    Watchdog intentionally disabled during stabilization.
+    Safe placeholder to prevent import-time crashes.
     """
-    st.session_state.proof_run_counter = st.session_state.get("proof_run_counter", 0) + 1
+    return {"enabled": False, "start_time": None}
 
-    try:
-        file_basename = os.path.basename(__file__)
-    except Exception:
-        file_basename = "app.py"
+if "WATCHDOG_STATE" not in st.session_state:
+    st.session_state["WATCHDOG_STATE"] = init_watchdog()
 
-    git_sha_proof = "SHA unavailable"
-    try:
-        git_sha_env = os.environ.get("GIT_SHA") or os.environ.get("BUILD_ID")
-        if git_sha_env:
-            git_sha_proof = git_sha_env
-        else:
-            result = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                cwd=os.path.dirname(os.path.abspath(__file__)),
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                git_sha_proof = result.stdout.strip()
-    except Exception:
-        pass
 
+# ============================================================
+# BUILD / VERSION INFO (LAZY, SAFE)
+# ============================================================
+
+def get_build_info():
+    return {
+        "sha": os.environ.get("GIT_SHA", "unknown"),
+        "branch": os.environ.get("GIT_BRANCH", "unknown"),
+        "utc": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def render_build_stamp():
+    info = get_build_info()
     st.markdown(
         f"""
-        <div style="background-color:#2d2d2d;padding:12px 20px;
-                    border:2px solid #ff9800;margin-bottom:16px;border-radius:6px;">
-            <div style="color:#ff9800;font-size:14px;font-family:monospace;font-weight:bold;">
-                🔍 PROOF BANNER — DIAGNOSTICS MODE
-            </div>
-            <div style="color:#e0e0e0;font-size:12px;font-family:monospace;">
-                <strong>FILE:</strong> {file_basename}<br>
-                <strong>GIT SHA:</strong> {git_sha_proof}<br>
-                <strong>UTC:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
-                <strong>RUN:</strong> {st.session_state.proof_run_counter}
-            </div>
+        <div style="background:#1e1e1e;padding:8px 16px;border-left:3px solid #00d4ff;">
+            <span style="color:#888;font-size:12px;font-family:monospace;">
+                BUILD: {info['sha']} | BRANCH: {info['branch']} | UTC: {info['utc']}
+            </span>
         </div>
         """,
         unsafe_allow_html=True,
     )
-# ============================================================================
-# WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
-# ============================================================================
-# Record start time immediately after page config for watchdog
-WATCHDOG_START_TIME = time.time()
 
-# ============================================================================
-# BUILD/VERSION STAMP - Display build info for verification (moved to function)
-# ============================================================================
-
-def get_build_info():
-    """
-    Get build information for display in UI.
-    Returns: dict with 'sha', 'branch', 'utc' keys
-    
-    Note: Uses inline Git commands here since this runs at module load time,
-    before the helper functions (get_git_commit_hash, get_git_branch_name) 
-    are defined later in the file.
-    
-    This function retrieves:
-    - Git short SHA from environment variable or git command
-    - Current branch name from environment variable or git command
-    - Current UTC timestamp (non-cached)
-    """
-    from datetime import timezone
-    
-    build_info = {
-        'sha': 'unknown',
-        'branch': 'unknown',
-        'utc': datetime.now(timezone.utc).isoformat()
-    }
-    
-    # Get Git SHA: prioritize environment variable, fallback to git command
-    git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
-    if git_sha_env:
-        build_info['sha'] = git_sha_env
-    else:
-        try:
-            # Fallback to git command
-            result = subprocess.run(
-                ['git', 'rev-parse', '--short', 'HEAD'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                build_info['sha'] = result.stdout.strip()
-        except:
-            pass
-    
-    # Get branch name: prioritize environment variable, fallback to git command
-    git_branch_env = os.environ.get('GIT_BRANCH') or os.environ.get('BRANCH_NAME')
-    if git_branch_env:
-        build_info['branch'] = git_branch_env
-    else:
-        try:
-            # Fallback to git command
-            result = subprocess.run(
-                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                build_info['branch'] = result.stdout.strip()
-        except:
-            pass
-    
-    return build_info
-
-def render_build_stamp():
-    """
-    Render build stamp banner.
-    Moved from module level to function to avoid import-time execution.
-    """
-    build_info = get_build_info()
-    st.markdown(
-        f"""
-        <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
-            <span style="color: #888; font-size: 12px; font-family: monospace;">
-                BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 # Cache keys for wave universe management
-WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
-
-
+WAVE_UNIVERSE_CACHE_KEYS = [
+    "wave_universe",
+    "waves_list",
+    "universe_cache",
+    "wave_history_cache",
+]
 # ============================================================================
 # PORTFOLIO VIEW HELPER FUNCTIONS
 # ============================================================================
