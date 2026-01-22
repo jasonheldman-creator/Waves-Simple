@@ -1,32 +1,20 @@
 {
   "_meta": {
-    "generated_at": "2026-01-22T17:33:35.180435+00:00",
-    "status": "OK",
-    "validated": true,
-    "performance_validated": true,
-    "price_book_rows": 3650,
+    "generated_at": "2026-01-22T17:44:32.722742+00:00",
+    "lookback_days": 365,
+    "status": "NO_VALIDATED_PERFORMANCE",
+    "price_book_rows": 365,
     "price_book_cols": 124,
-    "wave_count": 28
+    "wave_count": 28,
+    "validated_waves": 0
   },
   "waves": {
     "ai_cloud_megacap_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -35,28 +23,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "clean_transit_infrastructure_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -65,28 +41,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "crypto_ai_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -95,28 +59,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "crypto_broad_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -125,28 +77,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "crypto_defi_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -155,28 +95,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "crypto_income_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -185,28 +113,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "crypto_l1_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -215,28 +131,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "crypto_l2_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -245,28 +149,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "demas_fund_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -275,28 +167,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "ev_infrastructure_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -305,28 +185,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "future_energy_ev_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -335,28 +203,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "future_power_energy_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -365,28 +221,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "gold_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -395,28 +239,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "income_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -425,28 +257,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "infinity_multi_asset_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -455,28 +275,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "next_gen_compute_semis_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -485,28 +293,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "quantum_computing_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -515,28 +311,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "russell_3000_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -545,28 +329,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "small_cap_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -575,28 +347,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "small_to_mid_cap_growth_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -605,28 +365,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "smartsafe_tax_free_money_market_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -635,28 +383,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "smartsafe_treasury_cash_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -665,28 +401,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "sp500_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -695,28 +419,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "us_megacap_core_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -725,28 +437,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "us_mid_small_growth_semis_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -755,28 +455,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "us_small_cap_disruptors_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -785,28 +473,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "vector_muni_ladder_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -815,28 +491,16 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     },
     "vector_treasury_ladder_wave": {
       "performance": {
-        "1D": {
-          "return": 0.006613,
-          "alpha": 0.0
-        },
-        "30D": {
-          "return": 0.03126,
-          "alpha": 0.0
-        },
-        "60D": {
-          "return": 0.051177,
-          "alpha": 0.0
-        },
-        "365D": {
-          "return": 0.298114,
-          "alpha": 0.0
-        }
+        "1D": null,
+        "30D": null,
+        "60D": null,
+        "365D": null
       },
       "alpha": {
         "total": 0.0,
@@ -845,7 +509,7 @@
         "cash": 0.0
       },
       "health": {
-        "status": "OK"
+        "status": "NO_DATA"
       },
       "learning": {}
     }
