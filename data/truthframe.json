@@ -1,16 +1,12 @@
 {
   "_meta": {
-    "generated_at": "2026-01-22T18:29:04.311877+00:00",
-    "lookbacks": [
-      1,
-      30,
-      60,
-      365
-    ],
-    "status": "RETURN_PIPELINE_ERROR: compute_wave_returns_pipeline() got an unexpected keyword argument 'price_book'",
+    "generated_at": "2026-01-22T19:06:09.056213+00:00",
+    "lookback_days": 365,
+    "status": "RETURN_PIPELINE_FAILED",
     "validated": false,
     "price_book_rows": 3650,
-    "price_book_cols": 124
+    "price_book_cols": 124,
+    "error": "compute_wave_returns_pipeline() got an unexpected keyword argument 'price_book'"
   },
   "waves": {}
 }
