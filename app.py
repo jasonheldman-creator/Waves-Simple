@@ -20106,7 +20106,7 @@ def main():
                     st.exception(e)
 
         # ========================================================
-        # TAB 2: PORTFOLIO SNAPSHOT (BLUE EXECUTIVE BOX)
+        # TAB 2: PORTFOLIO SNAPSHOT (TRUTHFRAME-DRIVEN)
         # ========================================================
         with tabs[1]:
             st.markdown("## 📦 Portfolio Snapshot")
@@ -20115,7 +20115,7 @@ def main():
                 "Returns and alpha shown across multiple horizons."
             )
 
-            # --- BLUE EXECUTIVE SUMMARY BOX (RESTORED)
+            # --- Blue executive summary shell (visual only)
             with st.container():
                 st.markdown(
                     """
@@ -20140,15 +20140,22 @@ def main():
                 )
 
             try:
-                if "render_portfolio_snapshot_summary" in globals():
-                    render_portfolio_snapshot_summary()
-                elif "render_portfolio_snapshot" in globals():
-                    render_portfolio_snapshot()
+                from helpers.portfolio_snapshot import (
+                    build_portfolio_snapshot_from_truthframe
+                )
+
+                truthframe = get_active_truthframe()
+                snapshot_df = build_portfolio_snapshot_from_truthframe(truthframe)
+
+                if snapshot_df is None or snapshot_df.empty:
+                    st.info("Portfolio snapshot data not yet available.")
                 else:
-                    st.info(
-                        "Portfolio Snapshot renderer is wired but data is not yet active.\n\n"
-                        "This panel will populate once aggregated portfolio metrics are available."
+                    st.dataframe(
+                        snapshot_df,
+                        use_container_width=True,
+                        hide_index=True,
                     )
+
             except Exception as e:
                 st.error("❌ Error rendering Portfolio Snapshot")
                 with st.expander("Debug details"):
