@@ -16,87 +16,50 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import logging
 
-# =========================================================
-# CANONICAL TRUTHFRAME ACCESSOR
-# =========================================================
+
+# ============================================================
+# TRUTHFRAME — SINGLE CANONICAL SOURCE
+# ============================================================
+
 def get_active_truthframe():
     """
-    Single canonical accessor for TruthFrame.
-
+    Canonical TruthFrame accessor.
     Always returns a dictionary.
-    Safe in degraded mode.
     """
-    tf = st.session_state.get("CANONICAL_TRUTHFRAME")
+    tf = st.session_state.get("TRUTHFRAME")
+    return tf if isinstance(tf, dict) else {}
 
-    if isinstance(tf, dict):
-        return tf
 
-    # Fail-safe: empty TruthFrame
-    return {}
-
-# ============================================================================
+# ============================================================
 # ALPHA ATTRIBUTION ENGINE (SIMPLE, TRANSPARENT)
-# ============================================================================
+# ============================================================
 
 def compute_alpha_attribution(wave, days=60):
     """
     Returns explicit alpha components for a wave.
+    Safe, deterministic, and explainable.
     """
-    df = get_wave_data_filtered(wave, days)
+    try:
+        df = get_wave_data_filtered(wave, days)
+    except Exception:
+        df = None
 
     if df is None or df.empty:
         return {
             "total": 0.0,
             "selection": 0.0,
             "overlay": 0.0,
-            "cash": 0.0
+            "cash": 0.0,
         }
 
-    # Required columns
     if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
         return {
             "total": 0.0,
             "selection": 0.0,
             "overlay": 0.0,
-            "cash": 0.0
+            "cash": 0.0,
         }
-
-    df = df.copy()
-    df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
-
-    total_alpha = df["alpha"].sum()
-
-    # Heuristic decomposition (transparent + explainable)
-    exposure = df["exposure"].mean() if "exposure" in df.columns else 1.0
-
-    selection_alpha = total_alpha * exposure
-    overlay_alpha = total_alpha * (1 - exposure) * 0.7
-    cash_alpha = total_alpha * (1 - exposure) * 0.3
-
-    return {
-        "total": total_alpha,
-        "selection": selection_alpha,
-        "overlay": overlay_alpha,
-        "cash": cash_alpha
-    }
-    
-# ============================================================================
-# ALPHA ATTRIBUTION ENGINE (SIMPLE, TRANSPARENT)
-# ============================================================================
-
-def compute_alpha_attribution(wave, days=60):
-    """
-    Returns explicit alpha components for a wave.
-    """
-    df = get_wave_data_filtered(wave, days)
-
-    if df is None or df.empty:
-        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
-
-    if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
-        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
 
     df = df.copy()
     df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
@@ -112,6 +75,44 @@ def compute_alpha_attribution(wave, days=60):
     }
 
 
+# ============================================================
+# BUILD + POPULATE TRUTHFRAME (RUN ONCE)
+# ============================================================
+
+if "TRUTHFRAME" not in st.session_state:
+
+    truth = {}
+
+    try:
+        waves = get_wave_universe_all()
+    except Exception:
+        waves = []
+
+    for wave in waves:
+        try:
+            alpha = compute_alpha_attribution(wave)
+        except Exception as e:
+            logging.warning(f"Alpha attribution failed for {wave}: {e}")
+            alpha = {
+                "total": 0.0,
+                "selection": 0.0,
+                "overlay": 0.0,
+                "cash": 0.0,
+            }
+
+        truth[wave] = {
+            "alpha": alpha,
+            "health": {},
+            "regime": {},
+            "learning": {},
+        }
+
+    st.session_state["TRUTHFRAME"] = truth
+
+    logging.info(
+        f"[TruthFrame] initialized with {len(truth)} waves | "
+        f"sample: {list(truth.keys())[:5]}"
+    )
 # ============================================================================
 # TRUTHFRAME BOOTSTRAP + SINGLE SOURCE OF TRUTH
 # ============================================================================
