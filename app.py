@@ -6,19 +6,32 @@ from __future__ import annotations
 import os
 import subprocess
 import time
-import streamlit as st
 import logging
 import traceback
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
+import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+# ============================================================
+# PRICE_BOOK — CANONICAL IMPORT (EARLY, EXPLICIT)
+# ============================================================
+try:
+    from helpers.price_book import (
+        get_price_book,
+        get_cached_price_book,
+        CANONICAL_CACHE_PATH,
+    )
+except Exception as e:
+    # Hard fail visibility — do NOT silently continue
+    st.error(f"CRITICAL: Failed to import PRICE_BOOK — {e}")
+    raise
 
 # ============================================================
 # LOGGING (SINGLE, CANONICAL SETUP)
@@ -26,7 +39,6 @@ from plotly.subplots import make_subplots
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
-
 
 # ============================================================
 # FEATURE FLAGS & ENVIRONMENT CONFIG (SAFE ORDER)
@@ -36,6 +48,18 @@ SAFE_MODE = os.environ.get("SAFE_MODE", "false").lower() == "true"
 PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
 ENABLE_WAVE_PROFILE = True
 
+# ============================================================
+# TEMP DIAGNOSTIC — PRICE_BOOK VISIBILITY (REMOVE AFTER CONFIRM)
+# ============================================================
+try:
+    _pb = get_price_book()
+    st.caption(
+        f"DIAGNOSTIC: PRICE_BOOK rows={len(_pb)} | "
+        f"cols={len(_pb.columns)} | "
+        f"path={CANONICAL_CACHE_PATH}"
+    )
+except Exception as e:
+    st.caption(f"DIAGNOSTIC: PRICE_BOOK ERROR — {e}")
 
 # ============================================================
 # TRUTHFRAME — SINGLE CANONICAL SOURCE
