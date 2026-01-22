@@ -1,69 +1,116 @@
-"""
-Portfolio Snapshot Helper
+# ============================================================
+# PORTFOLIO SNAPSHOT HELPER
+# Canonical, TruthFrame-backed, SAFE
+# ============================================================
 
-Builds portfolio-level returns and alpha across
-1D, 30D, 60D, and 365D horizons from the canonical TruthFrame.
-
-SAFE:
-- Read-only
-- Never raises
-- No Streamlit dependencies
-"""
-
-from typing import Dict, Any
+from typing import Dict, Any, List
 import pandas as pd
+import numpy as np
+
+# Canonical horizons
+HORIZONS = [
+    ("1D", 1),
+    ("30D", 30),
+    ("60D", 60),
+    ("365D", 365),
+]
 
 
-HORIZONS = {
-    "1D": 1,
-    "30D": 30,
-    "60D": 60,
-    "365D": 365,
-}
-
-
-def _safe_sum(values):
+def _safe_number(x):
     try:
-        return float(sum(v for v in values if v is not None))
+        return float(x)
     except Exception:
-        return 0.0
+        return np.nan
 
 
 def build_portfolio_snapshot_from_truthframe(
     truthframe: Dict[str, Any]
 ) -> pd.DataFrame:
     """
-    Build a portfolio snapshot table from TruthFrame.
+    Build a portfolio-level snapshot table from TruthFrame.
 
-    Returns DataFrame with:
-    - Horizon
-    - Return
-    - Alpha
+    Output columns:
+        Wave
+        Return_1D / Alpha_1D
+        Return_30D / Alpha_30D
+        Return_60D / Alpha_60D
+        Return_365D / Alpha_365D
+        Alpha_Total
+        Health
+
+    SAFE:
+        • Never raises
+        • Missing data → NaN
+        • Always returns a DataFrame
     """
 
-    rows = []
+    rows: List[Dict[str, Any]] = []
+
+    if not isinstance(truthframe, dict):
+        return pd.DataFrame()
 
     waves = truthframe.get("waves", {})
     if not isinstance(waves, dict) or not waves:
         return pd.DataFrame()
 
-    for label in HORIZONS.keys():
-        returns = []
-        alphas = []
+    # --------------------------------------------------------
+    # Per-wave rows
+    # --------------------------------------------------------
+    for wave_name, wave_data in waves.items():
+        row = {
+            "Wave": wave_name,
+        }
 
-        for wave_data in waves.values():
-            perf = wave_data.get("performance", {})
-            alpha = wave_data.get("alpha", {})
+        performance = wave_data.get("performance", {})
+        alpha_block = wave_data.get("alpha", {})
 
-            returns.append(perf.get(f"return_{label}", 0.0))
-            alphas.append(alpha.get(f"alpha_{label}", alpha.get("total", 0.0)))
+        for label, _days in HORIZONS:
+            perf = performance.get(label, {})
 
-        rows.append(
-            {
-                "Horizon": label,
-                "Return": _safe_sum(returns),
-                "Alpha": _safe_sum(alphas),
-            }
+            row[f"Return_{label}"] = _safe_number(
+                perf.get("return")
+            )
+            row[f"Alpha_{label}"] = _safe_number(
+                perf.get("alpha")
+            )
+
+        row["Alpha_Total"] = _safe_number(
+            alpha_block.get("total")
         )
 
-    return pd.DataFrame(rows)
+        row["Health"] = (
+            wave_data.get("health", {}).get("status", "UNKNOWN")
+        )
+
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return df
+
+    # --------------------------------------------------------
+    # Portfolio roll-up row
+    # --------------------------------------------------------
+    portfolio_row = {"Wave": "PORTFOLIO"}
+
+    for label, _ in HORIZONS:
+        portfolio_row[f"Return_{label}"] = _safe_number(
+            df[f"Return_{label}"].mean()
+        )
+        portfolio_row[f"Alpha_{label}"] = _safe_number(
+            df[f"Alpha_{label}"].sum()
+        )
+
+    portfolio_row["Alpha_Total"] = _safe_number(
+        df["Alpha_Total"].sum()
+    )
+
+    portfolio_row["Health"] = "OK"
+
+    df = pd.concat(
+        [df, pd.DataFrame([portfolio_row])],
+        ignore_index=True,
+    )
+
+    return df
