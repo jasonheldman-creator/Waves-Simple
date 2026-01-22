@@ -4,9 +4,8 @@ from __future__ import annotations
 # CORE IMPORTS (CANONICAL, FAIL-SAFE)
 # ============================================================
 import os
+import json
 import logging
-import traceback
-from datetime import datetime, timezone
 from typing import Dict, Any
 
 import streamlit as st
@@ -24,13 +23,10 @@ if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
 # ============================================================
-# CANONICAL PRICE_BOOK (SINGLE SOURCE OF TRUTH)
+# CANONICAL PRICE_BOOK (READ-ONLY)
 # ============================================================
 try:
-    from helpers.price_book import (
-        get_cached_price_book,
-        CANONICAL_CACHE_PATH,
-    )
+    from helpers.price_book import get_cached_price_book
 
     PRICE_BOOK = get_cached_price_book()
 
@@ -41,7 +37,7 @@ try:
         f"[PRICE_BOOK] loaded | rows={len(PRICE_BOOK)} cols={len(PRICE_BOOK.columns)}"
     )
 
-except Exception as e:
+except Exception:
     logger.exception("[PRICE_BOOK] FAILED to initialize")
     PRICE_BOOK = pd.DataFrame()
 
@@ -54,73 +50,37 @@ PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
 ENABLE_WAVE_PROFILE = True
 
 # ============================================================
-# TRUTHFRAME — CANONICAL, PRICE_BOOK-GATED
+# TRUTHFRAME — CANONICAL, FILE-BACKED (OPTION A)
 # ============================================================
 
-def build_canonical_truthframe() -> Dict[str, Any]:
+@st.cache_data(show_spinner=False)
+def load_truthframe() -> Dict[str, Any]:
     """
-    Build a safe TruthFrame.
-    Assumes PRICE_BOOK is valid.
-    NEVER raises.
+    Load the canonical TruthFrame from disk.
+    Built OUTSIDE Streamlit. Read-only inside app.
     """
-    truth: Dict[str, Any] = {}
-
     try:
-        waves = (
-            get_wave_universe_all()
-            if "get_wave_universe_all" in globals()
-            else []
-        )
-    except Exception as e:
-        logger.warning(f"[TruthFrame] wave universe unavailable: {e}")
-        waves = []
+        with open("data/truthframe.json", "r") as f:
+            truth = json.load(f)
 
-    for wave in waves:
-        truth[wave] = {
-            "alpha": {
-                "total": 0.0,
-                "selection": 0.0,
-                "overlay": 0.0,
-                "cash": 0.0,
-            },
-            "health": {},
-            "regime": {},
-            "learning": {},
+        waves = truth.get("waves", {})
+        logger.info(f"[TruthFrame] loaded | waves={len(waves)}")
+        return truth
+
+    except Exception as e:
+        logger.error(f"[TruthFrame] unavailable: {e}")
+        return {
+            "_error": f"TruthFrame unavailable: {e}",
+            "waves": {},
         }
 
-    return truth
 
-
-def ensure_truthframe_initialized() -> None:
-    """
-    Build TruthFrame exactly once,
-    AFTER PRICE_BOOK is valid.
-    """
-    if "CANONICAL_TRUTHFRAME" in st.session_state:
-        return
-
-    if PRICE_BOOK is None or PRICE_BOOK.empty:
-        logger.warning("[TruthFrame] NOT built — PRICE_BOOK unavailable")
-        return
-
-    try:
-        st.session_state["CANONICAL_TRUTHFRAME"] = build_canonical_truthframe()
-        logger.info(
-            f"[TruthFrame] initialized | waves={len(st.session_state['CANONICAL_TRUTHFRAME'])}"
-        )
-    except Exception:
-        logger.exception("[TruthFrame] FAILED to initialize")
-
-
-# 🔑 THIS LINE IS CRITICAL — DO NOT REMOVE
-ensure_truthframe_initialized()
+TRUTHFRAME: Dict[str, Any] = load_truthframe()
 
 
 def get_active_truthframe() -> Dict[str, Any]:
     """Single authoritative TruthFrame accessor."""
-    tf = st.session_state.get("CANONICAL_TRUTHFRAME")
-    return tf if isinstance(tf, dict) else {}
-
+    return TRUTHFRAME
 # ============================================================
 # ALPHA ATTRIBUTION ENGINE (SAFE, NON-BLOCKING)
 # ============================================================
