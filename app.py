@@ -1,229 +1,68 @@
-from __future__ import annotations
-
-# ============================================================
-# CORE IMPORTS (CANONICAL, FAIL-SAFE)
-# ============================================================
-import os
-import json
-import logging
-from typing import Dict, Any
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-from datetime import datetime, timezone
-# ============================================================
-# LOGGING (SINGLE, CANONICAL SETUP)
-# ============================================================
-logger = logging.getLogger("waves_app")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
-
-# ============================================================
-# CANONICAL PRICE_BOOK (READ-ONLY)
-# ============================================================
-try:
-    from helpers.price_book import get_cached_price_book
-
-    PRICE_BOOK = get_cached_price_book()
-
-    if PRICE_BOOK is None or PRICE_BOOK.empty:
-        raise ValueError("PRICE_BOOK loaded but empty")
-
-    logger.info(
-        f"[PRICE_BOOK] loaded | rows={len(PRICE_BOOK)} cols={len(PRICE_BOOK.columns)}"
-    )
-
-except Exception:
-    logger.exception("[PRICE_BOOK] FAILED to initialize")
-    PRICE_BOOK = pd.DataFrame()
-
-# ============================================================
-# FEATURE FLAGS & ENVIRONMENT CONFIG
-# ============================================================
-RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "true").lower() == "true"
-SAFE_MODE = os.environ.get("SAFE_MODE", "false").lower() == "true"
-PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
-ENABLE_WAVE_PROFILE = True
-
-# ============================================================
-# TRUTHFRAME — CANONICAL, FILE-BACKED (OPTION A)
-# ============================================================
-
-@st.cache_data(show_spinner=False)
-def load_truthframe() -> Dict[str, Any]:
-    """
-    Load the canonical TruthFrame from disk.
-    Built OUTSIDE Streamlit. Read-only inside app.
-    """
-    try:
-        with open("data/truthframe.json", "r") as f:
-            truth = json.load(f)
-
-        waves = truth.get("waves", {})
-        logger.info(f"[TruthFrame] loaded | waves={len(waves)}")
-        return truth
-
-    except Exception as e:
-        logger.error(f"[TruthFrame] unavailable: {e}")
-        return {
-            "_error": f"TruthFrame unavailable: {e}",
-            "waves": {},
-        }
-def build_portfolio_snapshot(truthframe: dict) -> pd.DataFrame:
+def build_portfolio_snapshot_from_truthframe(
+    truthframe: Dict[str, Any]
+) -> pd.DataFrame:
     """
     Build portfolio-level snapshot table from TruthFrame.
+
+    Emits:
+    - 1D / 30D / 60D / 365D returns
+    - Corresponding alpha values
     Safe, read-only, never raises.
     """
+
     rows = []
 
     waves = truthframe.get("waves", {})
-    if not isinstance(waves, dict):
+    if not isinstance(waves, dict) or not waves:
         return pd.DataFrame()
 
-    for wave_name, data in waves.items():
-        alpha = data.get("alpha", {})
+    for horizon_label, days in HORIZONS.items():
+        total_return = 0.0
+        total_alpha = 0.0
+        contributing_waves = 0
+
+        for wave_name, wave_data in waves.items():
+            metrics = wave_data.get("metrics", {})
+            returns = metrics.get("returns", {})
+            alphas = metrics.get("alpha", {})
+
+            r = returns.get(horizon_label)
+            a = alphas.get(horizon_label)
+
+            if r is None or a is None:
+                continue
+
+            try:
+                total_return += float(r)
+                total_alpha += float(a)
+                contributing_waves += 1
+            except Exception:
+                continue
+
+        if contributing_waves == 0:
+            continue
 
         rows.append({
-            "Wave": wave_name,
-            "Alpha_Total": alpha.get("total", 0.0),
-            "Alpha_Selection": alpha.get("selection", 0.0),
-            "Alpha_Overlay": alpha.get("overlay", 0.0),
-            "Alpha_Cash": alpha.get("cash", 0.0),
-            "Health": data.get("health", {}).get("status", "UNKNOWN"),
+            "Horizon": horizon_label,
+            "Return": round(total_return, 4),
+            "Alpha": round(total_alpha, 4),
+            "Waves": contributing_waves,
         })
+
+    if not rows:
+        return pd.DataFrame()
 
     df = pd.DataFrame(rows)
 
-    if df.empty:
-        return df
-
-    # Portfolio rollup row
-    portfolio_row = {
-        "Wave": "PORTFOLIO",
-        "Alpha_Total": df["Alpha_Total"].sum(),
-        "Alpha_Selection": df["Alpha_Selection"].sum(),
-        "Alpha_Overlay": df["Alpha_Overlay"].sum(),
-        "Alpha_Cash": df["Alpha_Cash"].sum(),
-        "Health": "OK" if (df["Health"] == "OK").all() else "DEGRADED",
-    }
-
-    df = pd.concat([pd.DataFrame([portfolio_row]), df], ignore_index=True)
-    return df
-
-TRUTHFRAME: Dict[str, Any] = load_truthframe()
-
-
-def get_active_truthframe() -> Dict[str, Any]:
-    """Single authoritative TruthFrame accessor."""
-    return TRUTHFRAME
-# ============================================================
-# ALPHA ATTRIBUTION ENGINE (SAFE, NON-BLOCKING)
-# ============================================================
-
-def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
-    """
-    Deterministic alpha attribution.
-    NEVER raises.
-    """
-    try:
-        if "get_wave_data_filtered" not in globals():
-            raise RuntimeError("get_wave_data_filtered not available")
-
-        df = get_wave_data_filtered(wave, days)
-
-        if df is None or df.empty:
-            raise ValueError("No data")
-
-        if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
-            raise ValueError("Missing required columns")
-
-        df = df.copy()
-        df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
-
-        total_alpha = float(df["alpha"].sum())
-        exposure = float(df["exposure"].mean()) if "exposure" in df.columns else 1.0
-
-        return {
-            "total": total_alpha,
-            "selection": total_alpha * exposure,
-            "overlay": total_alpha * (1 - exposure) * 0.7,
-            "cash": total_alpha * (1 - exposure) * 0.3,
-        }
-
-    except Exception as e:
-        logger.debug(f"[Alpha] degraded for {wave}: {e}")
-        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
-
-# ============================================================
-# DEBUG FAIL-OPEN MODE (SAFE, TEMPORARY)
-# ============================================================
-
-if "_DEBUG_ALLOW_FAILOPEN" not in st.session_state:
-    st.session_state["_DEBUG_ALLOW_FAILOPEN"] = True
-
-if st.session_state["_DEBUG_ALLOW_FAILOPEN"] and "_original_st_stop" not in st.session_state:
-    st.session_state["_original_st_stop"] = st.stop
-
-    def patched_stop(*args, **kwargs):
-        st.error("🛑 DEBUG: st.stop() intercepted")
-        st.code("".join(traceback.format_stack(limit=12)))
-        return
-
-    st.stop = patched_stop
-
-
-# ============================================================
-# WATCHDOG (DISABLED — FAIL-OPEN)
-# ============================================================
-
-def init_watchdog():
-    """
-    Watchdog intentionally disabled during stabilization.
-    Safe placeholder to prevent import-time crashes.
-    """
-    return {"enabled": False, "start_time": None}
-
-if "WATCHDOG_STATE" not in st.session_state:
-    st.session_state["WATCHDOG_STATE"] = init_watchdog()
-
-
-# ============================================================
-# BUILD / VERSION INFO (LAZY, SAFE)
-# ============================================================
-
-def get_build_info():
-    return {
-        "sha": os.environ.get("GIT_SHA", "unknown"),
-        "branch": os.environ.get("GIT_BRANCH", "unknown"),
-        "utc": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def render_build_stamp():
-    info = get_build_info()
-    st.markdown(
-        f"""
-        <div style="background:#1e1e1e;padding:8px 16px;border-left:3px solid #00d4ff;">
-            <span style="color:#888;font-size:12px;font-family:monospace;">
-                BUILD: {info['sha']} | BRANCH: {info['branch']} | UTC: {info['utc']}
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # Order horizons canonically
+    df["Horizon"] = pd.Categorical(
+        df["Horizon"],
+        categories=["1D", "30D", "60D", "365D"],
+        ordered=True,
     )
+    df = df.sort_values("Horizon").reset_index(drop=True)
 
-
-# Cache keys for wave universe management
-WAVE_UNIVERSE_CACHE_KEYS = [
-    "wave_universe",
-    "waves_list",
-    "universe_cache",
-    "wave_history_cache",
-]
+    return df
 # ============================================================================
 # PORTFOLIO VIEW HELPER FUNCTIONS
 # ============================================================================
