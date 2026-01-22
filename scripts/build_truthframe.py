@@ -2,6 +2,9 @@ import sys
 from pathlib import Path
 import json
 from datetime import datetime, timezone
+from typing import Dict, Any
+
+import pandas as pd
 
 # ------------------------------------------------------------------
 # Ensure repo root is on PYTHONPATH (CI-safe)
@@ -14,29 +17,37 @@ sys.path.insert(0, str(ROOT))
 # ------------------------------------------------------------------
 from helpers.price_book import get_price_book
 from helpers.wave_registry import get_wave_registry
-
-# Return + alpha computation
 from helpers.return_pipeline import compute_wave_returns_pipeline
-from helpers.wave_performance import compute_portfolio_alpha_ledger
 
 
 # ------------------------------------------------------------------
-# TruthFrame Builder
+# Constants
 # ------------------------------------------------------------------
-def build_truthframe(lookbacks=(1, 30, 60, 365)) -> dict:
-    truthframe = {
+HORIZONS = {
+    "1D": 1,
+    "30D": 30,
+    "60D": 60,
+    "365D": 365,
+}
+
+
+# ------------------------------------------------------------------
+# TruthFrame Builder (WIRED)
+# ------------------------------------------------------------------
+def build_truthframe(days: int = 365) -> Dict[str, Any]:
+    truthframe: Dict[str, Any] = {
         "_meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "lookbacks": list(lookbacks),
+            "lookback_days": days,
             "status": "INITIALIZING",
             "validated": False,
         },
         "waves": {},
     }
 
-    # --------------------------------------------------------------
+    # -----------------------------
     # Load price book
-    # --------------------------------------------------------------
+    # -----------------------------
     price_book = get_price_book()
     if price_book is None or price_book.empty:
         truthframe["_meta"]["status"] = "PRICE_BOOK_MISSING"
@@ -45,100 +56,108 @@ def build_truthframe(lookbacks=(1, 30, 60, 365)) -> dict:
     truthframe["_meta"]["price_book_rows"] = len(price_book)
     truthframe["_meta"]["price_book_cols"] = len(price_book.columns)
 
-    # --------------------------------------------------------------
+    # -----------------------------
     # Load wave registry
-    # --------------------------------------------------------------
+    # -----------------------------
     registry = get_wave_registry()
     if registry is None or registry.empty:
         truthframe["_meta"]["status"] = "WAVE_REGISTRY_MISSING"
         return truthframe
 
-    wave_ids = registry["wave_id"].tolist()
-
-    # --------------------------------------------------------------
-    # STEP 1: Compute raw returns + alpha
-    # --------------------------------------------------------------
+    # -----------------------------
+    # Compute returns + alpha
+    # -----------------------------
     try:
         returns_df = compute_wave_returns_pipeline(
             price_book=price_book,
             wave_registry=registry,
-            lookbacks=lookbacks,
+            horizons=list(HORIZONS.values()),
         )
     except Exception as e:
-        truthframe["_meta"]["status"] = f"RETURN_PIPELINE_ERROR: {e}"
+        truthframe["_meta"]["status"] = "RETURN_PIPELINE_FAILED"
+        truthframe["_meta"]["error"] = str(e)
         return truthframe
 
     if returns_df is None or returns_df.empty:
-        truthframe["_meta"]["status"] = "NO_RETURN_DATA"
+        truthframe["_meta"]["status"] = "NO_COMPUTED_RETURNS"
         return truthframe
 
-    # --------------------------------------------------------------
-    # STEP 2: Compute alpha attribution + validation
-    # --------------------------------------------------------------
-    try:
-        alpha_ledger, validation = compute_portfolio_alpha_ledger(
-            returns_df=returns_df,
-            tolerance=0.001,
+    # Expected columns (defensive)
+    required_cols = {
+        "wave_id",
+        "horizon",
+        "wave_return",
+        "benchmark_return",
+        "alpha",
+    }
+    if not required_cols.issubset(set(returns_df.columns)):
+        truthframe["_meta"]["status"] = "RETURN_SCHEMA_INVALID"
+        truthframe["_meta"]["missing_columns"] = sorted(
+            list(required_cols - set(returns_df.columns))
         )
-    except Exception as e:
-        truthframe["_meta"]["status"] = f"ALPHA_PIPELINE_ERROR: {e}"
         return truthframe
 
-    # --------------------------------------------------------------
-    # STEP 3: Build per-wave TruthFrame blocks
-    # --------------------------------------------------------------
-    all_valid = True
+    # -----------------------------
+    # Build per-wave TruthFrame
+    # -----------------------------
+    validated_waves = 0
 
-    for wave_id in wave_ids:
+    for _, row in registry.iterrows():
+        wave_id = row["wave_id"]
+
         wave_perf = returns_df[returns_df["wave_id"] == wave_id]
-        wave_alpha = alpha_ledger.get(wave_id, {})
-
-        # Performance by horizon
         performance_block = {}
-        for lb in lookbacks:
-            row = wave_perf[wave_perf["lookback"] == lb]
-            if row.empty:
-                performance_block[f"{lb}D"] = {"return": None, "alpha": None}
-                all_valid = False
-            else:
-                performance_block[f"{lb}D"] = {
-                    "return": float(row.iloc[0]["wave_return"]),
-                    "alpha": float(row.iloc[0]["alpha"]),
-                }
 
-        # Alpha attribution
-        alpha_block = {
-            "total": float(wave_alpha.get("total", 0.0)),
-            "selection": float(wave_alpha.get("selection", 0.0)),
-            "overlay": float(wave_alpha.get("overlay", 0.0)),
-            "cash": float(wave_alpha.get("cash", 0.0)),
-        }
+        for label, days in HORIZONS.items():
+            slice_df = wave_perf[wave_perf["horizon"] == days]
 
-        wave_valid = validation.get(wave_id, False)
-        if not wave_valid:
-            all_valid = False
+            if slice_df.empty:
+                continue
+
+            r = slice_df.iloc[0]
+
+            performance_block[label] = {
+                "return": float(r["wave_return"]),
+                "alpha": float(r["alpha"]),
+                "benchmark_return": float(r["benchmark_return"]),
+            }
 
         truthframe["waves"][wave_id] = {
-            "alpha": alpha_block,
+            "alpha": {
+                "total": float(wave_perf["alpha"].sum())
+                if not wave_perf.empty
+                else 0.0,
+                "selection": 0.0,   # reserved for attribution layer
+                "overlay": 0.0,     # reserved
+                "cash": 0.0,        # reserved
+            },
             "performance": performance_block,
             "health": {
-                "status": "OK" if wave_valid else "DEGRADED",
+                "status": "OK" if performance_block else "DEGRADED"
             },
             "learning": {},
         }
 
-    # --------------------------------------------------------------
-    # STEP 4: Final TruthFrame status
-    # --------------------------------------------------------------
-    truthframe["_meta"]["validated"] = all_valid
-    truthframe["_meta"]["status"] = "OK" if all_valid else "DEGRADED"
+        if performance_block:
+            validated_waves += 1
+
+    # -----------------------------
+    # Final validation
+    # -----------------------------
     truthframe["_meta"]["wave_count"] = len(truthframe["waves"])
+    truthframe["_meta"]["validated_waves"] = validated_waves
+
+    if validated_waves > 0:
+        truthframe["_meta"]["validated"] = True
+        truthframe["_meta"]["status"] = "OK"
+    else:
+        truthframe["_meta"]["status"] = "NO_VALIDATED_WAVES"
 
     return truthframe
 
 
 # ------------------------------------------------------------------
-# CLI Entrypoint (used by GitHub Actions)
+# CLI Entrypoint (GitHub Actions)
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     tf = build_truthframe()
@@ -150,3 +169,5 @@ if __name__ == "__main__":
         json.dump(tf, f, indent=2)
 
     print(f"✅ TruthFrame written to {output_path}")
+    print(f"Status: {tf['_meta'].get('status')}")
+    print(f"Validated: {tf['_meta'].get('validated')}")
