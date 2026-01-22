@@ -29,6 +29,50 @@ HORIZONS: List[Tuple[str, int]] = [
     ("365D", 365),
 ]
 
+# ============================================================
+# TRUTHFRAME — CANONICAL, FILE-BACKED, READ-ONLY
+# ============================================================
+
+@st.cache_data(show_spinner=False)
+def load_truthframe() -> Dict[str, Any]:
+    """
+    Load the canonical TruthFrame from disk.
+    Read-only. Never raises.
+    """
+    try:
+        with open("data/truthframe.json", "r") as f:
+            truth = json.load(f)
+
+        waves = truth.get("waves", {})
+        logger.info(f"[TruthFrame] loaded | waves={len(waves)}")
+
+        return truth
+
+    except Exception as e:
+        logger.error(f"[TruthFrame] unavailable: {e}")
+        return {
+            "_error": str(e),
+            "waves": {},
+        }
+
+
+TRUTHFRAME: Dict[str, Any] = load_truthframe()
+
+
+def get_active_truthframe() -> Dict[str, Any]:
+    """
+    Canonical TruthFrame accessor.
+    Single source of truth for all read-only consumers.
+    """
+    return TRUTHFRAME
+
+
+TRUTHFRAME_PORTFOLIO_AVAILABLE = bool(
+    isinstance(TRUTHFRAME, dict)
+    and isinstance(TRUTHFRAME.get("waves"), dict)
+    and len(TRUTHFRAME.get("waves")) > 0
+)
+
 def build_portfolio_snapshot_from_truthframe(
     truthframe: Dict[str, Any]
 ) -> pd.DataFrame:
