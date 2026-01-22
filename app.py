@@ -40,13 +40,12 @@ try:
     PRICE_BOOK = get_cached_price_book()
 
     logger.info(
-        f"PRICE_BOOK loaded at startup | rows={len(PRICE_BOOK)} | cols={len(PRICE_BOOK.columns)}"
+        f"PRICE_BOOK loaded at startup | rows={len(PRICE_BOOK)}"
     )
 
 except Exception as e:
     logger.exception("FAILED to initialize PRICE_BOOK")
     PRICE_BOOK = pd.DataFrame()
-
 # ============================================================
 # FEATURE FLAGS & ENVIRONMENT CONFIG (SAFE ORDER)
 # ============================================================
