@@ -11211,15 +11211,6 @@ def compute_aggregated_portfolio_metrics():
     SNAPSHOT-FREE.
     FAIL-OPEN.
     NEVER THROWS.
-
-    Returns:
-        dict | None
-        {
-            "1D":   {"return": float | None},
-            "30D":  {"return": float | None},
-            "60D":  {"return": float | None},
-            "365D": {"return": float | None},
-        }
     """
     try:
         if "get_cached_price_book" not in globals():
@@ -11227,8 +11218,15 @@ def compute_aggregated_portfolio_metrics():
 
         price_book = get_cached_price_book()
 
+        # HARD GUARD — do not introspect invalid data
         if price_book is None or price_book.empty:
             return None
+
+        # 🔍 SAFE DIAGNOSTIC (now guaranteed not to crash)
+        st.caption(
+            f"PRICE_BOOK rows: {len(price_book)} | "
+            f"cols (sample): {list(price_book.columns)[:5]}"
+        )
 
         returns_df = price_book.pct_change().dropna()
         if returns_df.empty:
@@ -11244,7 +11242,7 @@ def compute_aggregated_portfolio_metrics():
             except Exception:
                 return None
 
-        metrics = {
+        return {
             "1D": {
                 "return": float(portfolio_returns.iloc[-1]) if len(portfolio_returns) >= 1 else None,
             },
@@ -11258,8 +11256,6 @@ def compute_aggregated_portfolio_metrics():
                 "return": safe_compounded(portfolio_returns.iloc[-252:]) if len(portfolio_returns) >= 252 else None,
             },
         }
-
-        return metrics
 
     except Exception:
         return None
@@ -11282,9 +11278,7 @@ def render_portfolio_snapshot_summary():
     order = ["1D", "30D", "60D", "365D"]
 
     for i, label in enumerate(order):
-        data = metrics.get(label, {})
-        ret = data.get("return")
-
+        ret = metrics[label]["return"]
         with cols[i]:
             st.metric(
                 label=f"{label} Return",
