@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 import json
 from datetime import datetime, timezone
-
 import pandas as pd
 import numpy as np
 
@@ -20,7 +19,7 @@ from helpers.wave_registry import get_wave_registry
 
 
 # ------------------------------------------------------------------
-# Constants
+# Canonical horizons
 # ------------------------------------------------------------------
 HORIZONS = {
     "1D": 1,
@@ -31,43 +30,34 @@ HORIZONS = {
 
 
 # ------------------------------------------------------------------
-# Helpers
+# Utility: safe return calculation
 # ------------------------------------------------------------------
-def _safe_float(x):
-    try:
-        if x is None or pd.isna(x):
-            return None
-        return float(x)
-    except Exception:
-        return None
-
-
-def _compound_return(series: pd.Series) -> float | None:
+def compute_return(series: pd.Series) -> float | None:
     """
-    Compound daily returns: (1+r1)(1+r2)... - 1
+    Computes fractional return: (last / first - 1)
+    Returns None if insufficient data.
     """
-    if series is None or series.empty:
+    if series is None or len(series) < 2:
         return None
 
-    series = series.dropna()
-    if series.empty:
+    start = series.iloc[0]
+    end = series.iloc[-1]
+
+    if start == 0 or pd.isna(start) or pd.isna(end):
         return None
 
-    try:
-        return float((1.0 + series).prod() - 1.0)
-    except Exception:
-        return None
+    return float(end / start - 1)
 
 
 # ------------------------------------------------------------------
-# TruthFrame Builder (CANONICAL)
+# TruthFrame Builder (canonical, CI-safe)
 # ------------------------------------------------------------------
 def build_truthframe(days: int = 365) -> dict:
     truthframe = {
         "_meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "lookback_days": days,
-            "status": "OK",
+            "status": "INIT",
         },
         "waves": {},
     }
@@ -80,13 +70,18 @@ def build_truthframe(days: int = 365) -> dict:
         truthframe["_meta"]["status"] = "PRICE_BOOK_MISSING"
         return truthframe
 
-    price_book = price_book.tail(days)
+    # Use last N days only
+    price_book = price_book.tail(days + 2)
 
-    truthframe["_meta"]["price_book_rows"] = len(price_book)
-    truthframe["_meta"]["price_book_cols"] = len(price_book.columns)
+    truthframe["_meta"]["price_book_rows"] = int(len(price_book))
+    truthframe["_meta"]["price_book_cols"] = int(len(price_book.columns))
 
     # --------------------------------------------------------------
     # Load wave registry
+    # Expected columns:
+    # - wave_id
+    # - tickers (comma-separated)
+    # - benchmark_ticker
     # --------------------------------------------------------------
     registry = get_wave_registry()
     if registry is None or registry.empty:
@@ -99,15 +94,21 @@ def build_truthframe(days: int = 365) -> dict:
     for _, row in registry.iterrows():
         wave_id = row["wave_id"]
 
-        wave_col = f"wave:{wave_id}"
-        bench_col = f"benchmark:{wave_id}"
+        tickers = [
+            t.strip()
+            for t in str(row.get("tickers", "")).split(",")
+            if t.strip() in price_book.columns
+        ]
+
+        benchmark = row.get("benchmark_ticker")
+        benchmark_ok = benchmark in price_book.columns
 
         wave_block = {
             "alpha": {
-                "total": None,
-                "selection": None,
-                "overlay": None,
-                "cash": None,
+                "total": 0.0,
+                "selection": 0.0,
+                "overlay": 0.0,
+                "cash": 0.0,
             },
             "performance": {},
             "health": {
@@ -116,49 +117,65 @@ def build_truthframe(days: int = 365) -> dict:
             "learning": {},
         }
 
-        # Skip if data missing
-        if wave_col not in price_book.columns or bench_col not in price_book.columns:
+        # If no usable tickers, mark unhealthy
+        if not tickers:
+            wave_block["health"]["status"] = "NO_TICKERS"
             truthframe["waves"][wave_id] = wave_block
             continue
 
-        wave_returns = price_book[wave_col]
-        bench_returns = price_book[bench_col]
+        # ----------------------------------------------------------
+        # Compute returns by horizon
+        # ----------------------------------------------------------
+        alpha_sum = 0.0
+        alpha_count = 0
 
-        alpha_total = 0.0
-        alpha_valid = False
+        for label, d in HORIZONS.items():
+            if len(price_book) < d + 1:
+                continue
 
-        for label, lookback in HORIZONS.items():
-            wave_slice = wave_returns.tail(lookback)
-            bench_slice = bench_returns.tail(lookback)
+            # Wave return = mean of constituent returns
+            wave_returns = []
+            for t in tickers:
+                r = compute_return(price_book[t].tail(d + 1))
+                if r is not None:
+                    wave_returns.append(r)
 
-            wave_ret = _compound_return(wave_slice)
-            bench_ret = _compound_return(bench_slice)
+            wave_ret = float(np.mean(wave_returns)) if wave_returns else None
 
+            # Benchmark return
+            bench_ret = None
+            if benchmark_ok:
+                bench_ret = compute_return(price_book[benchmark].tail(d + 1))
+
+            # Alpha
+            alpha = None
             if wave_ret is not None and bench_ret is not None:
                 alpha = wave_ret - bench_ret
-                alpha_valid = True
-            else:
-                alpha = None
+                alpha_sum += alpha
+                alpha_count += 1
 
             wave_block["performance"][label] = {
-                "return": _safe_float(wave_ret),
-                "benchmark_return": _safe_float(bench_ret),
-                "alpha": _safe_float(alpha),
+                "return": wave_ret,
+                "benchmark_return": bench_ret,
+                "alpha": alpha,
             }
 
-            if alpha is not None:
-                alpha_total += alpha
-
-        wave_block["alpha"]["total"] = _safe_float(alpha_total) if alpha_valid else None
+        # ----------------------------------------------------------
+        # Aggregate alpha
+        # ----------------------------------------------------------
+        if alpha_count > 0:
+            wave_block["alpha"]["total"] = float(alpha_sum / alpha_count)
 
         truthframe["waves"][wave_id] = wave_block
 
     truthframe["_meta"]["wave_count"] = len(truthframe["waves"])
+    truthframe["_meta"]["status"] = "OK"
+
     return truthframe
 
 
 # ------------------------------------------------------------------
-# CLI Entrypoint (GitHub Actions)
+# CLI entrypoint (GitHub Actions)
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     tf = build_truthframe()
