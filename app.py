@@ -23,6 +23,7 @@ def build_portfolio_snapshot_from_truthframe(
 
         for wave_name, wave_data in waves.items():
             metrics = wave_data.get("metrics", {})
+
             returns = metrics.get("returns", {})
             alphas = metrics.get("alpha", {})
 
@@ -44,8 +45,8 @@ def build_portfolio_snapshot_from_truthframe(
 
         rows.append({
             "Horizon": horizon_label,
-            "Return": round(total_return, 4),
-            "Alpha": round(total_alpha, 4),
+            "Return": round(total_return, 6),
+            "Alpha": round(total_alpha, 6),
             "Waves": contributing_waves,
         })
 
@@ -54,14 +55,14 @@ def build_portfolio_snapshot_from_truthframe(
 
     df = pd.DataFrame(rows)
 
-    # Order horizons canonically
+    # Canonical horizon ordering
     df["Horizon"] = pd.Categorical(
         df["Horizon"],
         categories=["1D", "30D", "60D", "365D"],
         ordered=True,
     )
-    df = df.sort_values("Horizon").reset_index(drop=True)
 
+    df = df.sort_values("Horizon").reset_index(drop=True)
     return df
 # ============================================================================
 # PORTFOLIO VIEW HELPER FUNCTIONS
