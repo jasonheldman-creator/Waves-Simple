@@ -93,134 +93,85 @@ def compute_alpha_attribution(wave, days=60):
     df = get_wave_data_filtered(wave, days)
 
     if df is None or df.empty:
-        return {
-            "total": 0.0,
-            "selection": 0.0,
-            "overlay": 0.0,
-            "cash": 0.0
-        }
+        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
 
-    # Required columns
     if not {"portfolio_return", "benchmark_return"}.issubset(df.columns):
-        return {
-            "total": 0.0,
-            "selection": 0.0,
-            "overlay": 0.0,
-            "cash": 0.0
-        }
+        return {"total": 0.0, "selection": 0.0, "overlay": 0.0, "cash": 0.0}
 
     df = df.copy()
     df["alpha"] = df["portfolio_return"] - df["benchmark_return"]
 
-    total_alpha = df["alpha"].sum()
-
-    # Heuristic decomposition (transparent + explainable)
-    exposure = df["exposure"].mean() if "exposure" in df.columns else 1.0
-
-    selection_alpha = total_alpha * exposure
-    overlay_alpha = total_alpha * (1 - exposure) * 0.7
-    cash_alpha = total_alpha * (1 - exposure) * 0.3
+    total_alpha = float(df["alpha"].sum())
+    exposure = float(df["exposure"].mean()) if "exposure" in df.columns else 1.0
 
     return {
         "total": total_alpha,
-        "selection": selection_alpha,
-        "overlay": overlay_alpha,
-        "cash": cash_alpha
+        "selection": total_alpha * exposure,
+        "overlay": total_alpha * (1 - exposure) * 0.7,
+        "cash": total_alpha * (1 - exposure) * 0.3,
     }
-    
-# Populate alpha attribution
-truth = get_active_truthframe()
 
-if isinstance(truth, dict):
-    for wave in truth.keys():
-        alpha = compute_alpha_attribution(wave)
-        truth[wave]["alpha"] = alpha
 
-st.session_state["CANONICAL_TRUTHFRAME"] = truth
+# ============================================================================
+# TRUTHFRAME BOOTSTRAP + SINGLE SOURCE OF TRUTH
+# ============================================================================
 
-# HARD SYNC — expose populated TruthFrame to UI readers
-if (
-    isinstance(truth, dict)
-    and truth
-    and "TRUTHFRAME_OVERRIDE" not in st.session_state
-):
-    st.session_state["TRUTHFRAME_OVERRIDE"] = truth
-
-# ============================================================
-# TRUTHFRAME OVERRIDE (FAIL-SAFE / DEGRADED MODE)
-# Ensures all downstream sections receive a valid TruthFrame
-# even when data pipelines are incomplete or unavailable.
-# ============================================================
-
-def build_truthframe_override():
+def build_minimal_truthframe():
     """
-    Build a minimal, safe TruthFrame structure.
-    This prevents runtime crashes in health, regime,
-    and learning sections when real data is unavailable.
+    Always-safe TruthFrame skeleton.
     """
-    truthframe = {}
-
+    truth = {}
     try:
         waves = get_wave_universe_all()
     except Exception:
         waves = []
 
     for wave in waves:
-        truthframe[wave] = {
-            "health": {},     # required by Wave Health Monitor
-            "regime": {},     # required by Regime Intelligence
-            "learning": {},   # required by Learning Signals
+        truth[wave] = {
+            "alpha": {},
+            "health": {},
+            "regime": {},
+            "learning": {},
         }
+    return truth
 
-    return truthframe
 
-
-# Initialize TruthFrame override ONCE
-if "TRUTHFRAME_OVERRIDE" not in st.session_state:
-    st.session_state["TRUTHFRAME_OVERRIDE"] = build_truthframe_override()
+# Initialize canonical TruthFrame ONCE
+if "CANONICAL_TRUTHFRAME" not in st.session_state:
+    st.session_state["CANONICAL_TRUTHFRAME"] = build_minimal_truthframe()
 
 
 def get_active_truthframe():
     """
-    Single source of truth for TruthFrame access.
-    Always returns a safe dictionary.
+    Single authoritative TruthFrame accessor.
+    UI + analytics always read from here.
     """
-    return st.session_state.get("TRUTHFRAME_OVERRIDE", {})
+    return st.session_state.get("CANONICAL_TRUTHFRAME", {})
 
-# =====================================================
-# POPULATE REAL ALPHA ATTRIBUTION (RUN ONCE AT STARTUP)
-# =====================================================
 
-if "_TRUTHFRAME_POPULATED" not in st.session_state:
+# ============================================================================
+# POPULATE REAL ALPHA ATTRIBUTION (RUN ONCE PER SESSION)
+# ============================================================================
+
+if not st.session_state.get("_TRUTHFRAME_POPULATED", False):
 
     truth = get_active_truthframe()
 
     if isinstance(truth, dict) and truth:
         for wave in list(truth.keys()):
             try:
-                alpha = compute_alpha_attribution(wave)
-
-                # Ensure wave structure exists
-                truth.setdefault(wave, {})
-                truth[wave]["alpha"] = alpha
-                truth[wave].setdefault("health", {})
-                truth[wave].setdefault("regime", {})
-                truth[wave].setdefault("learning", {})
-
+                truth[wave]["alpha"] = compute_alpha_attribution(wave)
             except Exception as e:
-                logging.warning(f"Alpha attribution failed for {wave}: {e}")
+                logging.warning(f"[Alpha] failed for {wave}: {e}")
 
-        # Commit canonical TruthFrame
         st.session_state["CANONICAL_TRUTHFRAME"] = truth
         st.session_state["_TRUTHFRAME_POPULATED"] = True
 
-        # TEMP DIAGNOSTIC — confirm TruthFrame population
         logging.info(
-            f"[TruthFrame] populated with {len(truth)} waves | keys sample: {list(truth.keys())[:5]}"
+            f"[TruthFrame] populated with {len(truth)} waves | sample: {list(truth.keys())[:5]}"
         )
-
     else:
-        logging.warning("[TruthFrame] population skipped — empty or invalid truth")
+        logging.warning("[TruthFrame] population skipped — empty universe")
 # ============================================================
 # DEBUG FAIL-OPEN MODE — TEMPORARY SAFETY PATCH
 # Disables st.stop() so we can locate hidden execution halts
