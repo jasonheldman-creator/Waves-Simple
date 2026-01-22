@@ -180,34 +180,39 @@ def get_active_truthframe():
     return st.session_state.get("TRUTHFRAME_OVERRIDE", {})
 
 # =====================================================
-# POPULATE REAL ALPHA ATTRIBUTION (SAFE INITIALIZATION)
+# POPULATE REAL ALPHA ATTRIBUTION (RUN ONCE AT STARTUP)
 # =====================================================
-truth = get_active_truthframe()
 
-if isinstance(truth, dict) and truth:
-    for wave in list(truth.keys()):
-        try:
-            alpha = compute_alpha_attribution(wave)
+if "_TRUTHFRAME_POPULATED" not in st.session_state:
 
-            # Ensure wave structure exists
-            truth.setdefault(wave, {})
-            truth[wave]["alpha"] = alpha
-            truth[wave].setdefault("health", {})
-            truth[wave].setdefault("regime", {})
-            truth[wave].setdefault("learning", {})
+    truth = get_active_truthframe()
 
-        except Exception as e:
-            logging.warning(f"Alpha attribution failed for {wave}: {e}")
+    if isinstance(truth, dict) and truth:
+        for wave in list(truth.keys()):
+            try:
+                alpha = compute_alpha_attribution(wave)
 
-    st.session_state["CANONICAL_TRUTHFRAME"] = truth
+                # Ensure wave structure exists
+                truth.setdefault(wave, {})
+                truth[wave]["alpha"] = alpha
+                truth[wave].setdefault("health", {})
+                truth[wave].setdefault("regime", {})
+                truth[wave].setdefault("learning", {})
 
-# TEMP DIAGNOSTIC — confirm TruthFrame population (safe, no side effects)
-if isinstance(truth, dict):
-    logging.info(
-        f"[TruthFrame] populated with {len(truth)} waves | keys sample: {list(truth.keys())[:5]}"
-    )
-else:
-    logging.warning("[TruthFrame] population failed — truth is not a dict")
+            except Exception as e:
+                logging.warning(f"Alpha attribution failed for {wave}: {e}")
+
+        # Commit canonical TruthFrame
+        st.session_state["CANONICAL_TRUTHFRAME"] = truth
+        st.session_state["_TRUTHFRAME_POPULATED"] = True
+
+        # TEMP DIAGNOSTIC — confirm TruthFrame population
+        logging.info(
+            f"[TruthFrame] populated with {len(truth)} waves | keys sample: {list(truth.keys())[:5]}"
+        )
+
+    else:
+        logging.warning("[TruthFrame] population skipped — empty or invalid truth")
 # ============================================================
 # DEBUG FAIL-OPEN MODE — TEMPORARY SAFETY PATCH
 # Disables st.stop() so we can locate hidden execution halts
