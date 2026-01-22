@@ -20043,148 +20043,143 @@ def main():
     Stable, demo-safe orchestration layer.
     """
 
-    try:
-        # --------------------------------------------------------
-        # Page config (MUST be first Streamlit call)
-        # --------------------------------------------------------
-        st.set_page_config(
-            page_title="WAVES Intelligence™ – Institutional Console",
-            layout="wide",
-            initial_sidebar_state="expanded",
+    # --------------------------------------------------------
+    # Page config (MUST be first Streamlit call)
+    # --------------------------------------------------------
+    st.set_page_config(
+        page_title="WAVES Intelligence™ – Institutional Console",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    # --------------------------------------------------------
+    # Proof / build banners (safe)
+    # --------------------------------------------------------
+    if "render_proof_banner" in globals():
+        render_proof_banner()
+
+    if "render_build_stamp" in globals():
+        render_build_stamp()
+
+    # --------------------------------------------------------
+    # Top-level navigation tabs (CANONICAL)
+    # --------------------------------------------------------
+    tabs = st.tabs([
+        "📊 Overview",
+        "📦 Portfolio Snapshot",
+        "🧠 Adaptive Intelligence",
+        "🧪 Diagnostics",
+    ])
+
+    # ========================================================
+    # TAB 1: OVERVIEW
+    # ========================================================
+    with tabs[0]:
+        try:
+            if "render_overview_clean_tab" in globals():
+                render_overview_clean_tab()
+            elif "render_overview_tab" in globals():
+                render_overview_tab()
+            else:
+                st.info("Overview panel not available.")
+        except Exception as e:
+            st.error("❌ Error rendering Overview")
+            with st.expander("Debug details"):
+                st.exception(e)
+
+    # ========================================================
+    # TAB 2: PORTFOLIO SNAPSHOT (TRUTHFRAME-DRIVEN)
+    # ========================================================
+    with tabs[1]:
+        st.markdown("## 📦 Portfolio Snapshot")
+        st.caption(
+            "Aggregated portfolio performance across Waves. "
+            "Returns and alpha shown across multiple horizons."
         )
 
-        # --------------------------------------------------------
-        # Proof / build banners (safe)
-        # --------------------------------------------------------
-        if "render_proof_banner" in globals():
-            render_proof_banner()
-
-        if "render_build_stamp" in globals():
-            render_build_stamp()
-
-        # --------------------------------------------------------
-        # Top-level navigation tabs (CANONICAL)
-        # --------------------------------------------------------
-        tabs = st.tabs([
-            "📊 Overview",
-            "📦 Portfolio Snapshot",
-            "🧠 Adaptive Intelligence",
-            "🧪 Diagnostics",
-        ])
-
-        # ========================================================
-        # TAB 1: OVERVIEW
-        # ========================================================
-        with tabs[0]:
-            try:
-                if "render_overview_clean_tab" in globals():
-                    render_overview_clean_tab()
-                elif "render_overview_tab" in globals():
-                    render_overview_tab()
-                else:
-                    st.info("Overview panel not available.")
-            except Exception as e:
-                st.error("❌ Error rendering Overview")
-                with st.expander("Debug details"):
-                    st.exception(e)
-
-        # ========================================================
-        # TAB 2: PORTFOLIO SNAPSHOT (TRUTHFRAME-DRIVEN)
-        # ========================================================
-        with tabs[1]:
-            st.markdown("## 📦 Portfolio Snapshot")
-            st.caption(
-                "Aggregated portfolio performance across Waves. "
-                "Returns and alpha shown across multiple horizons."
+        # --- Blue executive summary shell (visual only)
+        with st.container():
+            st.markdown(
+                """
+                <div style="
+                    background: linear-gradient(135deg, #0b2a3f, #0e3a5c);
+                    border-radius: 14px;
+                    padding: 20px;
+                    margin-top: 12px;
+                    margin-bottom: 18px;
+                    border: 1px solid rgba(255,255,255,0.08);
+                ">
+                    <h3 style="color:#9fd3ff; margin-bottom:6px;">
+                        📦 Portfolio Snapshot — Executive Summary
+                    </h3>
+                    <p style="color:#dbeeff; font-size:15px;">
+                        Consolidated portfolio returns and alpha across
+                        1D, 30D, 60D, and 365D horizons.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            # --- Blue executive summary shell (visual only)
-            with st.container():
-                st.markdown(
-                    """
-                    <div style="
-                        background: linear-gradient(135deg, #0b2a3f, #0e3a5c);
-                        border-radius: 14px;
-                        padding: 20px;
-                        margin-top: 12px;
-                        margin-bottom: 18px;
-                        border: 1px solid rgba(255,255,255,0.08);
-                    ">
-                        <h3 style="color:#9fd3ff; margin-bottom:6px;">
-                            📦 Portfolio Snapshot — Executive Summary
-                        </h3>
-                        <p style="color:#dbeeff; font-size:15px;">
-                            Consolidated portfolio returns and alpha across
-                            1D, 30D, 60D, and 365D horizons.
-                        </p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            try:
-                from helpers.portfolio_snapshot import (
-                    build_portfolio_snapshot_from_truthframe
-                )
-
-                truthframe = get_active_truthframe()
-                snapshot_df = build_portfolio_snapshot_from_truthframe(truthframe)
-
-                if snapshot_df is None or snapshot_df.empty:
-                    st.info("Portfolio snapshot data not yet available.")
-                else:
-                    st.dataframe(
-                        snapshot_df,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-            except Exception as e:
-                st.error("❌ Error rendering Portfolio Snapshot")
-                with st.expander("Debug details"):
-                    st.exception(e)
-
-        # ========================================================
-        # TAB 3: ADAPTIVE INTELLIGENCE
-        # ========================================================
-        with tabs[2]:
-            st.markdown("## 🧠 Adaptive Intelligence")
-            st.caption(
-                "Adaptive learning, regime detection, and system self-monitoring."
+        try:
+            from helpers.portfolio_snapshot import (
+                build_portfolio_snapshot_from_truthframe
             )
 
-            try:
-                if "render_adaptive_intelligence_tab" in globals():
-                    render_adaptive_intelligence_tab()
-                else:
-                    st.info(
-                        "Adaptive Intelligence layer is active conceptually.\n\n"
-                        "Learning diagnostics and regime signals will appear here."
-                    )
-            except Exception as e:
-                st.error("❌ Error rendering Adaptive Intelligence")
-                with st.expander("Debug details"):
-                    st.exception(e)
+            truthframe = get_active_truthframe()
+            snapshot_df = build_portfolio_snapshot_from_truthframe(truthframe)
 
-        # ========================================================
-        # TAB 4: DIAGNOSTICS
-        # ========================================================
-        with tabs[3]:
-            st.markdown("## 🧪 Diagnostics")
+            if snapshot_df is None or snapshot_df.empty:
+                st.info("Portfolio snapshot data not yet available.")
+            else:
+                st.dataframe(
+                    snapshot_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-            try:
-                if "render_diagnostics_tab" in globals():
-                    render_diagnostics_tab()
-                else:
-                    st.info("Diagnostics panel available in debug builds.")
-            except Exception as e:
-                st.error("❌ Error rendering Diagnostics")
-                with st.expander("Debug details"):
-                    st.exception(e)
+        except Exception as e:
+            st.error("❌ Error rendering Portfolio Snapshot")
+            with st.expander("Debug details"):
+                st.exception(e)
 
-    except Exception as e:
-        st.error("🚨 Fatal application error")
-        st.exception(e)
+    # ========================================================
+    # TAB 3: ADAPTIVE INTELLIGENCE
+    # ========================================================
+    with tabs[2]:
+        st.markdown("## 🧠 Adaptive Intelligence")
+        st.caption(
+            "Adaptive learning, regime detection, and system self-monitoring."
+        )
+
+        try:
+            if "render_adaptive_intelligence_tab" in globals():
+                render_adaptive_intelligence_tab()
+            else:
+                st.info(
+                    "Adaptive Intelligence layer is active conceptually.\n\n"
+                    "Learning diagnostics and regime signals will appear here."
+                )
+        except Exception as e:
+            st.error("❌ Error rendering Adaptive Intelligence")
+            with st.expander("Debug details"):
+                st.exception(e)
+
+    # ========================================================
+    # TAB 4: DIAGNOSTICS
+    # ========================================================
+    with tabs[3]:
+        st.markdown("## 🧪 Diagnostics")
+
+        try:
+            if "render_diagnostics_tab" in globals():
+                render_diagnostics_tab()
+            else:
+                st.info("Diagnostics panel available in debug builds.")
+        except Exception as e:
+            st.error("❌ Error rendering Diagnostics")
+            with st.expander("Debug details"):
+                st.exception(e)
 
 
 # ============================================================
