@@ -21,32 +21,31 @@ from helpers.wave_registry import get_wave_registry
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-def safe_return(series: pd.Series, days: int) -> float:
+def compute_return(series: pd.Series, days: int) -> float | None:
     """
-    Compute simple return over N days.
-    Always returns a float (never None).
+    Compute simple return over N trading days.
     """
-    if series is None or len(series) < days + 1:
-        return 0.0
+    if series is None or len(series) <= days:
+        return None
+
     start = series.iloc[-days - 1]
     end = series.iloc[-1]
+
     if start == 0 or pd.isna(start) or pd.isna(end):
-        return 0.0
-    return float((end / start) - 1.0)
+        return None
+
+    return (end / start) - 1.0
 
 
 # ------------------------------------------------------------------
-# TruthFrame Builder
+# TruthFrame Builder (validated returns only)
 # ------------------------------------------------------------------
-def build_truthframe() -> dict:
-    now = datetime.now(timezone.utc).isoformat()
-
+def build_truthframe(days: int = 365) -> dict:
     truthframe = {
         "_meta": {
-            "generated_at": now,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "lookback_days": days,
             "status": "INIT",
-            "validated": False,
-            "performance_validated": False,
         },
         "waves": {},
     }
@@ -59,13 +58,7 @@ def build_truthframe() -> dict:
         truthframe["_meta"]["status"] = "PRICE_BOOK_MISSING"
         return truthframe
 
-    # Require SPY as benchmark anchor
-    if "SPY" not in price_book.columns:
-        truthframe["_meta"]["status"] = "SPY_MISSING"
-        return truthframe
-
-    price_book = price_book.dropna(how="all")
-    spy = price_book["SPY"].dropna()
+    price_book = price_book.tail(days)
 
     truthframe["_meta"]["price_book_rows"] = len(price_book)
     truthframe["_meta"]["price_book_cols"] = len(price_book.columns)
@@ -78,61 +71,69 @@ def build_truthframe() -> dict:
         truthframe["_meta"]["status"] = "WAVE_REGISTRY_MISSING"
         return truthframe
 
-    # --------------------------------------------------------------
-    # Precompute benchmark returns
-    # --------------------------------------------------------------
-    benchmark_returns = {
-        "1D": safe_return(spy, 1),
-        "30D": safe_return(spy, 30),
-        "60D": safe_return(spy, 60),
-        "365D": safe_return(spy, 365),
-    }
+    validated_wave_count = 0
 
     # --------------------------------------------------------------
-    # Build per-wave TruthFrame
-    # NOTE:
-    # For now we proxy wave return = benchmark return.
-    # This UNBLOCKS UI + validation.
-    # Real attribution comes next iteration.
+    # Build per-wave performance
     # --------------------------------------------------------------
     for _, row in registry.iterrows():
         wave_id = row["wave_id"]
 
-        performance = {}
-        alpha_total = 0.0
+        # Parse tickers safely
+        tickers = []
+        if "tickers" in row and isinstance(row["tickers"], str):
+            tickers = [t.strip() for t in row["tickers"].split(",")]
 
-        for horizon, bench_ret in benchmark_returns.items():
-            wave_ret = bench_ret  # proxy
-            alpha = wave_ret - bench_ret
+        available = [t for t in tickers if t in price_book.columns]
 
-            performance[horizon] = {
-                "return": round(wave_ret, 6),
-                "alpha": round(alpha, 6),
-            }
+        performance = {
+            "1D": None,
+            "30D": None,
+            "60D": None,
+            "365D": None,
+        }
 
-            alpha_total += alpha
+        if available:
+            prices = price_book[available].dropna(how="all")
+
+            if not prices.empty:
+                # Equal-weight wave price
+                wave_series = prices.mean(axis=1)
+
+                performance["1D"] = compute_return(wave_series, 1)
+                performance["30D"] = compute_return(wave_series, 30)
+                performance["60D"] = compute_return(wave_series, 60)
+                performance["365D"] = compute_return(wave_series, 365)
+
+                # Validate if any horizon exists
+                if any(v is not None for v in performance.values()):
+                    validated_wave_count += 1
 
         truthframe["waves"][wave_id] = {
             "performance": performance,
             "alpha": {
-                "total": round(alpha_total, 6),
-                "selection": round(alpha_total * 0.6, 6),
-                "overlay": round(alpha_total * 0.3, 6),
-                "cash": round(alpha_total * 0.1, 6),
+                # Alpha intentionally zero until benchmarks are wired
+                "total": 0.0,
+                "selection": 0.0,
+                "overlay": 0.0,
+                "cash": 0.0,
             },
             "health": {
-                "status": "OK",
+                "status": "OK" if any(v is not None for v in performance.values()) else "NO_DATA"
             },
             "learning": {},
         }
 
     # --------------------------------------------------------------
-    # Final validation flags
+    # Final system status
     # --------------------------------------------------------------
-    truthframe["_meta"]["status"] = "OK"
-    truthframe["_meta"]["validated"] = True
-    truthframe["_meta"]["performance_validated"] = True
     truthframe["_meta"]["wave_count"] = len(truthframe["waves"])
+    truthframe["_meta"]["validated_waves"] = validated_wave_count
+
+    if validated_wave_count > 0:
+        truthframe["_meta"]["status"] = "OK"
+    else:
+        truthframe["_meta"]["status"] = "NO_VALIDATED_PERFORMANCE"
 
     return truthframe
 
@@ -149,5 +150,6 @@ if __name__ == "__main__":
     with open(output_path, "w") as f:
         json.dump(tf, f, indent=2)
 
-    print(f"✅ TruthFrame written to {output_path}")
-    
+    print("✅ TruthFrame built")
+    print(f"   Status: {tf['_meta']['status']}")
+    print(f"   Validated waves: {tf['_meta'].get('validated_waves', 0)}")
