@@ -1,7 +1,8 @@
 # ============================================================
-# CORE IMPORTS (ORDER GUARANTEED)
+# CORE IMPORTS (ORDER GUARANTEED, COMPLETE)
 # ============================================================
 import os
+import subprocess
 import streamlit as st
 import logging
 import traceback
@@ -29,9 +30,7 @@ if not logger.handlers:
 # ============================================================
 RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "true").lower() == "true"
 SAFE_MODE = os.environ.get("SAFE_MODE", "false").lower() == "true"
-
 PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
-
 ENABLE_WAVE_PROFILE = True
 
 
@@ -39,15 +38,19 @@ ENABLE_WAVE_PROFILE = True
 # TRUTHFRAME — SINGLE CANONICAL SOURCE OF TRUTH
 # ============================================================
 
-def build_canonical_truthframe():
+def build_canonical_truthframe() -> Dict[str, Any]:
     """
     Build a complete, always-safe TruthFrame.
     This function MUST NEVER FAIL.
     """
-    truth = {}
+    truth: Dict[str, Any] = {}
 
+    waves: List[str] = []
     try:
-        waves = get_wave_universe_all()
+        if "get_wave_universe_all" in globals():
+            waves = get_wave_universe_all() or []
+        else:
+            logger.warning("[TruthFrame] get_wave_universe_all not yet defined")
     except Exception as e:
         logger.warning(f"[TruthFrame] wave universe unavailable: {e}")
         waves = []
@@ -89,12 +92,15 @@ def get_active_truthframe() -> Dict[str, Any]:
 # ALPHA ATTRIBUTION ENGINE (SAFE, NON-BLOCKING)
 # ============================================================
 
-def compute_alpha_attribution(wave, days: int = 60) -> Dict[str, float]:
+def compute_alpha_attribution(wave: str, days: int = 60) -> Dict[str, float]:
     """
     Transparent, deterministic alpha attribution.
     NEVER raises. NEVER blocks app startup.
     """
     try:
+        if "get_wave_data_filtered" not in globals():
+            raise RuntimeError("get_wave_data_filtered not available")
+
         df = get_wave_data_filtered(wave, days)
 
         if df is None or df.empty:
@@ -135,7 +141,7 @@ if not st.session_state.get("_TRUTHFRAME_POPULATED", False):
     truth = get_active_truthframe()
 
     if truth:
-        for wave in truth.keys():
+        for wave in list(truth.keys()):
             truth[wave]["alpha"] = compute_alpha_attribution(wave)
 
         st.session_state["CANONICAL_TRUTHFRAME"] = truth
@@ -176,73 +182,59 @@ if "run_seq" not in st.session_state:
 else:
     st.session_state.run_seq += 1
     st.session_state.last_run_time = datetime.now(timezone.utc)
-# ============================================================================
-# SECTION 1: CONFIGURATION AND STYLING
-# ============================================================================
 
-# NOTE: st.set_page_config() moved to main() function to avoid import-time execution
 
-# ============================================================================
-# PROOF BANNER - Diagnostics and Visibility (moved to render_proof_banner)
-# ============================================================================
+# ============================================================
+# PROOF BANNER - Diagnostics and Visibility
+# ============================================================
 
 def render_proof_banner():
     """
     Render proof banner with diagnostics information.
-    Moved from module level to function to avoid import-time execution.
+    Safe for Streamlit Cloud and local execution.
     """
-    # Initialize run counter in session state
-    if "proof_run_counter" not in st.session_state:
-        st.session_state.proof_run_counter = 0
-    else:
-        st.session_state.proof_run_counter += 1
+    st.session_state.proof_run_counter = st.session_state.get("proof_run_counter", 0) + 1
 
-    # Get basename of __file__
     try:
         file_basename = os.path.basename(__file__)
     except Exception:
         file_basename = "app.py"
 
-    # Get GIT SHA with best-effort fallback
     git_sha_proof = "SHA unavailable"
     try:
-        # Try environment variable first
-        git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
+        git_sha_env = os.environ.get("GIT_SHA") or os.environ.get("BUILD_ID")
         if git_sha_env:
             git_sha_proof = git_sha_env
         else:
-            # Try reading from git command
             result = subprocess.run(
-                ['git', 'rev-parse', '--short', 'HEAD'],
+                ["git", "rev-parse", "--short", "HEAD"],
                 capture_output=True,
                 text=True,
                 timeout=2,
-                cwd=os.path.dirname(os.path.abspath(__file__))
+                cwd=os.path.dirname(os.path.abspath(__file__)),
             )
             if result.returncode == 0 and result.stdout.strip():
                 git_sha_proof = result.stdout.strip()
     except Exception:
-        # Keep default "SHA unavailable" - never crash
         pass
 
-    # Display Proof Banner
     st.markdown(
         f"""
-        <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
-            <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
-                🔍 PROOF BANNER - DIAGNOSTICS MODE
+        <div style="background-color:#2d2d2d;padding:12px 20px;
+                    border:2px solid #ff9800;margin-bottom:16px;border-radius:6px;">
+            <div style="color:#ff9800;font-size:14px;font-family:monospace;font-weight:bold;">
+                🔍 PROOF BANNER — DIAGNOSTICS MODE
             </div>
-            <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
+            <div style="color:#e0e0e0;font-size:12px;font-family:monospace;">
                 <strong>FILE:</strong> {file_basename}<br>
                 <strong>GIT SHA:</strong> {git_sha_proof}<br>
-                <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
-                <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
+                <strong>UTC:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
+                <strong>RUN:</strong> {st.session_state.proof_run_counter}
             </div>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
-
 # ============================================================================
 # WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
 # ============================================================================
