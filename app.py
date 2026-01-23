@@ -11,16 +11,22 @@ from typing import Dict, Any, List, Tuple
 import streamlit as st
 import pandas as pd
 import numpy as np
+
 from helpers.circuit_breaker import reset_all_circuit_breakers
 
-reset_all_circuit_breakers()
+# ============================================================
+# ONE-TIME CIRCUIT BREAKER RESET (SAFE, SESSION-GUARDED)
+# ============================================================
+if "circuit_breaker_reset_done" not in st.session_state:
+    reset_all_circuit_breakers()
+    st.session_state["circuit_breaker_reset_done"] = True
+
 # ============================================================
 # LOGGING (SINGLE, CANONICAL SETUP)
 # ============================================================
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
-
 # ============================================================
 # CANONICAL HORIZONS
 # ============================================================
