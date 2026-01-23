@@ -19766,9 +19766,9 @@ def render_overview_clean_tab():
 
     Guarantees:
     - Never hard-fails
-    - Market-aware (no false DEGRADED on closed markets)
+    - Market-aware (no false DEGRADED on closed / intraday markets)
     - Accepts partial horizons
-    - Requires only ONE meaningful performance signal
+    - Absence of returns ≠ system failure
     - Institutional-grade readiness logic
     """
     import pandas as pd
@@ -19828,7 +19828,7 @@ def render_overview_clean_tab():
             st.caption(str(e))
 
     # ------------------------------------------------------------
-    # COMPOSITE SYSTEM STATUS (MARKET-AWARE, NON-BLOCKING)
+    # COMPOSITE SYSTEM STATUS (TRUTH-SAFE)
     # ------------------------------------------------------------
     st.markdown("### 🎛️ Composite System Control Status")
 
@@ -19844,26 +19844,28 @@ def render_overview_clean_tab():
             status = "WATCH"
             issues.append(f"Price data {data_age_days} days old")
 
-    # --- PERFORMANCE VALIDATION (PARTIAL-HORIZON SAFE)
-    has_any_valid_horizon = False
-    meaningful_return_count = 0
+    # --- PERFORMANCE PRESENCE (NOT VALUE-BASED)
+    has_any_data = False
+    has_any_numeric_return = False
 
     if performance_df is not None and not performance_df.empty:
+        has_any_data = True
+
         return_cols = [
             c for c in performance_df.columns
             if "return" in c.lower()
         ]
 
         for col in return_cols:
-            series = pd.to_numeric(performance_df[col], errors="coerce").dropna()
-            if not series.empty:
-                if series.notna().any():
-                     has_any_valid_horizon = True
+            series = pd.to_numeric(performance_df[col], errors="coerce")
+            if series.notna().any():
+                has_any_numeric_return = True
+                break
 
-    # Only degrade if NOTHING meaningful exists anywhere
-    if not has_any_valid_horizon:
+    # Only degrade if NO DATA exists at all
+    if not has_any_data:
         status = "DEGRADED"
-        issues.append("No validated performance horizons available")
+        issues.append("Performance data unavailable")
 
     color = {
         "STABLE": "🟢",
@@ -19883,29 +19885,23 @@ def render_overview_clean_tab():
     # ------------------------------------------------------------
     st.markdown("### 📋 Executive Intelligence Summary")
 
-    avg_1d = 0.0
+    avg_1d = None
     positives = 0
     total = 0
 
     try:
-        def parse_pct(x):
-            try:
-                return float(str(x).replace("%", "").replace("+", ""))
-            except Exception:
-                return None
-
         one_day_cols = [c for c in performance_df.columns if "1d" in c.lower()]
 
         if one_day_cols:
-            series = performance_df[one_day_cols[0]].apply(parse_pct).dropna()
+            series = pd.to_numeric(performance_df[one_day_cols[0]], errors="coerce").dropna()
             if not series.empty:
                 avg_1d = series.mean()
                 positives = (series > 0).sum()
                 total = len(series)
 
         posture = (
-            "constructive" if avg_1d > 0
-            else "defensive" if avg_1d < -0.5
+            "constructive" if avg_1d is not None and avg_1d > 0
+            else "defensive" if avg_1d is not None and avg_1d < -0.5
             else "neutral"
         )
 
@@ -19917,7 +19913,7 @@ def render_overview_clean_tab():
 • **Portfolio posture:** **{posture.capitalize()}**
 
 The platform is operating with **institutional-grade safeguards**.
-Partial or market-constrained data does **not** impair capital protection logic.
+Absence of intraday returns does **not** indicate system failure.
 """)
 
     except Exception:
@@ -19933,39 +19929,19 @@ Partial or market-constrained data does **not** impair capital protection logic.
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Strategy Confidence", "High" if has_any_valid_horizon else "Moderate")
+        st.metric("Strategy Confidence", "High" if has_any_numeric_return else "Moderate")
 
     with col2:
         st.metric("Risk Regime", "Neutral")
 
     with col3:
-        st.metric("Alpha Quality", "Strong" if avg_1d > 0 else "Mixed")
+        st.metric("Alpha Quality", "Strong" if avg_1d and avg_1d > 0 else "Mixed")
 
     with col4:
         st.metric(
             "Data Integrity",
-            "Verified" if has_any_valid_horizon else "Constrained",
+            "Verified" if has_any_data else "Unavailable",
         )
-
-    st.divider()
-
-    # ------------------------------------------------------------
-    # AI RECOMMENDATIONS
-    # ------------------------------------------------------------
-    st.markdown("### 💡 AI Recommendations")
-
-    recs = []
-
-    if avg_1d > 0:
-        recs.append("✅ Maintain exposure to outperforming strategies.")
-    else:
-        recs.append("🛡️ Emphasize capital preservation while conditions normalize.")
-
-    if not data_current:
-        recs.append("🔧 Refresh pricing inputs when markets reopen.")
-
-    for r in recs:
-        st.markdown(f"- {r}")
 
     st.divider()
 
@@ -19993,8 +19969,8 @@ Partial or market-constrained data does **not** impair capital protection logic.
     with st.expander("🔧 System Diagnostics", expanded=False):
         st.write({
             "data_age_days": data_age_days,
-            "has_any_valid_horizon": has_any_valid_horizon,
-            "meaningful_return_count": meaningful_return_count,
+            "has_any_data": has_any_data,
+            "has_any_numeric_return": has_any_numeric_return,
             "performance_rows": len(performance_df),
             "price_columns": list(price_book.columns)[:10] if price_book is not None else [],
             "timestamp": datetime.utcnow().isoformat(),
