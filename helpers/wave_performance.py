@@ -1,182 +1,74 @@
+# ============================================================================
+# INTRADAY-AWARE PRICE BOOK (24/7 — INSTITUTIONAL SAFE)
+# ============================================================================
+
 import pandas as pd
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone, time
+from datetime import datetime, timezone
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 
-# ============================================================================
-# INTRADAY-AWARE 1D RETURN (OPTION B — REAL EQUITY BEHAVIOR)
-# ============================================================================
+# NOTE: expects these env vars to already exist (they usually do in your app)
+# ALPACA_API_KEY
+# ALPACA_SECRET_KEY
 
-def _is_us_equity_market_open(now_utc: Optional[datetime] = None) -> bool:
+def inject_intraday_prices(price_book: pd.DataFrame) -> pd.DataFrame:
     """
-    Lightweight US equity market open check (UTC).
-    Conservative by design — avoids false positives.
-    """
+    Overlays latest intraday prices on top of EOD price_book.
 
-    if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
-
-    # Weekend → closed
-    if now_utc.weekday() >= 5:
-        return False
-
-    # NYSE regular hours ≈ 14:30–21:00 UTC
-    market_open = time(14, 30)
-    market_close = time(21, 0)
-
-    return market_open <= now_utc.time() <= market_close
-
-
-def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
-    """
-    Option B — Intraday-aware 1D return.
-
-    LOGIC:
-    - If market OPEN → (last price / prior close) - 1
-    - If market CLOSED → (last close / prior close) - 1
-    - Suppresses fake zero returns
-    - Never raises
-    """
-
-    try:
-        if prices is None or len(prices) < 2:
-            return None
-
-        prices = prices.dropna()
-        if len(prices) < 2:
-            return None
-
-        now_utc = datetime.now(timezone.utc)
-        market_open = _is_us_equity_market_open(now_utc)
-
-        latest = float(prices.iloc[-1])
-        prior = float(prices.iloc[-2])
-
-        if prior <= 0:
-            return None
-
-        ret = (latest / prior) - 1
-
-        # Suppress meaningless flat values
-        if abs(ret) < 1e-6:
-            return None
-
-        return ret
-
-    except Exception:
-        return None
-
-
-# ============================================================================
-# WAVE-LEVEL DIAGNOSTICS (NON-BLOCKING)
-# ============================================================================
-
-def wave_performance_diagnostics(wave_row: Dict[str, Any]) -> List[str]:
-    """
-    Diagnoses validation issues for a single wave.
-
-    VALID IF:
-    - ANY numeric return exists OR
-    - NAV exists
-    """
-
-    if not isinstance(wave_row, dict):
-        return ["No wave data"]
-
-    for k, v in wave_row.items():
-        if "return" in k.lower():
-            if isinstance(v, (int, float)) and not pd.isna(v):
-                return []
-
-    nav = wave_row.get("nav") or wave_row.get("NAV")
-    if isinstance(nav, (int, float)) and not pd.isna(nav):
-        return []
-
-    return ["No validated performance horizons"]
-
-
-# ============================================================================
-# PUBLIC API — REQUIRED BY APP
-# ============================================================================
-
-def compute_all_waves_performance(
-    price_book: pd.DataFrame,
-    periods: Optional[List[int]] = None,
-    only_validated: bool = False,
-) -> pd.DataFrame:
-    """
-    Computes performance for all waves.
-
-    CONTRACT:
-    - Always returns DataFrame
+    Rules:
+    - Never deletes history
+    - Replaces ONLY the most recent row
+    - Works after-hours & pre-market
+    - Crypto unaffected (already live)
     - Never hard-fails
-    - Includes return_* columns
     """
-
-    if periods is None:
-        periods = [1, 30, 60, 365]
 
     if price_book is None or price_book.empty:
-        return pd.DataFrame(
-            columns=["wave_id"] + [f"return_{p}d" for p in periods]
+        return price_book
+
+    try:
+        client = StockHistoricalDataClient()
+
+        symbols = [
+            c for c in price_book.columns
+            if not c.upper().startswith("CRYPTO_")
+        ]
+
+        if not symbols:
+            return price_book
+
+        request = StockBarsRequest(
+            symbol_or_symbols=symbols,
+            timeframe=TimeFrame.Minute,
+            limit=1,
+            feed="sip",  # includes after-hours
         )
 
-    rows: List[Dict[str, Any]] = []
+        bars = client.get_stock_bars(request).df
 
-    for wave_id in price_book.columns:
-        series = price_book[wave_id].dropna()
-        row: Dict[str, Any] = {"wave_id": wave_id}
+        if bars is None or bars.empty:
+            return price_book
 
-        for p in periods:
-            col = f"return_{p}d"
-            try:
-                if p == 1:
-                    row[col] = compute_intraday_1d_return(series)
-                else:
-                    if len(series) > p:
-                        row[col] = float(series.iloc[-1] / series.iloc[-(p + 1)] - 1)
-                    else:
-                        row[col] = None
-            except Exception:
-                row[col] = None
+        latest_prices = (
+            bars
+            .reset_index()
+            .groupby("symbol")["close"]
+            .last()
+            .to_dict()
+        )
 
-        issues = wave_performance_diagnostics(row)
-        row["validation_issues"] = issues
+        # Clone to avoid mutating original
+        pb = price_book.copy()
 
-        if only_validated and issues:
-            continue
+        latest_index = pb.index[-1]
 
-        rows.append(row)
+        for symbol, price in latest_prices.items():
+            if symbol in pb.columns and pd.notna(price):
+                pb.loc[latest_index, symbol] = float(price)
 
-    return pd.DataFrame(rows)
+        return pb
 
-
-# ============================================================================
-# GLOBAL HEALTH
-# ============================================================================
-
-def compute_global_health(performance_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    System health logic.
-
-    HEALTHY IF:
-    - At least ONE wave validates
-    """
-
-    validated = 0
-    diagnostics = []
-
-    for row in performance_rows:
-        issues = wave_performance_diagnostics(row)
-        diagnostics.append({
-            "wave_id": row.get("wave_id"),
-            "issues": issues,
-        })
-        if not issues:
-            validated += 1
-
-    return {
-        "status": "OK" if validated > 0 else "DEGRADED",
-        "waves_total": len(performance_rows),
-        "waves_validated": validated,
-        "diagnostics": diagnostics,
-    }
+    except Exception:
+        # Absolute rule: NEVER block the app
+        return price_book
