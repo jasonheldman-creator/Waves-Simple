@@ -1,162 +1,128 @@
+# app_min.py
+# WAVES Recovery Kernel — SAFE HYDRATION VERSION
+
 import streamlit as st
-import sys
-import os
 import traceback
-from types import SimpleNamespace
 
-# ==========================================================
-# WAVES — STREAMLIT RECOVERY KERNEL (CONTROLLED)
-# ==========================================================
+st.set_page_config(
+    page_title="WAVES — Recovery Mode",
+    layout="wide",
+)
 
-# ----------------------------------------------------------
-# BOOT CONFIRMATION (must execute unconditionally)
-# ----------------------------------------------------------
+st.markdown("# 🌊 WAVES — Recovery Mode")
+st.success("Recovery kernel running")
 
-st.error("APP_MIN EXECUTION STARTED")
-st.write("🟢 STREAMLIT EXECUTION STARTED")
-st.write("🟢 app_min.py reached line 1")
+# -------------------------------------------------------------------
+# Environment
+# -------------------------------------------------------------------
+st.markdown("### 🧭 Runtime environment")
 
-# ----------------------------------------------------------
-# MAIN ENTRYPOINT
-# ----------------------------------------------------------
-
-def main():
-    st.title("WAVES — Recovery Mode")
-    st.success("Recovery kernel running")
-
-    # ------------------------------------------------------
-    # RUNTIME ENVIRONMENT
-    # ------------------------------------------------------
-
-    st.divider()
-    st.write("🧭 Runtime environment")
-
-    st.write("Python:", sys.version)
-    st.write("Executable:", sys.executable)
-    st.write("Working directory:", os.getcwd())
+try:
+    import sys
+    st.code(f"Python: {sys.version}")
+    st.code(f"Executable: {sys.executable}")
+    st.code(f"Working dir: {sys.path[0]}")
     st.success("Environment visible")
+except Exception as e:
+    st.error("Environment inspection failed")
+    st.exception(e)
 
-    # ------------------------------------------------------
-    # WAVES MODULE LOAD
-    # ------------------------------------------------------
+# -------------------------------------------------------------------
+# Import WAVES module
+# -------------------------------------------------------------------
+st.markdown("### 🔍 waves module check")
 
-    st.divider()
-    st.write("🔍 waves module check")
+try:
+    import waves
+    st.success("waves imported successfully")
+    st.code(waves.__file__)
+except Exception as e:
+    st.error("Failed to import waves")
+    st.exception(e)
+    st.stop()
 
+# -------------------------------------------------------------------
+# Contract discovery
+# -------------------------------------------------------------------
+st.markdown("### 🧪 Contract discovery (read-only)")
+
+public_symbols = [
+    s for s in dir(waves)
+    if not s.startswith("_")
+]
+
+st.code(public_symbols)
+
+has_init = hasattr(waves, "initialize_waves")
+has_truth_df = hasattr(waves, "truth_df")
+has_ids = hasattr(waves, "unique_wave_ids")
+
+st.write("initialize_waves:", has_init)
+st.write("truth_df exists:", has_truth_df)
+st.write("unique_wave_ids exists:", has_ids)
+
+if not has_init:
+    st.error("initialize_waves() missing — cannot proceed")
+    st.stop()
+
+# -------------------------------------------------------------------
+# Hydrate inputs SAFELY
+# -------------------------------------------------------------------
+st.markdown("### 🧠 Current state (hydration)")
+
+truth_df = getattr(waves, "truth_df", None)
+unique_wave_ids = getattr(waves, "unique_wave_ids", None)
+
+st.write("truth_df type:", type(truth_df))
+st.write("unique_wave_ids type:", type(unique_wave_ids))
+
+# Validate truth_df
+if truth_df is None:
+    st.error("truth_df is None — initialization blocked")
+    st.stop()
+
+# Validate wave IDs
+if not isinstance(unique_wave_ids, (list, tuple)):
+    st.error("unique_wave_ids is not a list/tuple")
+    st.stop()
+
+st.write("Number of wave IDs:", len(unique_wave_ids))
+
+if len(unique_wave_ids) == 0:
+    st.error("unique_wave_ids is empty — no waves to initialize")
+    st.stop()
+
+# -------------------------------------------------------------------
+# Controlled execution gate
+# -------------------------------------------------------------------
+st.warning(
+    "Initialization will only run if the contract is satisfied."
+)
+
+if st.button("🚀 Initialize WAVES (safe)"):
+    st.markdown("### ⏳ Initializing WAVES...")
     try:
-        import waves
-        st.success("✅ waves imported successfully")
-        st.code(waves.__file__)
+        result = waves.initialize_waves(
+            truth_df=truth_df,
+            unique_wave_ids=unique_wave_ids,
+        )
+        st.success("initialize_waves() completed successfully")
+        st.write(result)
     except Exception as e:
-        st.error("❌ waves import failed — hard stop")
-        st.exception(e)
+        st.error("initialize_waves() failed")
         st.code(traceback.format_exc())
-        return
+        st.stop()
 
-    # ------------------------------------------------------
-    # CONTRACT DISCOVERY (READ-ONLY)
-    # ------------------------------------------------------
-
-    st.divider()
-    st.write("🧪 Contract discovery (read-only)")
-
-    public_symbols = [s for s in dir(waves) if not s.startswith("_")]
-    st.write("Public symbols:", public_symbols)
-
-    has_init = hasattr(waves, "initialize_waves")
-    has_truth = hasattr(waves, "truth_df")
-    has_ids = hasattr(waves, "unique_wave_ids")
-
-    st.write("initialize_waves:", has_init)
-    st.write("truth_df exists:", has_truth)
-    st.write("unique_wave_ids exists:", has_ids)
-
-    # ------------------------------------------------------
-    # CURRENT STATE SNAPSHOT
-    # ------------------------------------------------------
-
-    st.divider()
-    st.write("🧠 Current state")
-
-    truth_df_existing = getattr(waves, "truth_df", None)
-    unique_ids_existing = getattr(waves, "unique_wave_ids", None)
-
-    st.write("truth_df type:", type(truth_df_existing))
-    st.write("unique_wave_ids type:", type(unique_ids_existing))
-    st.write(
-        "Number of wave IDs:",
-        len(unique_ids_existing) if isinstance(unique_ids_existing, list) else "N/A"
-    )
-
-    # ------------------------------------------------------
-    # CONTROLLED INITIALIZATION GATE
-    # ------------------------------------------------------
-
-    st.divider()
-    st.warning(
-        "⚠️ Controlled execution gate\n\n"
-        "Initialization will only run if the contract is satisfied."
-    )
-
-    if st.button("🚀 Initialize WAVES (safe)"):
-        st.write("⏳ Initializing WAVES…")
-
-        try:
-            # --------------------------------------------------
-            # BUILD MINIMAL VALID INPUTS
-            # --------------------------------------------------
-
-            # Create a minimal truth_df object with required structure
-            truth_df = SimpleNamespace()
-            truth_df.waves = {}
-
-            # Use discovered wave IDs if present, otherwise empty list
-            unique_wave_ids = (
-                unique_ids_existing
-                if isinstance(unique_ids_existing, list)
-                else []
-            )
-
-            st.write("truth_df prepared:", truth_df)
-            st.write("unique_wave_ids:", unique_wave_ids)
-
-            # --------------------------------------------------
-            # CALL INITIALIZE_WAVES CORRECTLY
-            # --------------------------------------------------
-
-            result = waves.initialize_waves(
-                truth_df,
-                unique_wave_ids
-            )
-
-            st.success("✅ initialize_waves() completed")
-            st.write("Result:", result)
-            st.write("truth_df.waves keys:", list(truth_df.waves.keys()))
-
-        except Exception as e:
-            st.error("❌ initialize_waves() failed")
-            st.exception(e)
-            st.code(traceback.format_exc())
-
-    # ------------------------------------------------------
-    # STATUS
-    # ------------------------------------------------------
-
-    st.divider()
-    st.info(
-        "Recovery Mode ACTIVE\n\n"
-        "✔ Streamlit healthy\n"
-        "✔ Environment validated\n"
-        "✔ waves module loadable\n"
-        "✔ Contract inspected\n"
-        "✔ Execution gated safely\n\n"
-        "Next step: full app rehydration."
-    )
-
-
-# ----------------------------------------------------------
-# ENTRYPOINT
-# ----------------------------------------------------------
-
-if __name__ == "__main__":
-    main()
+# -------------------------------------------------------------------
+# Status
+# -------------------------------------------------------------------
+st.markdown("---")
+st.info(
+    "Recovery Mode ACTIVE\n\n"
+    "✓ Streamlit healthy\n"
+    "✓ Environment healthy\n"
+    "✓ waves module loadable\n"
+    "✓ Contract inspected\n"
+    "✓ Execution gated safely\n\n"
+    "Next step: full app rehydration."
+)
