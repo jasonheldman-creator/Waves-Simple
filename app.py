@@ -19844,7 +19844,6 @@ def render_overview_clean_tab():
         for col in return_cols:
             series = pd.to_numeric(performance_df[col], errors="coerce").dropna()
             if not series.empty:
-                meaningful_return_count += (series.abs() > 0).sum()
                 if series.notna().any():
                      has_any_valid_horizon = True
 
