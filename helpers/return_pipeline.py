@@ -1,31 +1,47 @@
+import numpy as np
+
+
 def compute_wave_returns_pipeline(wave_data, horizons):
+    """
+    Compute wave returns, benchmark returns, and alpha independently
+    for each horizon.
+
+    Rules:
+    - Each horizon is computed independently
+    - Insufficient data → emit NaN (not exclusion)
+    - A wave is excluded ONLY if ALL horizons are unavailable
+    - Output is one row per wave per horizon
+    """
+
     results = []
+
     for wave in wave_data:
-        wave_returns = {'wave_return': None, 'benchmark_return': None, 'alpha': None}
-        all_horizons_available = True
+        any_horizon_available = False
+        wave_rows = []
 
         for horizon in horizons:
-            # Check if there is sufficient data for the horizon
             if has_sufficient_data(wave, horizon):
-                # Calculate returns and update the results
-                wave_returns['wave_return'] = calculate_wave_return(wave, horizon)
-                wave_returns['benchmark_return'] = calculate_benchmark_return(wave, horizon)
-                wave_returns['alpha'] = wave_returns['wave_return'] - wave_returns['benchmark_return']
+                wave_return = calculate_wave_return(wave, horizon)
+                benchmark_return = calculate_benchmark_return(wave, horizon)
+                alpha = wave_return - benchmark_return
+                any_horizon_available = True
             else:
-                # Emit NaN for insufficient data
-                wave_returns['wave_return'] = np.nan
-                wave_returns['benchmark_return'] = np.nan
-                wave_returns['alpha'] = np.nan
-                all_horizons_available = False
+                wave_return = np.nan
+                benchmark_return = np.nan
+                alpha = np.nan
 
-        # If all horizons are available, include the wave
-        if not all_horizons_available:
-            if is_any_data_available(wave_returns):
-                results.append(wave_returns)
-            # If no data available for any horizon, exclude the wave completely
-        else:
-            results.append(wave_returns)
+            wave_rows.append({
+                "wave": wave,
+                "horizon": horizon,
+                "wave_return": wave_return,
+                "benchmark_return": benchmark_return,
+                "alpha": alpha,
+            })
+
+        # Exclude wave ONLY if no horizons had sufficient data
+        if not any_horizon_available:
+            continue
+
+        results.extend(wave_rows)
 
     return results
-
-# Ensure integrity of existing functions and comments remain unchanged.
