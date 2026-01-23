@@ -1,36 +1,66 @@
-def wave_performance_diagnostics(wave_data):
+import pandas as pd
+from typing import Dict, Any, List
+
+
+def wave_performance_diagnostics(wave_row: Dict[str, Any]) -> List[str]:
     """
-    Isolates and records reasons for validation issues at the wave level.
-    It does this without impacting global health computations.
+    Diagnoses validation issues for a single wave performance row.
+    Does NOT block the system — only reports issues.
     """
     issues = []
 
-    # Check for null or invalid values
-    if wave_data is None:
-        issues.append('No data provided')
-        return issues
+    if wave_row is None:
+        return ["No wave performance data"]
 
-    # Example validation checks
-    if not isinstance(wave_data.get('amplitude'), (int, float)):
-        issues.append('Invalid amplitude value')
-    if not isinstance(wave_data.get('frequency'), (int, float)):
-        issues.append('Invalid frequency value')
+    # Accept ANY valid numeric return as sufficient
+    return_fields = [
+        "return_1d",
+        "return_30d",
+        "return_60d",
+        "return_365d",
+    ]
 
-    # Additional checks can be implemented following the tiered health logic
-    #...
+    has_valid_return = False
+
+    for field in return_fields:
+        val = wave_row.get(field)
+        if isinstance(val, (int, float)) and not pd.isna(val):
+            has_valid_return = True
+            break
+
+    if not has_valid_return:
+        issues.append("No valid return horizons")
 
     return issues
 
-# Integration with global health computation (pseudocode)
-def compute_global_health(wave_list):
-    """
-    Computes global health based on validated wave data.
-    Substitutes wave performance diagnostics as needed.
-    """
-    for wave in wave_list:
-        validation_issues = wave_performance_diagnostics(wave)
-        if validation_issues:
-            record_validation_issues(wave, validation_issues)
-    # Proceed with global health calculation
 
+def compute_global_health(performance_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Computes global performance health based on wave-level diagnostics.
+    SAFE:
+    - Accepts partial horizons
+    - Requires only ONE valid return anywhere
+    """
 
+    total = len(performance_rows)
+    validated = 0
+    diagnostics = []
+
+    for row in performance_rows:
+        issues = wave_performance_diagnostics(row)
+        diagnostics.append({
+            "wave_id": row.get("wave_id"),
+            "issues": issues,
+        })
+
+        if not issues:
+            validated += 1
+
+    status = "OK" if validated > 0 else "DEGRADED"
+
+    return {
+        "status": status,
+        "waves_total": total,
+        "waves_validated": validated,
+        "diagnostics": diagnostics,
+    }
