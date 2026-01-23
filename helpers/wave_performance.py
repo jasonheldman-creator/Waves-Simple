@@ -1,5 +1,60 @@
 import pandas as pd
 from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone
+
+# ============================================================================
+# INTRADAY-AWARE RETURN LOGIC
+# ============================================================================
+
+def _is_market_open_utc(now_utc: Optional[datetime] = None) -> bool:
+    """
+    Determines whether US equity markets are likely open.
+    Uses a conservative UTC cutoff (21:00 UTC ≈ 4pm ET).
+    """
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+
+    # Weekends → closed
+    if now_utc.weekday() >= 5:
+        return False
+
+    # Before 4pm ET ≈ 21:00 UTC → intraday
+    return now_utc.hour < 21
+
+
+def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
+    """
+    Intraday-aware 1D return.
+
+    RULES:
+    - If market is open → last price vs today's open proxy
+    - If market is closed → close-to-close
+    - Never raises
+    """
+
+    try:
+        if prices is None or len(prices) < 2:
+            return None
+
+        latest = float(prices.iloc[-1])
+
+        if _is_market_open_utc():
+            # Intraday proxy: compare to most recent prior close
+            base = float(prices.iloc[-2])
+        else:
+            # Market closed: close-to-close
+            if len(prices) < 2:
+                return None
+            base = float(prices.iloc[-2])
+
+        if base <= 0:
+            return None
+
+        return (latest / base) - 1
+
+    except Exception:
+        return None
+
 
 # ============================================================================
 # WAVE-LEVEL DIAGNOSTICS (NON-BLOCKING, CSV + COMPUTED SAFE)
@@ -28,11 +83,11 @@ def wave_performance_diagnostics(wave_row: Dict[str, Any]) -> List[str]:
                 return []  # VALIDATED
 
     # ------------------------------------------------------------
-    # 2) NAV fallback (computed pipelines may not inject returns)
+    # 2) NAV fallback
     # ------------------------------------------------------------
     nav = wave_row.get("nav") or wave_row.get("NAV")
     if isinstance(nav, (int, float)) and not pd.isna(nav):
-        return []  # VALIDATED via NAV presence
+        return []  # VALIDATED via NAV
 
     # ------------------------------------------------------------
     # 3) Truly invalid
@@ -79,11 +134,15 @@ def compute_all_waves_performance(
 
         for p in periods:
             col = f"return_{p}d"
+
             try:
-                if len(series) > p:
-                    row[col] = float(series.iloc[-1] / series.iloc[-(p + 1)] - 1)
+                if p == 1:
+                    row[col] = compute_intraday_1d_return(series)
                 else:
-                    row[col] = None
+                    if len(series) > p:
+                        row[col] = float(series.iloc[-1] / series.iloc[-(p + 1)] - 1)
+                    else:
+                        row[col] = None
             except Exception:
                 row[col] = None
 
