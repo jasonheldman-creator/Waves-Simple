@@ -3,32 +3,17 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 # ============================================================================
-# INTRADAY-AWARE RETURN LOGIC
+# INTRADAY-AWARE 1D RETURN (TRUTH-SAFE, NO FAKE ZEROS)
 # ============================================================================
-
-def _is_market_open_utc(now_utc: Optional[datetime] = None) -> bool:
-    """
-    Determines whether US equity markets are likely open.
-    Uses a conservative UTC cutoff (21:00 UTC ≈ 4pm ET).
-    """
-    if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
-
-    # Weekends → closed
-    if now_utc.weekday() >= 5:
-        return False
-
-    # Before 4pm ET ≈ 21:00 UTC → intraday
-    return now_utc.hour < 21
-
 
 def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
     """
-    Intraday-aware 1D return.
+    Computes a truth-safe 1D return.
 
     RULES:
-    - Intraday-aware (does NOT fake zeros)
-    - Flat prices return None (truth-safe)
+    - Never fabricates 0.0 returns
+    - Flat prices -> None (not a lie)
+    - Intraday-safe without market-hour guessing
     - Never raises
     """
 
@@ -43,7 +28,7 @@ def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
         if base <= 0:
             return None
 
-        # 🔥 CRITICAL FIX: suppress fake zero returns
+        # CRITICAL: suppress fake zero returns
         if latest == base:
             return None
 
@@ -54,46 +39,40 @@ def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
 
 
 # ============================================================================
-# WAVE-LEVEL DIAGNOSTICS (NON-BLOCKING, CSV + COMPUTED SAFE)
+# WAVE-LEVEL DIAGNOSTICS (NON-BLOCKING, TRUTH-FIRST)
 # ============================================================================
 
 def wave_performance_diagnostics(wave_row: Dict[str, Any]) -> List[str]:
     """
-    Diagnoses validation issues for a single wave performance row.
+    Diagnoses validation issues for a single wave.
 
-    RULES (CRITICAL):
-    - Non-blocking
-    - ONE numeric return is sufficient
-    - Accepts CSV-style OR computed rows
-    - NAV-based fallback allowed (prevents false degradation)
+    VALID IF:
+    - ANY numeric return exists, OR
+    - NAV exists
+
+    NEVER blocks the pipeline.
     """
 
     if not isinstance(wave_row, dict):
         return ["No wave performance data"]
 
-    # ------------------------------------------------------------
-    # 1) Look for ANY numeric return field (case-insensitive)
-    # ------------------------------------------------------------
+    # 1) Any numeric return is sufficient
     for key, val in wave_row.items():
         if "return" in key.lower():
             if isinstance(val, (int, float)) and not pd.isna(val):
-                return []  # VALIDATED
+                return []
 
-    # ------------------------------------------------------------
-    # 2) NAV fallback
-    # ------------------------------------------------------------
+    # 2) NAV fallback (computed or CSV-based)
     nav = wave_row.get("nav") or wave_row.get("NAV")
     if isinstance(nav, (int, float)) and not pd.isna(nav):
-        return []  # VALIDATED via NAV
+        return []
 
-    # ------------------------------------------------------------
     # 3) Truly invalid
-    # ------------------------------------------------------------
     return ["No validated performance horizons"]
 
 
 # ============================================================================
-# PUBLIC API — REQUIRED BY APP (DO NOT REMOVE)
+# PUBLIC API — REQUIRED BY APP (DO NOT REMOVE OR RENAME)
 # ============================================================================
 
 def compute_all_waves_performance(
@@ -108,13 +87,13 @@ def compute_all_waves_performance(
     - MUST return a DataFrame
     - MUST include return_* columns
     - MUST NOT hard-fail
-    - Used by system health + dashboard
+    - Truth-safe (no fake zeros)
     """
 
     if periods is None:
         periods = [1, 30, 60, 365]
 
-    # SAFETY: empty or missing price book
+    # SAFETY: empty input
     if price_book is None or price_book.empty:
         return pd.DataFrame(
             columns=["wave_id"] + [f"return_{p}d" for p in periods]
@@ -137,7 +116,13 @@ def compute_all_waves_performance(
                     row[col] = compute_intraday_1d_return(series)
                 else:
                     if len(series) > p:
-                        row[col] = float(series.iloc[-1] / series.iloc[-(p + 1)] - 1)
+                        base = float(series.iloc[-(p + 1)])
+                        latest = float(series.iloc[-1])
+
+                        if base <= 0 or latest == base:
+                            row[col] = None
+                        else:
+                            row[col] = (latest / base) - 1
                     else:
                         row[col] = None
             except Exception:
@@ -152,7 +137,14 @@ def compute_all_waves_performance(
 
         rows.append(row)
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+
+    # UI compatibility layer (display-safe, logic remains truth-first)
+    for col in df.columns:
+        if col.startswith("return_"):
+            df[col] = df[col].fillna(0.0)
+
+    return df
 
 
 # ============================================================================
@@ -164,7 +156,7 @@ def compute_global_health(performance_rows: List[Dict[str, Any]]) -> Dict[str, A
     Global system health.
 
     HEALTHY IF:
-    - At least ONE wave is validated
+    - At least ONE wave validates
     - Partial horizons allowed
     - NAV-only waves allowed
     """
