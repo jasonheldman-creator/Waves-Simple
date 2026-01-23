@@ -6,8 +6,7 @@ from types import ModuleType
 
 # ==========================================================
 # WAVES — STREAMLIT RECOVERY KERNEL
-# This file is intentionally defensive, verbose, and safe.
-# It is the single trusted entrypoint while the system heals.
+# Single trusted entrypoint while the system heals
 # ==========================================================
 
 # ----------------------------------------------------------
@@ -60,7 +59,7 @@ def main():
         return  # NEVER proceed if this fails
 
     # ------------------------------------------------------
-    # WAVES MODULE INTROSPECTION (READ-ONLY, SAFE)
+    # WAVES MODULE INTROSPECTION (READ-ONLY)
     # ------------------------------------------------------
 
     st.divider()
@@ -77,7 +76,6 @@ def main():
         st.write("Total public symbols:", len(public_symbols))
         st.write("Public symbols (first 40):", public_symbols[:40])
 
-        # Classify symbols WITHOUT touching behavior
         functions = []
         classes = []
         submodules = []
@@ -92,7 +90,7 @@ def main():
                 elif callable(attr):
                     functions.append(name)
             except Exception:
-                pass  # stay purely observational
+                pass  # strictly read-only
 
         st.divider()
         st.write("🧬 waves symbol breakdown")
@@ -108,6 +106,35 @@ def main():
         st.code(traceback.format_exc())
 
     # ------------------------------------------------------
+    # WAVE ID DISCOVERY (READ-ONLY, NO EXECUTION)
+    # ------------------------------------------------------
+
+    st.divider()
+    st.write("🧭 Wave ID discovery (read-only)")
+
+    try:
+        candidate_symbols = [
+            name for name in dir(waves)
+            if "wave" in name.lower() or "id" in name.lower()
+        ]
+
+        st.write("Candidate wave-related symbols:", candidate_symbols)
+
+        for name in candidate_symbols[:10]:
+            try:
+                attr = getattr(waves, name)
+                st.write(f"{name} →", type(attr))
+            except Exception:
+                pass
+
+        st.success("Wave ID discovery completed safely")
+
+    except Exception as e:
+        st.error("Wave ID discovery failed")
+        st.exception(e)
+        st.code(traceback.format_exc())
+
+    # ------------------------------------------------------
     # RECOVERY STATUS
     # ------------------------------------------------------
 
@@ -117,6 +144,7 @@ def main():
         "✔ Streamlit boot confirmed\n"
         "✔ Environment visible\n"
         "✔ waves imported safely\n"
+        "✔ Wave symbols discovered (read-only)\n"
         "✔ No execution side-effects\n\n"
         "System is ready for selective re-hydration."
     )
