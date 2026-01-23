@@ -6,7 +6,8 @@ All pricing, readiness, diagnostics, governance, and execution intelligence
 must flow through this module.
 
 Core Guarantees:
-- ONE canonical cache: data/cache/prices_cache.parquet
+- ONE canonical EOD cache: data/cache/prices_cache.parquet
+- Optional intraday overlay (read-only, non-authoritative)
 - NO implicit network access
 - Deterministic, reproducible outputs
 - Stable public API (UI-safe + backward compatible)
@@ -16,6 +17,7 @@ import os
 import logging
 import warnings
 from typing import List, Optional, Dict, Any
+from pathlib import Path
 
 import pandas as pd
 import numpy as np
@@ -40,11 +42,17 @@ warnings.warn(
 )
 
 # =============================================================================
-# CANONICAL CACHE CONFIG
+# CACHE CONFIG
 # =============================================================================
 CACHE_DIR = "data/cache"
-CACHE_FILE = "prices_cache.parquet"
-CANONICAL_CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
+
+EOD_CACHE_FILE = "prices_cache.parquet"
+INTRADAY_CACHE_FILE = "intraday_equity_prices.parquet"
+
+EOD_CACHE_PATH = os.path.join(CACHE_DIR, EOD_CACHE_FILE)
+INTRADAY_CACHE_PATH = os.path.join(CACHE_DIR, INTRADAY_CACHE_FILE)
+
+CANONICAL_CACHE_PATH = EOD_CACHE_PATH  # governance anchor
 
 # =============================================================================
 # HEALTH THRESHOLDS
@@ -78,14 +86,13 @@ except ImportError:
 # =============================================================================
 # INTERNAL FALLBACKS (SAFE MODE)
 # =============================================================================
-def _load_cache_fallback() -> pd.DataFrame:
-    if not os.path.exists(CANONICAL_CACHE_PATH):
-        logger.warning("PRICE_BOOK cache missing")
+def _read_parquet_safe(path: str) -> pd.DataFrame:
+    if not os.path.exists(path):
         return pd.DataFrame()
     try:
-        return pd.read_parquet(CANONICAL_CACHE_PATH)
+        return pd.read_parquet(path)
     except Exception as e:
-        logger.error(f"Failed reading cache directly: {e}")
+        logger.warning(f"Failed reading {path}: {e}")
         return pd.DataFrame()
 
 
@@ -94,7 +101,7 @@ def _dedupe_fallback(tickers: List[str]) -> List[str]:
 
 
 # =============================================================================
-# CANONICAL REQUIRED TICKERS (SINGLE SOURCE)
+# REQUIRED TICKERS (SINGLE SOURCE)
 # =============================================================================
 def _get_required_tickers(active_only: bool = True) -> List[str]:
     tickers = collect_required_tickers(active_only=active_only)
@@ -114,44 +121,62 @@ def get_required_tickers(active_only: bool = True) -> List[str]:
 
 
 def get_required_tickers_active_waves() -> List[str]:
-    """
-    Legacy compatibility alias.
-    Required by Reality Panel / Control Center.
-    """
     return _get_required_tickers(active_only=True)
 
 
 # =============================================================================
-# PRICE_BOOK ACCESS (READ-ONLY)
+# PRICE BOOK ACCESS (READ-ONLY, PRIORITY-AWARE)
 # =============================================================================
+def _load_intraday_cache() -> pd.DataFrame:
+    df = _read_parquet_safe(INTRADAY_CACHE_PATH)
+    if not df.empty:
+        logger.info("PRICE_BOOK: using intraday cache")
+    return df
+
+
+def _load_eod_cache() -> pd.DataFrame:
+    df = load_cache() if load_cache else _read_parquet_safe(EOD_CACHE_PATH)
+    if not df.empty:
+        logger.info("PRICE_BOOK: using EOD canonical cache")
+    return df
+
+
 def get_price_book(
     active_tickers: Optional[List[str]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    logger.info("PRICE_BOOK: loading canonical cache")
+    """
+    Returns the best available price book.
 
-    cache_df = load_cache() if load_cache else _load_cache_fallback()
+    Priority:
+    1. Intraday cache (if present)
+    2. Canonical EOD cache
+    3. Empty DataFrame (safe mode)
+    """
+    df = _load_intraday_cache()
+    if df.empty:
+        df = _load_eod_cache()
 
-    if cache_df is None or cache_df.empty:
-        df = pd.DataFrame(columns=active_tickers or [])
-        df.index.name = "Date"
-        return df
+    if df is None or df.empty:
+        out = pd.DataFrame(columns=active_tickers or [])
+        out.index.name = "Date"
+        return out
 
     if start_date:
-        cache_df = cache_df[cache_df.index >= pd.to_datetime(start_date)]
+        df = df[df.index >= pd.to_datetime(start_date)]
     if end_date:
-        cache_df = cache_df[cache_df.index <= pd.to_datetime(end_date)]
+        df = df[df.index <= pd.to_datetime(end_date)]
 
     if active_tickers:
         dedupe = deduplicate_tickers or _dedupe_fallback
         tickers = dedupe(active_tickers)
         for t in tickers:
-            if t not in cache_df.columns:
-                cache_df[t] = np.nan
-        cache_df = cache_df[tickers]
+            if t not in df.columns:
+                df[t] = np.nan
+        df = df[tickers]
 
-    return cache_df
+    return df
 
 
 # =============================================================================
@@ -179,12 +204,9 @@ def get_price_book_meta(price_book: Optional[pd.DataFrame]) -> Dict[str, Any]:
 
 
 # =============================================================================
-# REALITY PANEL COMPATIBILITY HELPERS
+# REALITY PANEL COMPATIBILITY
 # =============================================================================
 def compute_missing_and_extra_tickers(price_book: pd.DataFrame) -> Dict[str, Any]:
-    """
-    Compatibility helper required by Reality Panel diagnostics.
-    """
     required = set(_get_required_tickers(active_only=True))
     cached = set() if price_book is None or price_book.empty else set(price_book.columns)
 
@@ -202,7 +224,7 @@ def compute_missing_and_extra_tickers(price_book: pd.DataFrame) -> Dict[str, Any
 
 
 # =============================================================================
-# EXPLICIT CACHE REBUILD (ONLY NETWORK ENTRY POINT)
+# EXPLICIT CACHE REBUILD (NETWORK ENTRY POINT)
 # =============================================================================
 def rebuild_price_cache(
     active_only: bool = True,
@@ -247,7 +269,7 @@ PRICE_BOOK = get_price_book_singleton
 
 
 # =============================================================================
-# SYSTEM HEALTH (Reality Panel / Control Center)
+# SYSTEM HEALTH
 # =============================================================================
 def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
     if price_book is None:
@@ -262,7 +284,9 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
     readiness = check_cache_readiness(active_only=True) if check_cache_readiness else {}
     days_stale = readiness.get("days_stale", 0)
 
-    if price_book.empty or days_stale > STALE_DAYS_THRESHOLD:
+    if price_book.empty:
+        status, emoji = "EMPTY", "⚪"
+    elif days_stale > STALE_DAYS_THRESHOLD:
         status, emoji = "STALE", "❌"
     elif missing:
         status, emoji = "DEGRADED", "⚠️"
@@ -280,7 +304,7 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
 
 
 # =============================================================================
-# EXPORT SAFETY (UI / LEGACY IMPORTS)
+# EXPORT SAFETY
 # =============================================================================
 __all__ = [
     "LIVE_DATA_ENABLED",
