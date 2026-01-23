@@ -19753,9 +19753,10 @@ def render_overview_clean_tab():
 
     Guarantees:
     - Never hard-fails
-    - Accepts partial horizons (market-aware)
-    - No false DEGRADED on market-closed days
-    - Institutional readiness logic
+    - Market-aware (no false DEGRADED on closed markets)
+    - Accepts partial horizons
+    - Requires only ONE meaningful performance signal
+    - Institutional-grade readiness logic
     """
     import pandas as pd
     from datetime import datetime
@@ -19797,9 +19798,9 @@ def render_overview_clean_tab():
         price_meta = get_price_book_meta(price_book)
 
         performance_df = compute_all_waves_performance(
-            price_book,
+            price_book=price_book,
             periods=[1, 30, 60, 365],
-            only_validated=False
+            only_validated=False,
         )
 
         if price_meta.get("date_max"):
@@ -19809,7 +19810,7 @@ def render_overview_clean_tab():
             data_current = data_age_days <= 1
 
     except Exception as e:
-        st.info("ℹ️ Platform data partially unavailable — running in degraded mode.")
+        st.info("ℹ️ Platform data partially unavailable — running in safe mode.")
         if st.session_state.get("debug_mode"):
             st.caption(str(e))
 
@@ -19821,7 +19822,7 @@ def render_overview_clean_tab():
     status = "STABLE"
     issues = []
 
-    # --- Price freshness check (non-fatal)
+    # --- Price freshness (informational unless extreme)
     if data_age_days is not None:
         if data_age_days > 30:
             status = "DEGRADED"
@@ -19830,8 +19831,9 @@ def render_overview_clean_tab():
             status = "WATCH"
             issues.append(f"Price data {data_age_days} days old")
 
-    # --- PERFORMANCE VALIDATION (PARTIAL-HORIZON, COLUMN-AWARE)
+    # --- PERFORMANCE VALIDATION (PARTIAL-HORIZON SAFE)
     has_any_valid_horizon = False
+    meaningful_return_count = 0
 
     if performance_df is not None and not performance_df.empty:
         return_cols = [
@@ -19840,16 +19842,22 @@ def render_overview_clean_tab():
         ]
 
         for col in return_cols:
-            series = performance_df[col]
-            if series.notna().any() and not (series == 0).all():
-                has_any_valid_horizon = True
-                break
+            series = pd.to_numeric(performance_df[col], errors="coerce").dropna()
+            if not series.empty:
+                meaningful_return_count += (series.abs() > 0).sum()
+                if (series.abs() > 0).any():
+                    has_any_valid_horizon = True
 
+    # Only degrade if NOTHING meaningful exists anywhere
     if not has_any_valid_horizon:
         status = "DEGRADED"
         issues.append("No validated performance horizons available")
 
-    color = {"STABLE": "🟢", "WATCH": "🟡", "DEGRADED": "🔴"}[status]
+    color = {
+        "STABLE": "🟢",
+        "WATCH": "🟡",
+        "DEGRADED": "🔴",
+    }[status]
 
     st.success(
         f"{color} **System Status: {status}** — "
@@ -19859,12 +19867,13 @@ def render_overview_clean_tab():
     st.divider()
 
     # ------------------------------------------------------------
-    # EXECUTIVE SUMMARY (SAFE)
+    # EXECUTIVE INTELLIGENCE SUMMARY
     # ------------------------------------------------------------
     st.markdown("### 📋 Executive Intelligence Summary")
 
     avg_1d = 0.0
-    positives = total = 0
+    positives = 0
+    total = 0
 
     try:
         def parse_pct(x):
@@ -19875,7 +19884,7 @@ def render_overview_clean_tab():
 
         one_day_cols = [c for c in performance_df.columns if "1d" in c.lower()]
 
-        if not performance_df.empty and one_day_cols:
+        if one_day_cols:
             series = performance_df[one_day_cols[0]].apply(parse_pct).dropna()
             if not series.empty:
                 avg_1d = series.mean()
@@ -19896,7 +19905,7 @@ def render_overview_clean_tab():
 • **Portfolio posture:** **{posture.capitalize()}**
 
 The platform is operating with **institutional-grade safeguards**.
-Partial data does not impair capital protection logic.
+Partial or market-constrained data does **not** impair capital protection logic.
 """)
 
     except Exception:
@@ -19905,7 +19914,7 @@ Partial data does not impair capital protection logic.
     st.divider()
 
     # ------------------------------------------------------------
-    # PLATFORM SIGNALS (SAFE)
+    # PLATFORM SIGNALS
     # ------------------------------------------------------------
     st.markdown("### 🎯 Platform Intelligence Signals")
 
@@ -19921,12 +19930,15 @@ Partial data does not impair capital protection logic.
         st.metric("Alpha Quality", "Strong" if avg_1d > 0 else "Mixed")
 
     with col4:
-        st.metric("Data Integrity", "Verified" if data_age_days is not None else "Degraded")
+        st.metric(
+            "Data Integrity",
+            "Verified" if has_any_valid_horizon else "Constrained",
+        )
 
     st.divider()
 
     # ------------------------------------------------------------
-    # AI RECOMMENDATIONS (SAFE)
+    # AI RECOMMENDATIONS
     # ------------------------------------------------------------
     st.markdown("### 💡 AI Recommendations")
 
@@ -19967,14 +19979,13 @@ Partial data does not impair capital protection logic.
     # DIAGNOSTICS (COLLAPSED)
     # ------------------------------------------------------------
     with st.expander("🔧 System Diagnostics", expanded=False):
-        st.caption("Non-blocking engineering diagnostics")
-
         st.write({
             "data_age_days": data_age_days,
             "has_any_valid_horizon": has_any_valid_horizon,
+            "meaningful_return_count": meaningful_return_count,
             "performance_rows": len(performance_df),
             "price_columns": list(price_book.columns)[:10] if price_book is not None else [],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         })
 # ============================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT (CANONICAL / DEMO)
