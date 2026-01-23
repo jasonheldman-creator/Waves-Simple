@@ -1,17 +1,38 @@
 import pandas as pd
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time
 
 # ============================================================================
-# INTRADAY-AWARE 1D RETURN (TRUTH-SAFE)
+# INTRADAY-AWARE 1D RETURN (OPTION B — REAL EQUITY BEHAVIOR)
 # ============================================================================
+
+def _is_us_equity_market_open(now_utc: Optional[datetime] = None) -> bool:
+    """
+    Lightweight US equity market open check (UTC).
+    Conservative by design — avoids false positives.
+    """
+
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+
+    # Weekend → closed
+    if now_utc.weekday() >= 5:
+        return False
+
+    # NYSE regular hours ≈ 14:30–21:00 UTC
+    market_open = time(14, 30)
+    market_close = time(21, 0)
+
+    return market_open <= now_utc.time() <= market_close
+
 
 def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
     """
-    Truth-safe 1D return.
+    Option B — Intraday-aware 1D return.
 
-    RULES:
-    - Uses last two available prices
+    LOGIC:
+    - If market OPEN → (last price / prior close) - 1
+    - If market CLOSED → (last close / prior close) - 1
     - Suppresses fake zero returns
     - Never raises
     """
@@ -20,14 +41,26 @@ def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
         if prices is None or len(prices) < 2:
             return None
 
-        latest = float(prices.iloc[-1])
-        base = float(prices.iloc[-2])
-
-        # Invalid or flat prices → no signal
-        if base <= 0 or latest == base:
+        prices = prices.dropna()
+        if len(prices) < 2:
             return None
 
-        return (latest / base) - 1
+        now_utc = datetime.now(timezone.utc)
+        market_open = _is_us_equity_market_open(now_utc)
+
+        latest = float(prices.iloc[-1])
+        prior = float(prices.iloc[-2])
+
+        if prior <= 0:
+            return None
+
+        ret = (latest / prior) - 1
+
+        # Suppress meaningless flat values
+        if abs(ret) < 1e-6:
+            return None
+
+        return ret
 
     except Exception:
         return None
@@ -49,13 +82,11 @@ def wave_performance_diagnostics(wave_row: Dict[str, Any]) -> List[str]:
     if not isinstance(wave_row, dict):
         return ["No wave data"]
 
-    # Accept any numeric return
     for k, v in wave_row.items():
         if "return" in k.lower():
             if isinstance(v, (int, float)) and not pd.isna(v):
                 return []
 
-    # NAV fallback
     nav = wave_row.get("nav") or wave_row.get("NAV")
     if isinstance(nav, (int, float)) and not pd.isna(nav):
         return []
@@ -149,5 +180,3 @@ def compute_global_health(performance_rows: List[Dict[str, Any]]) -> Dict[str, A
         "waves_validated": validated,
         "diagnostics": diagnostics,
     }
-    
-    # required-check re-run
