@@ -2,31 +2,22 @@ import streamlit as st
 import sys
 import os
 import traceback
+from types import ModuleType
 
 # ==========================================================
-# WAVES — STREAMLIT RECOVERY KERNEL (FINAL)
-# This file DOES NOT initialize the system.
-# It validates health and hands control back to app.py.
+# WAVES — CONTRACT-AWARE RECOVERY KERNEL
 # ==========================================================
-
-# ----------------------------------------------------------
-# BOOT CONFIRMATION (unconditional)
-# ----------------------------------------------------------
 
 st.error("APP_MIN EXECUTION STARTED")
 st.write("🟢 STREAMLIT EXECUTION STARTED")
 st.write("🟢 app_min.py reached line 1")
-
-# ----------------------------------------------------------
-# MAIN
-# ----------------------------------------------------------
 
 def main():
     st.title("WAVES — Recovery Mode")
     st.success("Recovery kernel running")
 
     # ------------------------------------------------------
-    # ENVIRONMENT CHECK
+    # ENVIRONMENT
     # ------------------------------------------------------
 
     st.divider()
@@ -35,11 +26,10 @@ def main():
     st.write("Python:", sys.version)
     st.write("Executable:", sys.executable)
     st.write("Working directory:", os.getcwd())
-
     st.success("Environment visible")
 
     # ------------------------------------------------------
-    # WAVES IMPORT CHECK
+    # WAVES MODULE LOAD
     # ------------------------------------------------------
 
     st.divider()
@@ -52,44 +42,81 @@ def main():
     except Exception as e:
         st.error("❌ waves import failed")
         st.exception(e)
-        st.code(traceback.format_exc())
         return
 
     # ------------------------------------------------------
-    # CONTRACT DISCOVERY (NO EXECUTION)
+    # CONTRACT DISCOVERY (READ-ONLY)
     # ------------------------------------------------------
 
     st.divider()
     st.write("🧪 Contract discovery (read-only)")
 
-    public = [n for n in dir(waves) if not n.startswith("_")]
-    st.write("Public symbols:", public)
+    public_symbols = [s for s in dir(waves) if not s.startswith("_")]
+    st.write("Public symbols:", public_symbols)
 
-    if "initialize_waves" in public:
-        st.success("initialize_waves() detected")
-    else:
-        st.warning("initialize_waves() NOT found")
+    has_init = hasattr(waves, "initialize_waves")
+    has_truth = hasattr(waves, "truth_df")
+    has_ids = hasattr(waves, "unique_wave_ids")
+
+    st.write("initialize_waves:", has_init)
+    st.write("truth_df exists:", has_truth)
+    st.write("unique_wave_ids exists:", has_ids)
 
     # ------------------------------------------------------
-    # HANDOFF
+    # SAFE STATE INSPECTION
+    # ------------------------------------------------------
+
+    st.divider()
+    st.write("🧠 Current state")
+
+    truth_df = getattr(waves, "truth_df", None)
+    wave_ids = getattr(waves, "unique_wave_ids", None)
+
+    st.write("truth_df:", type(truth_df))
+    st.write("unique_wave_ids:", type(wave_ids))
+
+    # ------------------------------------------------------
+    # CONTROLLED EXECUTION GATE
+    # ------------------------------------------------------
+
+    st.divider()
+    st.warning(
+        "⚠️ Controlled execution gate\n\n"
+        "Initialization will only run if the contract is satisfied."
+    )
+
+    if st.button("🚀 Initialize WAVES (safe)"):
+        if truth_df is None:
+            st.error("❌ truth_df is None — cannot initialize safely")
+            return
+
+        if not isinstance(wave_ids, (list, tuple)):
+            st.error("❌ unique_wave_ids invalid — cannot initialize safely")
+            return
+
+        try:
+            st.write("Initializing with existing contract…")
+            result = waves.initialize_waves(truth_df, wave_ids)
+            st.success("✅ initialize_waves completed safely")
+            st.write(result)
+        except Exception as e:
+            st.error("❌ initialize_waves failed")
+            st.exception(e)
+            st.code(traceback.format_exc())
+
+    # ------------------------------------------------------
+    # STATUS
     # ------------------------------------------------------
 
     st.divider()
     st.info(
-        "Recovery complete.\n\n"
-        "✔ Streamlit healthy\n"
-        "✔ Environment validated\n"
-        "✔ waves module loadable\n\n"
-        "Next step: launch full application."
+        "Recovery Mode ACTIVE\n\n"
+        "✔ Environment healthy\n"
+        "✔ waves module loadable\n"
+        "✔ Contract inspected\n"
+        "✔ Execution gated safely\n\n"
+        "Next step: full app rehydration."
     )
-
-    if st.button("🚀 Launch full WAVES app (app.py)"):
-        st.success("Handing off to app.py…")
-        st.stop()  # Streamlit will reload entrypoint
-
-# ----------------------------------------------------------
-# ENTRYPOINT
-# ----------------------------------------------------------
 
 if __name__ == "__main__":
     main()
