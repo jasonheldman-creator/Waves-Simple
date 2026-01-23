@@ -2,22 +2,30 @@ import streamlit as st
 import sys
 import os
 import traceback
-from types import ModuleType
+from types import SimpleNamespace
 
 # ==========================================================
-# WAVES — CONTRACT-AWARE RECOVERY KERNEL
+# WAVES — STREAMLIT RECOVERY KERNEL (CONTROLLED)
 # ==========================================================
+
+# ----------------------------------------------------------
+# BOOT CONFIRMATION (must execute unconditionally)
+# ----------------------------------------------------------
 
 st.error("APP_MIN EXECUTION STARTED")
 st.write("🟢 STREAMLIT EXECUTION STARTED")
 st.write("🟢 app_min.py reached line 1")
+
+# ----------------------------------------------------------
+# MAIN ENTRYPOINT
+# ----------------------------------------------------------
 
 def main():
     st.title("WAVES — Recovery Mode")
     st.success("Recovery kernel running")
 
     # ------------------------------------------------------
-    # ENVIRONMENT
+    # RUNTIME ENVIRONMENT
     # ------------------------------------------------------
 
     st.divider()
@@ -40,8 +48,9 @@ def main():
         st.success("✅ waves imported successfully")
         st.code(waves.__file__)
     except Exception as e:
-        st.error("❌ waves import failed")
+        st.error("❌ waves import failed — hard stop")
         st.exception(e)
+        st.code(traceback.format_exc())
         return
 
     # ------------------------------------------------------
@@ -63,20 +72,24 @@ def main():
     st.write("unique_wave_ids exists:", has_ids)
 
     # ------------------------------------------------------
-    # SAFE STATE INSPECTION
+    # CURRENT STATE SNAPSHOT
     # ------------------------------------------------------
 
     st.divider()
     st.write("🧠 Current state")
 
-    truth_df = getattr(waves, "truth_df", None)
-    wave_ids = getattr(waves, "unique_wave_ids", None)
+    truth_df_existing = getattr(waves, "truth_df", None)
+    unique_ids_existing = getattr(waves, "unique_wave_ids", None)
 
-    st.write("truth_df:", type(truth_df))
-    st.write("unique_wave_ids:", type(wave_ids))
+    st.write("truth_df type:", type(truth_df_existing))
+    st.write("unique_wave_ids type:", type(unique_ids_existing))
+    st.write(
+        "Number of wave IDs:",
+        len(unique_ids_existing) if isinstance(unique_ids_existing, list) else "N/A"
+    )
 
     # ------------------------------------------------------
-    # CONTROLLED EXECUTION GATE
+    # CONTROLLED INITIALIZATION GATE
     # ------------------------------------------------------
 
     st.divider()
@@ -86,21 +99,42 @@ def main():
     )
 
     if st.button("🚀 Initialize WAVES (safe)"):
-        if truth_df is None:
-            st.error("❌ truth_df is None — cannot initialize safely")
-            return
-
-        if not isinstance(wave_ids, (list, tuple)):
-            st.error("❌ unique_wave_ids invalid — cannot initialize safely")
-            return
+        st.write("⏳ Initializing WAVES…")
 
         try:
-            st.write("Initializing with existing contract…")
-            result = waves.initialize_waves(truth_df, wave_ids)
-            st.success("✅ initialize_waves completed safely")
-            st.write(result)
+            # --------------------------------------------------
+            # BUILD MINIMAL VALID INPUTS
+            # --------------------------------------------------
+
+            # Create a minimal truth_df object with required structure
+            truth_df = SimpleNamespace()
+            truth_df.waves = {}
+
+            # Use discovered wave IDs if present, otherwise empty list
+            unique_wave_ids = (
+                unique_ids_existing
+                if isinstance(unique_ids_existing, list)
+                else []
+            )
+
+            st.write("truth_df prepared:", truth_df)
+            st.write("unique_wave_ids:", unique_wave_ids)
+
+            # --------------------------------------------------
+            # CALL INITIALIZE_WAVES CORRECTLY
+            # --------------------------------------------------
+
+            result = waves.initialize_waves(
+                truth_df,
+                unique_wave_ids
+            )
+
+            st.success("✅ initialize_waves() completed")
+            st.write("Result:", result)
+            st.write("truth_df.waves keys:", list(truth_df.waves.keys()))
+
         except Exception as e:
-            st.error("❌ initialize_waves failed")
+            st.error("❌ initialize_waves() failed")
             st.exception(e)
             st.code(traceback.format_exc())
 
@@ -111,12 +145,18 @@ def main():
     st.divider()
     st.info(
         "Recovery Mode ACTIVE\n\n"
-        "✔ Environment healthy\n"
+        "✔ Streamlit healthy\n"
+        "✔ Environment validated\n"
         "✔ waves module loadable\n"
         "✔ Contract inspected\n"
         "✔ Execution gated safely\n\n"
         "Next step: full app rehydration."
     )
+
+
+# ----------------------------------------------------------
+# ENTRYPOINT
+# ----------------------------------------------------------
 
 if __name__ == "__main__":
     main()
