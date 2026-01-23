@@ -2,14 +2,16 @@ import streamlit as st
 import sys
 import os
 import traceback
+import pandas as pd
 from types import SimpleNamespace
 
 # ==========================================================
-# WAVES — STREAMLIT RECOVERY KERNEL (HYDRATION ENABLED)
+# WAVES — AGGRESSIVE RECOVERY KERNEL
+# Purpose: Force minimal hydration to restore full execution
 # ==========================================================
 
 # ----------------------------------------------------------
-# BOOT CONFIRMATION (must execute unconditionally)
+# BOOT CONFIRMATION (must run unconditionally)
 # ----------------------------------------------------------
 
 st.error("APP_MIN EXECUTION STARTED")
@@ -17,7 +19,7 @@ st.write("🟢 STREAMLIT EXECUTION STARTED")
 st.write("🟢 app_min.py reached line 1")
 
 # ----------------------------------------------------------
-# MAIN ENTRYPOINT
+# MAIN
 # ----------------------------------------------------------
 
 def main():
@@ -25,27 +27,24 @@ def main():
     st.success("Recovery kernel running")
 
     # ------------------------------------------------------
-    # ENVIRONMENT SNAPSHOT
+    # ENVIRONMENT
     # ------------------------------------------------------
 
     st.divider()
-    st.subheader("🧭 Runtime environment")
+    st.write("🧭 Runtime environment")
 
-    try:
-        st.write("Python:", sys.version)
-        st.write("Executable:", sys.executable)
-        st.write("Working directory:", os.getcwd())
-        st.success("Environment visible")
-    except Exception as e:
-        st.error("Environment snapshot failed")
-        st.exception(e)
+    st.write("Python:", sys.version)
+    st.write("Executable:", sys.executable)
+    st.write("Working dir:", os.getcwd())
+
+    st.success("Environment visible")
 
     # ------------------------------------------------------
-    # WAVES MODULE CHECK
+    # WAVES MODULE IMPORT
     # ------------------------------------------------------
 
     st.divider()
-    st.subheader("🔎 waves module check")
+    st.write("🔍 waves module check")
 
     try:
         import waves
@@ -61,7 +60,7 @@ def main():
     # ------------------------------------------------------
 
     st.divider()
-    st.subheader("🧪 Contract discovery (read-only)")
+    st.write("🧪 Contract discovery (read-only)")
 
     public_symbols = [s for s in dir(waves) if not s.startswith("_")]
     st.write(public_symbols)
@@ -74,63 +73,74 @@ def main():
     st.write("truth_df exists:", has_truth)
     st.write("unique_wave_ids exists:", has_ids)
 
+    if not has_init:
+        st.error("initialize_waves not found — cannot proceed")
+        return
+
     # ------------------------------------------------------
-    # HYDRATION (EXPLICIT & SAFE)
+    # AGGRESSIVE HYDRATION (CONTROLLED)
     # ------------------------------------------------------
 
     st.divider()
-    st.subheader("🧠 Current state (hydration)")
+    st.write("🚀 Aggressive hydration (controlled)")
 
-    # Create a SAFE truth_df container
+    # Minimal but valid truth_df
     truth_df = SimpleNamespace()
     truth_df.waves = {}
 
-    # Define placeholder wave IDs (can be replaced later)
-    unique_wave_ids = []
+    # Stub wave IDs (safe, deterministic)
+    unique_wave_ids = [
+        "sp500_wave",
+        "ai_cloud_megacap_wave",
+        "clean_energy_wave"
+    ]
+
+    st.write("Injected wave IDs:", unique_wave_ids)
+
+    # ------------------------------------------------------
+    # INITIALIZE WAVES
+    # ------------------------------------------------------
+
+    try:
+        result = waves.initialize_waves(
+            truth_df,
+            unique_wave_ids
+        )
+
+        st.success("initialize_waves executed successfully")
+
+    except Exception as e:
+        st.error("initialize_waves failed")
+        st.exception(e)
+        st.code(traceback.format_exc())
+        return
+
+    # ------------------------------------------------------
+    # POST-HYDRATION STATE
+    # ------------------------------------------------------
+
+    st.divider()
+    st.write("🧠 Post-hydration state")
 
     st.write("truth_df type:", type(truth_df))
-    st.write("unique_wave_ids type:", type(unique_wave_ids))
-    st.write("Number of wave IDs:", len(unique_wave_ids))
+    st.write("Number of waves:", len(truth_df.waves))
+    st.write("Wave keys:", list(truth_df.waves.keys()))
+
+    st.json(truth_df.waves)
 
     # ------------------------------------------------------
-    # CONTROLLED INITIALIZATION
-    # ------------------------------------------------------
-
-    st.divider()
-    st.warning(
-        "Controlled execution gate\n\n"
-        "Initialization will only run with explicit consent."
-    )
-
-    if st.button("🚀 Initialize WAVES (safe)"):
-        try:
-            result = waves.initialize_waves(
-                truth_df,
-                unique_wave_ids
-            )
-
-            st.success("initialize_waves() completed successfully")
-            st.write("waves initialized:", result)
-
-        except Exception as e:
-            st.error("initialize_waves() failed")
-            st.exception(e)
-            st.code(traceback.format_exc())
-
-    # ------------------------------------------------------
-    # RECOVERY STATUS
+    # SUCCESS STATE
     # ------------------------------------------------------
 
     st.divider()
-    st.info(
-        "Recovery Mode ACTIVE\n\n"
-        "✔ Streamlit healthy\n"
-        "✔ Environment visible\n"
-        "✔ waves module loadable\n"
-        "✔ truth_df explicitly hydrated\n"
-        "✔ Execution gated safely\n\n"
-        "Ready for full app rehydration."
+    st.success(
+        "Recovery SUCCESSFUL\n\n"
+        "✔ Waves initialized\n"
+        "✔ truth_df hydrated\n"
+        "✔ System execution restored\n\n"
+        "Next step: swap stub data for real snapshot."
     )
+
 
 # ----------------------------------------------------------
 # ENTRYPOINT
@@ -138,4 +148,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
