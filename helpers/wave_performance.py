@@ -149,3 +149,5 @@ def compute_global_health(performance_rows: List[Dict[str, Any]]) -> Dict[str, A
         "waves_validated": validated,
         "diagnostics": diagnostics,
     }
+    
+    # required-check re-run
