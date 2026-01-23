@@ -5,8 +5,8 @@ import traceback
 from types import ModuleType
 
 # ==========================================================
-# WAVES — STREAMLIT RECOVERY KERNEL
-# Single trusted entrypoint while the system heals
+# WAVES — STREAMLIT RECOVERY KERNEL (CONTROLLED)
+# Single trusted entrypoint while system is healing
 # ==========================================================
 
 # ----------------------------------------------------------
@@ -74,68 +74,53 @@ def main():
         ]
 
         st.write("Total public symbols:", len(public_symbols))
-        st.write("Public symbols (first 40):", public_symbols[:40])
-
-        functions = []
-        classes = []
-        submodules = []
-
-        for name in public_symbols:
-            try:
-                attr = getattr(waves, name)
-                if isinstance(attr, ModuleType):
-                    submodules.append(name)
-                elif isinstance(attr, type):
-                    classes.append(name)
-                elif callable(attr):
-                    functions.append(name)
-            except Exception:
-                pass  # strictly read-only
-
-        st.divider()
-        st.write("🧬 waves symbol breakdown")
-        st.write("Functions (sample):", functions[:15])
-        st.write("Classes (sample):", classes[:15])
-        st.write("Sub-modules (sample):", submodules[:15])
+        st.write("Public symbols:", public_symbols)
 
         st.success("waves module inspection completed safely")
-
     except Exception as e:
         st.error("waves inspection failed")
         st.exception(e)
         st.code(traceback.format_exc())
 
     # ------------------------------------------------------
-    # WAVE ID DISCOVERY (READ-ONLY, NO EXECUTION)
+    # CONTROLLED EXECUTION GATE
     # ------------------------------------------------------
 
     st.divider()
-    st.write("🧭 Wave ID discovery (read-only)")
+    st.warning(
+        "⚠️ Controlled execution gate\n\n"
+        "Nothing below runs automatically.\n"
+        "Click the button only when ready."
+    )
 
-    try:
-        candidate_symbols = [
-            name for name in dir(waves)
-            if "wave" in name.lower() or "id" in name.lower()
-        ]
+    if st.button("🚀 Initialize WAVES (controlled)"):
+        st.write("⏳ Initializing WAVES…")
 
-        st.write("Candidate wave-related symbols:", candidate_symbols)
+        try:
+            result = waves.initialize_waves()
+            st.success("✅ initialize_waves() completed")
 
-        for name in candidate_symbols[:10]:
-            try:
-                attr = getattr(waves, name)
-                st.write(f"{name} →", type(attr))
-            except Exception:
-                pass
+            # Inspect resulting state WITHOUT mutating
+            if hasattr(waves, "truth_df"):
+                truth_df = waves.truth_df
+                st.write("truth_df detected")
 
-        st.success("Wave ID discovery completed safely")
+                if hasattr(truth_df, "waves"):
+                    st.write("Number of waves:", len(truth_df.waves))
+                    st.write("Wave IDs:", list(truth_df.waves.keys()))
+                else:
+                    st.warning("truth_df.waves attribute missing")
+            else:
+                st.warning("truth_df not present after initialization")
 
-    except Exception as e:
-        st.error("Wave ID discovery failed")
-        st.exception(e)
-        st.code(traceback.format_exc())
+        except Exception as e:
+            st.error("❌ initialize_waves() failed")
+            st.exception(e)
+            st.code(traceback.format_exc())
+            return
 
     # ------------------------------------------------------
-    # RECOVERY STATUS
+    # STATUS
     # ------------------------------------------------------
 
     st.divider()
@@ -144,9 +129,8 @@ def main():
         "✔ Streamlit boot confirmed\n"
         "✔ Environment visible\n"
         "✔ waves imported safely\n"
-        "✔ Wave symbols discovered (read-only)\n"
-        "✔ No execution side-effects\n\n"
-        "System is ready for selective re-hydration."
+        "✔ Execution gated behind manual control\n\n"
+        "Ready for controlled system re-hydration."
     )
 
 # ----------------------------------------------------------
