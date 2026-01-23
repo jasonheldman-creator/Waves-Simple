@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import subprocess
 
 try:
@@ -10,8 +12,6 @@ except Exception:
 
 import streamlit as st
 st.caption(f"Runtime Commit: {COMMIT_SHA}")
-
-from __future__ import annotations
 
 # ============================================================
 # CORE IMPORTS (CANONICAL, FAIL-SAFE)
