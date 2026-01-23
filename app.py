@@ -1,244 +1,52 @@
-from __future__ import annotations
-
-# =============================================================================
-# STANDARD LIBRARY IMPORTS (NO STREAMLIT SIDE EFFECTS)
-# =============================================================================
-import os
-import json
-import logging
-import subprocess
-from typing import Dict, Any, List, Tuple
-from datetime import datetime
-
-# =============================================================================
-# THIRD-PARTY IMPORTS
-# =============================================================================
-import pandas as pd
-import numpy as np
-import streamlit as st
-
-# =============================================================================
-# INTERNAL IMPORTS (SAFE — NO HEAVY EXECUTION)
-# =============================================================================
-from helpers.circuit_breaker import reset_all_circuit_breakers
-
-# =============================================================================
-# APP CONFIG — MUST BE FIRST STREAMLIT CALL
-# =============================================================================
-st.set_page_config(
-    page_title="WAVES Intelligence — Portfolio Executive Dashboard",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# =============================================================================
-# RUNTIME COMMIT (SAFE, ISOLATED, NON-BLOCKING)
-# =============================================================================
-@st.cache_data(show_spinner=False)
-def _get_runtime_commit() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-    except Exception:
-        return "UNKNOWN"
-
-st.caption(f"Runtime Commit: {_get_runtime_commit()}")
-
-# =============================================================================
-# LOGGING (SINGLE, CANONICAL SETUP)
-# =============================================================================
-logger = logging.getLogger("waves_app")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
-
-# =============================================================================
-# CANONICAL HORIZONS
-# =============================================================================
-HORIZONS: List[Tuple[str, int]] = [
-    ("1D", 1),
-    ("30D", 30),
-    ("60D", 60),
-    ("365D", 365),
-]
-
-# =============================================================================
-# ONE-TIME SESSION SAFETY INITIALIZATION
-# =============================================================================
-def initialize_session_safety():
-    if st.session_state.get("_waves_session_initialized"):
-        return
-    reset_all_circuit_breakers()
-    st.session_state["_waves_session_initialized"] = True
-
-initialize_session_safety()
-
 # =============================================================================
 # TRUTHFRAME — FULLY LAZY, RECOVERABLE, SAFE
 # =============================================================================
+def _truthframe_mtime() -> float:
+    """
+    File-based cache buster to ensure Streamlit cache refreshes
+    whenever truthframe.json changes.
+    """
+    try:
+        return os.path.getmtime("data/truthframe.json")
+    except Exception:
+        return 0.0
+
+
 @st.cache_data(show_spinner=False)
-def load_truthframe() -> Dict[str, Any]:
+def load_truthframe(_cache_buster: float) -> Dict[str, Any]:
+    """
+    Load TruthFrame from disk in a fully lazy, recoverable manner.
+    Never raises, never blocks UI.
+    """
     try:
         with open("data/truthframe.json", "r") as f:
             truth = json.load(f)
+
         if not isinstance(truth.get("waves"), dict):
             raise ValueError("Invalid TruthFrame schema")
+
         logger.info(f"[TruthFrame] loaded | waves={len(truth['waves'])}")
         return truth
+
     except Exception as e:
         logger.warning(f"[TruthFrame] unavailable: {e}")
         return {"waves": {}}
 
+
 def get_truthframe() -> Dict[str, Any]:
-    return load_truthframe()
+    """
+    Canonical TruthFrame accessor.
+    Cache is safely invalidated when file changes.
+    """
+    return load_truthframe(_truthframe_mtime())
+
 
 def truthframe_available() -> bool:
+    """
+    Lightweight availability check — never throws.
+    """
     tf = get_truthframe()
     return bool(tf.get("waves"))
-
-# =============================================================================
-# PORTFOLIO SNAPSHOT — SAFE, ON-DEMAND ONLY
-# =============================================================================
-def build_portfolio_snapshot_from_truthframe(
-    truthframe: Dict[str, Any]
-) -> pd.DataFrame:
-
-    waves = truthframe.get("waves", {})
-    if not waves:
-        return pd.DataFrame()
-
-    rows = []
-
-    for horizon_label, _ in HORIZONS:
-        total_return = 0.0
-        total_alpha = 0.0
-        contributing = 0
-
-        for wave_data in waves.values():
-            metrics = wave_data.get("metrics", {})
-            r = metrics.get("returns", {}).get(horizon_label)
-            a = metrics.get("alpha", {}).get(horizon_label)
-
-            if r is None or a is None:
-                continue
-
-            try:
-                total_return += float(r)
-                total_alpha += float(a)
-                contributing += 1
-            except Exception:
-                continue
-
-        if contributing == 0:
-            continue
-
-        rows.append({
-            "Horizon": horizon_label,
-            "Return": round(total_return, 6),
-            "Alpha": round(total_alpha, 6),
-            "Waves": contributing,
-        })
-
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows)
-    df["Horizon"] = pd.Categorical(
-        df["Horizon"],
-        categories=["1D", "30D", "60D", "365D"],
-        ordered=True,
-    )
-    return df.sort_values("Horizon").reset_index(drop=True)
-
-# ============================================================================
-# WAVE UNIVERSE — SINGLE SOURCE OF TRUTH (LOCKED)
-# ============================================================================
-
-CACHE_BUSTER = "UNIVERSE_RESET_2026_01"
-
-def _normalize_wave_name(name):
-    return str(name).strip() if isinstance(name, str) else ""
-
-def _safe_list(val):
-    return val if isinstance(val, list) else []
-
-def _safe_dict(val):
-    return val if isinstance(val, dict) else {}
-
-@st.cache_data(ttl=30)
-def get_canonical_wave_universe(force_reload=False):
-    """
-    Canonical wave universe.
-    ALWAYS returns a valid structure.
-    """
-    if not force_reload and "wave_universe" in st.session_state:
-        return st.session_state["wave_universe"]
-
-    waves = []
-    source = "fallback"
-
-    # Priority 1 — waves_engine registry
-    try:
-        if WAVES_ENGINE_AVAILABLE:
-            from waves_engine import get_all_waves_universe
-            data = get_all_waves_universe()
-            waves = data.get("waves", [])
-            source = data.get("source", "engine")
-    except Exception:
-        pass
-
-    # Priority 2 — WAVE_WEIGHTS fallback
-    if not waves and "WAVE_WEIGHTS" in globals():
-        waves = list(WAVE_WEIGHTS.keys())
-        source = "weights"
-
-    # Absolute fallback
-    if not waves:
-        waves = [
-            "S&P 500 Wave",
-            "Russell 3000 Wave",
-            "Income Wave",
-            "US MegaCap Core Wave",
-            "AI & Cloud MegaCap Wave",
-            "Quantum Computing Wave",
-            "Clean Transit-Infrastructure Wave",
-            "Crypto Income Wave",
-        ]
-        source = "static_fallback"
-
-    # Normalize + dedupe
-    seen = set()
-    deduped = []
-    for w in waves:
-        nw = _normalize_wave_name(w)
-        key = nw.casefold()
-        if key and key not in seen:
-            seen.add(key)
-            deduped.append(nw)
-
-    universe = {
-        "waves": deduped,
-        "source": source,
-        "timestamp": datetime.now().isoformat(),
-        "enabled_flags": {w: True for w in deduped},
-    }
-
-    st.session_state["wave_universe"] = universe
-    return universe
-
-
-def get_wave_universe():
-    """
-    Public accessor — always returns sorted wave list.
-    """
-    try:
-        universe = get_canonical_wave_universe()
-        return sorted(_safe_list(universe.get("waves")))
-    except Exception:
-        return []
-
-
 # ============================================================================
 # WAVE DATA VALIDATION (DETERMINISTIC)
 # ============================================================================
