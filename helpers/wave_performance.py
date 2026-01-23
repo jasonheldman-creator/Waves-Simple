@@ -27,8 +27,8 @@ def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
     Intraday-aware 1D return.
 
     RULES:
-    - If market is open → last price vs today's open proxy
-    - If market is closed → close-to-close
+    - Intraday-aware (does NOT fake zeros)
+    - Flat prices return None (truth-safe)
     - Never raises
     """
 
@@ -37,17 +37,14 @@ def compute_intraday_1d_return(prices: pd.Series) -> Optional[float]:
             return None
 
         latest = float(prices.iloc[-1])
+        base = float(prices.iloc[-2])
 
-        if _is_market_open_utc():
-            # Intraday proxy: compare to most recent prior close
-            base = float(prices.iloc[-2])
-        else:
-            # Market closed: close-to-close
-            if len(prices) < 2:
-                return None
-            base = float(prices.iloc[-2])
-
+        # Invalid base
         if base <= 0:
+            return None
+
+        # 🔥 CRITICAL FIX: suppress fake zero returns
+        if latest == base:
             return None
 
         return (latest / base) - 1
