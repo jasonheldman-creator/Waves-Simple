@@ -19830,12 +19830,18 @@ def render_overview_clean_tab():
             status = "WATCH"
             issues.append(f"Price data {data_age_days} days old")
 
-    # --- PERFORMANCE VALIDATION (PARTIAL-HORIZON SAFE)
+    # --- PERFORMANCE VALIDATION (PARTIAL-HORIZON, COLUMN-AWARE)
     has_any_valid_horizon = False
 
     if performance_df is not None and not performance_df.empty:
-        for col in performance_df.columns:
-            if col.lower().startswith("return") and performance_df[col].notna().any():
+        return_cols = [
+            c for c in performance_df.columns
+            if "return" in c.lower()
+        ]
+
+        for col in return_cols:
+            series = performance_df[col]
+            if series.notna().any() and not (series == 0).all():
                 has_any_valid_horizon = True
                 break
 
