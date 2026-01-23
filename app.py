@@ -19827,7 +19827,9 @@ def render_overview_clean_tab():
             status = "WATCH"
             issues.append(f"Price data {data_age_days} days old")
 
-    if performance_df.empty:
+    if performance_df is None or performance_df.empty:
+        status = "DEGRADED"
+        issues.append("No validated performance data")
         status = "DEGRADED"
         issues.append("No validated performance data")
 
