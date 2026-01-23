@@ -3,6 +3,7 @@ from __future__ import annotations
 # =============================================================================
 # STANDARD LIBRARY IMPORTS
 # =============================================================================
+import traceback
 import os
 import json
 import logging
@@ -16,6 +17,21 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import streamlit as st
+
+# =============================================================================
+# LOGGING — CANONICAL, SAFE
+# =============================================================================
+logger = logging.getLogger("waves_app")
+if not logger.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s"
+    )
+
+# =============================================================================
+# RENDER FLAGS (SAFE DEFAULTS)
+# =============================================================================
+RENDER_RICH_HTML = True
 
 # =============================================================================
 # TRUTHFRAME — FULLY LAZY, RECOVERABLE, SAFE
