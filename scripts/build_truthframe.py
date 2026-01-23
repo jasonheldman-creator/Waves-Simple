@@ -5,13 +5,13 @@ from datetime import datetime, timezone
 from typing import Dict, Any
 
 import pandas as pd
+import pandas_market_calendars as mcal
 
 # ------------------------------------------------------------------
 # Ensure repo root is on PYTHONPATH (CI-safe)
 # ------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT))
 
 # ------------------------------------------------------------------
 # Canonical imports
@@ -30,16 +30,38 @@ HORIZONS = {
     "365D": 365,
 }
 
+EQUITY_CALENDAR = mcal.get_calendar("NYSE")
+
 # ------------------------------------------------------------------
-# TruthFrame Builder (CANONICAL)
+# Helpers
+# ------------------------------------------------------------------
+def market_is_open_now() -> bool:
+    now = pd.Timestamp.utcnow()
+    schedule = EQUITY_CALENDAR.schedule(
+        start_date=now.normalize(),
+        end_date=now.normalize(),
+    )
+    if schedule.empty:
+        return False
+
+    market_open = schedule.iloc[0]["market_open"]
+    market_close = schedule.iloc[0]["market_close"]
+    return market_open <= now <= market_close
+
+
+# ------------------------------------------------------------------
+# TruthFrame Builder
 # ------------------------------------------------------------------
 def build_truthframe(days: int = 365) -> Dict[str, Any]:
+    market_open = market_is_open_now()
+
     truthframe: Dict[str, Any] = {
         "_meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "lookback_days": days,
             "status": "INITIALIZING",
             "validated": False,
+            "market_open": market_open,
         },
         "waves": {},
     }
@@ -64,47 +86,28 @@ def build_truthframe(days: int = 365) -> Dict[str, Any]:
         return truthframe
 
     # ------------------------------------------------------------
-    # Compute returns + alpha
+    # Compute returns
     # ------------------------------------------------------------
-    try:
-        returns_df = compute_wave_returns_pipeline(
-            price_book=price_book,
-            wave_registry=registry,
-            horizons=list(HORIZONS.values()),
-        )
-    except Exception as e:
-        truthframe["_meta"]["status"] = "RETURN_PIPELINE_FAILED"
-        truthframe["_meta"]["error"] = str(e)
-        return truthframe
+    returns_df = compute_wave_returns_pipeline(
+        price_book=price_book,
+        wave_registry=registry,
+        horizons=list(HORIZONS.values()),
+    )
 
     if returns_df is None or returns_df.empty:
         truthframe["_meta"]["status"] = "NO_COMPUTED_RETURNS"
         return truthframe
 
-    required_cols = {
-        "wave_id",
-        "horizon",
-        "wave_return",
-        "benchmark_return",
-        "alpha",
-    }
-    if not required_cols.issubset(set(returns_df.columns)):
-        truthframe["_meta"]["status"] = "RETURN_SCHEMA_INVALID"
-        truthframe["_meta"]["missing_columns"] = sorted(
-            list(required_cols - set(returns_df.columns))
-        )
-        return truthframe
-
-    # ------------------------------------------------------------
-    # Build per-wave TruthFrame (diagnostics preserved)
-    # ------------------------------------------------------------
     validated_waves = 0
 
+    # ------------------------------------------------------------
+    # Build per-wave blocks
+    # ------------------------------------------------------------
     for _, row in registry.iterrows():
         wave_id = row["wave_id"]
         wave_perf = returns_df[returns_df["wave_id"] == wave_id]
 
-        performance_block: Dict[str, Any] = {}
+        performance = {}
 
         for label, days_h in HORIZONS.items():
             slice_df = wave_perf[wave_perf["horizon"] == days_h]
@@ -112,14 +115,18 @@ def build_truthframe(days: int = 365) -> Dict[str, Any]:
                 continue
 
             r = slice_df.iloc[0]
-            performance_block[label] = {
+
+            # Skip 1D validation if market is closed AND equity wave
+            if label == "1D" and not market_open and row["asset_class"] == "equity":
+                continue
+
+            performance[label] = {
                 "return": float(r["wave_return"]),
                 "alpha": float(r["alpha"]),
                 "benchmark_return": float(r["benchmark_return"]),
             }
 
-        if performance_block:
-            validated_waves += 1
+        health_ok = bool(performance)
 
         truthframe["waves"][wave_id] = {
             "alpha": {
@@ -128,59 +135,30 @@ def build_truthframe(days: int = 365) -> Dict[str, Any]:
                 "overlay": 0.0,
                 "cash": 0.0,
             },
-            "performance": performance_block,
+            "performance": performance,
             "health": {
-                # IMPORTANT:
-                # Per-wave health remains diagnostic, NOT global-gating
-                "status": "OK" if performance_block else "DEGRADED"
+                "status": "OK" if health_ok else "DEGRADED"
             },
             "learning": {},
         }
 
-    # ------------------------------------------------------------
-    # TEMP SHIM: Ensure UI-consumable completeness
-    # (Does NOT affect validation semantics)
-    # ------------------------------------------------------------
-    for wave in truthframe["waves"].values():
-        perf = wave.setdefault("performance", {})
-        for label in HORIZONS.keys():
-            perf.setdefault(
-                label,
-                {
-                    "return": 0.0,
-                    "alpha": 0.0,
-                    "benchmark_return": 0.0,
-                },
-            )
-
-        alpha = wave.setdefault("alpha", {})
-        alpha.setdefault("total", 0.0)
-        alpha.setdefault("selection", 0.0)
-        alpha.setdefault("overlay", 0.0)
-        alpha.setdefault("cash", 0.0)
-
-        # UI completeness only — does NOT imply diagnostic perfection
-        wave.setdefault("health", {})["status"] = "OK"
+        if health_ok:
+            validated_waves += 1
 
     # ------------------------------------------------------------
-    # FINAL VALIDATION & SYSTEM HEALTH (CANONICAL)
+    # Final validation
     # ------------------------------------------------------------
-    wave_count = len(truthframe["waves"])
-
-    truthframe["_meta"]["wave_count"] = wave_count
+    truthframe["_meta"]["wave_count"] = len(truthframe["waves"])
     truthframe["_meta"]["validated_waves"] = validated_waves
-
-    # CRITICAL FIX:
-    # System health is driven by validation flag,
-    # NOT by strict per-wave completeness.
     truthframe["_meta"]["validated"] = validated_waves > 0
-    truthframe["_meta"]["status"] = "OK" if truthframe["_meta"]["validated"] else "DEGRADED"
-    truthframe["_meta"]["validation_source"] = "TEMP_SHIM"
+    truthframe["_meta"]["status"] = "OK" if validated_waves > 0 else "DEGRADED"
+    truthframe["_meta"]["validation_source"] = "MARKET_AWARE_VALIDATION"
 
     return truthframe
 
+
 # ------------------------------------------------------------------
-# CLI Entrypoint (GitHub Actions / Manual Runs)
+# CLI Entrypoint
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     tf = build_truthframe()
@@ -191,9 +169,6 @@ if __name__ == "__main__":
     with open(output_path, "w") as f:
         json.dump(tf, f, indent=2)
 
-    print(f"✅ TruthFrame written to {output_path}")
+    print(f"TruthFrame written to {output_path}")
     print(f"Status: {tf['_meta'].get('status')}")
     print(f"Validated: {tf['_meta'].get('validated')}")
-    print(
-        f"Validated waves: {tf['_meta'].get('validated_waves')} / {tf['_meta'].get('wave_count')}"
-    )
