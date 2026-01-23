@@ -1,9 +1,17 @@
 import streamlit as st
 
-st.set_page_config(page_title="WAVES – Recovery Mode", layout="wide")
+st.set_page_config(page_title="WAVES – Recovery Mode")
 
-st.success("STREAMLIT BOOT OK")
-st.write("app.py is executing")
+st.title("WAVES Recovery Mode")
+st.write("app.py is alive.")
 
-st.write("If you can see this, the blank screen issue is resolved.")
-st.write("Next step will be to wire this back to app_min.py safely.")
+# Import and run app_min safely
+try:
+    import app_min
+    if hasattr(app_min, "main"):
+        app_min.main()
+    else:
+        st.warning("app_min.main() not found")
+except Exception as e:
+    st.error("app_min import failed")
+    st.exception(e)
