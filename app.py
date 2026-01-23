@@ -19835,7 +19835,7 @@ def render_overview_clean_tab():
     status = "STABLE"
     issues = []
 
-    # --- Price freshness (informational unless extreme)
+    # Price freshness is informational unless extreme
     if data_age_days is not None:
         if data_age_days > 30:
             status = "DEGRADED"
@@ -19844,25 +19844,8 @@ def render_overview_clean_tab():
             status = "WATCH"
             issues.append(f"Price data {data_age_days} days old")
 
-    # --- PERFORMANCE PRESENCE (NOT VALUE-BASED)
-    has_any_data = False
-    has_any_numeric_return = False
+    has_any_data = performance_df is not None and not performance_df.empty
 
-    if performance_df is not None and not performance_df.empty:
-        has_any_data = True
-
-        return_cols = [
-            c for c in performance_df.columns
-            if "return" in c.lower()
-        ]
-
-        for col in return_cols:
-            series = pd.to_numeric(performance_df[col], errors="coerce")
-            if series.notna().any():
-                has_any_numeric_return = True
-                break
-
-    # Only degrade if NO DATA exists at all
     if not has_any_data:
         status = "DEGRADED"
         issues.append("Performance data unavailable")
@@ -19881,7 +19864,7 @@ def render_overview_clean_tab():
     st.divider()
 
     # ------------------------------------------------------------
-    # EXECUTIVE INTELLIGENCE SUMMARY
+    # EXECUTIVE INTELLIGENCE SUMMARY (INTRADAY-FIRST)
     # ------------------------------------------------------------
     st.markdown("### 📋 Executive Intelligence Summary")
 
@@ -19890,14 +19873,24 @@ def render_overview_clean_tab():
     total = 0
 
     try:
-        one_day_cols = [c for c in performance_df.columns if "1d" in c.lower()]
+        one_day_priority = [
+            "return_1d_intraday",
+            "return_1d",
+        ]
 
-        if one_day_cols:
-            series = pd.to_numeric(performance_df[one_day_cols[0]], errors="coerce").dropna()
-            if not series.empty:
-                avg_1d = series.mean()
-                positives = (series > 0).sum()
-                total = len(series)
+        series = None
+
+        for col in one_day_priority:
+            if col in performance_df.columns:
+                candidate = pd.to_numeric(performance_df[col], errors="coerce").dropna()
+                if not candidate.empty:
+                    series = candidate
+                    break
+
+        if series is not None:
+            avg_1d = series.mean()
+            positives = (series > 0).sum()
+            total = len(series)
 
         posture = (
             "constructive" if avg_1d is not None and avg_1d > 0
@@ -19929,7 +19922,7 @@ Absence of intraday returns does **not** indicate system failure.
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Strategy Confidence", "High" if has_any_numeric_return else "Moderate")
+        st.metric("Strategy Confidence", "High" if avg_1d is not None else "Moderate")
 
     with col2:
         st.metric("Risk Regime", "Neutral")
@@ -19970,7 +19963,7 @@ Absence of intraday returns does **not** indicate system failure.
         st.write({
             "data_age_days": data_age_days,
             "has_any_data": has_any_data,
-            "has_any_numeric_return": has_any_numeric_return,
+            "avg_1d": avg_1d,
             "performance_rows": len(performance_df),
             "price_columns": list(price_book.columns)[:10] if price_book is not None else [],
             "timestamp": datetime.utcnow().isoformat(),
