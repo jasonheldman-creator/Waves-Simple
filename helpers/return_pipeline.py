@@ -73,7 +73,10 @@ def compute_wave_returns_pipeline(
 
         # --- Wave daily returns ---
         wave_prices = price_book[wave_tickers]
-        wave_daily_returns = wave_prices.pct_change().mean(axis=1)
+        wave_daily_returns = wave_prices.pct_change().mean(axis=1).dropna()
+
+        if wave_daily_returns.empty:
+            continue
 
         # --- Benchmark daily returns ---
         benchmark_recipe = wave.get("benchmark_recipe") or {}
@@ -85,31 +88,55 @@ def compute_wave_returns_pipeline(
             weights = np.array(
                 [benchmark_recipe[t] for t in benchmark_tickers], dtype=float
             )
-            weights = weights / weights.sum()
+            if weights.sum() != 0:
+                weights = weights / weights.sum()
 
             bench_prices = price_book[benchmark_tickers]
             bench_returns = bench_prices.pct_change()
-            benchmark_daily_returns = (bench_returns * weights).sum(axis=1)
+            benchmark_daily_returns = (bench_returns * weights).sum(axis=1).reindex(
+                wave_daily_returns.index
+            )
         else:
             benchmark_daily_returns = pd.Series(
                 0.0, index=wave_daily_returns.index
             )
 
-        # --- Horizon aggregation ---
-        for h in horizons:
-            if len(wave_daily_returns) < h + 1:
-                continue
+        # --- Horizon aggregation (tolerant, non-dropping) ---
+        emitted_any = False
 
-            w_ret = (1 + wave_daily_returns.tail(h)).prod() - 1
-            b_ret = (1 + benchmark_daily_returns.tail(h)).prod() - 1
+        for h in horizons:
+            if len(wave_daily_returns) >= h:
+                w_ret = (1 + wave_daily_returns.tail(h)).prod() - 1
+                b_ret = (1 + benchmark_daily_returns.tail(h)).prod() - 1
+                emitted_any = True
+            else:
+                # Not enough history — emit explicit NaNs (truthful + non-breaking)
+                w_ret = np.nan
+                b_ret = np.nan
 
             results.append(
                 {
                     "wave_id": wave_id,
                     "horizon": h,
-                    "wave_return": float(w_ret),
-                    "benchmark_return": float(b_ret),
-                    "alpha": float(w_ret - b_ret),
+                    "wave_return": float(w_ret) if pd.notna(w_ret) else np.nan,
+                    "benchmark_return": float(b_ret) if pd.notna(b_ret) else np.nan,
+                    "alpha": (
+                        float(w_ret - b_ret)
+                        if pd.notna(w_ret) and pd.notna(b_ret)
+                        else np.nan
+                    ),
+                }
+            )
+
+        # Safety net: if for some reason nothing emitted, force a 1D NaN row
+        if not emitted_any:
+            results.append(
+                {
+                    "wave_id": wave_id,
+                    "horizon": min(horizons),
+                    "wave_return": np.nan,
+                    "benchmark_return": np.nan,
+                    "alpha": np.nan,
                 }
             )
 
