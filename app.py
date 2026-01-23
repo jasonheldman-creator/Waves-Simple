@@ -1,13 +1,1 @@
-def _truthframe_mtime() -> float:
-    try:
-        return os.path.getmtime("data/truthframe.json")
-    except Exception:
-        return 0.0
-
-def get_truthframe_safe() -> Dict[str, Any]:
-    """ Defensive wrapper for optional use ONLY. Does not require refactoring existing call sites. """
-    try:
-        return get_truthframe()
-    except Exception:
-        logger.warning("[TruthFrame] Recovering gracefully from access failure")
-        return {"waves": {}}
+<content of app.py prior to commit 33787b4cb30fb93e5fe8f7ffe49be41e5eb1faf3>
