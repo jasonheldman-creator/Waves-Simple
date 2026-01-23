@@ -3,11 +3,11 @@ from __future__ import annotations
 # =============================================================================
 # STANDARD LIBRARY IMPORTS
 # =============================================================================
-import traceback
 import os
 import json
 import logging
 import subprocess
+import traceback
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
 
@@ -48,10 +48,9 @@ def _truthframe_mtime() -> float:
 
 
 @st.cache_data(show_spinner=False)
-def load_truthframe(_cache_buster: float) -> Dict[str, Any]:
+def _load_truthframe_cached(_cache_buster: float) -> Dict[str, Any]:
     """
-    Load TruthFrame from disk in a fully lazy, recoverable manner.
-    Never raises, never blocks UI.
+    Cached disk read. NEVER call directly.
     """
     try:
         with open("data/truthframe.json", "r") as f:
@@ -68,24 +67,27 @@ def load_truthframe(_cache_buster: float) -> Dict[str, Any]:
         return {"waves": {}}
 
 
-def get_truthframe() -> Dict[str, Any]:
+def load_truthframe() -> Dict[str, Any]:
     """
-    Canonical TruthFrame accessor.
-    Cache is safely invalidated when file changes.
+    SAFE public accessor. No decorator here.
     """
-    return load_truthframe(_truthframe_mtime())
+    try:
+        return _load_truthframe_cached(_truthframe_mtime())
+    except Exception as e:
+        logger.warning(f"[TruthFrame] load failed: {e}")
+        return {"waves": {}}
 
 
 def truthframe_available() -> bool:
     """
     Lightweight availability check — never throws.
     """
-    tf = get_truthframe()
+    tf = load_truthframe()
     return bool(tf.get("waves"))
-# ============================================================================
-# WAVE DATA VALIDATION (DETERMINISTIC)
-# ============================================================================
 
+# =============================================================================
+# WAVE DATA VALIDATION (DETERMINISTIC)
+# =============================================================================
 def validate_wave_data(wave_name: str, mode: str, days: int, df=None):
     """
     Validate wave data before rendering.
@@ -116,7 +118,6 @@ def validate_wave_data(wave_name: str, mode: str, days: int, df=None):
 
     except Exception as e:
         return False, [f"Validation error: {str(e)}"]
-
 # ============================================================================
 # SECTION 2: UTILITY FUNCTIONS
 # ============================================================================
