@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # =============================================================================
-# STANDARD LIBRARY IMPORTS (NO STREAMLIT CALLS)
+# STANDARD LIBRARY IMPORTS (NO STREAMLIT SIDE EFFECTS)
 # =============================================================================
 import os
 import json
@@ -17,7 +17,7 @@ import numpy as np
 import streamlit as st
 
 # =============================================================================
-# INTERNAL IMPORTS (SAFE — NO SIDE EFFECTS)
+# INTERNAL IMPORTS (SAFE — NO HEAVY EXECUTION)
 # =============================================================================
 from helpers.circuit_breaker import reset_all_circuit_breakers
 
@@ -31,8 +31,9 @@ st.set_page_config(
 )
 
 # =============================================================================
-# RUNTIME COMMIT (SAFE, NON-BLOCKING)
+# RUNTIME COMMIT (SAFE, ISOLATED, NON-BLOCKING)
 # =============================================================================
+@st.cache_data(show_spinner=False)
 def _get_runtime_commit() -> str:
     try:
         return subprocess.check_output(
@@ -42,13 +43,10 @@ def _get_runtime_commit() -> str:
     except Exception:
         return "UNKNOWN"
 
-RUNTIME_COMMIT = _get_runtime_commit()
-
-# Display AFTER config
-st.caption(f"Runtime Commit: {RUNTIME_COMMIT}")
+st.caption(f"Runtime Commit: {_get_runtime_commit()}")
 
 # =============================================================================
-# LOGGING (CANONICAL, SINGLE SETUP)
+# LOGGING (SINGLE, CANONICAL SETUP)
 # =============================================================================
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
@@ -65,76 +63,61 @@ HORIZONS: List[Tuple[str, int]] = [
 ]
 
 # =============================================================================
-# SAFE ONE-TIME CIRCUIT BREAKER RESET (POST-INIT)
+# ONE-TIME SESSION SAFETY INITIALIZATION
 # =============================================================================
 def initialize_session_safety():
-    if "circuit_breaker_reset_done" not in st.session_state:
-        reset_all_circuit_breakers()
-        st.session_state["circuit_breaker_reset_done"] = True
+    if st.session_state.get("_waves_session_initialized"):
+        return
+    reset_all_circuit_breakers()
+    st.session_state["_waves_session_initialized"] = True
 
 initialize_session_safety()
 
 # =============================================================================
-# TRUTHFRAME — LAZY, SAFE, CACHE-ISOLATED
+# TRUTHFRAME — FULLY LAZY, RECOVERABLE, SAFE
 # =============================================================================
 @st.cache_data(show_spinner=False)
 def load_truthframe() -> Dict[str, Any]:
-    """
-    Load canonical TruthFrame from disk.
-    Safe, read-only, never raises.
-    """
     try:
         with open("data/truthframe.json", "r") as f:
             truth = json.load(f)
-
-        waves = truth.get("waves", {})
-        logger.info(f"[TruthFrame] loaded | waves={len(waves)}")
-
+        if not isinstance(truth.get("waves"), dict):
+            raise ValueError("Invalid TruthFrame schema")
+        logger.info(f"[TruthFrame] loaded | waves={len(truth['waves'])}")
         return truth
-
     except Exception as e:
-        logger.error(f"[TruthFrame] unavailable: {e}")
-        return {
-            "_error": str(e),
-            "waves": {},
-        }
+        logger.warning(f"[TruthFrame] unavailable: {e}")
+        return {"waves": {}}
 
-def get_active_truthframe() -> Dict[str, Any]:
+def get_truthframe() -> Dict[str, Any]:
     return load_truthframe()
 
-TRUTHFRAME = get_active_truthframe()
-
-TRUTHFRAME_PORTFOLIO_AVAILABLE = bool(
-    isinstance(TRUTHFRAME, dict)
-    and isinstance(TRUTHFRAME.get("waves"), dict)
-    and len(TRUTHFRAME.get("waves")) > 0
-)
+def truthframe_available() -> bool:
+    tf = get_truthframe()
+    return bool(tf.get("waves"))
 
 # =============================================================================
-# PORTFOLIO SNAPSHOT FROM TRUTHFRAME (FIXED BUG)
+# PORTFOLIO SNAPSHOT — SAFE, ON-DEMAND ONLY
 # =============================================================================
 def build_portfolio_snapshot_from_truthframe(
     truthframe: Dict[str, Any]
 ) -> pd.DataFrame:
 
-    rows = []
     waves = truthframe.get("waves", {})
-
-    if not isinstance(waves, dict) or not waves:
+    if not waves:
         return pd.DataFrame()
 
-    for horizon_label, _days in HORIZONS:
+    rows = []
+
+    for horizon_label, _ in HORIZONS:
         total_return = 0.0
         total_alpha = 0.0
         contributing = 0
 
         for wave_data in waves.values():
             metrics = wave_data.get("metrics", {})
-            returns = metrics.get("returns", {})
-            alphas = metrics.get("alpha", {})
-
-            r = returns.get(horizon_label)
-            a = alphas.get(horizon_label)
+            r = metrics.get("returns", {}).get(horizon_label)
+            a = metrics.get("alpha", {}).get(horizon_label)
 
             if r is None or a is None:
                 continue
@@ -166,97 +149,6 @@ def build_portfolio_snapshot_from_truthframe(
         ordered=True,
     )
     return df.sort_values("Horizon").reset_index(drop=True)
-# ============================================================================
-# STICKY HEADER COMPONENT - Pinned Tab Header (HARDENED)
-# ============================================================================
-
-def render_sticky_header(selected_wave: str, mode: str):
-    """
-    Render a sticky header that appears at the top of every tab.
-    Safe, non-fatal, and schema-agnostic.
-    """
-    try:
-        # Defaults
-        benchmark_name = "SPY"
-        exposure_pct = "N/A"
-        cash_pct = "N/A"
-        today_return = "N/A"
-        today_alpha = "N/A"
-
-        # Attempt to load recent wave data
-        try:
-            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=5)
-        except Exception:
-            wave_data = None
-
-        if wave_data is not None and not wave_data.empty:
-            # Exposure
-            if "Exposure" in wave_data.columns:
-                exp = float(wave_data["Exposure"].iloc[-1])
-                exposure_pct = f"{exp * 100:.1f}%"
-                cash_pct = f"{(1 - exp) * 100:.1f}%"
-
-            # Returns
-            if "Return_1D" in wave_data.columns:
-                today_return = f"{wave_data['Return_1D'].iloc[-1] * 100:.2f}%"
-
-            # Alpha
-            if "Alpha_1D" in wave_data.columns:
-                today_alpha = f"{wave_data['Alpha_1D'].iloc[-1] * 100:.2f}%"
-
-            # Benchmark
-            if "Benchmark" in wave_data.columns:
-                benchmark_name = str(wave_data["Benchmark"].iloc[-1])
-
-        sticky_html = f"""
-        <style>
-        .sticky-header {{
-            position: sticky;
-            top: 0;
-            z-index: 999;
-            background: linear-gradient(135deg, #1f2933, #111827);
-            border-bottom: 3px solid #00d9ff;
-            padding: 10px 18px;
-            border-radius: 0 0 10px 10px;
-        }}
-        .grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 12px;
-        }}
-        .label {{
-            font-size: 11px;
-            color: #00d9ff;
-            text-transform: uppercase;
-        }}
-        .value {{
-            font-size: 14px;
-            font-weight: bold;
-            color: white;
-        }}
-        .wave {{
-            font-size: 16px;
-            font-weight: bold;
-            color: #ffd700;
-        }}
-        </style>
-        <div class="sticky-header">
-          <div class="grid">
-            <div><div class="label">Wave</div><div class="wave">{selected_wave}</div></div>
-            <div><div class="label">Mode</div><div class="value">{mode}</div></div>
-            <div><div class="label">Benchmark</div><div class="value">{benchmark_name}</div></div>
-            <div><div class="label">Exposure</div><div class="value">{exposure_pct}</div></div>
-            <div><div class="label">Cash</div><div class="value">{cash_pct}</div></div>
-            <div><div class="label">Today Return</div><div class="value">{today_return}</div></div>
-            <div><div class="label">Today Alpha</div><div class="value">{today_alpha}</div></div>
-          </div>
-        </div>
-        """
-        render_html_safe(sticky_html, height=110, scrolling=False)
-
-    except Exception:
-        pass
-
 
 # ============================================================================
 # WAVE UNIVERSE — SINGLE SOURCE OF TRUTH (LOCKED)
