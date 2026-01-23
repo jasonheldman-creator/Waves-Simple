@@ -1,0 +1,68 @@
+name: Update Intraday Equity Cache
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  update-intraday-equity-cache:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow alpaca-py
+
+      - name: Load, update, and persist intraday equity prices
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: |
+          python << 'EOF'
+          import pandas as pd
+          from pathlib import Path
+
+          from helpers.intraday_equity_loader import update_intraday_equity_cache
+
+          CACHE_PATH = Path("data/cache/prices_cache.parquet")
+
+          if not CACHE_PATH.exists():
+              print("❌ prices_cache.parquet not found")
+              exit(0)
+
+          price_book = pd.read_parquet(CACHE_PATH)
+
+          updated = update_intraday_equity_cache(price_book)
+
+          if updated.equals(price_book):
+              print("ℹ️ No intraday updates detected")
+              exit(0)
+
+          updated.to_parquet(CACHE_PATH)
+          print("✅ Intraday equity prices merged into cache")
+          EOF
+
+      - name: Commit cache update (if changed)
+        run: |
+          git status
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add data/cache/prices_cache.parquet
+            git commit -m "Update intraday equity prices (Alpaca)"
+            git push
+          fi
