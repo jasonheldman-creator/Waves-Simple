@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # =============================================================================
-# STANDARD LIBRARY IMPORTS (NO STREAMLIT SIDE EFFECTS)
+# STANDARD LIBRARY IMPORTS (NO SIDE EFFECTS)
 # =============================================================================
 import os
 import json
@@ -18,12 +18,12 @@ import numpy as np
 import streamlit as st
 
 # =============================================================================
-# INTERNAL IMPORTS (SAFE — NO HEAVY EXECUTION)
+# INTERNAL IMPORTS (SAFE — NO EXECUTION)
 # =============================================================================
 from helpers.circuit_breaker import reset_all_circuit_breakers
 
 # =============================================================================
-# APP CONFIG — MUST BE FIRST STREAMLIT CALL
+# STREAMLIT CONFIG — MUST BE FIRST STREAMLIT CALL
 # =============================================================================
 st.set_page_config(
     page_title="WAVES Intelligence — Portfolio Executive Dashboard",
@@ -32,29 +32,33 @@ st.set_page_config(
 )
 
 # =============================================================================
-# RUNTIME COMMIT (SAFE, ISOLATED, NON-BLOCKING)
+# RUNTIME METADATA (SINGLE SOURCE OF TRUTH — NOT CACHED)
 # =============================================================================
-@st.cache_data(show_spinner=False)
-def _get_runtime_commit() -> str:
+def get_runtime_commit() -> str:
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
             stderr=subprocess.DEVNULL,
+            timeout=2,
         ).decode().strip()
     except Exception:
-        return "UNKNOWN"
+        return "unknown"
 
-st.caption(f"Runtime Commit: {_get_runtime_commit()}")
+RUNTIME_COMMIT = get_runtime_commit()
+st.caption(f"Runtime Commit: {RUNTIME_COMMIT}")
 
 # =============================================================================
-# LOGGING (SINGLE, CANONICAL SETUP)
+# LOGGING (CANONICAL, SINGLE INIT)
 # =============================================================================
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+    )
 
 # =============================================================================
-# CANONICAL HORIZONS
+# CANONICAL HORIZONS (LOCKED)
 # =============================================================================
 HORIZONS: List[Tuple[str, int]] = [
     ("1D", 1),
@@ -64,28 +68,32 @@ HORIZONS: List[Tuple[str, int]] = [
 ]
 
 # =============================================================================
-# ONE-TIME SESSION SAFETY INITIALIZATION
+# SESSION SAFETY (IDEMPOTENT — NO SIDE EFFECTS)
 # =============================================================================
-def initialize_session_safety():
-    if st.session_state.get("_waves_session_initialized"):
+def initialize_session():
+    if st.session_state.get("_waves_initialized"):
         return
-    reset_all_circuit_breakers()
-    st.session_state["_waves_session_initialized"] = True
+    try:
+        reset_all_circuit_breakers()
+    except Exception as e:
+        logger.warning(f"[Init] Circuit breaker reset skipped: {e}")
+    st.session_state["_waves_initialized"] = True
 
-initialize_session_safety()
+initialize_session()
 
 # =============================================================================
-# TRUTHFRAME — FULLY LAZY, RECOVERABLE, SAFE
+# TRUTHFRAME (READ-ONLY, NEVER THROWS)
 # =============================================================================
 @st.cache_data(show_spinner=False)
 def load_truthframe() -> Dict[str, Any]:
     try:
         with open("data/truthframe.json", "r") as f:
-            truth = json.load(f)
-        if not isinstance(truth.get("waves"), dict):
+            data = json.load(f)
+        waves = data.get("waves")
+        if not isinstance(waves, dict):
             raise ValueError("Invalid TruthFrame schema")
-        logger.info(f"[TruthFrame] loaded | waves={len(truth['waves'])}")
-        return truth
+        logger.info(f"[TruthFrame] loaded | waves={len(waves)}")
+        return data
     except Exception as e:
         logger.warning(f"[TruthFrame] unavailable: {e}")
         return {"waves": {}}
@@ -98,17 +106,17 @@ def truthframe_available() -> bool:
     return bool(tf.get("waves"))
 
 # =============================================================================
-# PORTFOLIO SNAPSHOT — SAFE, ON-DEMAND ONLY
+# PORTFOLIO SNAPSHOT (PURE, GUARDED, NON-FAILABLE)
 # =============================================================================
 def build_portfolio_snapshot_from_truthframe(
     truthframe: Dict[str, Any]
 ) -> pd.DataFrame:
 
     waves = truthframe.get("waves", {})
-    if not waves:
-        return pd.DataFrame()
+    if not isinstance(waves, dict) or not waves:
+        return pd.DataFrame(columns=["Horizon", "Return", "Alpha", "Waves"])
 
-    rows = []
+    rows: List[Dict[str, Any]] = []
 
     for horizon_label, _ in HORIZONS:
         total_return = 0.0
@@ -117,8 +125,11 @@ def build_portfolio_snapshot_from_truthframe(
 
         for wave_data in waves.values():
             metrics = wave_data.get("metrics", {})
-            r = metrics.get("returns", {}).get(horizon_label)
-            a = metrics.get("alpha", {}).get(horizon_label)
+            returns = metrics.get("returns", {})
+            alphas = metrics.get("alpha", {})
+
+            r = returns.get(horizon_label)
+            a = alphas.get(horizon_label)
 
             if r is None or a is None:
                 continue
@@ -130,246 +141,63 @@ def build_portfolio_snapshot_from_truthframe(
             except Exception:
                 continue
 
-        if contributing == 0:
-            continue
-
-        rows.append({
-            "Horizon": horizon_label,
-            "Return": round(total_return, 6),
-            "Alpha": round(total_alpha, 6),
-            "Waves": contributing,
-        })
+        if contributing > 0:
+            rows.append({
+                "Horizon": horizon_label,
+                "Return": round(total_return, 6),
+                "Alpha": round(total_alpha, 6),
+                "Waves": contributing,
+            })
 
     if not rows:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["Horizon", "Return", "Alpha", "Waves"])
 
     df = pd.DataFrame(rows)
     df["Horizon"] = pd.Categorical(
         df["Horizon"],
-        categories=["1D", "30D", "60D", "365D"],
+        categories=[h[0] for h in HORIZONS],
         ordered=True,
     )
     return df.sort_values("Horizon").reset_index(drop=True)
 
-# ============================================================================
-# WAVE UNIVERSE — SINGLE SOURCE OF TRUTH (LOCKED)
-# ============================================================================
-
-CACHE_BUSTER = "UNIVERSE_RESET_2026_01"
-
-def _normalize_wave_name(name):
-    return str(name).strip() if isinstance(name, str) else ""
-
-def _safe_list(val):
-    return val if isinstance(val, list) else []
-
-def _safe_dict(val):
-    return val if isinstance(val, dict) else {}
-
+# =============================================================================
+# WAVE UNIVERSE (STABLE, FALLBACK-SAFE)
+# =============================================================================
 @st.cache_data(ttl=30)
-def get_canonical_wave_universe(force_reload=False):
-    """
-    Canonical wave universe.
-    ALWAYS returns a valid structure.
-    """
-    if not force_reload and "wave_universe" in st.session_state:
-        return st.session_state["wave_universe"]
-
-    waves = []
-    source = "fallback"
-
-    # Priority 1 — waves_engine registry
+def get_wave_universe() -> List[str]:
     try:
-        if WAVES_ENGINE_AVAILABLE:
-            from waves_engine import get_all_waves_universe
-            data = get_all_waves_universe()
-            waves = data.get("waves", [])
-            source = data.get("source", "engine")
+        tf = get_truthframe()
+        waves = tf.get("waves", {})
+        if isinstance(waves, dict) and waves:
+            return sorted(waves.keys())
     except Exception:
         pass
 
-    # Priority 2 — WAVE_WEIGHTS fallback
-    if not waves and "WAVE_WEIGHTS" in globals():
-        waves = list(WAVE_WEIGHTS.keys())
-        source = "weights"
+    return sorted([
+        "S&P 500 Wave",
+        "Russell 3000 Wave",
+        "Income Wave",
+        "US MegaCap Core Wave",
+        "AI & Cloud MegaCap Wave",
+        "Quantum Computing Wave",
+        "Clean Transit-Infrastructure Wave",
+        "Crypto Income Wave",
+    ])
 
-    # Absolute fallback
-    if not waves:
-        waves = [
-            "S&P 500 Wave",
-            "Russell 3000 Wave",
-            "Income Wave",
-            "US MegaCap Core Wave",
-            "AI & Cloud MegaCap Wave",
-            "Quantum Computing Wave",
-            "Clean Transit-Infrastructure Wave",
-            "Crypto Income Wave",
-        ]
-        source = "static_fallback"
+# =============================================================================
+# VALIDATION (INFORMATIONAL ONLY — NEVER BLOCKING)
+# =============================================================================
+def validate_wave_data(df: pd.DataFrame) -> List[str]:
+    issues = []
+    if df is None or df.empty:
+        issues.append("No data available")
+    return issues
 
-    # Normalize + dedupe
-    seen = set()
-    deduped = []
-    for w in waves:
-        nw = _normalize_wave_name(w)
-        key = nw.casefold()
-        if key and key not in seen:
-            seen.add(key)
-            deduped.append(nw)
-
-    universe = {
-        "waves": deduped,
-        "source": source,
-        "timestamp": datetime.now().isoformat(),
-        "enabled_flags": {w: True for w in deduped},
-    }
-
-    st.session_state["wave_universe"] = universe
-    return universe
-
-
-def get_wave_universe():
-    """
-    Public accessor — always returns sorted wave list.
-    """
-    try:
-        universe = get_canonical_wave_universe()
-        return sorted(_safe_list(universe.get("waves")))
-    except Exception:
-        return []
-
-
-# ============================================================================
-# WAVE DATA VALIDATION (DETERMINISTIC)
-# ============================================================================
-
-def validate_wave_data(wave_name: str, mode: str, days: int, df=None):
-    """
-    Validate wave data before rendering.
-    No silent assumptions.
-    """
-    reasons = []
-
-    try:
-        if df is None:
-            df = get_wave_data_filtered(wave_name=wave_name, days=days)
-
-        if df is None:
-            return False, ["No data returned"]
-
-        if df.empty:
-            return False, ["Empty dataframe"]
-
-        if "Date" in df.columns:
-            span = (df["Date"].max() - df["Date"].min()).days
-            if span < max(3, days // 2):
-                reasons.append("Insufficient date coverage")
-
-        required_any = {"Return_1D", "Alpha_1D"}
-        if not required_any.intersection(df.columns):
-            reasons.append("Missing return / alpha columns")
-
-        return (len(reasons) == 0), reasons
-
-    except Exception as e:
-        return False, [f"Validation error: {str(e)}"]
-
-# ============================================================================
-# SECTION 2: UTILITY FUNCTIONS
-# ============================================================================
-
-def k(tab, name, wave_id=None, mode=None):
-    """
-    Unique key factory for Streamlit widgets.
-    Creates unique keys to avoid duplicate key errors across tabs and waves.
-    
-    Args:
-        tab: Tab name or section identifier (e.g., "Diagnostics", "Overview")
-        name: Widget name (e.g., "wave_selector", "timeframe")
-        wave_id: Optional wave identifier for wave-specific widgets
-        mode: Optional mode identifier for mode-specific widgets
-        
-    Returns:
-        Unique key string in format: "tab__name" or "tab__wave__name" etc.
-    
-    Examples:
-        k("Diagnostics", "wave_selector") -> "Diagnostics__wave_selector"
-        k("Overview", "timeframe", wave_id="SP500") -> "Overview__SP500__timeframe"
-        k("Console", "chart", mode="Standard") -> "Console__Standard__chart"
-    """
-    parts = [tab, name]
-    if wave_id:
-        parts.insert(1, wave_id)
-    if mode:
-        parts.insert(1, mode)
-    return "__".join(parts)
-
-
-def get_git_commit_hash():
-    """Get the current git commit hash, return 'unknown' if unavailable."""
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return "unknown"
-
-
-def get_git_branch_name():
-    """Get the current git branch name, return 'unknown' if unavailable."""
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return "unknown"
-
-
-def create_last_known_good_backup():
-    """
-    Create a backup of the current app.py to backup/app_last_good.py.
-    This is called on successful app startup to preserve a working version.
-    
-    Returns:
-        bool: True if backup succeeded, False otherwise
-    """
-    try:
-        # Create backup directory if it doesn't exist
-        backup_dir = os.path.join(os.path.dirname(__file__), 'backup')
-        os.makedirs(backup_dir, exist_ok=True)
-        
-        # Source file
-        source_file = os.path.join(os.path.dirname(__file__), 'app.py')
-        
-        # Backup file with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = os.path.join(backup_dir, f'app_last_good_{timestamp}.py')
-        
-        # Also keep a generic "latest" backup
-        latest_backup_file = os.path.join(backup_dir, 'app_last_good.py')
-        
-        # Copy the file
-        import shutil
-        shutil.copy2(source_file, backup_file)
-        shutil.copy2(source_file, latest_backup_file)
-        
-        return True
-    except Exception as e:
-        # Silent fail - don't disrupt app startup
-        return False
-
+# =============================================================================
+# STREAMLIT KEY FACTORY (SAFE)
+# =============================================================================
+def k(tab: str, name: str, *parts: str) -> str:
+    return "__".join([tab, name, *[p for p in parts if p]])
 
 def log_crash_to_file(exception: Exception, context: str = ""):
     """
