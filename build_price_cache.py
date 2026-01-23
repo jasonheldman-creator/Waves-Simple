@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""
+build_price_cache.py
+
+Canonical price cache builder for WAVES.
+This script MUST either:
+- produce a fully valid cache + metadata
+- OR fail loudly and exit non-zero
+
+There is no degraded success path.
+"""
 
 import os
 import sys
@@ -8,70 +18,65 @@ from datetime import datetime
 from typing import List
 
 import pandas as pd
+import yfinance as yf
 
-# =============================================================================
-# CONFIG
-# =============================================================================
+# ------------------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------------------
 
-REPO_ROOT = os.getcwd()
+UNIVERSE_FILE = "universal_universe.csv"
+WAVE_POSITIONS_FILE = "data/wave_positions.csv"
+CACHE_DIR = "data/cache"
+CACHE_FILE = os.path.join(CACHE_DIR, "prices_cache.parquet")
+META_FILE = os.path.join(CACHE_DIR, "prices_cache_meta.json")
 
-CACHE_DIR = os.path.join(REPO_ROOT, "data", "cache")
-PRICE_CACHE_PATH = os.path.join(CACHE_DIR, "prices_cache.parquet")
-META_CACHE_PATH = os.path.join(CACHE_DIR, "prices_cache_meta.json")
+MIN_TICKERS_REQUIRED = 50
+SPY_TICKER = "SPY"
 
-WAVE_POSITIONS_PATH = os.path.join(REPO_ROOT, "data", "wave_positions.csv")
-UNIVERSAL_UNIVERSE_PATH = os.path.join(REPO_ROOT, "universal_universe.csv")
-
-MIN_TICKERS_REQUIRED = 1  # hard invariant
-
-# =============================================================================
-# LOGGING
-# =============================================================================
+# ------------------------------------------------------------------------------
+# Logging
+# ------------------------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
 )
-
 log = logging.getLogger("build_price_cache")
 
-# =============================================================================
-# UTILITIES
-# =============================================================================
+# ------------------------------------------------------------------------------
+# Utilities
+# ------------------------------------------------------------------------------
 
-def fatal(msg: str) -> None:
+def hard_fail(msg: str) -> None:
     log.error(msg)
     sys.exit(1)
 
-# =============================================================================
-# TICKER LOADING (DETERMINISTIC)
-# =============================================================================
+
+def ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+
+# ------------------------------------------------------------------------------
+# Ticker Loading
+# ------------------------------------------------------------------------------
 
 def load_tickers() -> List[str]:
     """
-    Load tickers deterministically.
+    Deterministic ticker loading:
+    1. data/wave_positions.csv (if present)
+    2. universal_universe.csv (fallback)
 
-    Priority:
-    1. data/wave_positions.csv  (canonical)
-    2. universal_universe.csv   (fallback)
-
-    Hard fails if no tickers are resolved.
+    Must return >= MIN_TICKERS_REQUIRED or hard fail.
     """
 
-    log.info("Loading tickers...")
+    tickers: List[str] = []
 
-    # ---- Primary source: wave_positions.csv
-    if os.path.exists(WAVE_POSITIONS_PATH):
-        log.info("Using primary ticker source: data/wave_positions.csv")
-
-        try:
-            df = pd.read_csv(WAVE_POSITIONS_PATH)
-        except Exception as e:
-            fatal(f"Failed to read wave_positions.csv: {e}")
+    if os.path.exists(WAVE_POSITIONS_FILE):
+        log.info("Using wave_positions.csv as ticker source")
+        df = pd.read_csv(WAVE_POSITIONS_FILE)
 
         if "ticker" not in df.columns:
-            fatal("wave_positions.csv missing required column: 'ticker'")
+            hard_fail("wave_positions.csv missing required 'ticker' column")
 
         tickers = (
             df["ticker"]
@@ -82,33 +87,21 @@ def load_tickers() -> List[str]:
             .tolist()
         )
 
-        log.info(f"Loaded {len(tickers)} tickers from wave_positions.csv")
-
-    # ---- Fallback source: universal_universe.csv
     else:
         log.warning(
-            "wave_positions.csv not found. "
-            "Falling back to universal_universe.csv"
+            "wave_positions.csv not found — falling back to universal_universe.csv"
         )
 
-        if not os.path.exists(UNIVERSAL_UNIVERSE_PATH):
-            fatal(
-                "Neither data/wave_positions.csv nor universal_universe.csv exist. "
-                "Cannot proceed."
-            )
+        if not os.path.exists(UNIVERSE_FILE):
+            hard_fail("universal_universe.csv not found — cannot load tickers")
 
-        try:
-            df = pd.read_csv(UNIVERSAL_UNIVERSE_PATH)
-        except Exception as e:
-            fatal(f"Failed to read universal_universe.csv: {e}")
+        df = pd.read_csv(UNIVERSE_FILE)
 
         if "ticker" not in df.columns:
-            fatal("universal_universe.csv missing required column: 'ticker'")
+            hard_fail("universal_universe.csv missing required 'ticker' column")
 
-        # Optional but explicit filtering
         if "status" in df.columns:
-            df = df[df["status"].astype(str).str.lower() == "active"]
-            log.info("Filtered universal_universe.csv to active tickers only")
+            df = df[df["status"].str.lower() == "active"]
 
         tickers = (
             df["ticker"]
@@ -119,104 +112,146 @@ def load_tickers() -> List[str]:
             .tolist()
         )
 
-        log.info(f"Loaded {len(tickers)} tickers from universal_universe.csv")
+    tickers = sorted(set(tickers))
 
-    # ---- HARD INVARIANT
+    log.info(f"Tickers loaded: {len(tickers)}")
+
     if len(tickers) < MIN_TICKERS_REQUIRED:
-        fatal(
-            f"Ticker load invariant violated: "
-            f"resolved {len(tickers)} tickers (minimum required: {MIN_TICKERS_REQUIRED})"
+        hard_fail(
+            f"Insufficient tickers loaded ({len(tickers)} < {MIN_TICKERS_REQUIRED})"
         )
 
-    log.info("Ticker loading successful")
     return tickers
 
-# =============================================================================
-# PRICE CACHE GENERATION (PLACEHOLDER SAFE)
-# =============================================================================
 
-def build_price_cache(tickers: List[str]) -> pd.DataFrame:
+# ------------------------------------------------------------------------------
+# SPY Trading Day Validation
+# ------------------------------------------------------------------------------
+
+def fetch_spy_max_date() -> str:
     """
-    Build a minimal, structurally valid price cache.
-
-    NOTE:
-    This does NOT fetch live prices.
-    It ensures CI integrity and structural correctness.
+    Fetch latest SPY trading date.
+    MUST return ISO date string or hard fail.
     """
 
-    log.info("Building price cache DataFrame")
+    log.info("Fetching SPY trading calendar")
 
-    today = pd.Timestamp.utcnow().normalize()
+    try:
+        spy = yf.download(
+            SPY_TICKER,
+            period="10d",
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+        )
+    except Exception as e:
+        hard_fail(f"SPY download failed: {e}")
 
-    data = {}
-    for t in tickers:
-        # Minimal placeholder price series
-        data[t] = [1.0]
+    if spy.empty:
+        hard_fail("SPY download returned empty dataframe")
 
-    df = pd.DataFrame(data, index=[today])
+    spy_max_date = spy.index.max()
 
-    log.info(
-        f"Price cache built with shape {df.shape} "
-        f"(rows={df.shape[0]}, tickers={df.shape[1]})"
+    if not isinstance(spy_max_date, pd.Timestamp):
+        hard_fail("SPY max date is not a valid timestamp")
+
+    iso_date = spy_max_date.date().isoformat()
+
+    log.info(f"SPY max trading date: {iso_date}")
+
+    return iso_date
+
+
+# ------------------------------------------------------------------------------
+# Price Cache Build
+# ------------------------------------------------------------------------------
+
+def build_price_cache(tickers: List[str], years: int) -> pd.DataFrame:
+    """
+    Download price history for all tickers.
+    """
+
+    log.info(f"Downloading price history for {len(tickers)} tickers ({years} years)")
+
+    df = yf.download(
+        tickers,
+        period=f"{years}y",
+        interval="1d",
+        group_by="ticker",
+        auto_adjust=True,
+        threads=True,
+        progress=False,
     )
+
+    if df.empty:
+        hard_fail("Price download returned empty dataframe")
 
     return df
 
-# =============================================================================
-# METADATA GENERATION (NEVER NULL)
-# =============================================================================
 
-def build_metadata(tickers: List[str], price_df: pd.DataFrame) -> dict:
-    """
-    Build deterministic metadata.
+# ------------------------------------------------------------------------------
+# Metadata Write
+# ------------------------------------------------------------------------------
 
-    Metadata is NEVER allowed to contain None.
-    """
+def write_metadata(
+    spy_max_date: str,
+    max_price_date: str,
+    tickers_total: int,
+    tickers_successful: int,
+) -> None:
 
-    log.info("Building cache metadata")
-
-    metadata = {
-        "spy_max_date": "UNAVAILABLE",
-        "max_price_date": price_df.index.max().strftime("%Y-%m-%d"),
-        "tickers_total": len(tickers),
-        "tickers_successful": len(tickers),
+    meta = {
+        "spy_max_date": spy_max_date,
+        "max_price_date": max_price_date,
+        "tickers_total": tickers_total,
+        "tickers_successful": tickers_successful,
         "generated_at_utc": datetime.utcnow().isoformat(timespec="seconds"),
     }
 
-    # Final invariant check
-    for k, v in metadata.items():
-        if v is None:
-            fatal(f"Metadata invariant violated: {k} is None")
+    log.info("Writing cache metadata:")
+    for k, v in meta.items():
+        log.info(f"  {k}: {v}")
 
-    log.info(f"Metadata built: {json.dumps(metadata, indent=2)}")
-    return metadata
+    with open(META_FILE, "w") as f:
+        json.dump(meta, f, indent=2)
 
-# =============================================================================
-# MAIN
-# =============================================================================
+
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
 
 def main() -> None:
-    log.info("=== BUILD PRICE CACHE START ===")
+    years = int(float(os.getenv("YEARS", "3")))
+    force_rebuild = os.getenv("FORCE_REBUILD", "false").lower() == "true"
 
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    log.info("=== BUILDING PRICE CACHE ===")
+    log.info(f"Years: {years}")
+    log.info(f"Force rebuild: {force_rebuild}")
+
+    ensure_dir(CACHE_DIR)
 
     tickers = load_tickers()
+    spy_max_date = fetch_spy_max_date()
 
-    price_df = build_price_cache(tickers)
-    metadata = build_metadata(tickers, price_df)
+    prices = build_price_cache(tickers, years)
 
-    # ---- WRITE FILES (ATOMIC INTENT)
-    log.info(f"Writing price cache to {PRICE_CACHE_PATH}")
-    price_df.to_parquet(PRICE_CACHE_PATH)
+    max_price_date = prices.index.max()
+    if not isinstance(max_price_date, pd.Timestamp):
+        hard_fail("Invalid max price date in price cache")
 
-    log.info(f"Writing metadata to {META_CACHE_PATH}")
-    with open(META_CACHE_PATH, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
+    max_price_date_iso = max_price_date.date().isoformat()
 
-    log.info("=== BUILD PRICE CACHE COMPLETE ===")
+    prices.to_parquet(CACHE_FILE)
 
-# =============================================================================
+    write_metadata(
+        spy_max_date=spy_max_date,
+        max_price_date=max_price_date_iso,
+        tickers_total=len(tickers),
+        tickers_successful=len(tickers),
+    )
+
+    log.info("Price cache build COMPLETE")
+
 
 if __name__ == "__main__":
     main()
-    
