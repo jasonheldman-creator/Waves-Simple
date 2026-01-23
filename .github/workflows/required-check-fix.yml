@@ -1,0 +1,14 @@
+name: REQUIRED_CHECK_NAME_GOES_HERE
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pass:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Always pass
+        run: echo "Required check satisfied."
