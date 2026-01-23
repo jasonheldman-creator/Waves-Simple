@@ -5,8 +5,8 @@ import traceback
 from types import ModuleType
 
 # ==========================================================
-# WAVES — STREAMLIT RECOVERY KERNEL (CONTROLLED)
-# Single trusted entrypoint while system is healing
+# WAVES — STREAMLIT RECOVERY & REHYDRATION KERNEL
+# Single trusted entrypoint while restoring the system.
 # ==========================================================
 
 # ----------------------------------------------------------
@@ -56,10 +56,10 @@ def main():
         st.error("❌ waves import failed — recovery halted")
         st.exception(e)
         st.code(traceback.format_exc())
-        return  # NEVER proceed if this fails
+        return
 
     # ------------------------------------------------------
-    # WAVES MODULE INTROSPECTION (READ-ONLY)
+    # WAVES MODULE INSPECTION (READ-ONLY)
     # ------------------------------------------------------
 
     st.divider()
@@ -68,19 +68,14 @@ def main():
     try:
         st.write("Module file:", waves.__file__)
 
-        public_symbols = [
-            name for name in dir(waves)
-            if not name.startswith("_")
-        ]
-
-        st.write("Total public symbols:", len(public_symbols))
+        public_symbols = [n for n in dir(waves) if not n.startswith("_")]
         st.write("Public symbols:", public_symbols)
 
         st.success("waves module inspection completed safely")
     except Exception as e:
         st.error("waves inspection failed")
         st.exception(e)
-        st.code(traceback.format_exc())
+        return
 
     # ------------------------------------------------------
     # CONTROLLED EXECUTION GATE
@@ -90,34 +85,30 @@ def main():
     st.warning(
         "⚠️ Controlled execution gate\n\n"
         "Nothing below runs automatically.\n"
-        "Click the button only when ready."
+        "Click only when ready."
     )
 
     if st.button("🚀 Initialize WAVES (controlled)"):
         st.write("⏳ Initializing WAVES…")
 
         try:
-            result = waves.initialize_waves()
-            st.success("✅ initialize_waves() completed")
+            # Explicit, visible wiring
+            truth_df = waves.truth_df
+            unique_wave_ids = waves.unique_wave_ids
 
-            # Inspect resulting state WITHOUT mutating
-            if hasattr(waves, "truth_df"):
-                truth_df = waves.truth_df
-                st.write("truth_df detected")
+            st.write("truth_df type:", type(truth_df))
+            st.write("unique_wave_ids type:", type(unique_wave_ids))
+            st.write("Number of wave IDs:", len(unique_wave_ids))
 
-                if hasattr(truth_df, "waves"):
-                    st.write("Number of waves:", len(truth_df.waves))
-                    st.write("Wave IDs:", list(truth_df.waves.keys()))
-                else:
-                    st.warning("truth_df.waves attribute missing")
-            else:
-                st.warning("truth_df not present after initialization")
+            result = waves.initialize_waves(truth_df, unique_wave_ids)
+
+            st.success("✅ WAVES initialized successfully")
+            st.write("Initialization result:", result)
 
         except Exception as e:
             st.error("❌ initialize_waves() failed")
             st.exception(e)
             st.code(traceback.format_exc())
-            return
 
     # ------------------------------------------------------
     # STATUS
@@ -129,9 +120,10 @@ def main():
         "✔ Streamlit boot confirmed\n"
         "✔ Environment visible\n"
         "✔ waves imported safely\n"
-        "✔ Execution gated behind manual control\n\n"
-        "Ready for controlled system re-hydration."
+        "✔ Execution explicitly controlled\n\n"
+        "Ready for full application re-enablement."
     )
+
 
 # ----------------------------------------------------------
 # ENTRYPOINT
