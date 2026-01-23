@@ -1,56 +1,105 @@
-import numpy as np
-from typing import List, Dict, Any, Iterable
+from enum import Enum
+from typing import Callable, Any, Optional, Dict
+from datetime import datetime
+import threading
 
 
-def compute_wave_returns_pipeline(
-    wave_data: Iterable[Any],
-    horizons: List[Any],
-) -> List[Dict[str, Any]]:
+class CircuitState(Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
+class CircuitBreaker:
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_timeout: int = 60,
+        success_threshold: int = 2,
+        timeout: int = 10,
+    ):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.success_threshold = success_threshold
+        self.timeout = timeout
+
+        self.state = CircuitState.CLOSED
+        self.failure_count = 0
+        self.success_count = 0
+        self.last_failure_time: Optional[datetime] = None
+        self.lock = threading.Lock()
+
+    def call(self, func: Callable, *args, **kwargs):
+        with self.lock:
+            if self.state == CircuitState.OPEN:
+                return False, None, "Circuit breaker open"
+
+        try:
+            result = func(*args, **kwargs)
+
+            with self.lock:
+                if self.state == CircuitState.HALF_OPEN:
+                    self.success_count += 1
+                    if self.success_count >= self.success_threshold:
+                        self.state = CircuitState.CLOSED
+                        self.failure_count = 0
+                        self.success_count = 0
+                else:
+                    self.failure_count = 0
+
+            return True, result, None
+
+        except Exception as e:
+            with self.lock:
+                self.failure_count += 1
+                self.last_failure_time = datetime.utcnow()
+                if self.failure_count >= self.failure_threshold:
+                    self.state = CircuitState.OPEN
+            return False, None, str(e)
+
+    def reset(self) -> None:
+        with self.lock:
+            self.state = CircuitState.CLOSED
+            self.failure_count = 0
+            self.success_count = 0
+            self.last_failure_time = None
+
+    def get_state(self) -> Dict[str, Any]:
+        with self.lock:
+            return {
+                "state": self.state.value,
+                "failure_count": self.failure_count,
+                "success_count": self.success_count,
+                "last_failure_time": self.last_failure_time.isoformat()
+                if self.last_failure_time
+                else None,
+                "is_available": self.state != CircuitState.OPEN,
+            }
+
+
+# ============================================================
+# GLOBAL CIRCUIT BREAKER REGISTRY (CANONICAL)
+# ============================================================
+
+_circuit_breakers: Dict[str, CircuitBreaker] = {}
+
+
+def get_circuit_breaker(name: str, **kwargs) -> CircuitBreaker:
+    if name not in _circuit_breakers:
+        _circuit_breakers[name] = CircuitBreaker(**kwargs)
+    return _circuit_breakers[name]
+
+
+def get_all_circuit_states() -> Dict[str, Dict[str, Any]]:
+    return {name: cb.get_state() for name, cb in _circuit_breakers.items()}
+
+
+def reset_all_circuit_breakers() -> None:
     """
-    Compute wave returns, benchmark returns, and alpha independently
-    for each horizon.
+    Reset ALL registered circuit breakers.
 
-    Design rules (IMPORTANT — do not regress):
-    - Horizons are computed independently
-    - Insufficient data → emit NaN (NOT exclusion)
-    - A wave is excluded ONLY if ALL horizons are unavailable
-    - Output is one row per wave per horizon
-
-    This function is intentionally horizon-tolerant to avoid
-    accidental wave exclusion and DEGRADED system state.
+    This is an OPERATIONAL utility.
+    It must NEVER treat the registry as callable.
     """
-
-    results: List[Dict[str, Any]] = []
-
-    for wave in wave_data:
-        any_horizon_available = False
-        wave_rows: List[Dict[str, Any]] = []
-
-        for horizon in horizons:
-            if has_sufficient_data(wave, horizon):
-                wave_return = calculate_wave_return(wave, horizon)
-                benchmark_return = calculate_benchmark_return(wave, horizon)
-                alpha = wave_return - benchmark_return
-                any_horizon_available = True
-            else:
-                wave_return = np.nan
-                benchmark_return = np.nan
-                alpha = np.nan
-
-            wave_rows.append(
-                {
-                    "wave": wave,
-                    "horizon": horizon,
-                    "wave_return": wave_return,
-                    "benchmark_return": benchmark_return,
-                    "alpha": alpha,
-                }
-            )
-
-        # Exclude wave ONLY if no horizons had sufficient data
-        if not any_horizon_available:
-            continue
-
-        results.extend(wave_rows)
-
-    return results
+    for cb in _circuit_breakers.values():
+        cb.reset()
