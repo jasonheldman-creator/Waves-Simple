@@ -1,5 +1,4 @@
 import streamlit as st
-st.write("✅ STREAMLIT BOOT OK — app_min.py")
-st.write("Reached top of app_min.py")
+st.write("🟢 STREAMLIT EXECUTION STARTED")
+st.write("🟢 app_min.py reached line 1")
 
-# Existing imports and code...
