@@ -20,11 +20,12 @@ def wave_performance_diagnostics(wave_row: Dict[str, Any]) -> List[str]:
     if not isinstance(wave_row, dict):
         return ["No wave performance data"]
 
+    # Accept BOTH lowercase and CSV-style capitalized return fields
     return_fields = [
-        "return_1d",
-        "return_30d",
-        "return_60d",
-        "return_365d",
+        "return_1d", "Return_1D",
+        "return_30d", "Return_30D",
+        "return_60d", "Return_60D",
+        "return_365d", "Return_365D",
     ]
 
     has_valid_return = False
@@ -36,7 +37,7 @@ def wave_performance_diagnostics(wave_row: Dict[str, Any]) -> List[str]:
             break
 
     if not has_valid_return:
-        issues.append("No valid return horizons")
+        issues.append("No validated performance horizons available")
 
     return issues
 
@@ -67,29 +68,39 @@ def compute_all_waves_performance(
 
     # SAFETY: empty or missing price book
     if price_book is None or price_book.empty:
-        return pd.DataFrame(columns=["wave_id"] + [f"return_{p}d" for p in periods])
+        return pd.DataFrame(
+            columns=["wave_id"] +
+            [f"return_{p}d" for p in periods] +
+            [f"Return_{p}D" for p in periods]
+        )
 
-    # NOTE:
-    # This assumes price_book columns are wave identifiers
-    # and index is datetime-like.
+    # Assumes:
+    # - price_book columns are wave identifiers
+    # - index is datetime-like
     for wave_id in price_book.columns:
         series = price_book[wave_id].dropna()
 
         row: Dict[str, Any] = {"wave_id": wave_id}
 
         for p in periods:
-            col_name = f"return_{p}d"
+            lower_col = f"return_{p}d"
+            upper_col = f"Return_{p}D"
 
             try:
                 if len(series) > p:
                     ret = (series.iloc[-1] / series.iloc[-(p + 1)] - 1)
-                    row[col_name] = float(ret)
+                    val = float(ret)
+                    # Write BOTH forms for compatibility
+                    row[lower_col] = val
+                    row[upper_col] = val
                 else:
-                    row[col_name] = None
+                    row[lower_col] = None
+                    row[upper_col] = None
             except Exception:
-                row[col_name] = None
+                row[lower_col] = None
+                row[upper_col] = None
 
-        # Diagnostics (non-blocking)
+        # Non-blocking diagnostics
         issues = wave_performance_diagnostics(row)
         row["validation_issues"] = issues
 
@@ -98,9 +109,7 @@ def compute_all_waves_performance(
 
         rows.append(row)
 
-    df = pd.DataFrame(rows)
-
-    return df
+    return pd.DataFrame(rows)
 
 
 # ============================================================================
