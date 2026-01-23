@@ -1,3 +1,16 @@
+import subprocess
+
+try:
+    COMMIT_SHA = subprocess.check_output(
+        ["git", "rev-parse", "--short", "HEAD"],
+        stderr=subprocess.DEVNULL
+    ).decode().strip()
+except Exception:
+    COMMIT_SHA = "UNKNOWN"
+
+import streamlit as st
+st.caption(f"Runtime Commit: {COMMIT_SHA}")
+
 from __future__ import annotations
 
 # ============================================================
