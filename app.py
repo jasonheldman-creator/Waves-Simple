@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 # =============================================================================
-# RUNTIME METADATA (SINGLE SOURCE OF TRUTH — NOT CACHED)
+# RUNTIME METADATA (NON-CACHED, NON-BLOCKING)
 # =============================================================================
 def get_runtime_commit() -> str:
     try:
@@ -48,7 +48,7 @@ RUNTIME_COMMIT = get_runtime_commit()
 st.caption(f"Runtime Commit: {RUNTIME_COMMIT}")
 
 # =============================================================================
-# LOGGING (CANONICAL, SINGLE INIT)
+# LOGGING (SINGLE, CANONICAL INITIALIZATION)
 # =============================================================================
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
@@ -68,13 +68,14 @@ HORIZONS: List[Tuple[str, int]] = [
 ]
 
 # =============================================================================
-# SESSION SAFETY (IDEMPOTENT — NO SIDE EFFECTS)
+# SESSION INITIALIZATION (IDEMPOTENT, SAFE)
 # =============================================================================
 def initialize_session():
-    if st.session_state.get("_waves_initialized"):
+    if st.session_state.get("_waves_initialized", False):
         return
     try:
         reset_all_circuit_breakers()
+        logger.info("[Init] Circuit breakers reset")
     except Exception as e:
         logger.warning(f"[Init] Circuit breaker reset skipped: {e}")
     st.session_state["_waves_initialized"] = True
@@ -89,11 +90,14 @@ def load_truthframe() -> Dict[str, Any]:
     try:
         with open("data/truthframe.json", "r") as f:
             data = json.load(f)
+
         waves = data.get("waves")
         if not isinstance(waves, dict):
-            raise ValueError("Invalid TruthFrame schema")
+            raise ValueError("TruthFrame missing valid 'waves' dict")
+
         logger.info(f"[TruthFrame] loaded | waves={len(waves)}")
         return data
+
     except Exception as e:
         logger.warning(f"[TruthFrame] unavailable: {e}")
         return {"waves": {}}
@@ -103,18 +107,20 @@ def get_truthframe() -> Dict[str, Any]:
 
 def truthframe_available() -> bool:
     tf = get_truthframe()
-    return bool(tf.get("waves"))
+    return isinstance(tf.get("waves"), dict) and len(tf["waves"]) > 0
 
 # =============================================================================
-# PORTFOLIO SNAPSHOT (PURE, GUARDED, NON-FAILABLE)
+# PORTFOLIO SNAPSHOT (PURE, GUARDED, NON-FATAL)
 # =============================================================================
 def build_portfolio_snapshot_from_truthframe(
     truthframe: Dict[str, Any]
 ) -> pd.DataFrame:
 
-    waves = truthframe.get("waves", {})
+    waves = truthframe.get("waves")
     if not isinstance(waves, dict) or not waves:
-        return pd.DataFrame(columns=["Horizon", "Return", "Alpha", "Waves"])
+        return pd.DataFrame(
+            columns=["Horizon", "Return", "Alpha", "Waves"]
+        )
 
     rows: List[Dict[str, Any]] = []
 
@@ -123,13 +129,10 @@ def build_portfolio_snapshot_from_truthframe(
         total_alpha = 0.0
         contributing = 0
 
-        for wave_data in waves.values():
-            metrics = wave_data.get("metrics", {})
-            returns = metrics.get("returns", {})
-            alphas = metrics.get("alpha", {})
-
-            r = returns.get(horizon_label)
-            a = alphas.get(horizon_label)
+        for wave in waves.values():
+            metrics = wave.get("metrics", {})
+            r = metrics.get("returns", {}).get(horizon_label)
+            a = metrics.get("alpha", {}).get(horizon_label)
 
             if r is None or a is None:
                 continue
@@ -150,7 +153,9 @@ def build_portfolio_snapshot_from_truthframe(
             })
 
     if not rows:
-        return pd.DataFrame(columns=["Horizon", "Return", "Alpha", "Waves"])
+        return pd.DataFrame(
+            columns=["Horizon", "Return", "Alpha", "Waves"]
+        )
 
     df = pd.DataFrame(rows)
     df["Horizon"] = pd.Categorical(
@@ -161,13 +166,13 @@ def build_portfolio_snapshot_from_truthframe(
     return df.sort_values("Horizon").reset_index(drop=True)
 
 # =============================================================================
-# WAVE UNIVERSE (STABLE, FALLBACK-SAFE)
+# WAVE UNIVERSE (DETERMINISTIC, FALLBACK-SAFE)
 # =============================================================================
 @st.cache_data(ttl=30)
 def get_wave_universe() -> List[str]:
     try:
         tf = get_truthframe()
-        waves = tf.get("waves", {})
+        waves = tf.get("waves")
         if isinstance(waves, dict) and waves:
             return sorted(waves.keys())
     except Exception:
@@ -185,175 +190,61 @@ def get_wave_universe() -> List[str]:
     ])
 
 # =============================================================================
-# VALIDATION (INFORMATIONAL ONLY — NEVER BLOCKING)
+# VALIDATION (INFORMATIONAL — NEVER BLOCKS RENDERING)
 # =============================================================================
 def validate_wave_data(df: pd.DataFrame) -> List[str]:
-    issues = []
+    issues: List[str] = []
     if df is None or df.empty:
         issues.append("No data available")
     return issues
 
 # =============================================================================
-# STREAMLIT KEY FACTORY (SAFE)
+# STREAMLIT KEY FACTORY
 # =============================================================================
 def k(tab: str, name: str, *parts: str) -> str:
     return "__".join([tab, name, *[p for p in parts if p]])
 
-def log_crash_to_file(exception: Exception, context: str = ""):
-    """
-    Log crash information to logs/crash_log.txt.
-    
-    Args:
-        exception: The exception that was caught
-        context: Additional context about where the crash occurred
-    """
+# =============================================================================
+# SAFE RENDERING HELPERS (NEVER CRASH APP)
+# =============================================================================
+def render_html_safe(html_content: str):
     try:
-        # Create logs directory if it doesn't exist
-        logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
-        os.makedirs(logs_dir, exist_ok=True)
-        
-        # Log file path
-        log_file = os.path.join(logs_dir, 'crash_log.txt')
-        
-        # Format log entry
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"""
-{'='*80}
-CRASH LOG ENTRY
-Timestamp: {timestamp}
-Context: {context}
-Exception Type: {type(exception).__name__}
-Exception Message: {str(exception)}
-{'='*80}
-Traceback:
-{traceback.format_exc()}
-{'='*80}
-
-"""
-        # Append to log file
-        with open(log_file, 'a', encoding='utf-8') as f:
-            f.write(log_entry)
+        st.html(html_content)
     except Exception:
-        pass
-def log_data_load_exception(component: str, error: Exception):
-    """
-    Centralized, syntax-safe exception logger for session diagnostics.
-    """
-    import traceback
-    from datetime import datetime
-
-    if "data_load_exceptions" not in st.session_state:
-        st.session_state.data_load_exceptions = []
-
-    st.session_state.data_load_exceptions.append({
-        "component": component,
-        "error": str(error),
-        "traceback": traceback.format_exc(),
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
-def get_deploy_timestamp():
-    """Get the current timestamp as deploy timestamp."""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-
-def render_html_safe(html_content: str, height: int = None, scrolling: bool = False):
-    """
-    Safely render HTML content based on RENDER_RICH_HTML flag.
-    
-    When RENDER_RICH_HTML is True (or session state override):
-        Uses st.html for direct HTML rendering (recommended)
-    When RENDER_RICH_HTML is False:
-        Falls back to st.markdown with unsafe_allow_html=True
-    
-    Args:
-        html_content: The HTML content to render
-        height: Optional height in pixels (not used with st.html, kept for compatibility)
-        scrolling: Whether to enable scrolling (not used with st.html, kept for compatibility)
-    """
-    # Check session state first, then fall back to global flag
-    use_rich_html = st.session_state.get("render_rich_html_enabled", RENDER_RICH_HTML)
-    
-    if use_rich_html:
-        try:
-            # Use st.html for modern, direct HTML rendering without iframe
-            st.html(html_content)
-        except Exception:
-            # Fallback to markdown if st.html fails
-            st.markdown(html_content, unsafe_allow_html=True)
-    else:
-        # Use plain markdown rendering
         st.markdown(html_content, unsafe_allow_html=True)
 
-
-def safe_plotly_chart(fig, use_container_width=True, key=None, placeholder_msg="📊 Chart unavailable"):
-    """
-    Safely render a plotly chart with error handling.
-    If rendering fails, shows a placeholder message instead of crashing.
-    
-    Args:
-        fig: Plotly figure object
-        use_container_width: Whether to use container width
-        key: Unique key for the chart
-        placeholder_msg: Message to show if chart fails to render
-    """
+def safe_plotly_chart(fig, *, placeholder="📊 Chart unavailable", **kwargs):
     try:
         if fig is None:
-            st.info(placeholder_msg)
+            st.info(placeholder)
             return
-        st.plotly_chart(fig, use_container_width=use_container_width, key=key)
-    except Exception as e:
-        st.warning(f"⚠️ {placeholder_msg}")
-        # Log error for debugging but don't crash
-        if st.session_state.get("debug_mode", False):
-            st.caption(f"_Debug: {str(e)}_")
+        st.plotly_chart(fig, **kwargs)
+    except Exception:
+        st.warning(placeholder)
 
-
-def safe_image(image_path, caption=None, use_column_width=None, placeholder_msg="🖼️ Image unavailable"):
-    """
-    Safely render an image with error handling.
-    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
-    
-    Args:
-        image_path: Path to image file
-        caption: Optional image caption
-        use_column_width: Whether to use column width
-        placeholder_msg: Message to show if image fails to render
-    """
+def safe_image(path: str, *, placeholder="🖼️ Image unavailable", **kwargs):
     try:
-        if not os.path.exists(image_path):
-            st.info(placeholder_msg)
+        if not path or not os.path.exists(path):
+            st.info(placeholder)
             return
-        st.image(image_path, caption=caption, use_column_width=use_column_width)
-    except Exception as e:
-        st.warning(f"⚠️ {placeholder_msg}")
-        # Log error for debugging but don't crash
-        if st.session_state.get("debug_mode", False):
-            st.caption(f"_Debug: {str(e)}_")
+        st.image(path, **kwargs)
+    except Exception:
+        st.warning(placeholder)
 
-
-def safe_audio(audio_path, format="audio/mp3", start_time=0, placeholder_msg="🔊 Audio unavailable"):
-    """
-    Safely render an audio file with error handling.
-    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
-    
-    Args:
-        audio_path: Path to audio file
-        format: Audio format (default: "audio/mp3")
-        start_time: Start time in seconds (default: 0)
-        placeholder_msg: Message to show if audio fails to render
-    """
+def safe_audio(path: str, *, placeholder="🔊 Audio unavailable", **kwargs):
     try:
-        if not os.path.exists(audio_path):
-            st.info(placeholder_msg)
+        if not path or not os.path.exists(path):
+            st.info(placeholder)
             return
-        st.audio(audio_path, format=format, start_time=start_time)
-    except Exception as e:
-        st.warning(f"⚠️ {placeholder_msg}")
-        # Log error for debugging but don't crash
-        if st.session_state.get("debug_mode", False):
-            st.caption(f"_Debug: {str(e)}_")
+        st.audio(path, **kwargs)
+    except Exception:
+        st.warning(placeholder)
 
-
+# =============================================================================
+# DEPLOY TIMESTAMP
+# =============================================================================
+def get_deploy_timestamp() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 def safe_video(video_path, format="video/mp4", start_time=0, placeholder_msg="🎥 Video unavailable"):
     """
     Safely render a video file with error handling.
