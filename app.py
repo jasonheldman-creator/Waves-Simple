@@ -1,48 +1,62 @@
 from __future__ import annotations
 
-import subprocess
-
-try:
-    COMMIT_SHA = subprocess.check_output(
-        ["git", "rev-parse", "--short", "HEAD"],
-        stderr=subprocess.DEVNULL
-    ).decode().strip()
-except Exception:
-    COMMIT_SHA = "UNKNOWN"
-
-import streamlit as st
-st.caption(f"Runtime Commit: {COMMIT_SHA}")
-
-# ============================================================
-# CORE IMPORTS (CANONICAL, FAIL-SAFE)
-# ============================================================
+# =============================================================================
+# STANDARD LIBRARY IMPORTS (NO STREAMLIT CALLS)
+# =============================================================================
 import os
 import json
 import logging
+import subprocess
 from typing import Dict, Any, List, Tuple
 
-import streamlit as st
+# =============================================================================
+# THIRD-PARTY IMPORTS
+# =============================================================================
 import pandas as pd
 import numpy as np
+import streamlit as st
 
+# =============================================================================
+# INTERNAL IMPORTS (SAFE — NO SIDE EFFECTS)
+# =============================================================================
 from helpers.circuit_breaker import reset_all_circuit_breakers
 
-# ============================================================
-# ONE-TIME CIRCUIT BREAKER RESET (SAFE, SESSION-GUARDED)
-# ============================================================
-if "circuit_breaker_reset_done" not in st.session_state:
-    reset_all_circuit_breakers()
-    st.session_state["circuit_breaker_reset_done"] = True
+# =============================================================================
+# APP CONFIG — MUST BE FIRST STREAMLIT CALL
+# =============================================================================
+st.set_page_config(
+    page_title="WAVES Intelligence — Portfolio Executive Dashboard",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# ============================================================
-# LOGGING (SINGLE, CANONICAL SETUP)
-# ============================================================
+# =============================================================================
+# RUNTIME COMMIT (SAFE, NON-BLOCKING)
+# =============================================================================
+def _get_runtime_commit() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return "UNKNOWN"
+
+RUNTIME_COMMIT = _get_runtime_commit()
+
+# Display AFTER config
+st.caption(f"Runtime Commit: {RUNTIME_COMMIT}")
+
+# =============================================================================
+# LOGGING (CANONICAL, SINGLE SETUP)
+# =============================================================================
 logger = logging.getLogger("waves_app")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
-# ============================================================
+
+# =============================================================================
 # CANONICAL HORIZONS
-# ============================================================
+# =============================================================================
 HORIZONS: List[Tuple[str, int]] = [
     ("1D", 1),
     ("30D", 30),
@@ -50,15 +64,24 @@ HORIZONS: List[Tuple[str, int]] = [
     ("365D", 365),
 ]
 
-# ============================================================
-# TRUTHFRAME — CANONICAL, FILE-BACKED, READ-ONLY
-# ============================================================
+# =============================================================================
+# SAFE ONE-TIME CIRCUIT BREAKER RESET (POST-INIT)
+# =============================================================================
+def initialize_session_safety():
+    if "circuit_breaker_reset_done" not in st.session_state:
+        reset_all_circuit_breakers()
+        st.session_state["circuit_breaker_reset_done"] = True
 
+initialize_session_safety()
+
+# =============================================================================
+# TRUTHFRAME — LAZY, SAFE, CACHE-ISOLATED
+# =============================================================================
 @st.cache_data(show_spinner=False)
 def load_truthframe() -> Dict[str, Any]:
     """
-    Load the canonical TruthFrame from disk.
-    Read-only. Never raises.
+    Load canonical TruthFrame from disk.
+    Safe, read-only, never raises.
     """
     try:
         with open("data/truthframe.json", "r") as f:
@@ -76,17 +99,10 @@ def load_truthframe() -> Dict[str, Any]:
             "waves": {},
         }
 
-
-TRUTHFRAME: Dict[str, Any] = load_truthframe()
-
-
 def get_active_truthframe() -> Dict[str, Any]:
-    """
-    Canonical TruthFrame accessor.
-    Single source of truth for all read-only consumers.
-    """
-    return TRUTHFRAME
+    return load_truthframe()
 
+TRUTHFRAME = get_active_truthframe()
 
 TRUTHFRAME_PORTFOLIO_AVAILABLE = bool(
     isinstance(TRUTHFRAME, dict)
@@ -94,32 +110,26 @@ TRUTHFRAME_PORTFOLIO_AVAILABLE = bool(
     and len(TRUTHFRAME.get("waves")) > 0
 )
 
+# =============================================================================
+# PORTFOLIO SNAPSHOT FROM TRUTHFRAME (FIXED BUG)
+# =============================================================================
 def build_portfolio_snapshot_from_truthframe(
     truthframe: Dict[str, Any]
 ) -> pd.DataFrame:
-    """
-    Build portfolio-level snapshot table from TruthFrame.
-
-    Emits:
-    - 1D / 30D / 60D / 365D returns
-    - Corresponding alpha values
-    Safe, read-only, never raises.
-    """
 
     rows = []
-
     waves = truthframe.get("waves", {})
+
     if not isinstance(waves, dict) or not waves:
         return pd.DataFrame()
 
-    for horizon_label, days in HORIZONS.items():
+    for horizon_label, _days in HORIZONS:
         total_return = 0.0
         total_alpha = 0.0
-        contributing_waves = 0
+        contributing = 0
 
-        for wave_name, wave_data in waves.items():
+        for wave_data in waves.values():
             metrics = wave_data.get("metrics", {})
-
             returns = metrics.get("returns", {})
             alphas = metrics.get("alpha", {})
 
@@ -132,248 +142,30 @@ def build_portfolio_snapshot_from_truthframe(
             try:
                 total_return += float(r)
                 total_alpha += float(a)
-                contributing_waves += 1
+                contributing += 1
             except Exception:
                 continue
 
-        if contributing_waves == 0:
+        if contributing == 0:
             continue
 
         rows.append({
             "Horizon": horizon_label,
             "Return": round(total_return, 6),
             "Alpha": round(total_alpha, 6),
-            "Waves": contributing_waves,
+            "Waves": contributing,
         })
 
     if not rows:
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
-
-    # Canonical horizon ordering
     df["Horizon"] = pd.Categorical(
         df["Horizon"],
         categories=["1D", "30D", "60D", "365D"],
         ordered=True,
     )
-
-    df = df.sort_values("Horizon").reset_index(drop=True)
-    return df
-# ============================================================================
-# PORTFOLIO VIEW HELPER FUNCTIONS
-# ============================================================================
-
-def is_portfolio_context(selected_wave: str) -> bool:
-    """
-    Determine if the current context is portfolio-level (no specific wave selected).
-    """
-    return selected_wave is None or selected_wave == PORTFOLIO_VIEW_PLACEHOLDER
-
-
-# ============================================================================
-# WAVE PROFILE BANNER - Enhanced Header Display with Quick Stats
-# ============================================================================
-
-def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
-    """
-    Render an enhanced pinned banner at the top of the page with quick stats.
-    """
-    try:
-        # --------------------------------------------------------------------
-        # Context
-        # --------------------------------------------------------------------
-        is_portfolio_view = is_portfolio_context(selected_wave)
-
-        # --------------------------------------------------------------------
-        # Defaults (safe placeholders)
-        # --------------------------------------------------------------------
-        nav_str = "N/A"
-        ret_1d_str = ret_30d_str = ret_60d_str = ret_365d_str = "—"
-        alpha_1d_str = alpha_30d_str = alpha_60d_str = alpha_365d_str = "N/A"
-        beta_str = vix_regime_str = exposure_str = cash_str = "N/A"
-
-        # --------------------------------------------------------------------
-        # PORTFOLIO VIEW — TruthFrame (PRIMARY)
-        # --------------------------------------------------------------------
-        if is_portfolio_view and TRUTHFRAME_PORTFOLIO_AVAILABLE:
-            if not st.session_state.get("ENGINE_RUNNING", False):
-                st.session_state.ENGINE_RUNNING = True
-                try:
-                    snapshot = compute_portfolio_snapshot_from_truth(
-                        mode=mode,
-                        periods=(1, 30, 60, 365),
-                    )
-
-                    st.session_state["portfolio_snapshot_debug"] = {
-                        "source": "TruthFrame",
-                        "method": "compute_portfolio_snapshot_from_truth",
-                        "mode": mode,
-                        "computed_at": snapshot.get("computed_at_utc"),
-                        "has_error": "error" in snapshot,
-                        "error_message": snapshot.get("error"),
-                        "periods": [1, 30, 60, 365],
-                    }
-
-                    if "error" not in snapshot:
-                        # Returns
-                        ret_1d = snapshot.get("return_1d")
-                        ret_30d = snapshot.get("return_30d")
-                        ret_60d = snapshot.get("return_60d")
-                        ret_365d = snapshot.get("return_365d")
-
-                        # Alphas
-                        alpha_1d = snapshot.get("alpha_1d")
-                        alpha_30d = snapshot.get("alpha_30d")
-                        alpha_60d = snapshot.get("alpha_60d")
-                        alpha_365d = snapshot.get("alpha_365d")
-
-                        # Formatting
-                        ret_1d_str = f"{ret_1d:+.2%}" if ret_1d is not None and not pd.isna(ret_1d) else "—"
-                        ret_30d_str = f"{ret_30d:+.2%}" if ret_30d is not None and not pd.isna(ret_30d) else "—"
-                        ret_60d_str = f"{ret_60d:+.2%}" if ret_60d is not None and not pd.isna(ret_60d) else "—"
-                        ret_365d_str = f"{ret_365d:+.2%}" if ret_365d is not None and not pd.isna(ret_365d) else "—"
-
-                        alpha_1d_str = f"{alpha_1d:+.2%}" if alpha_1d is not None and not pd.isna(alpha_1d) else "N/A"
-                        alpha_30d_str = f"{alpha_30d:+.2%}" if alpha_30d is not None and not pd.isna(alpha_30d) else "N/A"
-                        alpha_60d_str = f"{alpha_60d:+.2%}" if alpha_60d is not None and not pd.isna(alpha_60d) else "N/A"
-                        alpha_365d_str = f"{alpha_365d:+.2%}" if alpha_365d is not None and not pd.isna(alpha_365d) else "N/A"
-
-                except Exception as e:
-                    import traceback
-                    logging.warning(f"TruthFrame portfolio snapshot failed: {e}")
-                    logging.debug(traceback.format_exc())
-                finally:
-                    st.session_state.ENGINE_RUNNING = False
-
-        # --------------------------------------------------------------------
-        # WAVE VIEW — lightweight metrics only (NO heavy math here)
-        # --------------------------------------------------------------------
-        if not is_portfolio_view:
-            try:
-                wave_data_30d = get_wave_data_filtered(selected_wave, 30)
-
-                if wave_data_30d is not None and not wave_data_30d.empty:
-                    if "exposure" in wave_data_30d.columns:
-                        avg_exposure = wave_data_30d["exposure"].mean()
-                        exposure_str = f"{avg_exposure * 100:.1f}%"
-                        cash_str = f"{(1 - avg_exposure) * 100:.1f}%"
-
-                    if "vix" in wave_data_30d.columns:
-                        vix = wave_data_30d["vix"].iloc[-1]
-                        if vix < 15:
-                            vix_regime_str = "Low"
-                        elif vix < 20:
-                            vix_regime_str = "Normal"
-                        elif vix < 30:
-                            vix_regime_str = "Elevated"
-                        else:
-                            vix_regime_str = "High"
-
-            except Exception:
-                pass  # wave-level metrics are optional
-
-        # --------------------------------------------------------------------
-        # UI Labels
-        # --------------------------------------------------------------------
-        mode_color = "#00ff88" if mode == "Standard" else "#ffd700" if mode == "Aggressive" else "#ff6b6b"
-        display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
-        display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
-
-        # --------------------------------------------------------------------
-        # HTML Assembly
-        # --------------------------------------------------------------------
-        wave_specific_metrics_html = ""
-        if not is_portfolio_view:
-            wave_specific_metrics_html = f"""
-                <div class="stat-tile"><div class="stat-label">Beta</div><div class="stat-value">{beta_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">VIX Regime</div><div class="stat-value">{vix_regime_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">Exposure</div><div class="stat-value">{exposure_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">Cash</div><div class="stat-value">{cash_str}</div></div>
-            """
-
-        portfolio_info_html = ""
-        if is_portfolio_view:
-            portfolio_info_html = """
-                <div class="portfolio-info">
-                    ⚡ Live TruthFrame portfolio aggregation
-                </div>
-            """
-
-        banner_html = f"""
-        <div class="wave-banner">
-            <div class="wave-title">
-                {display_icon} {display_title}
-                <span class="mode-pill" style="background:{mode_color};">{mode}</span>
-            </div>
-
-            <div class="stats-grid">
-                <div class="stat-tile"><div class="stat-label">1D</div><div class="stat-value">{ret_1d_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">30D</div><div class="stat-value">{ret_30d_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">60D</div><div class="stat-value">{ret_60d_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">365D</div><div class="stat-value">{ret_365d_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">α 1D</div><div class="stat-value">{alpha_1d_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">α 30D</div><div class="stat-value">{alpha_30d_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">α 60D</div><div class="stat-value">{alpha_60d_str}</div></div>
-                <div class="stat-tile"><div class="stat-label">α 365D</div><div class="stat-value">{alpha_365d_str}</div></div>
-                {wave_specific_metrics_html}
-            </div>
-            {portfolio_info_html}
-        </div>
-        """
-
-        render_html_safe(banner_html)
-
-    except Exception as e:
-        logging.error(f"Enhanced banner failed: {e}")
-        render_selected_wave_banner_simple(selected_wave, mode)
-
-
-def render_selected_wave_banner_simple(selected_wave: str, mode: str):
-    """
-    Simple fallback banner - original implementation.
-    
-    Args:
-        selected_wave: The name of the currently selected wave (None for portfolio view)
-        mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
-    """
-    # Determine if we're in portfolio context (no specific wave selected)
-    is_portfolio_view = is_portfolio_context(selected_wave)
-    
-    # Set display title and icon based on context
-    display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
-    display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
-    
-    # Safe HTML/CSS rendering with dark gradient background and neon accent border
-    banner_html = f"""
-    <div style="
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        border: 3px solid #00d9ff;
-        border-radius: 12px;
-        padding: 20px 30px;
-        margin-bottom: 25px;
-        box-shadow: 0 4px 6px rgba(0, 217, 255, 0.3);
-    ">
-        <h2 style="
-            color: #ffffff;
-            font-size: 28px;
-            font-weight: bold;
-            margin: 0;
-            text-align: center;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        ">
-            <span style="color: #00d9ff;">{display_icon} {'PORTFOLIO VIEW:' if is_portfolio_view else 'SELECTED WAVE:'}</span> {display_title} 
-            <span style="color: #ffd700;">•</span> 
-            <span style="color: #00ff88;">MODE:</span> {mode}
-        </h2>
-    </div>
-    """
-    # Use render_html_safe for proper HTML rendering (uses st.html() when Rich HTML 
-    # rendering is enabled, falls back to st.markdown with unsafe_allow_html=True)
-    render_html_safe(banner_html)
-
-
+    return df.sort_values("Horizon").reset_index(drop=True)
 # ============================================================================
 # STICKY HEADER COMPONENT - Pinned Tab Header (HARDENED)
 # ============================================================================
