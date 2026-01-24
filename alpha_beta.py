@@ -1,81 +1,176 @@
 """
-alpha_beta.py — SAFE alpha / beta attribution module
+alpha_beta.py — SAFE, DETAILED ALPHA / BETA ATTRIBUTION ENGINE
 
-This module is:
-• Import-safe (no execution at import time)
-• Stateless by default
-• Defensive against missing or malformed data
+Design goals:
+• Import-safe (no execution on import)
+• Read-only analytics (no mutation of inputs)
+• Gracefully handles missing columns
+• Fully decomposed alpha attribution
+• Compatible with recovery / frozen app states
 
-Nothing in this file will execute unless explicitly called.
+This module explains WHERE alpha comes from:
+1. Asset selection
+2. Dynamic benchmark shifts
+3. VIX / regime overlays
+4. Momentum / trend overlays
+5. Residual alpha (unexplained)
 """
 
-from typing import Dict, Any, Optional
+from __future__ import annotations
+
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Optional
 
 
-# -------------------------------------------------------------------
-# Public API
-# -------------------------------------------------------------------
+# -------------------------------------------------
+# Utility helpers (SAFE)
+# -------------------------------------------------
 
-def compute_alpha_beta(
-    wave_returns: Dict[str, float],
-    benchmark_returns: Dict[str, float],
-) -> Dict[str, Optional[float]]:
+def _col(df: pd.DataFrame, name: str) -> Optional[pd.Series]:
+    """Return column if it exists, else None."""
+    return df[name] if name in df.columns else None
+
+
+def _zero_like(df: pd.DataFrame) -> pd.Series:
+    """Return a zero-filled Series aligned to df."""
+    return pd.Series(0.0, index=df.index)
+
+
+# -------------------------------------------------
+# Core attribution engine
+# -------------------------------------------------
+
+def compute_alpha_attribution(
+    snapshot_df: pd.DataFrame,
+    *,
+    wave_id_col: str = "Wave_ID",
+    periods: List[str] = ("1D", "30D", "60D"),
+) -> pd.DataFrame:
     """
-    Compute simple alpha and beta attribution.
+    Compute detailed alpha attribution per wave.
 
     Parameters
     ----------
-    wave_returns : dict
-        Mapping of horizon -> wave return (e.g. {"30D": 0.04})
-    benchmark_returns : dict
-        Mapping of horizon -> benchmark return
+    snapshot_df : DataFrame
+        live_snapshot.csv loaded into a DataFrame
+
+    wave_id_col : str
+        Column identifying the wave
+
+    periods : tuple
+        Period suffixes to compute attribution for
 
     Returns
     -------
-    dict
-        {
-            "alpha": float | None,
-            "beta": float | None
-        }
+    DataFrame
+        One row per wave per period with full alpha decomposition
     """
 
-    try:
-        if not wave_returns or not benchmark_returns:
-            return {"alpha": None, "beta": None}
+    rows = []
 
-        # Use overlapping horizons only
-        common_keys = set(wave_returns.keys()) & set(benchmark_returns.keys())
-        if not common_keys:
-            return {"alpha": None, "beta": None}
+    for period in periods:
+        # ---- Expected column patterns (detected dynamically) ----
+        wave_ret = _col(snapshot_df, f"Return_{period}")
+        bench_ret = _col(snapshot_df, f"Benchmark_Return_{period}")
+        vix_overlay = _col(snapshot_df, f"VIX_Overlay_{period}")
+        momentum_overlay = _col(snapshot_df, f"Momentum_Overlay_{period}")
+        trend_overlay = _col(snapshot_df, f"Trend_Overlay_{period}")
+        beta_col = _col(snapshot_df, f"Beta_{period}")
 
-        # Simple averages (safe, transparent, debuggable)
-        wave_avg = sum(float(wave_returns[k]) for k in common_keys) / len(common_keys)
-        bench_avg = sum(float(benchmark_returns[k]) for k in common_keys) / len(common_keys)
+        # ---- Fallbacks (SAFETY FIRST) ----
+        if wave_ret is None:
+            continue  # cannot compute anything for this period
 
-        alpha = wave_avg - bench_avg
+        if bench_ret is None:
+            bench_ret = _zero_like(snapshot_df)
 
-        # Naive beta proxy (can be upgraded later)
-        beta = None
-        if bench_avg != 0:
-            beta = wave_avg / bench_avg
+        vix_overlay = vix_overlay if vix_overlay is not None else _zero_like(snapshot_df)
+        momentum_overlay = momentum_overlay if momentum_overlay is not None else _zero_like(snapshot_df)
+        trend_overlay = trend_overlay if trend_overlay is not None else _zero_like(snapshot_df)
+        beta_col = beta_col if beta_col is not None else pd.Series(np.nan, index=snapshot_df.index)
 
-        return {
-            "alpha": round(alpha, 6),
-            "beta": round(beta, 6) if beta is not None else None,
-        }
+        # ---- Core math ----
+        gross_alpha = wave_ret - bench_ret
 
-    except Exception:
-        # HARD RULE: never raise
-        return {"alpha": None, "beta": None}
+        explained_alpha = (
+            vix_overlay
+            + momentum_overlay
+            + trend_overlay
+        )
+
+        residual_alpha = gross_alpha - explained_alpha
+
+        # ---- Build rows ----
+        for i in snapshot_df.index:
+            rows.append({
+                "wave_id": snapshot_df.at[i, wave_id_col] if wave_id_col in snapshot_df.columns else i,
+                "period": period,
+
+                # Core returns
+                "wave_return": float(wave_ret.at[i]),
+                "benchmark_return": float(bench_ret.at[i]),
+                "gross_alpha": float(gross_alpha.at[i]),
+
+                # Attribution components
+                "alpha_asset_selection": float(gross_alpha.at[i]),
+                "alpha_dynamic_benchmark": float(-bench_ret.at[i]),
+                "alpha_vix_overlay": float(vix_overlay.at[i]),
+                "alpha_momentum_overlay": float(momentum_overlay.at[i]),
+                "alpha_trend_overlay": float(trend_overlay.at[i]),
+
+                # Residual
+                "alpha_residual": float(residual_alpha.at[i]),
+
+                # Risk context
+                "beta": float(beta_col.at[i]) if pd.notna(beta_col.at[i]) else None,
+            })
+
+    return pd.DataFrame(rows)
 
 
-# -------------------------------------------------------------------
-# Diagnostic helper (optional)
-# -------------------------------------------------------------------
+# -------------------------------------------------
+# Optional summary helpers (SAFE)
+# -------------------------------------------------
 
-def module_healthcheck() -> str:
+def summarize_alpha_sources(alpha_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Lightweight confirmation hook.
-    Safe to call from recovery / diagnostics views.
+    Aggregate alpha attribution by source per period.
+
+    Returns a compact table useful for dashboards.
     """
-    return "alpha_beta module loaded safely"
+
+    if alpha_df.empty:
+        return alpha_df
+
+    sources = [
+        "alpha_asset_selection",
+        "alpha_dynamic_benchmark",
+        "alpha_vix_overlay",
+        "alpha_momentum_overlay",
+        "alpha_trend_overlay",
+        "alpha_residual",
+    ]
+
+    return (
+        alpha_df
+        .groupby("period")[sources]
+        .sum()
+        .reset_index()
+    )
+
+
+# -------------------------------------------------
+# Import verification hook
+# -------------------------------------------------
+
+def _import_check():
+    return "alpha_beta module imported safely"
+
+
+# -------------------------------------------------
+# No execution at import time
+# -------------------------------------------------
+
+if __name__ == "__main__":
+    print("alpha_beta.py loaded directly — no execution performed")
