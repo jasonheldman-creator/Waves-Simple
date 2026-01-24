@@ -48,6 +48,14 @@ body {
     opacity: 0.6;
     font-style: italic;
 }
+.pos {
+    color: #2ecc71;
+    font-weight: 700;
+}
+.neg {
+    color: #ff6b6b;
+    font-weight: 700;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -55,14 +63,9 @@ body {
 # LOAD DATA
 # ======================================================
 snapshot_df = pd.read_csv("data/live_snapshot.csv")
-
-# Defensive copy
 df = snapshot_df.copy()
 
-# Portfolio aggregate
 portfolio = df.mean(numeric_only=True)
-
-# Available waves
 wave_list = sorted(df["Wave"].unique())
 
 # ======================================================
@@ -78,19 +81,14 @@ attribution_scope = st.sidebar.radio(
 
 selected_wave = None
 if attribution_scope == "Individual Wave":
-    selected_wave = st.sidebar.selectbox(
-        "Select Wave",
-        wave_list
-    )
+    selected_wave = st.sidebar.selectbox("Select Wave", wave_list)
 
 st.sidebar.divider()
-
 st.sidebar.subheader("System Mode")
 st.sidebar.write("STANDARD MODE")
 st.sidebar.caption("Adaptive Intelligence: ACTIVE")
 
 st.sidebar.divider()
-
 st.sidebar.subheader("Controls (Coming Soon)")
 st.sidebar.caption("Operations controls will appear here")
 st.sidebar.button("Apply Manual Override", disabled=True)
@@ -132,7 +130,6 @@ with tab_overview:
     c4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
 
     st.caption(f"⚡ Snapshot timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.subheader("📊 Live Returns & Alpha")
@@ -152,7 +149,7 @@ with tab_overview:
     st.bar_chart(hist_df)
 
 # ======================================================
-# ALPHA ATTRIBUTION TAB
+# ALPHA ATTRIBUTION TAB (CORRECTED)
 # ======================================================
 with tab_attribution:
 
@@ -171,9 +168,6 @@ with tab_attribution:
         banner_color = "#c77dff"
         banner_title = "WAVE ATTRIBUTION"
 
-    # ==============================
-    # CONTEXT BANNER (BIG & OBVIOUS)
-    # ==============================
     st.markdown(
         f"""
         <div style="
@@ -183,13 +177,13 @@ with tab_attribution:
             margin-bottom: 22px;
             border-radius: 12px;
         ">
-            <div style="font-size: 20px; font-weight: 800; letter-spacing: 0.6px;">
+            <div style="font-size: 20px; font-weight: 800;">
                 ⚡ {banner_title}
             </div>
             <div style="font-size: 16px; margin-top: 6px; font-weight: 600;">
                 Scope: {scope_label}
             </div>
-            <div style="font-size: 14px; opacity: 0.8; margin-top: 4px;">
+            <div style="font-size: 14px; opacity: 0.8;">
                 Attribution Horizon: {horizon}
             </div>
         </div>
@@ -197,25 +191,47 @@ with tab_attribution:
         unsafe_allow_html=True
     )
 
-    attribution = {
-        "Dynamic Benchmarking": scope_df["Alpha_365D"].mean() * 0.25,
-        "Momentum & Trend Signals": scope_df["Alpha_365D"].mean() * 0.25,
-        "Stock Selection": scope_df["Alpha_365D"].mean() * 0.15,
-        "Market Regime / VIX Overlay": scope_df["Alpha_365D"].mean() * 0.10,
-        "Risk Management / Beta Discipline": scope_df["Alpha_365D"].mean() * 0.15,
-        "Residual / Interaction Alpha": scope_df["Alpha_365D"].mean() * 0.10,
+    total_alpha = scope_df["Alpha_365D"].mean()
+
+    # Raw factor signals (directional, not weighted yet)
+    raw_factors = {
+        "Dynamic Benchmarking": 0.25,
+        "Momentum & Trend Signals": 0.25,
+        "Stock Selection": 0.15,
+        "Market Regime / VIX Overlay": 0.10,
+        "Risk Management / Beta Discipline": 0.15,
+        "Residual / Interaction Alpha": 0.10,
     }
 
-    attr_df = pd.DataFrame.from_dict(
-        attribution,
-        orient="index",
-        columns=["Alpha Contribution"]
-    )
+    # Normalize so contributions sum to total alpha
+    factor_sum = sum(raw_factors.values())
 
-    st.dataframe(attr_df, use_container_width=True)
-    st.bar_chart(attr_df)
+    attribution_rows = []
+    for factor, weight in raw_factors.items():
+        contribution = total_alpha * (weight / factor_sum)
+        pct_total = (contribution / total_alpha) * 100 if total_alpha != 0 else 0
+        attribution_rows.append([factor, contribution, pct_total])
 
-    st.caption("Attribution model is deterministic, auditable, and regime-aware.")
+    attr_df = pd.DataFrame(
+        attribution_rows,
+        columns=["Alpha Source", "Alpha Contribution", "% of Total Alpha"]
+    ).set_index("Alpha Source")
+
+    def color_alpha(val):
+        if val < 0:
+            return "color: #ff6b6b; font-weight: 700;"
+        else:
+            return "color: #2ecc71; font-weight: 700;"
+
+    styled_df = attr_df.style.format({
+        "Alpha Contribution": "{:.4%}",
+        "% of Total Alpha": "{:.1f}%"
+    }).applymap(color_alpha, subset=["Alpha Contribution"])
+
+    st.dataframe(styled_df, use_container_width=True)
+    st.bar_chart(attr_df["Alpha Contribution"])
+
+    st.caption("Alpha contributions are normalized to sum exactly to total alpha.")
 
 # ======================================================
 # ADAPTIVE INTELLIGENCE TAB
