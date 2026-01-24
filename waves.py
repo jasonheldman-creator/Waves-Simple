@@ -1,49 +1,44 @@
 """
-waves.py — import-safe recovery scaffold (COMPATIBILITY FIX)
+waves.py — import-safe recovery scaffold (compat-safe)
 
-This module must remain import-safe and must be compatible with
-legacy app.py calls that pass keyword arguments:
-
-    initialize_waves(truth_df=..., unique_wave_ids=...)
-
-DO NOT execute logic at import time.
+This module is designed to be safely imported by Streamlit.
+It accepts BOTH positional and keyword-based initialization
+to remain compatible with existing app.py calls.
 """
-
-from typing import Any, Iterable
 
 # -----------------------------
 # Safe defaults (IMPORT SAFE)
 # -----------------------------
 
-truth_df = None
 unique_wave_ids = []
+truth_df = None
 
 
 # -----------------------------
-# Public initializer (BACKWARD COMPATIBLE)
+# Public initializer (COMPATIBLE)
 # -----------------------------
 
 def initialize_waves(
-    _truth_df: Any = None,
-    _unique_wave_ids: Iterable[str] | None = None,
+    _truth_df=None,
+    _unique_wave_ids=None,
     *,
-    truth_df: Any = None,
-    unique_wave_ids: Iterable[str] | None = None,
+    truth_df=None,
+    unique_wave_ids=None
 ):
     """
-    Initialize wave entries safely.
+    Initialize wave entries inside truth_df safely.
 
-    Supports BOTH call styles:
-      - initialize_waves(truth_df=..., unique_wave_ids=...)
-      - initialize_waves(_truth_df, _unique_wave_ids)
+    Accepts BOTH:
+      initialize_waves(truth_df, unique_wave_ids)
+      initialize_waves(truth_df=..., unique_wave_ids=...)
 
-    This is REQUIRED because app.py cannot be modified.
+    This keeps compatibility with existing app.py.
     """
 
     global truth_df as _global_truth_df
-    global unique_wave_ids as _global_unique_wave_ids
+    global unique_wave_ids as _global_wave_ids
 
-    # Resolve arguments (keyword args take precedence)
+    # Normalize inputs (keyword args win)
     resolved_truth_df = truth_df if truth_df is not None else _truth_df
     resolved_wave_ids = (
         unique_wave_ids if unique_wave_ids is not None else _unique_wave_ids
@@ -56,14 +51,12 @@ def initialize_waves(
         raise ValueError("initialize_waves: unique_wave_ids is required")
 
     _global_truth_df = resolved_truth_df
-    _global_unique_wave_ids = list(resolved_wave_ids)
+    _global_wave_ids = list(resolved_wave_ids)
 
-    # Ensure waves container exists
-    if not hasattr(_global_truth_df, "waves") or _global_truth_df.waves is None:
+    if not hasattr(_global_truth_df, "waves"):
         _global_truth_df.waves = {}
 
-    # Initialize wave entries
-    for wave_id in _global_unique_wave_ids:
+    for wave_id in _global_wave_ids:
         if wave_id not in _global_truth_df.waves:
             _global_truth_df.waves[wave_id] = {
                 "health": {
@@ -85,7 +78,7 @@ def initialize_waves(
 # -----------------------------
 
 def _import_check():
-    return "waves module imported safely (compatible)"
+    return "waves module imported safely"
 
 
 # -----------------------------
