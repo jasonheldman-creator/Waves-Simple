@@ -1,60 +1,64 @@
 """
 attribution_engine.py — WAVES Alpha Attribution Engine
 
-Pure computation module.
-NO Streamlit.
-NO side effects.
-SAFE to import anywhere.
-
-Purpose:
-• Decompose alpha by source
-• Support strategy + overlay attribution
-• Remain backward-compatible with partial data
+Design goals:
+• Import-safe (no execution on import)
+• Stateless (pure functions)
+• Defensive (missing columns handled)
+• Compatible with live_snapshot.csv
+• No dependency on Streamlit
 """
 
 import pandas as pd
 
 
-# -------------------------------------------------
-# Utilities
-# -------------------------------------------------
+# ----------------------------------------------------------
+# Utility helpers
+# ----------------------------------------------------------
 
-def _col_or_zero(df: pd.DataFrame, col: str):
-    """Return column if present, else zero series."""
-    if col in df.columns:
-        return df[col]
-    return 0.0
+def _col(df: pd.DataFrame, name: str, default=0.0):
+    """Return column if present, else a scalar default."""
+    return df[name] if name in df.columns else default
 
 
-# -------------------------------------------------
-# Core Attribution
-# -------------------------------------------------
+# ----------------------------------------------------------
+# Core attribution function
+# ----------------------------------------------------------
 
-def compute_alpha_components(snapshot_df: pd.DataFrame) -> pd.DataFrame:
+def compute_alpha_attribution(snapshot_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Adds alpha component columns defensively.
+    Compute full alpha attribution by Wave_ID.
 
     Expected (optional) columns:
-    - Return
-    - Benchmark_Return
-    - Stock_Alpha
-    - Strategy_Alpha
-    - Overlay_Alpha
+        • Return
+        • Alpha
+        • Benchmark_Return
+        • Stock_Alpha
+        • Strategy_Alpha
+        • Overlay_Alpha
+
+    Any missing component is treated as zero.
     """
+
+    if "Wave_ID" not in snapshot_df.columns:
+        raise ValueError("compute_alpha_attribution: Wave_ID column missing")
 
     df = snapshot_df.copy()
 
-    df["Benchmark_Return"] = _col_or_zero(df, "Benchmark_Return")
-    df["Stock_Alpha"] = _col_or_zero(df, "Stock_Alpha")
-    df["Strategy_Alpha"] = _col_or_zero(df, "Strategy_Alpha")
-    df["Overlay_Alpha"] = _col_or_zero(df, "Overlay_Alpha")
+    # --- Base fields ---
+    df["Return"] = _col(df, "Return")
+    df["Benchmark_Return"] = _col(df, "Benchmark_Return")
 
+    # --- Alpha (derived if missing) ---
     if "Alpha" not in df.columns:
-        if "Return" in df.columns:
-            df["Alpha"] = df["Return"] - df["Benchmark_Return"]
-        else:
-            df["Alpha"] = 0.0
+        df["Alpha"] = df["Return"] - df["Benchmark_Return"]
 
+    # --- Attribution components ---
+    df["Stock_Alpha"] = _col(df, "Stock_Alpha")
+    df["Strategy_Alpha"] = _col(df, "Strategy_Alpha")
+    df["Overlay_Alpha"] = _col(df, "Overlay_Alpha")
+
+    # --- Residual ---
     df["Residual_Alpha"] = (
         df["Alpha"]
         - df["Stock_Alpha"]
@@ -62,57 +66,19 @@ def compute_alpha_components(snapshot_df: pd.DataFrame) -> pd.DataFrame:
         - df["Overlay_Alpha"]
     )
 
-    return df
-
-
-# -------------------------------------------------
-# Aggregation
-# -------------------------------------------------
-
-def summarize_by_wave(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aggregates alpha attribution by Wave_ID.
-    """
-
-    required = ["Wave_ID"]
-    for col in required:
-        if col not in df.columns:
-            raise ValueError(f"Missing required column: {col}")
-
-    cols = [
-        "Alpha",
-        "Stock_Alpha",
-        "Strategy_Alpha",
-        "Overlay_Alpha",
-        "Residual_Alpha",
-    ]
-
-    available_cols = [c for c in cols if c in df.columns]
-
-    summary = (
-        df.groupby("Wave_ID")[available_cols]
+    # --- Aggregate per Wave ---
+    attribution = (
+        df
+        .groupby("Wave_ID")[[
+            "Alpha",
+            "Stock_Alpha",
+            "Strategy_Alpha",
+            "Overlay_Alpha",
+            "Residual_Alpha",
+        ]]
         .mean()
         .reset_index()
         .sort_values("Alpha", ascending=False)
     )
 
-    return summary
-
-
-# -------------------------------------------------
-# High-level API
-# -------------------------------------------------
-
-def build_alpha_attribution(snapshot_df: pd.DataFrame):
-    """
-    Full attribution pipeline.
-
-    Returns:
-    - enriched snapshot_df
-    - per-wave attribution summary
-    """
-
-    enriched = compute_alpha_components(snapshot_df)
-    summary = summarize_by_wave(enriched)
-
-    return enriched, summary
+    return attribution
