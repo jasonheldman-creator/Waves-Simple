@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
 
 # -------------------------------------------------
 # Page Config
@@ -12,43 +13,7 @@ st.set_page_config(
 )
 
 # -------------------------------------------------
-# Load Live Snapshot (SOURCE OF TRUTH)
-# -------------------------------------------------
-SNAPSHOT_PATH = "data/live_snapshot.csv"
-
-@st.cache_data
-def load_snapshot(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    return df
-
-snapshot_df = load_snapshot(SNAPSHOT_PATH)
-
-# -------------------------------------------------
-# Helper: Portfolio Aggregation
-# -------------------------------------------------
-def portfolio_metric(df, col):
-    if col not in df.columns:
-        return 0.0
-    return df[col].mean()
-
-# -------------------------------------------------
-# Compute Portfolio Metrics
-# -------------------------------------------------
-portfolio = {
-    "return_1d": portfolio_metric(snapshot_df, "Return_1D"),
-    "return_30d": portfolio_metric(snapshot_df, "Return_30D"),
-    "return_60d": portfolio_metric(snapshot_df, "Return_60D"),
-    "return_365d": portfolio_metric(snapshot_df, "Return_365D"),
-    "alpha_1d": portfolio_metric(snapshot_df, "Alpha_1D"),
-    "alpha_30d": portfolio_metric(snapshot_df, "Alpha_30D"),
-    "alpha_60d": portfolio_metric(snapshot_df, "Alpha_60D"),
-    "alpha_365d": portfolio_metric(snapshot_df, "Alpha_365D"),
-}
-
-snapshot_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-# -------------------------------------------------
-# Global Styles
+# Global Styles (container + glow only, NOT metrics)
 # -------------------------------------------------
 st.markdown(
     """
@@ -67,44 +32,19 @@ st.markdown(
         margin-bottom: 30px;
     }
 
-    .metric-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 18px;
-        margin-top: 20px;
-    }
-
-    .metric {
-        background: rgba(255,255,255,0.06);
-        border-radius: 14px;
-        padding: 16px;
-        text-align: center;
-    }
-
-    .metric-label {
-        font-size: 13px;
+    .subtle {
         opacity: 0.75;
-        margin-bottom: 6px;
-    }
-
-    .metric-value {
-        font-size: 26px;
-        font-weight: 700;
-    }
-
-    .footer-note {
-        margin-top: 18px;
-        font-size: 13px;
-        opacity: 0.75;
+        font-size: 14px;
     }
 
     .status-banner {
         background: linear-gradient(90deg, #0f5132, #198754);
-        padding: 14px;
-        border-radius: 10px;
+        padding: 16px;
+        border-radius: 12px;
         text-align: center;
         font-weight: 700;
-        margin-top: 30px;
+        margin-top: 40px;
+        font-size: 18px;
     }
     </style>
     """,
@@ -119,89 +59,109 @@ st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
 st.divider()
 
 # -------------------------------------------------
-# PORTFOLIO SNAPSHOT (VISUAL BLUE BOX — FIXED)
+# Load Live Snapshot
 # -------------------------------------------------
+SNAPSHOT_PATH = Path("data/live_snapshot.csv")
+
+if not SNAPSHOT_PATH.exists():
+    st.error("❌ live_snapshot.csv not found at data/live_snapshot.csv")
+    st.stop()
+
+snapshot_df = pd.read_csv(SNAPSHOT_PATH)
+
+# Normalize column names defensively
+snapshot_df.columns = [c.strip() for c in snapshot_df.columns]
+
+snapshot_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+# -------------------------------------------------
+# PORTFOLIO SNAPSHOT (VISUAL — NO HTML METRICS)
+# -------------------------------------------------
+st.markdown('<div class="blue-box">', unsafe_allow_html=True)
+
+st.markdown("## 🏛 Portfolio Snapshot (All Waves)")
+st.markdown('<div class="subtle">STANDARD MODE</div>', unsafe_allow_html=True)
+
+# ---- Aggregate portfolio-level metrics safely
+def safe_mean(col):
+    return snapshot_df[col].mean() if col in snapshot_df.columns else None
+
+portfolio_metrics = {
+    "Return 1D": safe_mean("Return_1D"),
+    "Return 30D": safe_mean("Return_30D"),
+    "Return 60D": safe_mean("Return_60D"),
+    "Return 365D": safe_mean("Return_365D"),
+    "Alpha 1D": safe_mean("Alpha_1D"),
+    "Alpha 30D": safe_mean("Alpha_30D"),
+    "Alpha 60D": safe_mean("Alpha_60D"),
+    "Alpha 365D": safe_mean("Alpha_365D"),
+}
+
+# ---- Render metrics visually
+cols = st.columns(4)
+metric_items = list(portfolio_metrics.items())
+
+for i, (label, value) in enumerate(metric_items):
+    col = cols[i % 4]
+    if value is None or pd.isna(value):
+        col.metric(label, "—")
+    else:
+        col.metric(label, f"{value:+.2f}%")
+
 st.markdown(
     f"""
-    <div class="blue-box">
-        <h2>🏛 Portfolio Snapshot (All Waves)</h2>
-        <div style="opacity:0.75;margin-bottom:12px;">STANDARD MODE</div>
-
-        <div class="metric-grid">
-            <div class="metric">
-                <div class="metric-label">Return 1D (Intraday)</div>
-                <div class="metric-value">{portfolio['return_1d']:.2%}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Return 30D</div>
-                <div class="metric-value">{portfolio['return_30d']:.2%}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Return 60D</div>
-                <div class="metric-value">{portfolio['return_60d']:.2%}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Return 365D</div>
-                <div class="metric-value">{portfolio['return_365d']:.2%}</div>
-            </div>
-
-            <div class="metric">
-                <div class="metric-label">Alpha 1D</div>
-                <div class="metric-value">{portfolio['alpha_1d']:.2%}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Alpha 30D</div>
-                <div class="metric-value">{portfolio['alpha_30d']:.2%}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Alpha 60D</div>
-                <div class="metric-value">{portfolio['alpha_60d']:.2%}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Alpha 365D</div>
-                <div class="metric-value">{portfolio['alpha_365d']:.2%}</div>
-            </div>
-        </div>
-
-        <div class="footer-note">
-            ⚡ Computed from live snapshot | {snapshot_time}<br/>
-            ℹ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) shown at wave level
-        </div>
+    <div class="subtle" style="margin-top:18px;">
+        ⚡ Computed from live snapshot | {snapshot_time}<br/>
+        ℹ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) shown at wave level
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+st.markdown("</div>", unsafe_allow_html=True)
+
 # -------------------------------------------------
-# LIVE RETURNS & ALPHA (ALL WAVES)
+# LIVE RETURNS & ALPHA TABLE (ALL WAVES)
 # -------------------------------------------------
 st.subheader("📊 Live Returns & Alpha")
 
-display_cols = [
-    "wave_id",
-    "display_name",
-    "Return_1D",
-    "Return_30D",
-    "Return_60D",
-    "Return_365D",
-    "Alpha_30D",
-    "Alpha_60D",
-    "Alpha_365D",
+table_cols = [
+    c for c in [
+        "display_name",
+        "Return_1D",
+        "Return_30D",
+        "Return_60D",
+        "Return_365D",
+        "Alpha_30D",
+        "Alpha_60D",
+        "Alpha_365D",
+    ]
+    if c in snapshot_df.columns
 ]
 
-existing_cols = [c for c in display_cols if c in snapshot_df.columns]
-st.dataframe(snapshot_df[existing_cols], use_container_width=True)
+if table_cols:
+    table_df = snapshot_df[table_cols].copy()
+    table_df = table_df.rename(columns={"display_name": "Wave"})
+    st.dataframe(table_df, use_container_width=True)
+else:
+    st.warning("No return/alpha columns available for table.")
 
 # -------------------------------------------------
-# ALPHA BY HORIZON (ALL WAVES)
+# ALPHA BY HORIZON (ALL WAVES — SAFE)
 # -------------------------------------------------
 st.subheader("📈 Alpha by Horizon")
 
-alpha_chart_df = snapshot_df[
-    ["display_name", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
-].set_index("display_name")
+required_alpha_cols = ["Alpha_30D", "Alpha_60D", "Alpha_365D"]
 
-st.bar_chart(alpha_chart_df)
+alpha_cols_present = [c for c in required_alpha_cols if c in snapshot_df.columns]
+
+if "display_name" in snapshot_df.columns and alpha_cols_present:
+    alpha_chart_df = snapshot_df[["display_name"] + alpha_cols_present]
+    alpha_chart_df = alpha_chart_df.set_index("display_name")
+
+    st.bar_chart(alpha_chart_df)
+else:
+    st.warning("Alpha data unavailable or incomplete for horizon chart.")
 
 # -------------------------------------------------
 # SYSTEM STATUS
@@ -215,4 +175,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.caption("✓ Intraday live • ✓ Multi-horizon alpha • ✓ Snapshot truth • ✓ No legacy dependencies")
+st.caption(
+    "✓ Intraday live • ✓ Multi-horizon alpha • ✓ Snapshot truth • ✓ No legacy dependencies"
+)
