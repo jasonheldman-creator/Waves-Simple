@@ -1,140 +1,171 @@
-# ============================================================
-# WAVES — Live Recovery Console (app_min.py)
-# FULL REPLACEMENT — SNAPSHOT-DRIVEN, MOBILE-SAFE
-# ============================================================
+# ==========================================================
+# app_min.py — WAVES Live Recovery Console (Stable Rewrite)
+# ==========================================================
+# • Snapshot-driven
+# • Intraday + 30D + 60D + 365D
+# • No legacy wave init
+# • Streamlit-native layout (mobile safe)
+# ==========================================================
 
 import streamlit as st
 import pandas as pd
+import os
 from datetime import datetime, timezone
 
-# ------------------------------------------------------------
-# Page Config
-# ------------------------------------------------------------
+# ----------------------------------------------------------
+# PAGE CONFIG
+# ----------------------------------------------------------
+
 st.set_page_config(
     page_title="WAVES — Live Recovery Console",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# ------------------------------------------------------------
-# Styling
-# ------------------------------------------------------------
-st.markdown("""
-<style>
-.blue-box {
-    background: linear-gradient(135deg, #0b1f33, #102b46);
-    border: 2px solid #2ecbff;
-    border-radius: 18px;
-    padding: 22px;
-    margin-bottom: 24px;
-    box-shadow: 0 0 22px rgba(46,203,255,0.25);
-}
-.blue-title {
-    font-size: 22px;
-    font-weight: 800;
-    color: #e9f6ff;
-    margin-bottom: 6px;
-}
-.mode-pill {
-    display: inline-block;
-    background: #1aff7c;
-    color: #052814;
-    font-weight: 700;
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 12px;
-    margin-left: 10px;
-}
-.metric-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 12px;
-    margin-top: 14px;
-}
-.metric-card {
-    background: rgba(255,255,255,0.05);
-    border-radius: 12px;
-    padding: 10px;
-    text-align: center;
-}
-.metric-label {
-    font-size: 12px;
-    color: #9ecbff;
-}
-.metric-value {
-    font-size: 18px;
-    font-weight: 800;
-    color: #ffffff;
-}
-.metric-value.negative {
-    color: #ff6b6b;
-}
-.footer-text {
-    margin-top: 14px;
-    font-size: 12px;
-    color: #9bbbd8;
-    text-align: center;
-}
-</style>
-""", unsafe_allow_html=True)
+# ----------------------------------------------------------
+# BOOT CONFIRMATION
+# ----------------------------------------------------------
 
-# ------------------------------------------------------------
-# Header
-# ------------------------------------------------------------
-st.markdown("## 🌊 WAVES — Live Recovery Console")
-st.caption("Intraday • 30D • 60D • 365D — Snapshot Driven")
+st.success("STREAMLIT EXECUTION STARTED")
+st.caption("app_min.py reached line 1")
 
-# ------------------------------------------------------------
-# Load Snapshot
-# ------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def load_snapshot():
-    return pd.read_csv("data/live_snapshot.csv")
+# ----------------------------------------------------------
+# LOAD SNAPSHOT
+# ----------------------------------------------------------
 
-df = load_snapshot()
+SNAPSHOT_PATH = "data/live_snapshot.csv"
+
+if not os.path.exists(SNAPSHOT_PATH):
+    st.error("❌ live_snapshot.csv not found")
+    st.stop()
+
+df = pd.read_csv(SNAPSHOT_PATH)
 
 st.success("Live snapshot loaded")
 st.caption(f"Rows: {len(df)}")
 
-# ------------------------------------------------------------
-# Helper: Safe Mean
-# ------------------------------------------------------------
-def mean_or_zero(series):
-    if series.dropna().empty:
-        return 0.0
-    return float(series.mean())
+# ----------------------------------------------------------
+# BASIC VALIDATION
+# ----------------------------------------------------------
 
-# ------------------------------------------------------------
-# Portfolio Aggregation (ALL WAVES)
-# ------------------------------------------------------------
+required_cols = [
+    "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+    "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"
+]
+
+missing = [c for c in required_cols if c not in df.columns]
+if missing:
+    st.error(f"Missing required columns: {missing}")
+    st.stop()
+
+# ----------------------------------------------------------
+# AGGREGATE PORTFOLIO METRICS
+# ----------------------------------------------------------
+
+def mean_safe(series):
+    return float(series.dropna().mean()) if len(series.dropna()) > 0 else 0.0
+
 portfolio = {
-    "Return_1D": mean_or_zero(df["Return_1D"]),
-    "Return_30D": mean_or_zero(df["Return_30D"]),
-    "Return_60D": mean_or_zero(df["Return_60D"]),
-    "Return_365D": mean_or_zero(df["Return_365D"]),
-    "Alpha_1D": mean_or_zero(df["Alpha_1D"]),
-    "Alpha_30D": mean_or_zero(df["Alpha_30D"]),
-    "Alpha_60D": mean_or_zero(df["Alpha_60D"]),
-    "Alpha_365D": mean_or_zero(df["Alpha_365D"]),
+    "ret_1d": mean_safe(df["Return_1D"]),
+    "ret_30d": mean_safe(df["Return_30D"]),
+    "ret_60d": mean_safe(df["Return_60D"]),
+    "ret_365d": mean_safe(df["Return_365D"]),
+    "alpha_1d": mean_safe(df["Alpha_1D"]),
+    "alpha_30d": mean_safe(df["Alpha_30D"]),
+    "alpha_60d": mean_safe(df["Alpha_60D"]),
+    "alpha_365d": mean_safe(df["Alpha_365D"]),
 }
 
-def fmt(x):
-    return f"{x:+.2%}"
+# Optional risk metrics (safe fallback)
+exposure = mean_safe(df["Exposure"]) if "Exposure" in df.columns else None
+cash = mean_safe(df["CashPercent"]) if "CashPercent" in df.columns else None
+vix = mean_safe(df["VIX_Level"]) if "VIX_Level" in df.columns else None
+regime = df["VIX_Regime"].mode()[0] if "VIX_Regime" in df.columns and len(df) else "N/A"
 
-def val_class(x):
-    return "negative" if x < 0 else ""
+# ----------------------------------------------------------
+# HEADER
+# ----------------------------------------------------------
 
-# ------------------------------------------------------------
-# BLUE PORTFOLIO SNAPSHOT BOX (FULL RESTORE)
-# ------------------------------------------------------------
-st.markdown(f"""
-<div class="blue-box">
-    <div class="blue-title">
-        🏛️ Portfolio Snapshot (All Waves)
-        <span class="mode-pill">STANDARD</span>
-    </div>
+st.title("WAVES — Live Recovery Console")
+st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
 
-    <div class="metric-grid">
-        <div class="metric-card">
-            <div class="metric-label">Intraday Return</div>
-            <div class="metric-value {val_class(portfolio['Return_1D'])}">{fmt(portfolio['Return_1D'])}</div>
+# ----------------------------------------------------------
+# BLUE PORTFOLIO SNAPSHOT BOX
+# ----------------------------------------------------------
+
+with st.container():
+    st.markdown("### 🏛️ Portfolio Snapshot (All Waves)")
+    st.markdown("---")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Return 1D (Intraday)", f"{portfolio['ret_1d']:+.2%}")
+    col2.metric("Return 30D", f"{portfolio['ret_30d']:+.2%}")
+    col3.metric("Return 60D", f"{portfolio['ret_60d']:+.2%}")
+    col4.metric("Return 365D", f"{portfolio['ret_365d']:+.2%}")
+
+    col5, col6, col7, col8 = st.columns(4)
+
+    col5.metric("Alpha 1D", f"{portfolio['alpha_1d']:+.2%}")
+    col6.metric("Alpha 30D", f"{portfolio['alpha_30d']:+.2%}")
+    col7.metric("Alpha 60D", f"{portfolio['alpha_60d']:+.2%}")
+    col8.metric("Alpha 365D", f"{portfolio['alpha_365d']:+.2%}")
+
+    st.caption(
+        f"⚡ Computed from live snapshot | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+    )
+
+    if exposure is not None:
+        st.caption(
+            f"Risk Context — Exposure: {exposure:.1f}% | Cash: {cash:.1f}% | VIX: {vix:.1f} | Regime: {regime}"
+        )
+
+# ----------------------------------------------------------
+# LIVE RETURNS TABLE
+# ----------------------------------------------------------
+
+st.markdown("### 📊 Live Returns & Alpha")
+
+table_cols = [
+    "Wave_ID",
+    "Return_1D", "Alpha_1D",
+    "Return_30D", "Alpha_30D",
+    "Return_60D", "Alpha_60D",
+    "Return_365D", "Alpha_365D",
+]
+
+visible_cols = [c for c in table_cols if c in df.columns]
+
+st.dataframe(
+    df[visible_cols].sort_values("Alpha_365D", ascending=False),
+    use_container_width=True
+)
+
+# ----------------------------------------------------------
+# ALPHA BY HORIZON CHART
+# ----------------------------------------------------------
+
+st.markdown("### 📈 Alpha by Horizon")
+
+chart_df = (
+    df.groupby("Wave_ID")[["Alpha_30D", "Alpha_60D", "Alpha_365D"]]
+    .mean()
+    .reset_index()
+)
+
+st.bar_chart(
+    chart_df.set_index("Wave_ID"),
+    use_container_width=True
+)
+
+# ----------------------------------------------------------
+# FINAL STATUS
+# ----------------------------------------------------------
+
+st.success("LIVE SYSTEM ACTIVE ✅")
+st.caption(
+    "✓ Intraday live ✓ Multi-horizon alpha ✓ Snapshot truth ✓ No legacy dependencies"
+)
+
+with st.expander("Preview snapshot (first 10 rows)"):
+    st.dataframe(df.head(10))
