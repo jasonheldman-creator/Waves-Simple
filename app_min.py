@@ -2,170 +2,173 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# =============================
+# =====================================================
 # PAGE CONFIG
-# =============================
+# =====================================================
 st.set_page_config(
-    page_title="WAVES — Live Recovery Console",
+    page_title="WAVES — Institutional Console",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# =============================
-# STYLES
-# =============================
-st.markdown("""
-<style>
-body {
-    background-color: #0e1117;
-}
-.blue-box {
-    background-color: #081c33;
-    border: 2px solid #3fd0ff;
-    border-radius: 18px;
-    padding: 24px;
-    margin-bottom: 30px;
-    box-shadow: 0 0 25px rgba(63, 208, 255, 0.35);
-}
-.status-banner {
-    background: linear-gradient(90deg, #1f8f4e, #2ecc71);
-    padding: 18px;
-    border-radius: 12px;
-    font-weight: 700;
-    text-align: center;
-    color: white;
-    margin-top: 30px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# =============================
-# HEADER
-# =============================
-st.title("WAVES — Live Recovery Console")
-st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
-st.divider()
-
-# =============================
+# =====================================================
 # LOAD DATA
-# =============================
-snapshot_df = pd.read_csv("data/live_snapshot.csv")
+# =====================================================
+DATA_PATH = "data/live_snapshot.csv"
 
-# =============================
-# ATTRIBUTION SCOPE SELECTOR
-# =============================
-st.subheader("🎯 Attribution Scope")
+@st.cache_data
+def load_snapshot():
+    return pd.read_csv(DATA_PATH)
 
-scope_options = ["Portfolio"] + sorted(snapshot_df["Wave"].unique().tolist())
-selected_scope = st.selectbox(
-    "Select attribution scope:",
-    scope_options
+snapshot_df = load_snapshot()
+
+# =====================================================
+# SIDEBAR — GLOBAL STATE
+# =====================================================
+st.sidebar.title("WAVES Control Panel")
+
+scope = st.sidebar.radio(
+    "Attribution Scope",
+    ["Portfolio", "Wave"],
+    index=0
 )
 
-# =============================
-# FILTER DATA BASED ON SCOPE
-# =============================
-if selected_scope == "Portfolio":
-    scoped_df = snapshot_df.copy()
-else:
-    scoped_df = snapshot_df[snapshot_df["Wave"] == selected_scope]
+all_waves = sorted(snapshot_df["Wave"].dropna().unique().tolist())
 
-# Guardrail
-if scoped_df.empty:
-    st.error("No data available for selected scope.")
-    st.stop()
-
-# =============================
-# AGGREGATE METRICS
-# =============================
-metrics = scoped_df.mean(numeric_only=True)
-
-# =============================
-# PORTFOLIO / WAVE SNAPSHOT
-# =============================
-with st.container():
-    st.markdown('<div class="blue-box">', unsafe_allow_html=True)
-
-    st.subheader(f"🏛 Snapshot — {selected_scope}")
-    st.caption("STANDARD MODE")
-
-    # Returns
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Intraday Return", f"{metrics['Return_1D']*100:.2f}%")
-    c2.metric("30D Return", f"{metrics['Return_30D']*100:.2f}%")
-    c3.metric("60D Return", f"{metrics['Return_60D']*100:.2f}%")
-    c4.metric("365D Return", f"{metrics['Return_365D']*100:.2f}%")
-
-    # Alpha
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Alpha Intraday", f"{metrics['Alpha_1D']*100:.2f}%")
-    c2.metric("Alpha 30D", f"{metrics['Alpha_30D']*100:.2f}%")
-    c3.metric("Alpha 60D", f"{metrics['Alpha_60D']*100:.2f}%")
-    c4.metric("Alpha 365D", f"{metrics['Alpha_365D']*100:.2f}%")
-
-    st.caption(
-        f"⚡ Computed from live snapshot | "
-        f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+selected_wave = None
+if scope == "Wave":
+    selected_wave = st.sidebar.selectbox(
+        "Select Wave",
+        all_waves
     )
 
-    st.markdown("</div>", unsafe_allow_html=True)
+st.sidebar.divider()
+st.sidebar.caption("All analytics below respond to this selection.")
 
-# =============================
-# ALPHA ATTRIBUTION BREAKDOWN
-# =============================
-st.subheader("🧠 Alpha Attribution Breakdown")
-
-attribution_sources = {
-    "Volatility / VIX Regime": metrics.get("Alpha_VIX", 0.0),
-    "Momentum / Trend": metrics.get("Alpha_Momentum", 0.0),
-    "Stock Selection": metrics.get("Alpha_Selection", 0.0),
-    "Factor Tilts": metrics.get("Alpha_Factors", 0.0),
-    "Risk Control / Drawdown Mgmt": metrics.get("Alpha_Risk", 0.0),
-    "Execution / Rebalancing": metrics.get("Alpha_Execution", 0.0),
-}
-
-attr_df = pd.DataFrame.from_dict(
-    attribution_sources,
-    orient="index",
-    columns=["Alpha Contribution"]
-)
-
-if attr_df["Alpha Contribution"].abs().sum() == 0:
-    st.warning("Alpha attribution data not available for this scope.")
+# =====================================================
+# ACTIVE DATAFRAME (SINGLE SOURCE OF TRUTH)
+# =====================================================
+if scope == "Portfolio":
+    active_df = snapshot_df.copy()
 else:
-    st.bar_chart(attr_df)
+    active_df = snapshot_df[snapshot_df["Wave"] == selected_wave].copy()
 
-# =============================
+# =====================================================
+# HEADER
+# =====================================================
+st.title("WAVES — Institutional Recovery Console")
+st.caption("Live • Multi-Horizon • Attribution-First")
+st.divider()
+
+# =====================================================
+# PORTFOLIO / WAVE SNAPSHOT
+# =====================================================
+st.subheader("🏛 Portfolio Snapshot" if scope == "Portfolio" else f"🏛 Wave Snapshot — {selected_wave}")
+
+agg = active_df.mean(numeric_only=True)
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Intraday Return", f"{agg.get('Return_1D', 0)*100:.2f}%")
+c2.metric("30D Return", f"{agg.get('Return_30D', 0)*100:.2f}%")
+c3.metric("60D Return", f"{agg.get('Return_60D', 0)*100:.2f}%")
+c4.metric("365D Return", f"{agg.get('Return_365D', 0)*100:.2f}%")
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Alpha 1D", f"{agg.get('Alpha_1D', 0)*100:.2f}%")
+c2.metric("Alpha 30D", f"{agg.get('Alpha_30D', 0)*100:.2f}%")
+c3.metric("Alpha 60D", f"{agg.get('Alpha_60D', 0)*100:.2f}%")
+c4.metric("Alpha 365D", f"{agg.get('Alpha_365D', 0)*100:.2f}%")
+
+st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+
+st.divider()
+
+# =====================================================
 # LIVE RETURNS & ALPHA TABLE
-# =============================
-st.subheader("📊 Live Returns & Alpha — Detail View")
+# =====================================================
+st.subheader("📊 Live Returns & Alpha")
+
+table_cols = [
+    "Wave",
+    "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+    "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"
+]
+
+existing_cols = [c for c in table_cols if c in active_df.columns]
 
 st.dataframe(
-    scoped_df[
-        [
-            "Wave",
-            "Return_1D",
-            "Return_30D",
-            "Return_60D",
-            "Return_365D",
-            "Alpha_1D",
-            "Alpha_30D",
-            "Alpha_60D",
-            "Alpha_365D",
-        ]
-    ],
+    active_df[existing_cols],
     use_container_width=True
 )
 
-# =============================
+st.divider()
+
+# =====================================================
+# ALPHA ATTRIBUTION BREAKDOWN
+# =====================================================
+st.subheader("🧠 Alpha Attribution Breakdown")
+
+ATTR_SOURCES = [
+    "Stock_Selection_Alpha",
+    "Strategy_Overlay_Alpha",
+    "VIX_Regime_Alpha",
+    "Dynamic_Benchmark_Alpha",
+    "Timing_Alpha",
+    "Residual_Alpha"
+]
+
+attr_data = {}
+for src in ATTR_SOURCES:
+    if src in active_df.columns:
+        attr_data[src] = active_df[src].mean()
+
+if attr_data:
+    attr_df = pd.DataFrame.from_dict(
+        attr_data,
+        orient="index",
+        columns=["Alpha Contribution"]
+    ).sort_values("Alpha Contribution", ascending=False)
+
+    st.bar_chart(attr_df)
+else:
+    st.info("Attribution columns not yet populated in snapshot.")
+
+st.divider()
+
+# =====================================================
+# ALPHA HISTORY BY HORIZON
+# =====================================================
+st.subheader("📈 Alpha History by Horizon")
+
+horizon_cols = ["Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
+existing_horizons = [c for c in horizon_cols if c in active_df.columns]
+
+if existing_horizons:
+    hist_df = active_df[["Wave"] + existing_horizons].set_index("Wave")
+    st.line_chart(hist_df)
+else:
+    st.warning("Horizon alpha data unavailable.")
+
+st.divider()
+
+# =====================================================
 # STATUS
-# =============================
-st.markdown(
-    """
-    <div class="status-banner">
-        LIVE SYSTEM ACTIVE ✅<br/>
-        ✓ Attribution wired • ✓ Portfolio & Wave scope • ✓ Truth-gated analytics
-    </div>
-    """,
-    unsafe_allow_html=True
+# =====================================================
+st.success("LIVE SYSTEM ACTIVE ✅")
+
+st.caption(
+    "✓ Snapshot-driven • ✓ Scope-aware • ✓ Attribution-ready • ✓ Institutional foundation established"
 )
+
+# =====================================================
+# PLACEHOLDERS (INTENTIONAL)
+# =====================================================
+st.divider()
+st.subheader("🚧 Coming Next")
+st.markdown("""
+- Factor-level attribution  
+- Regime-conditioned attribution  
+- Risk-adjusted alpha decomposition  
+- Per-wave drilldown pages  
+- Exportable institutional reports  
+""")
