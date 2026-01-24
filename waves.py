@@ -1,57 +1,64 @@
 """
-waves.py — compatibility-safe initializer
+waves.py — import-safe recovery scaffold (backward compatible)
 
-This version is fully compatible with the frozen app.py call signature.
-It accepts both positional and keyword arguments safely.
+This module is designed to be SAFE under Streamlit import semantics
+and compatible with a frozen app.py entrypoint.
+
+Key guarantees:
+• No execution at import time
+• Accepts BOTH legacy and new initialize_waves() signatures
+• Compatible with keyword arguments used by app.py
+• Safe to reload and redeploy
 """
 
 # -----------------------------
-# Safe defaults (IMPORT SAFE)
+# Safe module-level defaults
 # -----------------------------
 
-unique_wave_ids = []
 truth_df = None
+unique_wave_ids = []
 
 
 # -----------------------------
-# Public initializer
+# Public initializer (COMPATIBLE)
 # -----------------------------
 
-def initialize_waves(*args, **kwargs):
+def initialize_waves(
+    _truth_df=None,
+    _unique_wave_ids=None,
+    **kwargs
+):
     """
-    Initialize wave entries safely.
+    Initialize wave structures safely.
 
-    Compatible with app.py calling:
+    Accepts BOTH:
         initialize_waves(truth_df=..., unique_wave_ids=...)
+    AND:
+        initialize_waves(_truth_df, _unique_wave_ids)
 
-    Also compatible with positional usage.
+    This ensures compatibility with frozen app.py.
     """
 
     global truth_df, unique_wave_ids
 
-    # --- Extract arguments safely ---
-    if "truth_df" in kwargs:
-        truth_df = kwargs["truth_df"]
-    elif "_truth_df" in kwargs:
-        truth_df = kwargs["_truth_df"]
-    elif len(args) >= 1:
-        truth_df = args[0]
-    else:
-        raise ValueError("initialize_waves: truth_df not provided")
+    # --- Normalize inputs (keyword takes precedence) ---
+    truth_df = kwargs.get("truth_df", _truth_df)
+    unique_wave_ids = kwargs.get("unique_wave_ids", _unique_wave_ids)
 
-    if "unique_wave_ids" in kwargs:
-        unique_wave_ids = list(kwargs["unique_wave_ids"])
-    elif "_unique_wave_ids" in kwargs:
-        unique_wave_ids = list(kwargs["_unique_wave_ids"])
-    elif len(args) >= 2:
-        unique_wave_ids = list(args[1])
-    else:
-        unique_wave_ids = []
+    # --- Hard validation ---
+    if truth_df is None:
+        raise ValueError("initialize_waves(): truth_df is required")
 
-    # --- Initialize structure ---
-    if not hasattr(truth_df, "waves"):
+    if unique_wave_ids is None:
+        raise ValueError("initialize_waves(): unique_wave_ids is required")
+
+    unique_wave_ids = list(unique_wave_ids)
+
+    # --- Ensure waves container exists ---
+    if not hasattr(truth_df, "waves") or truth_df.waves is None:
         truth_df.waves = {}
 
+    # --- Initialize missing waves ---
     for wave_id in unique_wave_ids:
         if wave_id not in truth_df.waves:
             truth_df.waves[wave_id] = {
@@ -70,7 +77,7 @@ def initialize_waves(*args, **kwargs):
 
 
 # -----------------------------
-# Import confirmation hook
+# Import verification hook
 # -----------------------------
 
 def _import_check():
@@ -82,4 +89,4 @@ def _import_check():
 # -----------------------------
 
 if __name__ == "__main__":
-    print("waves.py loaded directly (no execution performed)")
+    print("waves.py loaded directly — no execution performed")
