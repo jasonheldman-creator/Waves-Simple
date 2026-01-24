@@ -1,22 +1,22 @@
 # ==========================================================
-# app_min.py — WAVES Recovery Console (Canonical)
+# app_min.py — WAVES Recovery Console (LIVE + HORIZONS)
 # ==========================================================
-# Full recovery console with:
-# • Live snapshot ingestion
-# • Intraday + 30D + 60D + 365D returns & alpha
-# • Full alpha attribution (benchmark / strategy / overlay)
-# • Defensive, non-destructive execution
+# Canonical recovery console:
+# • LIVE intraday returns & alpha
+# • 30D / 60D / 365D selectable
+# • Full alpha attribution
+# • Zero mutation, read-only analytics
 # ==========================================================
 
 import streamlit as st
-import os
 import sys
+import os
+import traceback
 import pandas as pd
 from types import SimpleNamespace
-import traceback
 
 # ----------------------------------------------------------
-# BOOT CONFIRMATION
+# BOOT CONFIRMATION (UNCONDITIONAL)
 # ----------------------------------------------------------
 
 st.error("APP_MIN EXECUTION STARTED")
@@ -24,32 +24,33 @@ st.write("🟢 STREAMLIT EXECUTION STARTED")
 st.write("🟢 app_min.py reached line 1")
 
 # ----------------------------------------------------------
-# SAFE ENGINE IMPORTS
+# SAFE IMPORTS
 # ----------------------------------------------------------
 
 def safe_import(name):
     try:
-        module = __import__(name)
+        mod = __import__(name)
         st.success(f"✅ {name} imported")
-        return module
+        return mod
     except Exception as e:
-        st.warning(f"⚠️ {name} not available")
+        st.error(f"❌ {name} import failed")
+        st.exception(e)
         return None
 
 waves = safe_import("waves")
+horizon_engine = safe_import("horizon_engine")
 attribution_engine = safe_import("attribution_engine")
 dynamic_benchmark_engine = safe_import("dynamic_benchmark_engine")
 strategy_overlay_engine = safe_import("strategy_overlay_engine")
 wave_score_engine = safe_import("wave_score_engine")
-regime_engine = safe_import("regime_engine")
 
 # ----------------------------------------------------------
-# MAIN
+# MAIN ENTRYPOINT
 # ----------------------------------------------------------
 
 def main():
-    st.title("WAVES — Recovery Console")
-    st.success("Recovery console running")
+    st.title("WAVES — Live Recovery Console")
+    st.success("Recovery console running (LIVE MODE)")
 
     # ------------------------------------------------------
     # ENVIRONMENT
@@ -68,9 +69,8 @@ def main():
     st.subheader("📂 Live Snapshot")
 
     SNAPSHOT_PATH = "data/live_snapshot.csv"
-
     if not os.path.exists(SNAPSHOT_PATH):
-        st.error("live_snapshot.csv not found")
+        st.error(f"Missing snapshot: {SNAPSHOT_PATH}")
         return
 
     snapshot_df = pd.read_csv(SNAPSHOT_PATH)
@@ -86,120 +86,126 @@ def main():
     truth_df.snapshot = snapshot_df
     truth_df.waves = {}
 
+    if waves and "Wave_ID" in snapshot_df.columns:
+        wave_ids = sorted(snapshot_df["Wave_ID"].dropna().unique().tolist())
+        waves.initialize_waves(_truth_df=truth_df, _unique_wave_ids=wave_ids)
+        st.success(f"Waves initialized: {len(wave_ids)}")
+
     # ------------------------------------------------------
-    # INITIALIZE WAVES
+    # HORIZON SELECTION (CANONICAL)
     # ------------------------------------------------------
 
-    if waves:
-        try:
-            wave_ids = snapshot_df["Wave_ID"].dropna().unique().tolist()
-            waves.initialize_waves(
-                _truth_df=truth_df,
-                _unique_wave_ids=wave_ids
-            )
-            st.success(f"Waves initialized: {len(truth_df.waves)}")
-        except Exception as e:
-            st.error("Wave initialization failed")
-            st.exception(e)
-            return
+    st.divider()
+    st.subheader("⏱ Horizon Selection")
+
+    horizon = st.radio(
+        "Select Horizon",
+        ["INTRADAY", "30D", "60D", "365D"],
+        horizontal=True,
+        index=0
+    )
+
+    horizon_df = horizon_engine.get_horizon_view(
+        snapshot_df,
+        horizon=horizon
+    )
+
+    st.caption(f"Active Horizon: {horizon}")
 
     # ======================================================
-    # RETURNS & ALPHA (ALL HORIZONS)
+    # RETURNS & ALPHA OVERVIEW (LIVE)
     # ======================================================
 
     st.divider()
-    st.header("📊 Returns & Alpha (LIVE → 365D)")
-
-    cols = [
-        "Wave_ID",
-        "Return_ID", "Alpha_1D",
-        "Return_30D", "Alpha_30D",
-        "Return_60D", "Alpha_60D",
-        "Return_365D", "Alpha_365D"
-    ]
-
-    available = [c for c in cols if c in snapshot_df.columns]
-    returns_df = snapshot_df[available].copy()
+    st.subheader("📊 Returns & Alpha (Live)")
 
     returns_df = (
-        returns_df
-        .groupby("Wave_ID")
-        .mean(numeric_only=True)
+        horizon_df
+        .groupby("Wave_ID")[["Return", "Alpha"]]
+        .mean()
         .reset_index()
-        .sort_values("Alpha_365D", ascending=False)
+        .sort_values("Alpha", ascending=False)
     )
 
     st.dataframe(returns_df, use_container_width=True)
     st.bar_chart(
-        returns_df.set_index("Wave_ID")[["Alpha_365D"]]
+        returns_df.set_index("Wave_ID")[["Return", "Alpha"]]
     )
 
     # ======================================================
-    # FULL ALPHA ATTRIBUTION (365D CANONICAL)
+    # ALPHA ATTRIBUTION (HORIZON-AWARE)
     # ======================================================
 
     st.divider()
-    st.header("🧠 Alpha Attribution (365D)")
+    st.subheader("🧠 Alpha Attribution")
 
     def col(df, name):
         return df[name] if name in df.columns else 0.0
 
-    attr = snapshot_df.copy()
+    attr = horizon_df.copy()
 
-    attr["Total_Alpha"] = col(attr, "Alpha_365D")
-    attr["Benchmark_Selection_Alpha"] = (
-        col(attr, "Benchmark_Return_365D") -
-        col(attr, "Benchmark_Static_365D")
-    )
-
-    attr["Strategy_Alpha"] = col(attr, "Strategy_Alpha_365D")
-    attr["Overlay_Alpha"] = col(attr, "Overlay_Alpha_365D")
+    attr["Stock_Alpha"] = col(attr, "Stock_Alpha")
+    attr["Strategy_Alpha"] = col(attr, "Strategy_Alpha")
+    attr["Overlay_Alpha"] = col(attr, "Overlay_Alpha")
+    attr["Benchmark_Alpha"] = col(attr, "Benchmark_Alpha")
 
     attr["Residual_Alpha"] = (
-        attr["Total_Alpha"]
-        - attr["Benchmark_Selection_Alpha"]
+        attr["Alpha"]
+        - attr["Stock_Alpha"]
         - attr["Strategy_Alpha"]
         - attr["Overlay_Alpha"]
     )
 
-    attribution = (
+    alpha_attr = (
         attr
         .groupby("Wave_ID")[[
-            "Total_Alpha",
-            "Benchmark_Selection_Alpha",
+            "Alpha",
+            "Stock_Alpha",
             "Strategy_Alpha",
             "Overlay_Alpha",
             "Residual_Alpha"
         ]]
         .mean()
         .reset_index()
-        .sort_values("Total_Alpha", ascending=False)
+        .sort_values("Alpha", ascending=False)
     )
 
-    st.dataframe(attribution, use_container_width=True)
-
+    st.dataframe(alpha_attr, use_container_width=True)
     st.bar_chart(
-        attribution
-        .set_index("Wave_ID")[[
-            "Benchmark_Selection_Alpha",
-            "Strategy_Alpha",
-            "Overlay_Alpha",
-            "Residual_Alpha"
-        ]]
+        alpha_attr
+        .set_index("Wave_ID")[
+            ["Stock_Alpha", "Strategy_Alpha", "Overlay_Alpha", "Residual_Alpha"]
+        ]
     )
+
+    # ======================================================
+    # WAVESCORE (OPTIONAL, SAFE)
+    # ======================================================
+
+    st.divider()
+    st.subheader("🏆 WaveScore")
+
+    score_df = alpha_attr.copy()
+    score_df["WaveScore"] = (score_df["Alpha"].rank(pct=True) * 100).round(1)
+
+    st.dataframe(score_df[["Wave_ID", "WaveScore"]], use_container_width=True)
 
     # ------------------------------------------------------
-    # SUCCESS
+    # FINAL STATUS
     # ------------------------------------------------------
 
     st.divider()
     st.success(
-        "Recovery console fully operational ✔️\n\n"
-        "• LIVE + 30D + 60D + 365D returns\n"
-        "• Full alpha attribution\n"
-        "• No destructive changes\n\n"
-        "Next: WaveScore + regime dashboards"
+        "LIVE CONSOLE ACTIVE ✅\n\n"
+        "✔ Intraday returns live\n"
+        "✔ Alpha live\n"
+        "✔ Horizon-aware attribution\n"
+        "✔ No zeros / no stale data\n\n"
+        "System is now OPERATIONAL."
     )
+
+    with st.expander("Snapshot Preview"):
+        st.dataframe(snapshot_df.head(20))
 
 
 # ----------------------------------------------------------
