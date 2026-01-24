@@ -16,17 +16,7 @@ st.set_page_config(
 # =============================
 st.markdown("""
 <style>
-body {
-    background-color: #0e1117;
-}
-.blue-box {
-    background: linear-gradient(145deg, #0b2a4a, #081c33);
-    border: 2px solid #3fd0ff;
-    border-radius: 18px;
-    padding: 26px;
-    margin-bottom: 30px;
-    box-shadow: 0 0 28px rgba(63, 208, 255, 0.35);
-}
+body { background-color: #0e1117; }
 .status-banner {
     background: linear-gradient(90deg, #1f8f4e, #2ecc71);
     padding: 18px;
@@ -56,26 +46,22 @@ snapshot_df = pd.read_csv("data/live_snapshot.csv")
 # =============================
 portfolio = snapshot_df.mean(numeric_only=True)
 
-with st.container():
-    st.markdown('<div class="blue-box">', unsafe_allow_html=True)
-    st.subheader("🏛️ Portfolio Snapshot (All Waves)")
-    st.caption("STANDARD MODE")
+st.subheader("🏛️ Portfolio Snapshot (All Waves)")
+st.caption("STANDARD MODE")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Intraday Return", f"{portfolio['Return_1D']*100:.2f}%")
-    c2.metric("30D Return", f"{portfolio['Return_30D']*100:.2f}%")
-    c3.metric("60D Return", f"{portfolio['Return_60D']*100:.2f}%")
-    c4.metric("365D Return", f"{portfolio['Return_365D']*100:.2f}%")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Intraday Return", f"{portfolio['Return_1D']*100:.2f}%")
+c2.metric("30D Return", f"{portfolio['Return_30D']*100:.2f}%")
+c3.metric("60D Return", f"{portfolio['Return_60D']*100:.2f}%")
+c4.metric("365D Return", f"{portfolio['Return_365D']*100:.2f}%")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Alpha Intraday", f"{portfolio['Alpha_1D']*100:.2f}%")
-    c2.metric("Alpha 30D", f"{portfolio['Alpha_30D']*100:.2f}%")
-    c3.metric("Alpha 60D", f"{portfolio['Alpha_60D']*100:.2f}%")
-    c4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Alpha Intraday", f"{portfolio['Alpha_1D']*100:.2f}%")
+c2.metric("Alpha 30D", f"{portfolio['Alpha_30D']*100:.2f}%")
+c3.metric("Alpha 60D", f"{portfolio['Alpha_60D']*100:.2f}%")
+c4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
 
-    st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    st.caption("ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below")
-    st.markdown("</div>", unsafe_allow_html=True)
+st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
 # =============================
 # LIVE RETURNS & ALPHA TABLE
@@ -99,55 +85,50 @@ st.dataframe(
 )
 
 # =============================
-# ALPHA ATTRIBUTION
+# ALPHA ATTRIBUTION (WIRED)
 # =============================
 st.subheader("🧠 Alpha Attribution")
 st.caption("Where excess return is generated — by source and scope")
 
-scope = st.selectbox(
-    "Attribution Scope",
-    ["Portfolio (All Waves)"] + sorted(snapshot_df["Wave"].unique())
-)
+scope_options = ["Portfolio (All Waves)"] + sorted(snapshot_df["Wave"].unique())
+selected_scope = st.selectbox("Attribution Scope", scope_options)
 
-if scope == "Portfolio (All Waves)":
-    total_alpha = portfolio["Alpha_365D"]
+# ---- FILTER DATA CORRECTLY ----
+if selected_scope == "Portfolio (All Waves)":
+    scope_df = snapshot_df.copy()
 else:
-    total_alpha = snapshot_df.loc[
-        snapshot_df["Wave"] == scope, "Alpha_365D"
-    ].iloc[0]
+    scope_df = snapshot_df[snapshot_df["Wave"] == selected_scope]
 
-# Attribution weights (transparent + deterministic)
-weights = {
+# ---- TOTAL ALPHA BASE ----
+total_alpha = scope_df["Alpha_365D"].sum()
+
+# ---- DEFINE ALPHA SOURCES (LOGICAL BREAKDOWN) ----
+alpha_sources = {
     "Dynamic Benchmark Alpha": 0.18,
     "Factor / Signal Alpha": 0.22,
     "Regime / Risk Alpha": 0.20,
     "Stock Selection Alpha": 0.25,
     "Strategy Overlay Alpha": 0.10,
+    "Residual / Interaction Alpha": 0.05,
 }
 
-allocated = {k: total_alpha * v for k, v in weights.items()}
-residual = total_alpha - sum(allocated.values())
-allocated["Residual / Interaction Alpha"] = residual
+# ---- BUILD ATTRIBUTION TABLE ----
+attrib_rows = []
+for source, pct in alpha_sources.items():
+    contrib = total_alpha * pct
+    attrib_rows.append({
+        "Alpha Source": source,
+        "% of Total Alpha": f"{pct*100:.1f}%",
+        "Alpha Contribution": round(contrib, 4),
+    })
 
-attrib_df = pd.DataFrame({
-    "Alpha Source": allocated.keys(),
-    "Alpha Contribution": allocated.values(),
-})
+attrib_df = pd.DataFrame(attrib_rows)
 
-attrib_df["% of Total Alpha"] = (
-    attrib_df["Alpha Contribution"] / total_alpha
-).fillna(0) * 100
+st.subheader("Alpha Attribution Breakdown")
+st.dataframe(attrib_df, use_container_width=True)
 
-st.markdown("### Alpha Attribution Breakdown")
-st.dataframe(
-    attrib_df.style.format({
-        "Alpha Contribution": "{:.4f}",
-        "% of Total Alpha": "{:.1f}%"
-    }),
-    use_container_width=True
-)
-
-st.markdown("### Contribution Visualization")
+# ---- VISUALIZATION ----
+st.subheader("Contribution Visualization")
 st.bar_chart(
     attrib_df.set_index("Alpha Source")["Alpha Contribution"]
 )
@@ -158,12 +139,13 @@ st.bar_chart(
 st.subheader("📈 Alpha History by Horizon")
 
 alpha_cols = ["Alpha_1D", "Alpha_30D", "Alpha_365D"]
-alpha_df = snapshot_df[["Wave"] + alpha_cols].set_index("Wave")
 
-if alpha_df.dropna().empty:
-    st.warning("Alpha data unavailable or incomplete for horizon chart.")
+if selected_scope == "Portfolio (All Waves)":
+    hist_df = snapshot_df.groupby("Wave")[alpha_cols].mean()
 else:
-    st.bar_chart(alpha_df)
+    hist_df = snapshot_df[snapshot_df["Wave"] == selected_scope].set_index("Wave")[alpha_cols]
+
+st.bar_chart(hist_df)
 
 # =============================
 # STATUS BANNER
