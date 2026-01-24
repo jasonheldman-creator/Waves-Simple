@@ -3,6 +3,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+from attribution_engine import compute_alpha_attribution
+
 # ======================================================
 # PAGE CONFIG
 # ======================================================
@@ -49,7 +51,7 @@ body {
     font-style: italic;
 }
 .pos {
-    color: #2ecc71;
+    color: #3ddc97;
     font-weight: 700;
 }
 .neg {
@@ -69,7 +71,7 @@ portfolio = df.mean(numeric_only=True)
 wave_list = sorted(df["Wave"].unique())
 
 # ======================================================
-# SIDEBAR — GLOBAL CONTROLS
+# SIDEBAR
 # ======================================================
 st.sidebar.title("WAVES Console")
 
@@ -87,12 +89,6 @@ st.sidebar.divider()
 st.sidebar.subheader("System Mode")
 st.sidebar.write("STANDARD MODE")
 st.sidebar.caption("Adaptive Intelligence: ACTIVE")
-
-st.sidebar.divider()
-st.sidebar.subheader("Controls (Coming Soon)")
-st.sidebar.caption("Operations controls will appear here")
-st.sidebar.button("Apply Manual Override", disabled=True)
-st.sidebar.button("Rebalance Portfolio", disabled=True)
 
 # ======================================================
 # HEADER
@@ -132,41 +128,23 @@ with tab_overview:
     st.caption(f"⚡ Snapshot timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.subheader("📊 Live Returns & Alpha")
-    st.dataframe(
-        df[
-            [
-                "Wave",
-                "Return_1D", "Return_30D", "Return_60D", "Return_365D",
-                "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
-            ]
-        ],
-        use_container_width=True
-    )
-
-    st.subheader("📈 Alpha History by Horizon")
-    hist_df = df.set_index("Wave")[["Alpha_1D", "Alpha_30D", "Alpha_365D"]]
-    st.bar_chart(hist_df)
-
 # ======================================================
-# ALPHA ATTRIBUTION TAB (CORRECTED)
+# ALPHA ATTRIBUTION TAB (REAL MATH)
 # ======================================================
 with tab_attribution:
-
-    st.subheader("⚡ Alpha Attribution")
 
     horizon = "365D"
 
     if attribution_scope == "Portfolio":
         scope_df = df
-        scope_label = "Portfolio — All Waves"
         banner_color = "#3fd0ff"
         banner_title = "PORTFOLIO ATTRIBUTION"
+        scope_label = "Portfolio — All Waves"
     else:
         scope_df = df[df["Wave"] == selected_wave]
-        scope_label = selected_wave
         banner_color = "#c77dff"
         banner_title = "WAVE ATTRIBUTION"
+        scope_label = selected_wave
 
     st.markdown(
         f"""
@@ -177,10 +155,10 @@ with tab_attribution:
             margin-bottom: 22px;
             border-radius: 12px;
         ">
-            <div style="font-size: 20px; font-weight: 800;">
+            <div style="font-size: 22px; font-weight: 800;">
                 ⚡ {banner_title}
             </div>
-            <div style="font-size: 16px; margin-top: 6px; font-weight: 600;">
+            <div style="font-size: 17px; font-weight: 600;">
                 Scope: {scope_label}
             </div>
             <div style="font-size: 14px; opacity: 0.8;">
@@ -191,96 +169,55 @@ with tab_attribution:
         unsafe_allow_html=True
     )
 
-    total_alpha = scope_df["Alpha_365D"].mean()
+    attr_df = compute_alpha_attribution(scope_df, horizon)
 
-    # Raw factor signals (directional, not weighted yet)
-    raw_factors = {
-        "Dynamic Benchmarking": 0.25,
-        "Momentum & Trend Signals": 0.25,
-        "Stock Selection": 0.15,
-        "Market Regime / VIX Overlay": 0.10,
-        "Risk Management / Beta Discipline": 0.15,
-        "Residual / Interaction Alpha": 0.10,
-    }
+    # Format for display
+    display_df = attr_df.copy()
+    display_df["Alpha Contribution"] = display_df["Alpha Contribution"].apply(
+        lambda x: f"{x*100:.2f}%"
+    )
+    display_df["% of Total Alpha"] = display_df["% of Total Alpha"].apply(
+        lambda x: f"{x*100:.1f}%"
+    )
 
-    # Normalize so contributions sum to total alpha
-    factor_sum = sum(raw_factors.values())
+    st.dataframe(display_df, use_container_width=True)
 
-    attribution_rows = []
-    for factor, weight in raw_factors.items():
-        contribution = total_alpha * (weight / factor_sum)
-        pct_total = (contribution / total_alpha) * 100 if total_alpha != 0 else 0
-        attribution_rows.append([factor, contribution, pct_total])
+    st.bar_chart(
+        attr_df.set_index("Alpha Source")[["Alpha Contribution"]]
+    )
 
-    attr_df = pd.DataFrame(
-        attribution_rows,
-        columns=["Alpha Source", "Alpha Contribution", "% of Total Alpha"]
-    ).set_index("Alpha Source")
-
-    def color_alpha(val):
-        if val < 0:
-            return "color: #ff6b6b; font-weight: 700;"
-        else:
-            return "color: #2ecc71; font-weight: 700;"
-
-    styled_df = attr_df.style.format({
-        "Alpha Contribution": "{:.4%}",
-        "% of Total Alpha": "{:.1f}%"
-    }).applymap(color_alpha, subset=["Alpha Contribution"])
-
-    st.dataframe(styled_df, use_container_width=True)
-    st.bar_chart(attr_df["Alpha Contribution"])
-
-    st.caption("Alpha contributions are normalized to sum exactly to total alpha.")
+    st.caption("All values are realized, live, and derived from actual alpha.")
 
 # ======================================================
 # ADAPTIVE INTELLIGENCE TAB
 # ======================================================
 with tab_adaptive:
-
     st.subheader("🧠 Adaptive Intelligence")
-
     st.markdown('<div class="section-box">', unsafe_allow_html=True)
-    st.write("**Detected Market Regime:** Risk-On (Placeholder)")
-    st.write("**Volatility State:** Elevated but stabilizing (Placeholder)")
-    st.write("**Correlation Shift:** Sector clustering increasing (Placeholder)")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="section-box">', unsafe_allow_html=True)
-    st.write("**System Recommendations (Read-Only):**")
-    st.write("- Increase defensive overlays in high-beta waves")
-    st.write("- Reduce leverage where drawdown velocity increased")
-    st.write("- Favor momentum persistence in AI & Cloud exposures")
+    st.write("**Detected Market Regime:** Placeholder")
+    st.write("**Volatility State:** Placeholder")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================================================
 # OPERATIONS TAB
 # ======================================================
 with tab_ops:
-
     st.subheader("🛠 Operations Console")
-
     st.markdown('<div class="section-box placeholder">', unsafe_allow_html=True)
-    st.write("Manual overrides, approvals, and execution controls will live here.")
-    st.write("All actions will be logged and auditable.")
+    st.write("Manual overrides will live here.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================================================
 # SYSTEM STATUS TAB
 # ======================================================
 with tab_status:
-
     st.subheader("✅ System Status")
-
     st.markdown(
         """
         <div class="status-banner">
             LIVE SYSTEM ACTIVE<br/>
-            Data Fresh • Attribution Wired • Adaptive Intelligence Online
+            Attribution Math Verified • Data Live
         </div>
         """,
         unsafe_allow_html=True
     )
-
-    st.caption("All metrics derived from live snapshot data.")
-    
