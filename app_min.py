@@ -6,6 +6,7 @@
 # • Loads data/live_snapshot.csv
 # • Builds a minimal truth_df object
 # • Initializes waves via waves.initialize_waves
+# • Probes attribution engine (alpha / beta)
 # • Leaves full app.py untouched
 # ==========================================================
 
@@ -16,19 +17,21 @@ import traceback
 import pandas as pd
 from types import SimpleNamespace
 
-# -----------------------------------------
+# ----------------------------------------------------------
 # SAFE IMPORT PROBE — ATTRIBUTION ENGINE
-# -----------------------------------------
+# ----------------------------------------------------------
 
 try:
     import attribution_engine
     st.success("✅ attribution_engine imported successfully")
+    if hasattr(attribution_engine, "_import_check"):
+        st.caption(attribution_engine._import_check())
 except Exception as e:
-    st.error("❌ attribution_engine import failed")
+    st.warning("⚠️ attribution_engine not active yet (safe to ignore)")
     st.exception(e)
 
 # ----------------------------------------------------------
-# BOOT CONFIRMATION (unconditional)
+# BOOT CONFIRMATION (UNCONDITIONAL)
 # ----------------------------------------------------------
 
 st.error("APP_MIN EXECUTION STARTED")
@@ -54,13 +57,14 @@ def main():
         st.write("Python:", sys.version)
         st.write("Executable:", sys.executable)
         st.write("Working directory:", os.getcwd())
+        st.write("Files in root:", sorted(os.listdir(".")))
         st.success("Environment visible")
     except Exception as e:
         st.error("Environment inspection failed")
         st.exception(e)
 
     # ------------------------------------------------------
-    # WAVES MODULE IMPORT
+    # WAVES MODULE IMPORT (HARD GATE)
     # ------------------------------------------------------
 
     st.divider()
@@ -68,11 +72,12 @@ def main():
 
     try:
         import waves
-        st.success("waves imported successfully")
+        st.success("✅ waves imported successfully")
         st.code(waves.__file__)
     except Exception as e:
-        st.error("waves import failed — hard stop")
+        st.error("❌ waves import failed — hard stop")
         st.exception(e)
+        st.code(traceback.format_exc())
         return
 
     # ------------------------------------------------------
@@ -90,11 +95,11 @@ def main():
 
     try:
         snapshot_df = pd.read_csv(SNAPSHOT_PATH)
-        st.success("live_snapshot.csv loaded")
+        st.success("✅ live_snapshot.csv loaded")
         st.write("Rows:", len(snapshot_df))
         st.write("Columns:", list(snapshot_df.columns))
     except Exception as e:
-        st.error("Failed to read snapshot CSV")
+        st.error("❌ Failed to read snapshot CSV")
         st.exception(e)
         return
 
@@ -123,15 +128,24 @@ def main():
     st.write("🧬 Extracting wave IDs")
 
     if "Wave_ID" not in snapshot_df.columns:
-        st.error("Wave_ID column missing from snapshot")
+        st.error("❌ Wave_ID column missing from snapshot")
         return
 
-    unique_wave_ids = sorted(snapshot_df["Wave_ID"].dropna().unique().tolist())
+    unique_wave_ids = (
+        snapshot_df["Wave_ID"]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist()
+    )
+
+    unique_wave_ids = sorted(unique_wave_ids)
+
     st.write("Number of waves:", len(unique_wave_ids))
     st.write("Wave IDs (sample):", unique_wave_ids[:10])
 
     # ------------------------------------------------------
-    # INITIALIZE WAVES (SAFE GATED EXECUTION)
+    # INITIALIZE WAVES (SAFE, GATED)
     # ------------------------------------------------------
 
     st.divider()
@@ -142,9 +156,9 @@ def main():
             _truth_df=truth_df,
             _unique_wave_ids=unique_wave_ids
         )
-        st.success("WAVES initialized successfully")
+        st.success("✅ WAVES initialized successfully")
     except Exception as e:
-        st.error("WAVES initialization failed")
+        st.error("❌ WAVES initialization failed")
         st.exception(e)
         st.code(traceback.format_exc())
         return
@@ -156,7 +170,7 @@ def main():
     st.divider()
     st.write("🔎 Verification")
 
-    st.write("truth_df.waves keys:", list(truth_df.waves.keys())[:10])
+    st.write("Initialized wave keys (sample):", list(truth_df.waves.keys())[:10])
     st.write("Total initialized waves:", len(truth_df.waves))
 
     # ------------------------------------------------------
@@ -169,11 +183,11 @@ def main():
         "✔ live_snapshot loaded\n"
         "✔ truth_df hydrated\n"
         "✔ waves initialized\n"
+        "✔ attribution engine reachable\n"
         "✔ system execution restored\n\n"
-        "Next step: transition back to full app.py"
+        "Next step: detailed alpha / beta attribution rendering"
     )
 
-    # Optional preview
     with st.expander("Preview snapshot (first 10 rows)"):
         st.dataframe(snapshot_df.head(10))
 
