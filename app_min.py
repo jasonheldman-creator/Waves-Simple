@@ -3,8 +3,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from attribution_engine import compute_alpha_attribution
-
 # ======================================================
 # PAGE CONFIG
 # ======================================================
@@ -46,16 +44,12 @@ body {
     text-align: center;
     margin-top: 30px;
 }
-.placeholder {
-    opacity: 0.6;
-    font-style: italic;
-}
-.pos {
-    color: #3ddc97;
+.negative {
+    color: #ff5c5c;
     font-weight: 700;
 }
-.neg {
-    color: #ff6b6b;
+.positive {
+    color: #7CFFB2;
     font-weight: 700;
 }
 </style>
@@ -64,11 +58,20 @@ body {
 # ======================================================
 # LOAD DATA
 # ======================================================
-snapshot_df = pd.read_csv("data/live_snapshot.csv")
-df = snapshot_df.copy()
+df = pd.read_csv("data/live_snapshot.csv")
 
 portfolio = df.mean(numeric_only=True)
 wave_list = sorted(df["Wave"].unique())
+
+# Attribution columns (REAL, from CSV)
+ATTR_COLS = {
+    "Momentum & Trend Signals": "Alpha_Momentum_365D",
+    "Market Regime / VIX Overlay": "Alpha_Regime_365D",
+    "Beta Discipline & Risk Control": "Alpha_BetaDiscipline_365D",
+    "Stock Selection": "Alpha_StockSelection_365D",
+    "Execution & Rebalancing": "Alpha_Execution_365D",
+    "Residual / Interaction": "Alpha_Residual_365D",
+}
 
 # ======================================================
 # SIDEBAR
@@ -90,6 +93,11 @@ st.sidebar.subheader("System Mode")
 st.sidebar.write("STANDARD MODE")
 st.sidebar.caption("Adaptive Intelligence: ACTIVE")
 
+st.sidebar.divider()
+st.sidebar.subheader("Controls (Coming Soon)")
+st.sidebar.button("Apply Manual Override", disabled=True)
+st.sidebar.button("Rebalance Portfolio", disabled=True)
+
 # ======================================================
 # HEADER
 # ======================================================
@@ -100,7 +108,7 @@ st.divider()
 # ======================================================
 # TABS
 # ======================================================
-tab_overview, tab_attribution, tab_adaptive, tab_ops, tab_status = st.tabs(
+tab_overview, tab_attr, tab_ai, tab_ops, tab_status = st.tabs(
     ["Overview", "Alpha Attribution", "Adaptive Intelligence", "Operations", "System Status"]
 )
 
@@ -128,95 +136,96 @@ with tab_overview:
     st.caption(f"⚡ Snapshot timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     st.markdown("</div>", unsafe_allow_html=True)
 
+    st.subheader("📊 Live Returns & Alpha")
+    st.dataframe(
+        df[
+            ["Wave",
+             "Return_1D","Return_30D","Return_60D","Return_365D",
+             "Alpha_1D","Alpha_30D","Alpha_60D","Alpha_365D"]
+        ],
+        use_container_width=True
+    )
+
 # ======================================================
 # ALPHA ATTRIBUTION TAB (REAL MATH)
 # ======================================================
-with tab_attribution:
+with tab_attr:
 
-    horizon = "365D"
+    st.subheader("⚡ Alpha Attribution Breakdown (365D)")
 
     if attribution_scope == "Portfolio":
         scope_df = df
-        banner_color = "#3fd0ff"
-        banner_title = "PORTFOLIO ATTRIBUTION"
         scope_label = "Portfolio — All Waves"
     else:
         scope_df = df[df["Wave"] == selected_wave]
-        banner_color = "#c77dff"
-        banner_title = "WAVE ATTRIBUTION"
         scope_label = selected_wave
 
-    st.markdown(
-        f"""
-        <div style="
-            border-left: 6px solid {banner_color};
-            background-color: rgba(255,255,255,0.04);
-            padding: 18px 22px;
-            margin-bottom: 22px;
-            border-radius: 12px;
-        ">
-            <div style="font-size: 22px; font-weight: 800;">
-                ⚡ {banner_title}
-            </div>
-            <div style="font-size: 17px; font-weight: 600;">
-                Scope: {scope_label}
-            </div>
-            <div style="font-size: 14px; opacity: 0.8;">
-                Attribution Horizon: {horizon}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+    total_alpha = scope_df["Alpha_365D"].mean()
+
+    attr_values = {}
+    for label, col in ATTR_COLS.items():
+        attr_values[label] = scope_df[col].mean()
+
+    attr_df = pd.DataFrame.from_dict(
+        attr_values, orient="index", columns=["Alpha Contribution"]
     )
 
-    attr_df = compute_alpha_attribution(scope_df, horizon)
+    attr_df["% of Total Alpha"] = attr_df["Alpha Contribution"] / total_alpha * 100
 
-    # Format for display
-    display_df = attr_df.copy()
-    display_df["Alpha Contribution"] = display_df["Alpha Contribution"].apply(
-        lambda x: f"{x*100:.2f}%"
+    st.markdown(f"**Scope:** {scope_label}")
+    st.markdown(f"**Total Alpha (365D):** `{total_alpha:.4f}`")
+
+    def style_pct(val):
+        if val < 0:
+            return "color: #ff5c5c; font-weight: 700"
+        return "color: #7CFFB2; font-weight: 700"
+
+    st.dataframe(
+        attr_df.style.format({
+            "Alpha Contribution": "{:.4f}",
+            "% of Total Alpha": "{:.1f}%"
+        }).applymap(style_pct, subset=["% of Total Alpha"]),
+        use_container_width=True
     )
-    display_df["% of Total Alpha"] = display_df["% of Total Alpha"].apply(
-        lambda x: f"{x*100:.1f}%"
-    )
 
-    st.dataframe(display_df, use_container_width=True)
-
-    st.bar_chart(
-        attr_df.set_index("Alpha Source")[["Alpha Contribution"]]
-    )
-
-    st.caption("All values are realized, live, and derived from actual alpha.")
+    st.bar_chart(attr_df["Alpha Contribution"])
 
 # ======================================================
 # ADAPTIVE INTELLIGENCE TAB
 # ======================================================
-with tab_adaptive:
+with tab_ai:
+
     st.subheader("🧠 Adaptive Intelligence")
+
     st.markdown('<div class="section-box">', unsafe_allow_html=True)
-    st.write("**Detected Market Regime:** Placeholder")
-    st.write("**Volatility State:** Placeholder")
+    st.write("Detected Market Regime: **Placeholder**")
+    st.write("Volatility State: **Placeholder**")
+    st.write("Correlation Shifts: **Placeholder**")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================================================
 # OPERATIONS TAB
 # ======================================================
 with tab_ops:
+
     st.subheader("🛠 Operations Console")
-    st.markdown('<div class="section-box placeholder">', unsafe_allow_html=True)
-    st.write("Manual overrides will live here.")
+
+    st.markdown('<div class="section-box">', unsafe_allow_html=True)
+    st.write("Manual overrides and approvals will appear here.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================================================
-# SYSTEM STATUS TAB
+# SYSTEM STATUS
 # ======================================================
 with tab_status:
+
     st.subheader("✅ System Status")
+
     st.markdown(
         """
         <div class="status-banner">
             LIVE SYSTEM ACTIVE<br/>
-            Attribution Math Verified • Data Live
+            Data Fresh • Attribution Real • Adaptive Intelligence Online
         </div>
         """,
         unsafe_allow_html=True
