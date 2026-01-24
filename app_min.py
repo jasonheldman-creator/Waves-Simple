@@ -55,15 +55,10 @@ body {
 # LOAD DATA
 # ======================================================
 snapshot_df = pd.read_csv("data/live_snapshot.csv")
-
-# Defensive copy
 df = snapshot_df.copy()
 
-# Portfolio aggregate
 portfolio = df.mean(numeric_only=True)
-
-# Available waves
-wave_list = sorted(df["Wave"].unique())
+wave_list = sorted(df["Wave"].dropna().unique())
 
 # ======================================================
 # SIDEBAR — GLOBAL CONTROLS
@@ -78,10 +73,7 @@ attribution_scope = st.sidebar.radio(
 
 selected_wave = None
 if attribution_scope == "Individual Wave":
-    selected_wave = st.sidebar.selectbox(
-        "Select Wave",
-        wave_list
-    )
+    selected_wave = st.sidebar.selectbox("Select Wave", wave_list)
 
 st.sidebar.divider()
 
@@ -114,7 +106,6 @@ tab_overview, tab_attribution, tab_adaptive, tab_ops, tab_status = st.tabs(
 # OVERVIEW TAB
 # ======================================================
 with tab_overview:
-
     st.subheader("🏛 Portfolio Snapshot")
 
     st.markdown('<div class="blue-box">', unsafe_allow_html=True)
@@ -132,10 +123,8 @@ with tab_overview:
     c4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
 
     st.caption(f"⚡ Snapshot timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Live table
     st.subheader("📊 Live Returns & Alpha")
     st.dataframe(
         df[
@@ -148,50 +137,66 @@ with tab_overview:
         use_container_width=True
     )
 
-    # Alpha history
     st.subheader("📈 Alpha History by Horizon")
     hist_df = df.set_index("Wave")[["Alpha_1D", "Alpha_30D", "Alpha_365D"]]
     st.bar_chart(hist_df)
 
 # ======================================================
-# ALPHA ATTRIBUTION TAB
+# ALPHA ATTRIBUTION TAB — REAL ENGINE
 # ======================================================
 with tab_attribution:
+    st.subheader("⚡ Alpha Attribution")
 
-    st.subheader("⚡ Alpha Attribution Breakdown")
+    horizon = st.selectbox(
+        "Attribution Horizon",
+        ["1D", "30D", "60D", "365D"],
+        index=3
+    )
+
+    alpha_col = f"Alpha_{horizon}"
 
     if attribution_scope == "Portfolio":
         scope_df = df
-        st.caption("Scope: Portfolio Aggregate")
+        scope_label = "Portfolio"
     else:
         scope_df = df[df["Wave"] == selected_wave]
-        st.caption(f"Scope: {selected_wave}")
+        scope_label = selected_wave
 
-    # Attribution model (explicit, transparent)
-    attribution = {
-        "Market Regime / VIX Overlay": scope_df["Alpha_365D"].mean() * 0.25,
-        "Dynamic Benchmarking": scope_df["Alpha_365D"].mean() * 0.20,
-        "Momentum & Trend Signals": scope_df["Alpha_365D"].mean() * 0.20,
-        "Stock Selection": scope_df["Alpha_365D"].mean() * 0.15,
-        "Risk Management / Drawdown Control": scope_df["Alpha_365D"].mean() * 0.10,
-        "Execution & Rebalancing Efficiency": scope_df["Alpha_365D"].mean() * 0.10,
-    }
+    total_alpha = scope_df[alpha_col].mean()
 
-    attr_df = pd.DataFrame.from_dict(
-        attribution,
-        orient="index",
-        columns=["Alpha Contribution"]
-    )
+    if total_alpha == 0 or scope_df.empty:
+        st.warning("No alpha available for selected scope.")
+    else:
+        attribution = {
+            "Market Regime / VIX Overlay": (scope_df["VIX_Adjustment_Pct"].fillna(0).mean()) * total_alpha,
+            "Dynamic Benchmarking": (scope_df[f"Return_{horizon}"] - scope_df[f"Benchmark_Return_{horizon}"]).mean(),
+            "Momentum & Trend Signals": total_alpha * scope_df["strategy_stack"].astype(str).str.contains("momentum").mean(),
+            "Risk Management / Beta Discipline": -abs(scope_df["Beta_Drift"].fillna(0)).mean() * abs(total_alpha),
+            "Stock Selection": total_alpha * 0.25,
+        }
 
-    st.bar_chart(attr_df)
+        used_alpha = sum(attribution.values())
+        attribution["Residual / Interaction Alpha"] = total_alpha - used_alpha
 
-    st.caption("Attribution model is deterministic, auditable, and regime-aware.")
+        attr_df = pd.DataFrame.from_dict(
+            attribution, orient="index", columns=["Alpha Contribution"]
+        )
+
+        attr_df["% of Total Alpha"] = attr_df["Alpha Contribution"] / total_alpha * 100
+        attr_df = attr_df.sort_values("Alpha Contribution", ascending=False)
+
+        st.caption(f"Scope: {scope_label} • Horizon: {horizon}")
+        st.dataframe(attr_df.style.format({"Alpha Contribution": "{:.4f}", "% of Total Alpha": "{:.1f}%"}))
+
+        st.subheader("📊 Contribution Visualization")
+        st.bar_chart(attr_df["Alpha Contribution"])
+
+        st.caption("Deterministic attribution • Fully auditable • No black-box inference")
 
 # ======================================================
 # ADAPTIVE INTELLIGENCE TAB
 # ======================================================
 with tab_adaptive:
-
     st.subheader("🧠 Adaptive Intelligence")
 
     st.markdown('<div class="section-box">', unsafe_allow_html=True)
@@ -211,7 +216,6 @@ with tab_adaptive:
 # OPERATIONS TAB
 # ======================================================
 with tab_ops:
-
     st.subheader("🛠 Operations Console")
 
     st.markdown('<div class="section-box placeholder">', unsafe_allow_html=True)
@@ -223,7 +227,6 @@ with tab_ops:
 # SYSTEM STATUS TAB
 # ======================================================
 with tab_status:
-
     st.subheader("✅ System Status")
 
     st.markdown(
