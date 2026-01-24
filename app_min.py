@@ -283,3 +283,4 @@ with tab_status:
     )
 
     st.caption("All metrics derived from live snapshot data.")
+    
