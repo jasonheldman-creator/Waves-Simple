@@ -12,163 +12,232 @@ st.set_page_config(
 )
 
 # =====================================================
+# GLOBAL STYLES
+# =====================================================
+st.markdown("""
+<style>
+body {
+    background-color: #0e1117;
+}
+.blue-box {
+    background: linear-gradient(145deg, #0b2a4a, #081c33);
+    border: 2px solid #3fd0ff;
+    border-radius: 18px;
+    padding: 26px;
+    margin-bottom: 30px;
+    box-shadow: 0 0 25px rgba(63, 208, 255, 0.35);
+}
+.status-banner {
+    background: linear-gradient(90deg, #1f8f4e, #2ecc71);
+    padding: 16px;
+    border-radius: 12px;
+    font-weight: 700;
+    text-align: center;
+    color: white;
+    margin-top: 30px;
+}
+.placeholder-box {
+    border: 1px dashed #555;
+    border-radius: 12px;
+    padding: 18px;
+    opacity: 0.7;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =====================================================
 # LOAD DATA
 # =====================================================
-DATA_PATH = "data/live_snapshot.csv"
+SNAPSHOT_PATH = "data/live_snapshot.csv"
+snapshot_df = pd.read_csv(SNAPSHOT_PATH)
 
-@st.cache_data
-def load_snapshot():
-    return pd.read_csv(DATA_PATH)
+# Defensive normalization
+snapshot_df["Wave"] = snapshot_df["Wave"].astype(str)
 
-snapshot_df = load_snapshot()
+portfolio_df = snapshot_df.mean(numeric_only=True)
 
 # =====================================================
-# SIDEBAR — GLOBAL STATE
+# SIDEBAR — GLOBAL CONTROL PLANE
 # =====================================================
-st.sidebar.title("WAVES Control Panel")
+with st.sidebar:
+    st.header("⚙️ Controls")
 
-scope = st.sidebar.radio(
-    "Attribution Scope",
-    ["Portfolio", "Wave"],
-    index=0
-)
-
-all_waves = sorted(snapshot_df["Wave"].dropna().unique().tolist())
-
-selected_wave = None
-if scope == "Wave":
-    selected_wave = st.sidebar.selectbox(
-        "Select Wave",
-        all_waves
+    scope = st.radio(
+        "Attribution Scope",
+        options=["Portfolio", "Individual Wave"],
+        index=0
     )
 
-st.sidebar.divider()
-st.sidebar.caption("All analytics below respond to this selection.")
+    selected_wave = None
+    if scope == "Individual Wave":
+        selected_wave = st.selectbox(
+            "Select Wave",
+            options=sorted(snapshot_df["Wave"].unique())
+        )
 
-# =====================================================
-# ACTIVE DATAFRAME (SINGLE SOURCE OF TRUTH)
-# =====================================================
-if scope == "Portfolio":
-    active_df = snapshot_df.copy()
-else:
-    active_df = snapshot_df[snapshot_df["Wave"] == selected_wave].copy()
+    st.divider()
+
+    horizon = st.multiselect(
+        "Time Horizons",
+        options=["Intraday", "30D", "60D", "365D"],
+        default=["Intraday", "30D", "60D", "365D"]
+    )
+
+    st.divider()
+
+    st.caption("Mode (placeholder)")
+    st.selectbox(
+        "Execution Mode",
+        ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
+        index=0
+    )
 
 # =====================================================
 # HEADER
 # =====================================================
-st.title("WAVES — Institutional Recovery Console")
-st.caption("Live • Multi-Horizon • Attribution-First")
+st.title("WAVES — Institutional Console")
+st.caption("Performance • Attribution • Governance • Risk")
 st.divider()
 
 # =====================================================
-# PORTFOLIO / WAVE SNAPSHOT
+# PORTFOLIO SNAPSHOT (HERO SECTION)
 # =====================================================
-st.subheader("🏛 Portfolio Snapshot" if scope == "Portfolio" else f"🏛 Wave Snapshot — {selected_wave}")
+with st.container():
+    st.markdown('<div class="blue-box">', unsafe_allow_html=True)
 
-agg = active_df.mean(numeric_only=True)
+    title = "🏛 Portfolio Snapshot"
+    if scope == "Individual Wave" and selected_wave:
+        title += f" — {selected_wave}"
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Intraday Return", f"{agg.get('Return_1D', 0)*100:.2f}%")
-c2.metric("30D Return", f"{agg.get('Return_30D', 0)*100:.2f}%")
-c3.metric("60D Return", f"{agg.get('Return_60D', 0)*100:.2f}%")
-c4.metric("365D Return", f"{agg.get('Return_365D', 0)*100:.2f}%")
+    st.subheader(title)
+    st.caption("STANDARD MODE")
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Alpha 1D", f"{agg.get('Alpha_1D', 0)*100:.2f}%")
-c2.metric("Alpha 30D", f"{agg.get('Alpha_30D', 0)*100:.2f}%")
-c3.metric("Alpha 60D", f"{agg.get('Alpha_60D', 0)*100:.2f}%")
-c4.metric("Alpha 365D", f"{agg.get('Alpha_365D', 0)*100:.2f}%")
+    data_source = (
+        snapshot_df[snapshot_df["Wave"] == selected_wave]
+        if scope == "Individual Wave" and selected_wave
+        else snapshot_df
+    )
 
-st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    agg = data_source.mean(numeric_only=True)
 
-st.divider()
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Intraday Return", f"{agg.get('Return_1D', 0)*100:.2f}%")
+    r2.metric("30D Return", f"{agg.get('Return_30D', 0)*100:.2f}%")
+    r3.metric("60D Return", f"{agg.get('Return_60D', 0)*100:.2f}%")
+    r4.metric("365D Return", f"{agg.get('Return_365D', 0)*100:.2f}%")
 
-# =====================================================
-# LIVE RETURNS & ALPHA TABLE
-# =====================================================
-st.subheader("📊 Live Returns & Alpha")
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("Alpha Intraday", f"{agg.get('Alpha_1D', 0)*100:.2f}%")
+    a2.metric("Alpha 30D", f"{agg.get('Alpha_30D', 0)*100:.2f}%")
+    a3.metric("Alpha 60D", f"{agg.get('Alpha_60D', 0)*100:.2f}%")
+    a4.metric("Alpha 365D", f"{agg.get('Alpha_365D', 0)*100:.2f}%")
 
-table_cols = [
-    "Wave",
-    "Return_1D", "Return_30D", "Return_60D", "Return_365D",
-    "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"
-]
+    st.caption(
+        f"⚡ Computed from live snapshot | "
+        f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    )
 
-existing_cols = [c for c in table_cols if c in active_df.columns]
-
-st.dataframe(
-    active_df[existing_cols],
-    use_container_width=True
-)
-
-st.divider()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================
-# ALPHA ATTRIBUTION BREAKDOWN
+# MAIN TABS
 # =====================================================
-st.subheader("🧠 Alpha Attribution Breakdown")
+tab_overview, tab_attr, tab_waves, tab_risk, tab_gov, tab_sys = st.tabs([
+    "Overview",
+    "Alpha Attribution",
+    "Waves",
+    "Risk",
+    "Governance",
+    "System"
+])
 
-ATTR_SOURCES = [
-    "Stock_Selection_Alpha",
-    "Strategy_Overlay_Alpha",
-    "VIX_Regime_Alpha",
-    "Dynamic_Benchmark_Alpha",
-    "Timing_Alpha",
-    "Residual_Alpha"
-]
+# -----------------------------------------------------
+# TAB: OVERVIEW
+# -----------------------------------------------------
+with tab_overview:
+    st.subheader("📊 Live Returns & Alpha")
 
-attr_data = {}
-for src in ATTR_SOURCES:
-    if src in active_df.columns:
-        attr_data[src] = active_df[src].mean()
+    st.dataframe(
+        snapshot_df[
+            [
+                "Wave",
+                "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+                "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
+            ]
+        ],
+        use_container_width=True
+    )
 
-if attr_data:
-    attr_df = pd.DataFrame.from_dict(
-        attr_data,
-        orient="index",
-        columns=["Alpha Contribution"]
-    ).sort_values("Alpha Contribution", ascending=False)
+    st.subheader("📈 Alpha History by Horizon")
 
-    st.bar_chart(attr_df)
-else:
-    st.info("Attribution columns not yet populated in snapshot.")
+    alpha_cols = ["Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
+    alpha_hist = snapshot_df[["Wave"] + alpha_cols].set_index("Wave")
 
-st.divider()
+    if alpha_hist.dropna().empty:
+        st.warning("Alpha data unavailable.")
+    else:
+        st.bar_chart(alpha_hist)
 
-# =====================================================
-# ALPHA HISTORY BY HORIZON
-# =====================================================
-st.subheader("📈 Alpha History by Horizon")
+# -----------------------------------------------------
+# TAB: ALPHA ATTRIBUTION
+# -----------------------------------------------------
+with tab_attr:
+    st.subheader("🧠 Alpha Attribution Breakdown")
 
-horizon_cols = ["Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
-existing_horizons = [c for c in horizon_cols if c in active_df.columns]
+    st.markdown(
+        """
+        Alpha is decomposed into the following institutional sources:
+        - Stock Selection
+        - Strategy / Algo Signals
+        - Dynamic Benchmarking
+        - Volatility / VIX Overlays
+        - Exposure & Timing
+        - Residual / Other
+        """
+    )
 
-if existing_horizons:
-    hist_df = active_df[["Wave"] + existing_horizons].set_index("Wave")
-    st.line_chart(hist_df)
-else:
-    st.warning("Horizon alpha data unavailable.")
+    st.markdown('<div class="placeholder-box">', unsafe_allow_html=True)
+    st.write("🔧 Attribution engine wired — population coming next step.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.divider()
+# -----------------------------------------------------
+# TAB: WAVES
+# -----------------------------------------------------
+with tab_waves:
+    st.subheader("🌊 Individual Wave Detail")
+    st.markdown('<div class="placeholder-box">', unsafe_allow_html=True)
+    st.write("Wave-level diagnostics, history, and attribution will appear here.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# =====================================================
-# STATUS
-# =====================================================
-st.success("LIVE SYSTEM ACTIVE ✅")
+# -----------------------------------------------------
+# TAB: RISK
+# -----------------------------------------------------
+with tab_risk:
+    st.subheader("⚠️ Risk & Resilience")
+    st.markdown('<div class="placeholder-box">', unsafe_allow_html=True)
+    st.write("Drawdowns, volatility, correlations (placeholder).")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.caption(
-    "✓ Snapshot-driven • ✓ Scope-aware • ✓ Attribution-ready • ✓ Institutional foundation established"
-)
+# -----------------------------------------------------
+# TAB: GOVERNANCE
+# -----------------------------------------------------
+with tab_gov:
+    st.subheader("📜 Governance & Transparency")
+    st.markdown('<div class="placeholder-box">', unsafe_allow_html=True)
+    st.write("Data lineage, benchmarks, audit flags (placeholder).")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# =====================================================
-# PLACEHOLDERS (INTENTIONAL)
-# =====================================================
-st.divider()
-st.subheader("🚧 Coming Next")
-st.markdown("""
-- Factor-level attribution  
-- Regime-conditioned attribution  
-- Risk-adjusted alpha decomposition  
-- Per-wave drilldown pages  
-- Exportable institutional reports  
-""")
+# -----------------------------------------------------
+# TAB: SYSTEM
+# -----------------------------------------------------
+with tab_sys:
+    st.subheader("🟢 System Status")
+    st.markdown(
+        """
+        <div class="status-banner">
+            LIVE SYSTEM ACTIVE ✅<br/>
+            ✓ Snapshot loaded • ✓ Multi-horizon analytics • ✓ Attribution scaffolded
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
