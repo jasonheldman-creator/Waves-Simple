@@ -1,10 +1,7 @@
 """
-waves.py — import-safe recovery scaffold (keyword-compatible)
+waves.py — import-safe recovery scaffold (app.py compatible)
 
-This module is intentionally import-safe and designed to be compatible
-with existing app.py calls that pass keyword arguments.
-
-NO execution occurs at import time.
+This version is intentionally compatible with existing app.py calls.
 """
 
 # -----------------------------
@@ -19,62 +16,45 @@ truth_df = None
 # Public initializer
 # -----------------------------
 
-def initialize_waves(
-    _truth_df=None,
-    _unique_wave_ids=None,
-    *,
-    truth_df=None,
-    unique_wave_ids=None
-):
+def initialize_waves(truth_df=None, unique_wave_ids=None, _truth_df=None, _unique_wave_ids=None):
     """
     Initialize wave entries inside truth_df safely.
 
-    Supports BOTH positional and keyword arguments to remain compatible
-    with existing app.py usage.
-
-    Accepted:
-      initialize_waves(truth_df=..., unique_wave_ids=...)
-      initialize_waves(_truth_df, _unique_wave_ids)
+    Accepts BOTH legacy and internal argument names to remain
+    compatible with app.py without modifying it.
     """
 
     global truth_df as _global_truth_df
     global unique_wave_ids as _global_wave_ids
 
-    # Resolve arguments (keyword wins over positional)
+    # Resolve inputs (support both calling styles)
     resolved_truth_df = truth_df if truth_df is not None else _truth_df
-    resolved_wave_ids = (
-        list(unique_wave_ids)
-        if unique_wave_ids is not None
-        else list(_unique_wave_ids or [])
-    )
+    resolved_wave_ids = unique_wave_ids if unique_wave_ids is not None else _unique_wave_ids
 
-    if resolved_truth_df is None:
-        raise ValueError("initialize_waves: truth_df is required")
+    if resolved_truth_df is None or resolved_wave_ids is None:
+        raise ValueError("initialize_waves requires truth_df and unique_wave_ids")
 
-    # Store globals (for downstream reads, not execution)
     _global_truth_df = resolved_truth_df
-    _global_wave_ids = resolved_wave_ids
+    _global_wave_ids = list(resolved_wave_ids)
 
-    # Ensure waves container exists
-    if not hasattr(resolved_truth_df, "waves"):
-        resolved_truth_df.waves = {}
+    if not hasattr(_global_truth_df, "waves"):
+        _global_truth_df.waves = {}
 
-    # Initialize wave records
-    for wave_id in resolved_wave_ids:
-        if wave_id not in resolved_truth_df.waves:
-            resolved_truth_df.waves[wave_id] = {
+    for wave_id in _global_wave_ids:
+        if wave_id not in _global_truth_df.waves:
+            _global_truth_df.waves[wave_id] = {
                 "health": {
                     "score": None,
                     "alpha": None,
                     "beta_drift": None,
                     "volatility": None,
-                    "exposure": None,
+                    "exposure": None
                 },
                 "regime_alignment": "neutral",
-                "learning_signals": [],
+                "learning_signals": []
             }
 
-    return resolved_truth_df.waves
+    return _global_truth_df.waves
 
 
 # -----------------------------
