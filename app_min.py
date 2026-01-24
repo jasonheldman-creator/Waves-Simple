@@ -19,50 +19,6 @@ st.markdown("""
 body {
     background-color: #0e1117;
 }
-.snapshot-box {
-    border: 2px solid #3fd0ff;
-    border-radius: 18px;
-    padding: 28px;
-    background: linear-gradient(145deg, #0b2a4a, #081c33);
-    box-shadow: 0 0 25px rgba(63, 208, 255, 0.35);
-    margin-bottom: 30px;
-}
-.snapshot-title {
-    font-size: 34px;
-    font-weight: 800;
-    color: white;
-}
-.snapshot-sub {
-    font-size: 16px;
-    opacity: 0.75;
-    margin-bottom: 25px;
-}
-.metric-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 22px;
-    margin-top: 10px;
-}
-.metric-card {
-    background: rgba(255,255,255,0.04);
-    border-radius: 12px;
-    padding: 18px;
-    text-align: center;
-}
-.metric-label {
-    font-size: 14px;
-    opacity: 0.7;
-    margin-bottom: 6px;
-}
-.metric-value {
-    font-size: 30px;
-    font-weight: 800;
-}
-.footer-note {
-    margin-top: 20px;
-    font-size: 13px;
-    opacity: 0.7;
-}
 .status-banner {
     background: linear-gradient(90deg, #1f8f4e, #2ecc71);
     padding: 18px;
@@ -91,53 +47,22 @@ portfolio = snapshot_df.mean(numeric_only=True)
 # =============================
 # PORTFOLIO SNAPSHOT (BLUE BOX)
 # =============================
-st.markdown(f"""
-<div class="snapshot-box">
-    <div class="snapshot-title">🏛️ Portfolio Snapshot (All Waves)</div>
-    <div class="snapshot-sub">STANDARD MODE</div>
-
-    <div class="metric-grid">
-        <div class="metric-card">
-            <div class="metric-label">INTRADAY RETURN</div>
-            <div class="metric-value">{portfolio['Return_1D']*100:.2f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">30D RETURN</div>
-            <div class="metric-value">{portfolio['Return_30D']*100:.2f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">60D RETURN</div>
-            <div class="metric-value">{portfolio['Return_60D']*100:.2f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">365D RETURN</div>
-            <div class="metric-value">{portfolio['Return_365D']*100:.2f}%</div>
-        </div>
-
-        <div class="metric-card">
-            <div class="metric-label">ALPHA INTRADAY</div>
-            <div class="metric-value">{portfolio['Alpha_1D']*100:.2f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">ALPHA 30D</div>
-            <div class="metric-value">{portfolio['Alpha_30D']*100:.2f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">ALPHA 60D</div>
-            <div class="metric-value">{portfolio['Alpha_60D']*100:.2f}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">ALPHA 365D</div>
-            <div class="metric-value">{portfolio['Alpha_365D']*100:.2f}%</div>
-        </div>
-    </div>
-
-    <div class="footer-note">
-        ⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC<br/>
-        ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below
-    </div>
-</div>
-""", unsafe_allow_html=True)
+with st.container():
+    st.subheader("🏛️ Portfolio Snapshot (All Waves)")
+    st.caption("STANDARD MODE")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Intraday Return", f"{portfolio['Return_1D']*100:.2f}%")
+    col2.metric("30D Return", f"{portfolio['Return_30D']*100:.2f}%")
+    col3.metric("60D Return", f"{portfolio['Return_60D']*100:.2f}%")
+    col4.metric("365D Return", f"{portfolio['Return_365D']*100:.2f}%")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Alpha Intraday", f"{portfolio['Alpha_1D']*100:.2f}%")
+    col2.metric("Alpha 30D", f"{portfolio['Alpha_30D']*100:.2f}%")
+    col3.metric("Alpha 60D", f"{portfolio['Alpha_60D']*100:.2f}%")
+    col4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
+    st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.caption("ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below")
 
 # =============================
 # LIVE RETURNS & ALPHA TABLE
