@@ -2,7 +2,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import numpy as np
 
 # -------------------------------------------------
 # Page Config
@@ -11,6 +10,42 @@ st.set_page_config(
     page_title="WAVES — Live Recovery Console",
     layout="wide",
 )
+
+# -------------------------------------------------
+# Load Live Snapshot (SOURCE OF TRUTH)
+# -------------------------------------------------
+SNAPSHOT_PATH = "data/live_snapshot.csv"
+
+@st.cache_data
+def load_snapshot(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    return df
+
+snapshot_df = load_snapshot(SNAPSHOT_PATH)
+
+# -------------------------------------------------
+# Helper: Portfolio Aggregation
+# -------------------------------------------------
+def portfolio_metric(df, col):
+    if col not in df.columns:
+        return 0.0
+    return df[col].mean()
+
+# -------------------------------------------------
+# Compute Portfolio Metrics
+# -------------------------------------------------
+portfolio = {
+    "return_1d": portfolio_metric(snapshot_df, "Return_1D"),
+    "return_30d": portfolio_metric(snapshot_df, "Return_30D"),
+    "return_60d": portfolio_metric(snapshot_df, "Return_60D"),
+    "return_365d": portfolio_metric(snapshot_df, "Return_365D"),
+    "alpha_1d": portfolio_metric(snapshot_df, "Alpha_1D"),
+    "alpha_30d": portfolio_metric(snapshot_df, "Alpha_30D"),
+    "alpha_60d": portfolio_metric(snapshot_df, "Alpha_60D"),
+    "alpha_365d": portfolio_metric(snapshot_df, "Alpha_365D"),
+}
+
+snapshot_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
 # -------------------------------------------------
 # Global Styles
@@ -84,90 +119,89 @@ st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
 st.divider()
 
 # -------------------------------------------------
-# PORTFOLIO SNAPSHOT (BLUE BOX)
+# PORTFOLIO SNAPSHOT (VISUAL BLUE BOX — FIXED)
 # -------------------------------------------------
-snapshot_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+st.markdown(
+    f"""
+    <div class="blue-box">
+        <h2>🏛 Portfolio Snapshot (All Waves)</h2>
+        <div style="opacity:0.75;margin-bottom:12px;">STANDARD MODE</div>
 
-portfolio_snapshot_html = f"""
-<div class="blue-box">
-    <h2>🏛 Portfolio Snapshot (All Waves)</h2>
-    <div style="opacity:0.75;margin-bottom:12px;">STANDARD MODE</div>
+        <div class="metric-grid">
+            <div class="metric">
+                <div class="metric-label">Return 1D (Intraday)</div>
+                <div class="metric-value">{portfolio['return_1d']:.2%}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Return 30D</div>
+                <div class="metric-value">{portfolio['return_30d']:.2%}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Return 60D</div>
+                <div class="metric-value">{portfolio['return_60d']:.2%}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Return 365D</div>
+                <div class="metric-value">{portfolio['return_365d']:.2%}</div>
+            </div>
 
-    <div class="metric-grid">
-        <div class="metric">
-            <div class="metric-label">Return 1D (Intraday)</div>
-            <div class="metric-value">-0.06%</div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Return 30D</div>
-            <div class="metric-value">+1.02%</div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Return 60D</div>
-            <div class="metric-value">+0.71%</div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Return 365D</div>
-            <div class="metric-value">+35.35%</div>
+            <div class="metric">
+                <div class="metric-label">Alpha 1D</div>
+                <div class="metric-value">{portfolio['alpha_1d']:.2%}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Alpha 30D</div>
+                <div class="metric-value">{portfolio['alpha_30d']:.2%}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Alpha 60D</div>
+                <div class="metric-value">{portfolio['alpha_60d']:.2%}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Alpha 365D</div>
+                <div class="metric-value">{portfolio['alpha_365d']:.2%}</div>
+            </div>
         </div>
 
-        <div class="metric">
-            <div class="metric-label">Alpha 1D</div>
-            <div class="metric-value">-0.01%</div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Alpha 30D</div>
-            <div class="metric-value">+0.23%</div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Alpha 60D</div>
-            <div class="metric-value">+1.33%</div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Alpha 365D</div>
-            <div class="metric-value">+26.49%</div>
+        <div class="footer-note">
+            ⚡ Computed from live snapshot | {snapshot_time}<br/>
+            ℹ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) shown at wave level
         </div>
     </div>
-
-    <div class="footer-note">
-        ⚡ Computed from live snapshot | {snapshot_time}<br/>
-        ℹ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) shown at wave level
-    </div>
-</div>
-"""
-
-st.markdown(portfolio_snapshot_html, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
 # -------------------------------------------------
-# LIVE RETURNS & ALPHA TABLE
+# LIVE RETURNS & ALPHA (ALL WAVES)
 # -------------------------------------------------
 st.subheader("📊 Live Returns & Alpha")
 
-data = [
-    ["AI & Cloud MegaCap Wave", "ai_cloud_megacap_wave", 0.00],
-    ["Clean Transit-Infrastructure Wave", "clean_transit_infrastructure_wave", 0.00],
-    ["Crypto AI Growth Wave", "crypto_ai_growth_wave", -0.0006],
-    ["Quantum Computing Wave", "quantum_computing_wave", 0.00],
+display_cols = [
+    "wave_id",
+    "display_name",
+    "Return_1D",
+    "Return_30D",
+    "Return_60D",
+    "Return_365D",
+    "Alpha_30D",
+    "Alpha_60D",
+    "Alpha_365D",
 ]
 
-df = pd.DataFrame(data, columns=["Wave", "Wave_ID", "Return_1D"])
-st.dataframe(df, use_container_width=True)
+existing_cols = [c for c in display_cols if c in snapshot_df.columns]
+st.dataframe(snapshot_df[existing_cols], use_container_width=True)
 
 # -------------------------------------------------
 # ALPHA BY HORIZON (ALL WAVES)
 # -------------------------------------------------
 st.subheader("📈 Alpha by Horizon")
 
-np.random.seed(42)
+alpha_chart_df = snapshot_df[
+    ["display_name", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
+].set_index("display_name")
 
-alpha_df = pd.DataFrame({
-    "Wave": df["Wave"],
-    "Alpha_30D": np.random.uniform(0.05, 0.40, len(df)),
-    "Alpha_60D": np.random.uniform(-0.10, 0.35, len(df)),
-    "Alpha_365D": np.random.uniform(0.30, 1.50, len(df)),
-})
-
-st.bar_chart(alpha_df.set_index("Wave"))
+st.bar_chart(alpha_chart_df)
 
 # -------------------------------------------------
 # SYSTEM STATUS
