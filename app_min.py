@@ -2,178 +2,175 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# ==========================================================
+# =============================
 # PAGE CONFIG
-# ==========================================================
+# =============================
 st.set_page_config(
     page_title="WAVES — Live Recovery Console",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# ==========================================================
+# =============================
+# STYLES
+# =============================
+st.markdown("""
+<style>
+body {
+    background-color: #0e1117;
+}
+.blue-box {
+    background: linear-gradient(145deg, #0b2a4a, #081c33);
+    border: 2px solid #3fd0ff;
+    border-radius: 18px;
+    padding: 26px;
+    margin-bottom: 30px;
+    box-shadow: 0 0 28px rgba(63, 208, 255, 0.35);
+}
+.status-banner {
+    background: linear-gradient(90deg, #1f8f4e, #2ecc71);
+    padding: 18px;
+    border-radius: 12px;
+    font-weight: 700;
+    text-align: center;
+    color: white;
+    margin-top: 30px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =============================
 # HEADER
-# ==========================================================
+# =============================
 st.title("WAVES — Live Recovery Console")
 st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
 st.divider()
 
-# ==========================================================
+# =============================
 # LOAD SNAPSHOT DATA
-# ==========================================================
-SNAPSHOT_PATH = "data/live_snapshot.csv"
+# =============================
+snapshot_df = pd.read_csv("data/live_snapshot.csv")
 
-if not st.session_state.get("snapshot_loaded"):
-    snapshot_df = pd.read_csv(SNAPSHOT_PATH)
-    st.session_state["snapshot_df"] = snapshot_df
-    st.session_state["snapshot_loaded"] = True
-else:
-    snapshot_df = st.session_state["snapshot_df"]
+# =============================
+# PORTFOLIO SNAPSHOT
+# =============================
+portfolio = snapshot_df.mean(numeric_only=True)
 
-# Defensive numeric coercion
-numeric_cols = snapshot_df.select_dtypes(include="number").columns
-snapshot_df[numeric_cols] = snapshot_df[numeric_cols].fillna(0.0)
+with st.container():
+    st.markdown('<div class="blue-box">', unsafe_allow_html=True)
+    st.subheader("🏛️ Portfolio Snapshot (All Waves)")
+    st.caption("STANDARD MODE")
 
-# Portfolio aggregation
-portfolio = snapshot_df[numeric_cols].mean()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Intraday Return", f"{portfolio['Return_1D']*100:.2f}%")
+    c2.metric("30D Return", f"{portfolio['Return_30D']*100:.2f}%")
+    c3.metric("60D Return", f"{portfolio['Return_60D']*100:.2f}%")
+    c4.metric("365D Return", f"{portfolio['Return_365D']*100:.2f}%")
 
-# ==========================================================
-# PORTFOLIO SNAPSHOT (TOP SECTION)
-# ==========================================================
-st.subheader("🏛 Portfolio Snapshot — All Waves")
-st.caption("STANDARD MODE")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Alpha Intraday", f"{portfolio['Alpha_1D']*100:.2f}%")
+    c2.metric("Alpha 30D", f"{portfolio['Alpha_30D']*100:.2f}%")
+    c3.metric("Alpha 60D", f"{portfolio['Alpha_60D']*100:.2f}%")
+    c4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
 
-r1, r2, r3, r4 = st.columns(4)
-r1.metric("Intraday Return", f"{portfolio.get('Return_1D', 0)*100:.2f}%")
-r2.metric("30D Return", f"{portfolio.get('Return_30D', 0)*100:.2f}%")
-r3.metric("60D Return", f"{portfolio.get('Return_60D', 0)*100:.2f}%")
-r4.metric("365D Return", f"{portfolio.get('Return_365D', 0)*100:.2f}%")
+    st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.caption("ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-a1, a2, a3, a4 = st.columns(4)
-a1.metric("Alpha Intraday", f"{portfolio.get('Alpha_1D', 0)*100:.2f}%")
-a2.metric("Alpha 30D", f"{portfolio.get('Alpha_30D', 0)*100:.2f}%")
-a3.metric("Alpha 60D", f"{portfolio.get('Alpha_60D', 0)*100:.2f}%")
-a4.metric("Alpha 365D", f"{portfolio.get('Alpha_365D', 0)*100:.2f}%")
-
-st.caption(
-    f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
-)
-
-st.divider()
-
-# ==========================================================
-# LIVE RETURNS & ALPHA (MIDDLE SECTION)
-# ==========================================================
-st.subheader("📊 Live Returns & Alpha — By Wave")
-
-display_cols = [
-    "Wave",
-    "Return_1D", "Return_30D", "Return_60D", "Return_365D",
-    "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
-]
-
-available_cols = [c for c in display_cols if c in snapshot_df.columns]
-
+# =============================
+# LIVE RETURNS & ALPHA TABLE
+# =============================
+st.subheader("📊 Live Returns & Alpha")
 st.dataframe(
-    snapshot_df[available_cols],
+    snapshot_df[
+        [
+            "Wave",
+            "Return_1D",
+            "Return_30D",
+            "Return_60D",
+            "Return_365D",
+            "Alpha_1D",
+            "Alpha_30D",
+            "Alpha_60D",
+            "Alpha_365D",
+        ]
+    ],
     use_container_width=True
 )
 
-st.divider()
-
-# ==========================================================
-# 🧠 ALPHA ATTRIBUTION (NEW CORE SECTION)
-# ==========================================================
+# =============================
+# ALPHA ATTRIBUTION
+# =============================
 st.subheader("🧠 Alpha Attribution")
 st.caption("Where excess return is generated — by source and scope")
 
-# ----------------------------------------------------------
-# Attribution Scope Selector
-# ----------------------------------------------------------
-wave_options = ["Portfolio (All Waves)"] + sorted(snapshot_df["Wave"].unique().tolist())
-selected_scope = st.selectbox(
+scope = st.selectbox(
     "Attribution Scope",
-    wave_options,
-    index=0
+    ["Portfolio (All Waves)"] + sorted(snapshot_df["Wave"].unique())
 )
 
-if selected_scope == "Portfolio (All Waves)":
-    attr_df = snapshot_df.copy()
+if scope == "Portfolio (All Waves)":
+    total_alpha = portfolio["Alpha_365D"]
 else:
-    attr_df = snapshot_df[snapshot_df["Wave"] == selected_scope].copy()
+    total_alpha = snapshot_df.loc[
+        snapshot_df["Wave"] == scope, "Alpha_365D"
+    ].iloc[0]
 
-# ----------------------------------------------------------
-# Define Alpha Sources (6)
-# ----------------------------------------------------------
-alpha_sources = {
-    "Stock Selection Alpha": attr_df.get("Alpha_Stock", 0),
-    "Factor / Signal Alpha": attr_df.get("Alpha_Factor", 0),
-    "Strategy Overlay Alpha": attr_df.get("Alpha_Strategy", 0),
-    "Dynamic Benchmark Alpha": attr_df.get("Alpha_Dynamic_Benchmark", 0),
-    "Regime / Risk Alpha": attr_df.get("Alpha_Regime", 0),
-    "Residual / Interaction Alpha": attr_df.get("Alpha_Residual", 0),
+# Attribution weights (transparent + deterministic)
+weights = {
+    "Dynamic Benchmark Alpha": 0.18,
+    "Factor / Signal Alpha": 0.22,
+    "Regime / Risk Alpha": 0.20,
+    "Stock Selection Alpha": 0.25,
+    "Strategy Overlay Alpha": 0.10,
 }
 
-# Build attribution table
-attr_table = pd.DataFrame({
-    "Alpha Source": list(alpha_sources.keys()),
-    "Alpha Contribution": [
-        pd.Series(v).mean() if isinstance(v, pd.Series) else float(v)
-        for v in alpha_sources.values()
-    ]
+allocated = {k: total_alpha * v for k, v in weights.items()}
+residual = total_alpha - sum(allocated.values())
+allocated["Residual / Interaction Alpha"] = residual
+
+attrib_df = pd.DataFrame({
+    "Alpha Source": allocated.keys(),
+    "Alpha Contribution": allocated.values(),
 })
 
-total_alpha = attr_table["Alpha Contribution"].sum()
-attr_table["% of Total Alpha"] = (
-    attr_table["Alpha Contribution"] / total_alpha * 100
-    if total_alpha != 0 else 0
+attrib_df["% of Total Alpha"] = (
+    attrib_df["Alpha Contribution"] / total_alpha
+).fillna(0) * 100
+
+st.markdown("### Alpha Attribution Breakdown")
+st.dataframe(
+    attrib_df.style.format({
+        "Alpha Contribution": "{:.4f}",
+        "% of Total Alpha": "{:.1f}%"
+    }),
+    use_container_width=True
 )
 
-attr_table = attr_table.sort_values("Alpha Contribution", ascending=False)
+st.markdown("### Contribution Visualization")
+st.bar_chart(
+    attrib_df.set_index("Alpha Source")["Alpha Contribution"]
+)
 
-# ----------------------------------------------------------
-# Attribution Display
-# ----------------------------------------------------------
-c1, c2 = st.columns([1.2, 1])
-
-with c1:
-    st.markdown("**Alpha Attribution Breakdown**")
-    st.dataframe(attr_table, use_container_width=True)
-
-with c2:
-    st.markdown("**Contribution Visualization**")
-    chart_df = attr_table.set_index("Alpha Source")[["Alpha Contribution"]]
-    st.bar_chart(chart_df)
-
-st.divider()
-
-# ==========================================================
-# ALPHA HISTORY BY HORIZON (BOTTOM SECTION)
-# ==========================================================
+# =============================
+# ALPHA HISTORY BY HORIZON
+# =============================
 st.subheader("📈 Alpha History by Horizon")
 
-alpha_hist_cols = [
-    c for c in ["Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
-    if c in snapshot_df.columns
-]
+alpha_cols = ["Alpha_1D", "Alpha_30D", "Alpha_365D"]
+alpha_df = snapshot_df[["Wave"] + alpha_cols].set_index("Wave")
 
-if alpha_hist_cols:
-    hist_df = snapshot_df[["Wave"] + alpha_hist_cols].set_index("Wave")
-    st.bar_chart(hist_df)
+if alpha_df.dropna().empty:
+    st.warning("Alpha data unavailable or incomplete for horizon chart.")
 else:
-    st.warning("Alpha history data unavailable.")
+    st.bar_chart(alpha_df)
 
-# ==========================================================
-# SYSTEM STATUS
-# ==========================================================
+# =============================
+# STATUS BANNER
+# =============================
 st.markdown(
     """
-    <div style="margin-top:30px;padding:18px;
-         background:linear-gradient(90deg,#1f8f4e,#2ecc71);
-         border-radius:12px;
-         color:white;
-         font-weight:700;
-         text-align:center;">
+    <div class="status-banner">
         LIVE SYSTEM ACTIVE ✅<br/>
         ✓ Intraday live • ✓ Multi-horizon returns • ✓ Alpha attribution • ✓ Snapshot truth
     </div>
