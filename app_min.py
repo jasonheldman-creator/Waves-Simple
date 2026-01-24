@@ -1,13 +1,12 @@
 # ==========================================================
-# app_min.py — WAVES Recovery → Live Snapshot Rehydration
+# app_min.py — WAVES Recovery → Live Snapshot + Attribution
 # ==========================================================
-# This file:
-# • Boots Streamlit safely
-# • Loads data/live_snapshot.csv
-# • Builds a minimal truth_df object
-# • Initializes waves via waves.initialize_waves
-# • Probes attribution engine (alpha / beta)
-# • Leaves full app.py untouched
+# SAFE recovery kernel with:
+# • Streamlit boot
+# • live_snapshot.csv loading
+# • truth_df hydration
+# • wave initialization
+# • Return / Alpha visualization (restored)
 # ==========================================================
 
 import streamlit as st
@@ -18,20 +17,7 @@ import pandas as pd
 from types import SimpleNamespace
 
 # ----------------------------------------------------------
-# SAFE IMPORT PROBE — ATTRIBUTION ENGINE
-# ----------------------------------------------------------
-
-try:
-    import attribution_engine
-    st.success("✅ attribution_engine imported successfully")
-    if hasattr(attribution_engine, "_import_check"):
-        st.caption(attribution_engine._import_check())
-except Exception as e:
-    st.warning("⚠️ attribution_engine not active yet (safe to ignore)")
-    st.exception(e)
-
-# ----------------------------------------------------------
-# BOOT CONFIRMATION (UNCONDITIONAL)
+# BOOT CONFIRMATION
 # ----------------------------------------------------------
 
 st.error("APP_MIN EXECUTION STARTED")
@@ -43,7 +29,7 @@ st.write("🟢 app_min.py reached line 1")
 # ----------------------------------------------------------
 
 def main():
-    st.title("WAVES — Recovery Mode (Live Snapshot)")
+    st.title("WAVES — Recovery Mode")
     st.success("Recovery kernel running")
 
     # ------------------------------------------------------
@@ -55,16 +41,14 @@ def main():
 
     try:
         st.write("Python:", sys.version)
-        st.write("Executable:", sys.executable)
         st.write("Working directory:", os.getcwd())
-        st.write("Files in root:", sorted(os.listdir(".")))
         st.success("Environment visible")
     except Exception as e:
         st.error("Environment inspection failed")
         st.exception(e)
 
     # ------------------------------------------------------
-    # WAVES MODULE IMPORT (HARD GATE)
+    # WAVES MODULE IMPORT
     # ------------------------------------------------------
 
     st.divider()
@@ -72,12 +56,11 @@ def main():
 
     try:
         import waves
-        st.success("✅ waves imported successfully")
+        st.success("waves imported successfully")
         st.code(waves.__file__)
     except Exception as e:
-        st.error("❌ waves import failed — hard stop")
+        st.error("waves import failed — hard stop")
         st.exception(e)
-        st.code(traceback.format_exc())
         return
 
     # ------------------------------------------------------
@@ -95,57 +78,39 @@ def main():
 
     try:
         snapshot_df = pd.read_csv(SNAPSHOT_PATH)
-        st.success("✅ live_snapshot.csv loaded")
+        st.success("live_snapshot.csv loaded")
         st.write("Rows:", len(snapshot_df))
         st.write("Columns:", list(snapshot_df.columns))
     except Exception as e:
-        st.error("❌ Failed to read snapshot CSV")
+        st.error("Failed to read snapshot CSV")
         st.exception(e)
         return
 
     # ------------------------------------------------------
-    # BUILD truth_df (MINIMAL, SAFE)
+    # BUILD truth_df (SAFE)
     # ------------------------------------------------------
 
     st.divider()
     st.write("🧠 Building truth_df")
 
-    try:
-        truth_df = SimpleNamespace()
-        truth_df.snapshot = snapshot_df
-        truth_df.waves = {}
-        st.success("truth_df object created")
-    except Exception as e:
-        st.error("truth_df construction failed")
-        st.exception(e)
-        return
+    truth_df = SimpleNamespace()
+    truth_df.snapshot = snapshot_df
+    truth_df.waves = {}
 
     # ------------------------------------------------------
-    # EXTRACT UNIQUE WAVE IDS
+    # EXTRACT WAVE IDS
     # ------------------------------------------------------
-
-    st.divider()
-    st.write("🧬 Extracting wave IDs")
 
     if "Wave_ID" not in snapshot_df.columns:
-        st.error("❌ Wave_ID column missing from snapshot")
+        st.error("Wave_ID column missing from snapshot")
         return
 
-    unique_wave_ids = (
-        snapshot_df["Wave_ID"]
-        .dropna()
-        .astype(str)
-        .unique()
-        .tolist()
-    )
+    unique_wave_ids = sorted(snapshot_df["Wave_ID"].dropna().unique().tolist())
 
-    unique_wave_ids = sorted(unique_wave_ids)
-
-    st.write("Number of waves:", len(unique_wave_ids))
-    st.write("Wave IDs (sample):", unique_wave_ids[:10])
+    st.write("Total waves:", len(unique_wave_ids))
 
     # ------------------------------------------------------
-    # INITIALIZE WAVES (SAFE, GATED)
+    # INITIALIZE WAVES
     # ------------------------------------------------------
 
     st.divider()
@@ -156,22 +121,43 @@ def main():
             _truth_df=truth_df,
             _unique_wave_ids=unique_wave_ids
         )
-        st.success("✅ WAVES initialized successfully")
+        st.success("WAVES initialized successfully")
     except Exception as e:
-        st.error("❌ WAVES initialization failed")
+        st.error("WAVES initialization failed")
         st.exception(e)
-        st.code(traceback.format_exc())
         return
 
     # ------------------------------------------------------
-    # VERIFICATION
+    # RETURN / ALPHA AGGREGATION (RESTORED)
     # ------------------------------------------------------
 
     st.divider()
-    st.write("🔎 Verification")
+    st.subheader("📊 Returns & Alpha Overview")
 
-    st.write("Initialized wave keys (sample):", list(truth_df.waves.keys())[:10])
-    st.write("Total initialized waves:", len(truth_df.waves))
+    required_cols = {"Wave_ID", "Return", "Alpha"}
+
+    if not required_cols.issubset(snapshot_df.columns):
+        st.warning(
+            "Snapshot does not contain required Return / Alpha columns yet.\n\n"
+            f"Found columns: {list(snapshot_df.columns)}"
+        )
+    else:
+        agg_df = (
+            snapshot_df
+            .groupby("Wave_ID")[["Return", "Alpha"]]
+            .mean()
+            .reset_index()
+            .sort_values("Alpha", ascending=False)
+        )
+
+        st.dataframe(agg_df, use_container_width=True)
+
+        st.divider()
+        st.write("📈 Alpha by Wave")
+
+        st.bar_chart(
+            data=agg_df.set_index("Wave_ID")["Alpha"]
+        )
 
     # ------------------------------------------------------
     # SUCCESS STATE
@@ -179,13 +165,11 @@ def main():
 
     st.divider()
     st.success(
-        "Recovery SUCCESSFUL\n\n"
-        "✔ live_snapshot loaded\n"
-        "✔ truth_df hydrated\n"
-        "✔ waves initialized\n"
-        "✔ attribution engine reachable\n"
-        "✔ system execution restored\n\n"
-        "Next step: detailed alpha / beta attribution rendering"
+        "System stabilized ✔️\n\n"
+        "✔ Snapshot loaded\n"
+        "✔ Waves initialized\n"
+        "✔ Returns & Alpha rendered\n\n"
+        "Ready for detailed attribution breakdown."
     )
 
     with st.expander("Preview snapshot (first 10 rows)"):
