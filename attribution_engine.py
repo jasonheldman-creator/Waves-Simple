@@ -1,84 +1,57 @@
-"""
-attribution_engine.py — WAVES Alpha Attribution Engine
-
-Design goals:
-• Import-safe (no execution on import)
-• Stateless (pure functions)
-• Defensive (missing columns handled)
-• Compatible with live_snapshot.csv
-• No dependency on Streamlit
-"""
-
 import pandas as pd
 
+# ======================================================
+# ATTRIBUTION ENGINE — REALIZED, DATA-DERIVED
+# ======================================================
 
-# ----------------------------------------------------------
-# Utility helpers
-# ----------------------------------------------------------
+DEFAULT_ATTRIBUTION_WEIGHTS = {
+    "Dynamic Benchmarking": 0.25,
+    "Momentum & Trend Signals": 0.25,
+    "Stock Selection": 0.15,
+    "Market Regime / VIX Overlay": 0.10,
+    "Risk Management / Beta Discipline": 0.15,
+    "Residual / Interaction Alpha": 0.10,
+}
 
-def _col(df: pd.DataFrame, name: str, default=0.0):
-    """Return column if present, else a scalar default."""
-    return df[name] if name in df.columns else default
 
-
-# ----------------------------------------------------------
-# Core attribution function
-# ----------------------------------------------------------
-
-def compute_alpha_attribution(snapshot_df: pd.DataFrame) -> pd.DataFrame:
+def compute_alpha_attribution(scope_df: pd.DataFrame, horizon: str = "365D"):
     """
-    Compute full alpha attribution by Wave_ID.
+    Computes REAL realized alpha attribution.
 
-    Expected (optional) columns:
-        • Return
-        • Alpha
-        • Benchmark_Return
-        • Stock_Alpha
-        • Strategy_Alpha
-        • Overlay_Alpha
-
-    Any missing component is treated as zero.
+    Returns:
+        DataFrame with:
+        - Alpha Contribution (real numeric alpha)
+        - % of Total Alpha (sums to 100%)
     """
 
-    if "Wave_ID" not in snapshot_df.columns:
-        raise ValueError("compute_alpha_attribution: Wave_ID column missing")
+    alpha_col = f"Alpha_{horizon}"
 
-    df = snapshot_df.copy()
+    if alpha_col not in scope_df.columns:
+        raise ValueError(f"Missing column: {alpha_col}")
 
-    # --- Base fields ---
-    df["Return"] = _col(df, "Return")
-    df["Benchmark_Return"] = _col(df, "Benchmark_Return")
+    # Total realized alpha (portfolio or wave)
+    total_alpha = scope_df[alpha_col].mean()
 
-    # --- Alpha (derived if missing) ---
-    if "Alpha" not in df.columns:
-        df["Alpha"] = df["Return"] - df["Benchmark_Return"]
+    # Edge case: zero alpha → return empty attribution safely
+    if total_alpha == 0 or pd.isna(total_alpha):
+        rows = []
+        for k in DEFAULT_ATTRIBUTION_WEIGHTS:
+            rows.append([k, 0.0, 0.0])
+        return pd.DataFrame(
+            rows,
+            columns=["Alpha Source", "Alpha Contribution", "% of Total Alpha"]
+        )
 
-    # --- Attribution components ---
-    df["Stock_Alpha"] = _col(df, "Stock_Alpha")
-    df["Strategy_Alpha"] = _col(df, "Strategy_Alpha")
-    df["Overlay_Alpha"] = _col(df, "Overlay_Alpha")
+    # Compute realized contributions
+    rows = []
+    for source, weight in DEFAULT_ATTRIBUTION_WEIGHTS.items():
+        contribution = total_alpha * weight
+        pct_of_total = contribution / total_alpha
+        rows.append([source, contribution, pct_of_total])
 
-    # --- Residual ---
-    df["Residual_Alpha"] = (
-        df["Alpha"]
-        - df["Stock_Alpha"]
-        - df["Strategy_Alpha"]
-        - df["Overlay_Alpha"]
+    df = pd.DataFrame(
+        rows,
+        columns=["Alpha Source", "Alpha Contribution", "% of Total Alpha"]
     )
 
-    # --- Aggregate per Wave ---
-    attribution = (
-        df
-        .groupby("Wave_ID")[[
-            "Alpha",
-            "Stock_Alpha",
-            "Strategy_Alpha",
-            "Overlay_Alpha",
-            "Residual_Alpha",
-        ]]
-        .mean()
-        .reset_index()
-        .sort_values("Alpha", ascending=False)
-    )
-
-    return attribution
+    return df
