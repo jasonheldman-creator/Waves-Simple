@@ -1,162 +1,167 @@
-# app_min.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# -------------------------------------------------
-# Page Config
-# -------------------------------------------------
+# =============================
+# PAGE CONFIG
+# =============================
 st.set_page_config(
     page_title="WAVES — Live Recovery Console",
     layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# -------------------------------------------------
-# Global Styles
-# -------------------------------------------------
-st.markdown(
-    """
-    <style>
-    body {
-        background-color: #0b0f1a;
-        color: white;
-    }
+# =============================
+# STYLES
+# =============================
+st.markdown("""
+<style>
+body {
+    background-color: #0e1117;
+}
+.snapshot-box {
+    border: 2px solid #3fd0ff;
+    border-radius: 18px;
+    padding: 28px;
+    background: linear-gradient(145deg, #0b2a4a, #081c33);
+    box-shadow: 0 0 25px rgba(63, 208, 255, 0.35);
+    margin-bottom: 30px;
+}
+.snapshot-title {
+    font-size: 34px;
+    font-weight: 800;
+    color: white;
+}
+.snapshot-sub {
+    font-size: 16px;
+    opacity: 0.75;
+    margin-bottom: 25px;
+}
+.metric-label {
+    font-size: 14px;
+    opacity: 0.7;
+}
+.metric-value {
+    font-size: 30px;
+    font-weight: 800;
+}
+.footer-note {
+    margin-top: 20px;
+    font-size: 13px;
+    opacity: 0.7;
+}
+.status-banner {
+    background: linear-gradient(90deg, #1f8f4e, #2ecc71);
+    padding: 18px;
+    border-radius: 12px;
+    font-weight: 700;
+    text-align: center;
+    color: white;
+    margin-top: 30px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-    .blue-box {
-        background: linear-gradient(135deg, #0b2a4a, #0a1f38);
-        border: 2px solid #3cc9ff;
-        border-radius: 20px;
-        padding: 28px;
-        box-shadow: 0 0 28px rgba(60,201,255,0.35);
-        margin-bottom: 30px;
-    }
-
-    .section-label {
-        opacity: 0.75;
-        margin-bottom: 16px;
-        font-size: 14px;
-    }
-
-    .status-banner {
-        background: linear-gradient(90deg, #0f5132, #198754);
-        padding: 14px;
-        border-radius: 10px;
-        text-align: center;
-        font-weight: 700;
-        margin-top: 30px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# -------------------------------------------------
-# Header
-# -------------------------------------------------
+# =============================
+# HEADER
+# =============================
 st.title("WAVES — Live Recovery Console")
 st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
 st.divider()
 
-# -------------------------------------------------
-# Load Live Snapshot
-# -------------------------------------------------
-SNAPSHOT_PATH = "data/live_snapshot.csv"
+# =============================
+# LOAD SNAPSHOT DATA
+# =============================
+snapshot_df = pd.read_csv("data/live_snapshot.csv")
 
-try:
-    snapshot_df = pd.read_csv(SNAPSHOT_PATH)
-except Exception:
-    snapshot_df = pd.DataFrame()
+portfolio = snapshot_df.mean(numeric_only=True)
 
-def safe_mean(col):
-    return snapshot_df[col].mean() if col in snapshot_df.columns else 0.0
+# =============================
+# PORTFOLIO SNAPSHOT (BLUE BOX)
+# =============================
+with st.container():
+    st.markdown('<div class="snapshot-box">', unsafe_allow_html=True)
 
-# -------------------------------------------------
-# Portfolio Snapshot (VISUALS ONLY)
-# -------------------------------------------------
-snapshot_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    st.markdown(
+        '<div class="snapshot-title">🏛️ Portfolio Snapshot (All Waves)</div>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<div class="snapshot-sub">STANDARD MODE</div>',
+        unsafe_allow_html=True
+    )
 
-st.markdown(
-    """
-    <div class="blue-box">
-        <h2>🏛 Portfolio Snapshot (All Waves)</h2>
-        <div class="section-label">STANDARD MODE</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+    # --- RETURNS ROW ---
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Intraday Return", f"{portfolio['Return_1D']*100:.2f}%")
+    r2.metric("30D Return", f"{portfolio['Return_30D']*100:.2f}%")
+    r3.metric("60D Return", f"{portfolio['Return_60D']*100:.2f}%")
+    r4.metric("365D Return", f"{portfolio['Return_365D']*100:.2f}%")
 
-# Streamlit-native metrics (cannot render as code)
-c1, c2, c3, c4 = st.columns(4)
+    st.markdown("---")
 
-c1.metric("Intraday Return", f"{safe_mean('Return_1D')*100:.2f}%")
-c2.metric("30D Return", f"{safe_mean('Return_30D')*100:.2f}%")
-c3.metric("60D Return", f"{safe_mean('Return_60D')*100:.2f}%")
-c4.metric("365D Return", f"{safe_mean('Return_365D')*100:.2f}%")
+    # --- ALPHA ROW ---
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("Alpha Intraday", f"{portfolio['Alpha_1D']*100:.2f}%")
+    a2.metric("Alpha 30D", f"{portfolio['Alpha_30D']*100:.2f}%")
+    a3.metric("Alpha 60D", f"{portfolio['Alpha_60D']*100:.2f}%")
+    a4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
 
-c5, c6, c7, c8 = st.columns(4)
+    st.markdown(
+        f"""
+        <div class="footer-note">
+        ⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC<br/>
+        ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-c5.metric("Alpha Intraday", f"{safe_mean('Alpha_1D')*100:.2f}%")
-c6.metric("Alpha 30D", f"{safe_mean('Alpha_30D')*100:.2f}%")
-c7.metric("Alpha 60D", f"{safe_mean('Alpha_60D')*100:.2f}%")
-c8.metric("Alpha 365D", f"{safe_mean('Alpha_365D')*100:.2f}%")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption(
-    f"⚡ Computed from live snapshot | {snapshot_time}  \n"
-    "ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below"
-)
-
-st.divider()
-
-# -------------------------------------------------
-# Live Returns & Alpha Table
-# -------------------------------------------------
+# =============================
+# LIVE RETURNS & ALPHA TABLE
+# =============================
 st.subheader("📊 Live Returns & Alpha")
+st.dataframe(
+    snapshot_df[
+        [
+            "Wave",
+            "Return_1D",
+            "Return_30D",
+            "Return_60D",
+            "Return_365D",
+            "Alpha_1D",
+            "Alpha_30D",
+            "Alpha_60D",
+            "Alpha_365D",
+        ]
+    ],
+    use_container_width=True
+)
 
-table_cols = [
-    "Wave",
-    "Return_1D",
-    "Return_30D",
-    "Return_60D",
-    "Return_365D",
-    "Alpha_1D",
-    "Alpha_30D",
-    "Alpha_60D",
-    "Alpha_365D",
-]
-
-available_cols = [c for c in table_cols if c in snapshot_df.columns]
-
-if available_cols:
-    st.dataframe(snapshot_df[available_cols], use_container_width=True)
-else:
-    st.info("Live returns table unavailable.")
-
-# -------------------------------------------------
-# Alpha History by Horizon
-# -------------------------------------------------
+# =============================
+# ALPHA HISTORY BY HORIZON
+# =============================
 st.subheader("📈 Alpha History by Horizon")
 
-alpha_cols = ["Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
-alpha_cols = [c for c in alpha_cols if c in snapshot_df.columns]
+alpha_cols = ["Alpha_1D", "Alpha_30D", "Alpha_365D"]
+alpha_df = snapshot_df[["Wave"] + alpha_cols].set_index("Wave")
 
-if alpha_cols:
-    alpha_df = snapshot_df[["Wave"] + alpha_cols].set_index("Wave")
-    st.bar_chart(alpha_df)
-else:
+if alpha_df.dropna().empty:
     st.warning("Alpha data unavailable or incomplete for horizon chart.")
+else:
+    st.bar_chart(alpha_df)
 
-# -------------------------------------------------
-# System Status
-# -------------------------------------------------
+# =============================
+# STATUS BANNER
+# =============================
 st.markdown(
     """
     <div class="status-banner">
-        LIVE SYSTEM ACTIVE ✅
+        LIVE SYSTEM ACTIVE ✅<br/>
+        ✓ Intraday live • ✓ Multi-horizon returns • ✓ Alpha attribution • ✓ Snapshot truth
     </div>
     """,
-    unsafe_allow_html=True,
-)
-
-st.caption(
-    "✓ Intraday live • ✓ Multi-horizon returns • ✓ Alpha attribution • ✓ Snapshot truth"
+    unsafe_allow_html=True
 )
