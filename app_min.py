@@ -1,27 +1,12 @@
 # ==========================================================
-# app_min.py — WAVES Live Recovery Console (RESTORED)
+# app_min.py — WAVES Live Recovery Console (Canonical)
 # ==========================================================
-# Combines:
-# • Correct blue snapshot box (HTML fixed)
-# • Full Live Returns table
-# • Alpha by Horizon chart
-# • Snapshot-driven, read-only safety
+# Snapshot-driven, read-only, zero legacy dependency
 # ==========================================================
 
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
-
-# ----------------------------------------------------------
-# STREAMLIT CONFIG
-# ----------------------------------------------------------
-
-st.set_page_config(
-    page_title="WAVES — Live Recovery Console",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 # ----------------------------------------------------------
 # BOOT CONFIRMATION
@@ -30,12 +15,10 @@ st.set_page_config(
 st.success("STREAMLIT EXECUTION STARTED")
 st.write("app_min.py reached line 1")
 
-# ----------------------------------------------------------
-# TITLE
-# ----------------------------------------------------------
-
-st.title("WAVES — Live Recovery Console")
-st.caption("Intraday · 30D · 60D · 365D — Snapshot Driven")
+st.set_page_config(
+    page_title="WAVES — Live Recovery Console",
+    layout="wide",
+)
 
 # ----------------------------------------------------------
 # LOAD SNAPSHOT
@@ -44,80 +27,88 @@ st.caption("Intraday · 30D · 60D · 365D — Snapshot Driven")
 SNAPSHOT_PATH = "data/live_snapshot.csv"
 
 if not os.path.exists(SNAPSHOT_PATH):
-    st.error("❌ live_snapshot.csv not found")
+    st.error("live_snapshot.csv not found")
     st.stop()
 
 df = pd.read_csv(SNAPSHOT_PATH)
 
 st.success("Live snapshot loaded")
-st.write(f"Rows: {len(df)}")
+st.caption(f"Rows: {len(df)}")
 
 # ----------------------------------------------------------
 # SAFE HELPERS
 # ----------------------------------------------------------
 
-def safe_mean(col):
-    return float(df[col].dropna().mean()) if col in df.columns else 0.0
+def col(name, default=0.0):
+    return df[name] if name in df.columns else default
 
-def safe_mode(col):
-    return df[col].mode().iloc[0] if col in df and not df[col].dropna().empty else "unknown"
+def pct(x):
+    try:
+        return f"{x * 100:.3f}%"
+    except Exception:
+        return "—"
 
 # ----------------------------------------------------------
 # PORTFOLIO AGGREGATES
 # ----------------------------------------------------------
 
 portfolio = {
-    "return_1d": safe_mean("Return_1D"),
-    "alpha_1d": safe_mean("Alpha_1D"),
-    "alpha_30d": safe_mean("Alpha_30D"),
-    "alpha_60d": safe_mean("Alpha_60D"),
-    "alpha_365d": safe_mean("Alpha_365D"),
-    "exposure": safe_mean("Exposure"),
-    "cash": safe_mean("CashPercent"),
-    "vix": safe_mean("VIX_Level"),
-    "regime": safe_mode("VIX_Regime")
+    "return_1d": col("Return_1D").mean(),
+    "alpha_1d": col("Alpha_1D").mean(),
+    "alpha_30d": col("Alpha_30D").mean(),
+    "alpha_60d": col("Alpha_60D").mean(),
+    "alpha_365d": col("Alpha_365D").mean(),
+    "exposure": col("Exposure").mean(),
+    "cash": col("CashPercent").mean(),
+    "vix": col("VIX_Level").mean(),
+    "regime": col("VIX_Regime").mode().iloc[0] if "VIX_Regime" in df else "—",
 }
 
 # ----------------------------------------------------------
-# BLUE SNAPSHOT BOX (FIXED)
+# BLUE PORTFOLIO SNAPSHOT BOX (SINGLE BLOCK)
 # ----------------------------------------------------------
 
 snapshot_html = f"""
 <div style="
-    background: linear-gradient(135deg, #0b2a4a, #0e3a63);
-    padding: 28px;
-    border-radius: 16px;
-    color: #eaf4ff;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    margin-bottom: 32px;
+    background: linear-gradient(135deg, #0b3c5d, #0a2540);
+    border-radius: 18px;
+    padding: 26px;
+    margin-bottom: 30px;
+    color: #e8f1ff;
+    box-shadow: 0 0 30px rgba(0,0,0,0.4);
 ">
-  <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 22px;">
+  <div style="
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      text-align: center;
+  ">
 
     <div>
       <strong>SYSTEM</strong><br/>
       LIVE<br/>
-      As of {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+      Waves: {df["Wave_ID"].nunique()}
     </div>
 
     <div>
       <strong>PORTFOLIO</strong><br/>
-      Return: {portfolio["return_1d"]:.3%}<br/>
-      Alpha: {portfolio["alpha_1d"]:.3%}
+      Return {pct(portfolio["return_1d"])}<br/>
+      Alpha {pct(portfolio["alpha_1d"])}
     </div>
 
     <div>
       <strong>ALPHA</strong><br/>
-      30D: {portfolio["alpha_30d"]:.3%}<br/>
-      60D: {portfolio["alpha_60d"]:.3%}<br/>
-      365D: {portfolio["alpha_365d"]:.3%}
+      30D {pct(portfolio["alpha_30d"])}<br/>
+      60D {pct(portfolio["alpha_60d"])}<br/>
+      365D {pct(portfolio["alpha_365d"])}
     </div>
 
     <div>
       <strong>RISK</strong><br/>
-      Exposure: {portfolio["exposure"]:.1f}%<br/>
-      Cash: {portfolio["cash"]:.1f}%<br/>
-      VIX: {portfolio["vix"]:.1f}<br/>
-      Regime: {portfolio["regime"]}
+      Exposure {pct(portfolio["exposure"])}<br/>
+      Cash {pct(portfolio["cash"])}<br/>
+      VIX {portfolio["vix"]:.1f}<br/>
+      Regime {portfolio["regime"]}
     </div>
 
   </div>
@@ -127,12 +118,12 @@ snapshot_html = f"""
 st.markdown(snapshot_html, unsafe_allow_html=True)
 
 # ----------------------------------------------------------
-# LIVE RETURNS & ALPHA TABLE (RESTORED)
+# LIVE RETURNS & ALPHA TABLE
 # ----------------------------------------------------------
 
 st.subheader("📊 Live Returns & Alpha")
 
-table_cols = [
+returns_cols = [
     "Wave_ID",
     "Return_1D",
     "Return_30D",
@@ -141,32 +132,29 @@ table_cols = [
     "Alpha_1D",
     "Alpha_30D",
     "Alpha_60D",
-    "Alpha_365D"
+    "Alpha_365D",
 ]
 
-existing = [c for c in table_cols if c in df.columns]
+existing_cols = [c for c in returns_cols if c in df.columns]
 
-returns_df = (
-    df[existing]
-    .sort_values("Alpha_365D", ascending=False)
-    .reset_index(drop=True)
-)
+returns_df = df[existing_cols].copy()
+returns_df = returns_df.sort_values("Alpha_365D", ascending=False)
 
 st.dataframe(returns_df, use_container_width=True)
 
 # ----------------------------------------------------------
-# ALPHA BY HORIZON (RESTORED CHART)
+# ALPHA BY HORIZON CHART
 # ----------------------------------------------------------
 
 st.subheader("📈 Alpha by Horizon")
 
-alpha_chart_df = (
+alpha_chart = (
     df.groupby("Wave_ID")[["Alpha_30D", "Alpha_60D", "Alpha_365D"]]
     .mean()
     .sort_values("Alpha_365D", ascending=False)
 )
 
-st.bar_chart(alpha_chart_df)
+st.bar_chart(alpha_chart)
 
 # ----------------------------------------------------------
 # SYSTEM STATUS
@@ -174,11 +162,10 @@ st.bar_chart(alpha_chart_df)
 
 st.success(
     "LIVE SYSTEM ACTIVE ✅\n\n"
-    "✓ Intraday returns populated\n"
-    "✓ Multi-horizon alpha live\n"
-    "✓ Snapshot-driven truth\n"
-    "✓ Blue snapshot box fixed\n"
-    "✓ No legacy wave init dependency\n\n"
+    "✔ Intraday returns populated\n"
+    "✔ Multi-horizon alpha live\n"
+    "✔ Snapshot-driven truth\n"
+    "✔ Zero dependency on legacy wave init\n\n"
     "Forward build unblocked."
 )
 
