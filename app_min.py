@@ -16,6 +16,17 @@ import traceback
 import pandas as pd
 from types import SimpleNamespace
 
+# -----------------------------------------
+# SAFE IMPORT PROBE — ATTRIBUTION ENGINE
+# -----------------------------------------
+
+try:
+    import attribution_engine
+    st.success("✅ attribution_engine imported successfully")
+except Exception as e:
+    st.error("❌ attribution_engine import failed")
+    st.exception(e)
+
 # ----------------------------------------------------------
 # BOOT CONFIRMATION (unconditional)
 # ----------------------------------------------------------
