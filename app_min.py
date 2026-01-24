@@ -6,7 +6,8 @@
 # • live_snapshot.csv loading
 # • truth_df hydration
 # • wave initialization
-# • Return / Alpha visualization (restored)
+# • Returns diagram
+# • FULL alpha attribution (defensive)
 # ==========================================================
 
 import streamlit as st
@@ -87,11 +88,8 @@ def main():
         return
 
     # ------------------------------------------------------
-    # BUILD truth_df (SAFE)
+    # BUILD truth_df
     # ------------------------------------------------------
-
-    st.divider()
-    st.write("🧠 Building truth_df")
 
     truth_df = SimpleNamespace()
     truth_df.snapshot = snapshot_df
@@ -106,8 +104,6 @@ def main():
         return
 
     unique_wave_ids = sorted(snapshot_df["Wave_ID"].dropna().unique().tolist())
-
-    st.write("Total waves:", len(unique_wave_ids))
 
     # ------------------------------------------------------
     # INITIALIZE WAVES
@@ -128,19 +124,16 @@ def main():
         return
 
     # ------------------------------------------------------
-    # RETURN / ALPHA AGGREGATION (RESTORED)
+    # RETURNS & ALPHA OVERVIEW (EXISTING)
     # ------------------------------------------------------
 
     st.divider()
     st.subheader("📊 Returns & Alpha Overview")
 
-    required_cols = {"Wave_ID", "Return", "Alpha"}
+    base_cols = {"Wave_ID", "Return", "Alpha"}
 
-    if not required_cols.issubset(snapshot_df.columns):
-        st.warning(
-            "Snapshot does not contain required Return / Alpha columns yet.\n\n"
-            f"Found columns: {list(snapshot_df.columns)}"
-        )
+    if not base_cols.issubset(snapshot_df.columns):
+        st.warning("Return / Alpha columns not fully present yet.")
     else:
         agg_df = (
             snapshot_df
@@ -151,13 +144,73 @@ def main():
         )
 
         st.dataframe(agg_df, use_container_width=True)
+        st.bar_chart(agg_df.set_index("Wave_ID")["Alpha"])
 
-        st.divider()
-        st.write("📈 Alpha by Wave")
+    # ------------------------------------------------------
+    # 🔬 FULL ALPHA ATTRIBUTION (NEW)
+    # ------------------------------------------------------
 
-        st.bar_chart(
-            data=agg_df.set_index("Wave_ID")["Alpha"]
+    st.divider()
+    st.subheader("🧠 Alpha Attribution Breakdown")
+
+    # Defensive column fetch
+    def col_or_zero(df, col):
+        return df[col] if col in df.columns else 0.0
+
+    attr_df = snapshot_df.copy()
+
+    attr_df["Benchmark_Return"] = col_or_zero(attr_df, "Benchmark_Return")
+    attr_df["Stock_Alpha"] = col_or_zero(attr_df, "Stock_Alpha")
+    attr_df["Strategy_Alpha"] = col_or_zero(attr_df, "Strategy_Alpha")
+    attr_df["Overlay_Alpha"] = col_or_zero(attr_df, "Overlay_Alpha")
+
+    if "Alpha" not in attr_df.columns:
+        attr_df["Alpha"] = (
+            attr_df["Return"] - attr_df["Benchmark_Return"]
+            if "Return" in attr_df.columns else 0.0
         )
+
+    attr_df["Residual_Alpha"] = (
+        attr_df["Alpha"]
+        - attr_df["Stock_Alpha"]
+        - attr_df["Strategy_Alpha"]
+        - attr_df["Overlay_Alpha"]
+    )
+
+    attribution_summary = (
+        attr_df
+        .groupby("Wave_ID")[[
+            "Alpha",
+            "Stock_Alpha",
+            "Strategy_Alpha",
+            "Overlay_Alpha",
+            "Residual_Alpha"
+        ]]
+        .mean()
+        .reset_index()
+        .sort_values("Alpha", ascending=False)
+    )
+
+    st.dataframe(attribution_summary, use_container_width=True)
+
+    # ------------------------------------------------------
+    # VISUAL: ALPHA COMPONENTS
+    # ------------------------------------------------------
+
+    st.divider()
+    st.write("📈 Alpha Components by Wave")
+
+    component_cols = [
+        "Stock_Alpha",
+        "Strategy_Alpha",
+        "Overlay_Alpha",
+        "Residual_Alpha"
+    ]
+
+    st.bar_chart(
+        attribution_summary
+        .set_index("Wave_ID")[component_cols]
+    )
 
     # ------------------------------------------------------
     # SUCCESS STATE
@@ -165,11 +218,11 @@ def main():
 
     st.divider()
     st.success(
-        "System stabilized ✔️\n\n"
-        "✔ Snapshot loaded\n"
-        "✔ Waves initialized\n"
-        "✔ Returns & Alpha rendered\n\n"
-        "Ready for detailed attribution breakdown."
+        "System extended successfully ✔️\n\n"
+        "✔ Returns intact\n"
+        "✔ Alpha intact\n"
+        "✔ Attribution layered safely\n\n"
+        "Next: per-strategy & regime attribution."
     )
 
     with st.expander("Preview snapshot (first 10 rows)"):
