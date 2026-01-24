@@ -64,29 +64,4 @@ def initialize_waves(
             truth_df.waves[wave_id] = {
                 "health": {
                     "score": None,
-                    "alpha": None,
-                    "beta_drift": None,
-                    "volatility": None,
-                    "exposure": None,
-                },
-                "regime_alignment": "neutral",
-                "learning_signals": [],
-            }
-
-    return truth_df.waves
-
-
-# -----------------------------
-# Import verification hook
-# -----------------------------
-
-def _import_check():
-    return "waves module imported safely"
-
-
-# -----------------------------
-# No execution at import time
-# -----------------------------
-
-if __name__ == "__main__":
-    print("waves.py loaded directly — no execution performed")
+                    "
