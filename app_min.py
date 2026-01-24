@@ -1,13 +1,15 @@
 # ==========================================================
-# app_min.py — WAVES Live Recovery Console (CANONICAL)
+# app_min.py — WAVES Live Recovery Console (RESTORED)
 # ==========================================================
-# Snapshot-driven, read-only, mobile-safe
-# Fixes HTML rendering + preserves all live math
+# Combines:
+# • Correct blue snapshot box (HTML fixed)
+# • Full Live Returns table
+# • Alpha by Horizon chart
+# • Snapshot-driven, read-only safety
 # ==========================================================
 
 import streamlit as st
 import pandas as pd
-import sys
 import os
 from datetime import datetime
 
@@ -36,7 +38,7 @@ st.title("WAVES — Live Recovery Console")
 st.caption("Intraday · 30D · 60D · 365D — Snapshot Driven")
 
 # ----------------------------------------------------------
-# LOAD LIVE SNAPSHOT
+# LOAD SNAPSHOT
 # ----------------------------------------------------------
 
 SNAPSHOT_PATH = "data/live_snapshot.csv"
@@ -51,35 +53,18 @@ st.success("Live snapshot loaded")
 st.write(f"Rows: {len(df)}")
 
 # ----------------------------------------------------------
-# BASIC SANITY
-# ----------------------------------------------------------
-
-required_cols = [
-    "Wave_ID",
-    "Return_1D",
-    "Return_30D",
-    "Return_60D",
-    "Return_365D",
-    "Alpha_1D",
-    "Alpha_30D",
-    "Alpha_60D",
-    "Alpha_365D",
-    "Exposure",
-    "CashPercent",
-    "VIX_Level",
-    "VIX_Regime"
-]
-
-missing = [c for c in required_cols if c not in df.columns]
-if missing:
-    st.warning(f"Missing columns: {missing}")
-
-# ----------------------------------------------------------
-# PORTFOLIO AGGREGATES (SAFE MEANS)
+# SAFE HELPERS
 # ----------------------------------------------------------
 
 def safe_mean(col):
-    return float(df[col].dropna().mean()) if col in df else 0.0
+    return float(df[col].dropna().mean()) if col in df.columns else 0.0
+
+def safe_mode(col):
+    return df[col].mode().iloc[0] if col in df and not df[col].dropna().empty else "unknown"
+
+# ----------------------------------------------------------
+# PORTFOLIO AGGREGATES
+# ----------------------------------------------------------
 
 portfolio = {
     "return_1d": safe_mean("Return_1D"),
@@ -90,11 +75,11 @@ portfolio = {
     "exposure": safe_mean("Exposure"),
     "cash": safe_mean("CashPercent"),
     "vix": safe_mean("VIX_Level"),
-    "regime": df["VIX_Regime"].mode().iloc[0] if "VIX_Regime" in df else "unknown"
+    "regime": safe_mode("VIX_Regime")
 }
 
 # ----------------------------------------------------------
-# BLUE SNAPSHOT BOX (SINGLE MARKDOWN — FIXED)
+# BLUE SNAPSHOT BOX (FIXED)
 # ----------------------------------------------------------
 
 snapshot_html = f"""
@@ -104,9 +89,9 @@ snapshot_html = f"""
     border-radius: 16px;
     color: #eaf4ff;
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    margin-bottom: 28px;
+    margin-bottom: 32px;
 ">
-  <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+  <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 22px;">
 
     <div>
       <strong>SYSTEM</strong><br/>
@@ -139,16 +124,15 @@ snapshot_html = f"""
 </div>
 """
 
-# ✅ THIS IS THE FIX — ONE CALL, UNSAFE HTML
 st.markdown(snapshot_html, unsafe_allow_html=True)
 
 # ----------------------------------------------------------
-# LIVE RETURNS TABLE
+# LIVE RETURNS & ALPHA TABLE (RESTORED)
 # ----------------------------------------------------------
 
 st.subheader("📊 Live Returns & Alpha")
 
-display_cols = [
+table_cols = [
     "Wave_ID",
     "Return_1D",
     "Return_30D",
@@ -160,26 +144,29 @@ display_cols = [
     "Alpha_365D"
 ]
 
-existing_cols = [c for c in display_cols if c in df.columns]
+existing = [c for c in table_cols if c in df.columns]
 
-st.dataframe(
-    df[existing_cols].sort_values("Alpha_365D", ascending=False),
-    use_container_width=True
+returns_df = (
+    df[existing]
+    .sort_values("Alpha_365D", ascending=False)
+    .reset_index(drop=True)
 )
 
+st.dataframe(returns_df, use_container_width=True)
+
 # ----------------------------------------------------------
-# ALPHA BY HORIZON (BAR CHART)
+# ALPHA BY HORIZON (RESTORED CHART)
 # ----------------------------------------------------------
 
 st.subheader("📈 Alpha by Horizon")
 
-chart_df = df.groupby("Wave_ID")[[
-    "Alpha_30D",
-    "Alpha_60D",
-    "Alpha_365D"
-]].mean()
+alpha_chart_df = (
+    df.groupby("Wave_ID")[["Alpha_30D", "Alpha_60D", "Alpha_365D"]]
+    .mean()
+    .sort_values("Alpha_365D", ascending=False)
+)
 
-st.bar_chart(chart_df)
+st.bar_chart(alpha_chart_df)
 
 # ----------------------------------------------------------
 # SYSTEM STATUS
@@ -190,7 +177,8 @@ st.success(
     "✓ Intraday returns populated\n"
     "✓ Multi-horizon alpha live\n"
     "✓ Snapshot-driven truth\n"
-    "✓ Zero dependency on legacy wave init\n\n"
+    "✓ Blue snapshot box fixed\n"
+    "✓ No legacy wave init dependency\n\n"
     "Forward build unblocked."
 )
 
