@@ -60,19 +60,21 @@ with st.container():
     st.subheader("🏛️ Portfolio Snapshot (All Waves)")
     st.caption("STANDARD MODE")
     
-    # Snapshot Metrics
+    # Snapshot Metrics: Returns
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Intraday Return", f"{portfolio['Return_1D']*100:.2f}%")
     col2.metric("30D Return", f"{portfolio['Return_30D']*100:.2f}%")
     col3.metric("60D Return", f"{portfolio['Return_60D']*100:.2f}%")
     col4.metric("365D Return", f"{portfolio['Return_365D']*100:.2f}%")
     
+    # Snapshot Metrics: Alpha
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Alpha Intraday", f"{portfolio['Alpha_1D']*100:.2f}%")
     col2.metric("Alpha 30D", f"{portfolio['Alpha_30D']*100:.2f}%")
     col3.metric("Alpha 60D", f"{portfolio['Alpha_60D']*100:.2f}%")
     col4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
-
+    
+    # Footer note for the container
     st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     st.caption("ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -80,30 +82,24 @@ with st.container():
 # =============================
 # LIVE RETURNS & ALPHA TABLE
 # =============================
-st.subheader("📊 Live Returns & Alpha")
-st.dataframe(
-    snapshot_df[
-        [
-            "Wave",
-            "Return_1D",
-            "Return_30D",
-            "Return_60D",
-            "Return_365D",
-            "Alpha_1D",
-            "Alpha_30D",
-            "Alpha_60D",
-            "Alpha_365D",
-        ]
-    ],
-    use_container_width=True
-)
+# Removed the table since its data is now part of the blue box
+# st.subheader("📊 Live Returns & Alpha")
+# st.dataframe(
+#     snapshot_df[
+#         [
+#             "Wave", "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+#             "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
+#         ]
+#     ],
+#     use_container_width=True
+# )
 
 # =============================
 # ALPHA HISTORY BY HORIZON
 # =============================
 st.subheader("📈 Alpha History by Horizon")
 
-alpha_cols = ["Alpha_1D", "Alpha_30D", "Alpha_365D"]
+alpha_cols = ["Alpha_1D", "Alpha_30D", "Alpha_60D"]
 alpha_df = snapshot_df[["Wave"] + alpha_cols].set_index("Wave")
 
 if alpha_df.dropna().empty:
