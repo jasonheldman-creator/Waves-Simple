@@ -1,28 +1,14 @@
 # ==========================================================
 # app_min.py — WAVES Live Recovery Console (Canonical)
 # ==========================================================
-# Snapshot-driven, read-only recovery console
-# • Intraday + 30D / 60D / 365D Returns & Alpha
-# • Portfolio Snapshot (blue box)
-# • Horizon comparison
-# • Zero dependency on legacy wave init
+# Snapshot-driven, read-only, rendering-safe implementation
 # ==========================================================
 
 import streamlit as st
-import sys
-import os
 import pandas as pd
+import os
+import sys
 from datetime import datetime
-
-# ----------------------------------------------------------
-# STREAMLIT CONFIG
-# ----------------------------------------------------------
-
-st.set_page_config(
-    page_title="WAVES — Live Recovery Console",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 # ----------------------------------------------------------
 # BOOT CONFIRMATION
@@ -32,7 +18,19 @@ st.success("STREAMLIT EXECUTION STARTED")
 st.write("app_min.py reached line 1")
 
 # ----------------------------------------------------------
-# LOAD SNAPSHOT (CANONICAL)
+# PAGE CONFIG
+# ----------------------------------------------------------
+
+st.set_page_config(
+    page_title="WAVES — Live Recovery Console",
+    layout="wide",
+)
+
+st.title("WAVES — Live Recovery Console")
+st.caption("Intraday • 30D • 60D • 365D — Snapshot Driven")
+
+# ----------------------------------------------------------
+# LOAD SNAPSHOT
 # ----------------------------------------------------------
 
 SNAPSHOT_PATH = "data/live_snapshot.csv"
@@ -41,161 +39,152 @@ if not os.path.exists(SNAPSHOT_PATH):
     st.error(f"Missing snapshot: {SNAPSHOT_PATH}")
     st.stop()
 
-snapshot_df = pd.read_csv(SNAPSHOT_PATH)
+df = pd.read_csv(SNAPSHOT_PATH)
+
+st.success("Live snapshot loaded")
+st.write(f"Rows: {len(df)}")
 
 # ----------------------------------------------------------
-# DERIVED METRICS (SAFE)
+# SAFE COLUMN ACCESS
 # ----------------------------------------------------------
 
-def safe_col(df, col):
-    return df[col] if col in df.columns else 0.0
-
-row_count = len(snapshot_df)
-
-asof_date = (
-    snapshot_df["Date"].max()
-    if "Date" in snapshot_df.columns
-    else "Unknown"
-)
-
-# Portfolio-level aggregates
-portfolio = {}
-
-portfolio["Return_INTRA"] = safe_col(snapshot_df, "Return_1D").mean()
-portfolio["Alpha_INTRA"]  = safe_col(snapshot_df, "Alpha_1D").mean()
-
-portfolio["Alpha_30D"]  = safe_col(snapshot_df, "Alpha_30D").mean()
-portfolio["Alpha_60D"]  = safe_col(snapshot_df, "Alpha_60D").mean()
-portfolio["Alpha_365D"] = safe_col(snapshot_df, "Alpha_365D").mean()
-
-portfolio["Exposure"] = safe_col(snapshot_df, "Exposure").mean()
-portfolio["Cash"]     = safe_col(snapshot_df, "CashPercent").mean()
-
-portfolio["VIX"]    = safe_col(snapshot_df, "VIX_Level").mean()
-portfolio["Regime"] = (
-    snapshot_df["VIX_Regime"].mode().iloc[0]
-    if "VIX_Regime" in snapshot_df.columns and not snapshot_df["VIX_Regime"].empty
-    else "Unknown"
-)
-
-portfolio["Coverage"] = safe_col(snapshot_df, "Coverage_Score").mean()
+def col(name, default=0.0):
+    return df[name] if name in df.columns else default
 
 # ----------------------------------------------------------
-# 🔵 PORTFOLIO SNAPSHOT BOX (BLUE)
+# PORTFOLIO AGGREGATES
 # ----------------------------------------------------------
 
-st.markdown(
-    """
-    <style>
-    .snapshot-box {
-        background-color: #0b2c4d;
-        padding: 20px;
-        border-radius: 12px;
-        color: white;
-        margin-bottom: 20px;
-    }
-    .snapshot-metric {
-        font-size: 28px;
-        font-weight: 700;
-    }
-    .snapshot-label {
-        font-size: 12px;
-        opacity: 0.8;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+portfolio_return = col("Return_1D").mean() * 100
+portfolio_alpha = col("Alpha_1D").mean() * 100
 
-st.markdown(
-    f"""
-    <div class="snapshot-box">
-        <div style="display:flex; justify-content:space-between; gap:20px;">
+alpha_30d = col("Alpha_30D").mean() * 100
+alpha_60d = col("Alpha_60D").mean() * 100
+alpha_365d = col("Alpha_365D").mean() * 100
 
-            <div>
-                <div class="snapshot-label">SYSTEM STATUS</div>
-                <div class="snapshot-metric">LIVE</div>
-                <div class="snapshot-label">As of {asof_date} · Intraday</div>
-                <div class="snapshot-label">Waves active: {row_count}</div>
-            </div>
+exposure = col("Exposure").mean()
+cash = col("CashPercent").mean()
+vix = col("VIX_Level").mean()
+regime = col("VIX_Regime").mode().iloc[0] if "VIX_Regime" in df.columns else "unknown"
 
-            <div>
-                <div class="snapshot-label">PORTFOLIO (INTRADAY)</div>
-                <div class="snapshot-metric">
-                    Return {portfolio["Return_INTRA"]:.3%}
-                </div>
-                <div class="snapshot-metric">
-                    Alpha {portfolio["Alpha_INTRA"]:.3%}
-                </div>
-            </div>
+as_of = df["Date"].max() if "Date" in df.columns else datetime.utcnow().date()
 
-            <div>
-                <div class="snapshot-label">ALPHA BY HORIZON</div>
-                <div>30D: {portfolio["Alpha_30D"]:.3%}</div>
-                <div>60D: {portfolio["Alpha_60D"]:.3%}</div>
-                <div>365D: {portfolio["Alpha_365D"]:.3%}</div>
-            </div>
+# ----------------------------------------------------------
+# BLUE SNAPSHOT BOX (GUARANTEED RENDER)
+# ----------------------------------------------------------
 
-            <div>
-                <div class="snapshot-label">RISK CONTEXT</div>
-                <div>Exposure: {portfolio["Exposure"]:.1%}</div>
-                <div>Cash: {portfolio["Cash"]:.1%}</div>
-                <div>VIX: {portfolio["VIX"]:.1f}</div>
-                <div>Regime: {portfolio["Regime"]}</div>
-            </div>
+snapshot_html = f"""
+<div style="
+    background: linear-gradient(135deg, #0a2540, #0b3a5a);
+    border-radius: 16px;
+    padding: 24px;
+    color: #e8f1ff;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+    margin-bottom: 32px;
+">
 
-        </div>
+  <h3 style="margin-top:0;">📘 Portfolio Snapshot</h3>
+
+  <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:16px;">
+
+    <div>
+      <strong>System</strong><br/>
+      LIVE
     </div>
-    """,
-    unsafe_allow_html=True
-)
+
+    <div>
+      <strong>As of</strong><br/>
+      {as_of}
+    </div>
+
+    <div>
+      <strong>Waves</strong><br/>
+      {df["Wave_ID"].nunique()}
+    </div>
+
+    <div>
+      <strong>Regime</strong><br/>
+      {regime}
+    </div>
+
+    <div>
+      <strong>Return (Intraday)</strong><br/>
+      {portfolio_return:.3f}%
+    </div>
+
+    <div>
+      <strong>Alpha (Intraday)</strong><br/>
+      {portfolio_alpha:.3f}%
+    </div>
+
+    <div>
+      <strong>Exposure</strong><br/>
+      {exposure:.1f}%
+    </div>
+
+    <div>
+      <strong>Cash</strong><br/>
+      {cash:.1f}%
+    </div>
+
+  </div>
+
+  <hr style="margin:20px 0; border-color:#1c4d75;"/>
+
+  <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px;">
+    <div><strong>Alpha 30D</strong><br/>{alpha_30d:.3f}%</div>
+    <div><strong>Alpha 60D</strong><br/>{alpha_60d:.3f}%</div>
+    <div><strong>Alpha 365D</strong><br/>{alpha_365d:.3f}%</div>
+  </div>
+
+</div>
+"""
+
+st.markdown(snapshot_html, unsafe_allow_html=True)
 
 # ----------------------------------------------------------
-# LIVE RETURNS & ALPHA (TABLE)
+# LIVE RETURNS & ALPHA TABLE
 # ----------------------------------------------------------
 
 st.subheader("📊 Live Returns & Alpha")
 
-live_cols = [
+returns_cols = [
     "Wave_ID",
     "Return_1D",
-    "Benchmark_Return_1D",
-    "Alpha_1D",
     "Return_30D",
-    "Alpha_30D",
     "Return_60D",
-    "Alpha_60D",
     "Return_365D",
+    "Alpha_1D",
+    "Alpha_30D",
+    "Alpha_60D",
     "Alpha_365D",
 ]
 
-available_cols = [c for c in live_cols if c in snapshot_df.columns]
+table_cols = [c for c in returns_cols if c in df.columns]
 
-live_df = (
-    snapshot_df[available_cols]
-    .groupby("Wave_ID")
-    .mean()
-    .reset_index()
+returns_df = df[table_cols].copy()
+
+st.dataframe(
+    returns_df.sort_values("Alpha_365D", ascending=False),
+    use_container_width=True,
 )
 
-st.dataframe(live_df, use_container_width=True)
-
 # ----------------------------------------------------------
-# ALPHA BY HORIZON (BAR)
+# ALPHA BY HORIZON (BAR CHART)
 # ----------------------------------------------------------
 
 st.subheader("📈 Alpha by Horizon")
 
-alpha_cols = [c for c in ["Alpha_30D", "Alpha_60D", "Alpha_365D"] if c in live_df.columns]
+alpha_chart = (
+    df.groupby("Wave_ID")[["Alpha_30D", "Alpha_60D", "Alpha_365D"]]
+    .mean()
+    .sort_values("Alpha_365D", ascending=False)
+)
 
-if alpha_cols:
-    chart_df = live_df.set_index("Wave_ID")[alpha_cols]
-    st.bar_chart(chart_df)
-else:
-    st.info("Alpha horizon columns not available.")
+st.bar_chart(alpha_chart)
 
 # ----------------------------------------------------------
-# FINAL STATUS
+# SYSTEM STATUS
 # ----------------------------------------------------------
 
 st.success(
@@ -208,4 +197,4 @@ st.success(
 )
 
 with st.expander("Preview snapshot (first 10 rows)"):
-    st.dataframe(snapshot_df.head(10))
+    st.dataframe(df.head(10))
