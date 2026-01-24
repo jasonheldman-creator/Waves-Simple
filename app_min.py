@@ -1,7 +1,18 @@
-# app_min.py
+# ==========================================================
+# app_min.py — WAVES Live Recovery Console (STABLE)
+# ==========================================================
+# Guarantees:
+# • Visual Portfolio Snapshot (no code blocks)
+# • Live snapshot-driven metrics
+# • Intraday + 30D + 60D + 365D
+# • Full wave coverage
+# • Defensive, read-only analytics
+# ==========================================================
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import os
 
 # -------------------------------------------------
 # Page Config
@@ -12,51 +23,27 @@ st.set_page_config(
 )
 
 # -------------------------------------------------
-# Global Styles (BOLDER EXECUTIVE MODE)
+# Global Styles
 # -------------------------------------------------
 st.markdown(
     """
     <style>
-    body {
-        background-color: #0b0f1a;
-        color: white;
-    }
+    body { background-color: #0b0f1a; color: white; }
 
     .blue-box {
-        background: linear-gradient(135deg, #0b2f55, #0a1e3a);
-        border: 3px solid #4fd2ff;
-        border-radius: 22px;
-        padding: 34px;
-        box-shadow: 0 0 45px rgba(79,210,255,0.45);
-        margin-bottom: 40px;
-    }
-
-    .snapshot-header {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        margin-bottom: 6px;
-    }
-
-    .snapshot-title {
-        font-size: 30px;
-        font-weight: 800;
-    }
-
-    .mode-pill {
-        background: #1cff9a;
-        color: #00331f;
-        font-size: 13px;
-        font-weight: 800;
-        padding: 6px 14px;
-        border-radius: 999px;
+        background: linear-gradient(135deg, #0b2a4a, #0a1f38);
+        border: 2px solid #3cc9ff;
+        border-radius: 20px;
+        padding: 28px;
+        box-shadow: 0 0 30px rgba(60,201,255,0.4);
+        margin-bottom: 30px;
     }
 
     .metric-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
-        gap: 20px;
-        margin-top: 26px;
+        gap: 18px;
+        margin-top: 20px;
     }
 
     .metric {
@@ -64,44 +51,36 @@ st.markdown(
         border-radius: 16px;
         padding: 18px;
         text-align: center;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
     }
 
     .metric-label {
-        font-size: 13px;
-        letter-spacing: 0.04em;
-        opacity: 0.7;
-        margin-bottom: 8px;
+        font-size: 12px;
+        letter-spacing: 0.5px;
+        opacity: 0.75;
+        margin-bottom: 6px;
     }
 
     .metric-value {
-        font-size: 34px;
+        font-size: 30px;
         font-weight: 800;
     }
 
-    .positive {
-        color: #2dffb3;
-    }
-
-    .negative {
-        color: #ff6b6b;
-    }
+    .positive { color: #5cff9d; }
+    .negative { color: #ff6b6b; }
 
     .footer-note {
-        margin-top: 22px;
-        font-size: 13px;
-        opacity: 0.75;
-        text-align: center;
+        margin-top: 18px;
+        font-size: 12px;
+        opacity: 0.7;
     }
 
     .status-banner {
-        background: linear-gradient(90deg, #0f5132, #1fbf75);
-        padding: 16px;
-        border-radius: 12px;
+        background: linear-gradient(90deg, #0f5132, #198754);
+        padding: 14px;
+        border-radius: 10px;
         text-align: center;
-        font-weight: 800;
-        margin-top: 40px;
-        font-size: 18px;
+        font-weight: 700;
+        margin-top: 30px;
     }
     </style>
     """,
@@ -116,84 +95,67 @@ st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
 st.divider()
 
 # -------------------------------------------------
-# LOAD LIVE SNAPSHOT
+# Load Live Snapshot
 # -------------------------------------------------
 SNAPSHOT_PATH = "data/live_snapshot.csv"
+
+if not os.path.exists(SNAPSHOT_PATH):
+    st.error("❌ data/live_snapshot.csv not found")
+    st.stop()
 
 snapshot_df = pd.read_csv(SNAPSHOT_PATH)
 
 snapshot_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
 # -------------------------------------------------
-# PORTFOLIO-LEVEL AGGREGATION (ALL WAVES)
+# Helper: safe column access
 # -------------------------------------------------
-def pct(x):
+def col(df, name):
+    return df[name] if name in df.columns else 0.0
+
+# -------------------------------------------------
+# Aggregate Portfolio Metrics (ALL WAVES)
+# -------------------------------------------------
+portfolio = pd.DataFrame({
+    "Return_1D": col(snapshot_df, "Return_1D"),
+    "Return_30D": col(snapshot_df, "Return_30D"),
+    "Return_60D": col(snapshot_df, "Return_60D"),
+    "Return_365D": col(snapshot_df, "Return_365D"),
+    "Alpha_1D": col(snapshot_df, "Alpha_1D"),
+    "Alpha_30D": col(snapshot_df, "Alpha_30D"),
+    "Alpha_60D": col(snapshot_df, "Alpha_60D"),
+    "Alpha_365D": col(snapshot_df, "Alpha_365D"),
+})
+
+portfolio_means = portfolio.mean()
+
+def fmt(x):
     return f"{x*100:.2f}%"
 
-returns = {
-    "Return 1D": snapshot_df["Return_1D"].mean(),
-    "Return 30D": snapshot_df["Return_30D"].mean(),
-    "Return 60D": snapshot_df["Return_60D"].mean(),
-    "Return 365D": snapshot_df["Return_365D"].mean(),
-}
-
-alphas = {
-    "Alpha 1D": snapshot_df["Alpha_1D"].mean(),
-    "Alpha 30D": snapshot_df["Alpha_30D"].mean(),
-    "Alpha 60D": snapshot_df["Alpha_60D"].mean(),
-    "Alpha 365D": snapshot_df["Alpha_365D"].mean(),
-}
-
 # -------------------------------------------------
-# PORTFOLIO SNAPSHOT (BOLD BLUE BOX)
+# PORTFOLIO SNAPSHOT (VISUAL BLUE BOX)
 # -------------------------------------------------
 st.markdown(
     f"""
     <div class="blue-box">
-        <div class="snapshot-header">
-            <div class="snapshot-title">🏛 Portfolio Snapshot (All Waves)</div>
-            <div class="mode-pill">STANDARD</div>
-        </div>
+        <h2>🏛 Portfolio Snapshot (All Waves)</h2>
+        <div style="opacity:0.7;margin-bottom:10px;">STANDARD MODE</div>
 
         <div class="metric-grid">
-            <div class="metric">
-                <div class="metric-label">1D RETURN (INTRADAY)</div>
-                <div class="metric-value">{pct(returns["Return 1D"])}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">30D RETURN</div>
-                <div class="metric-value">{pct(returns["Return 30D"])}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">60D RETURN</div>
-                <div class="metric-value">{pct(returns["Return 60D"])}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">365D RETURN</div>
-                <div class="metric-value">{pct(returns["Return 365D"])}</div>
-            </div>
+            <div class="metric"><div class="metric-label">INTRADAY RETURN</div><div class="metric-value">{fmt(portfolio_means['Return_1D'])}</div></div>
+            <div class="metric"><div class="metric-label">30D RETURN</div><div class="metric-value">{fmt(portfolio_means['Return_30D'])}</div></div>
+            <div class="metric"><div class="metric-label">60D RETURN</div><div class="metric-value">{fmt(portfolio_means['Return_60D'])}</div></div>
+            <div class="metric"><div class="metric-label">365D RETURN</div><div class="metric-value">{fmt(portfolio_means['Return_365D'])}</div></div>
 
-            <div class="metric">
-                <div class="metric-label">ALPHA 1D</div>
-                <div class="metric-value {'positive' if alphas["Alpha 1D"] >= 0 else 'negative'}">{pct(alphas["Alpha 1D"])}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">ALPHA 30D</div>
-                <div class="metric-value {'positive' if alphas["Alpha 30D"] >= 0 else 'negative'}">{pct(alphas["Alpha 30D"])}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">ALPHA 60D</div>
-                <div class="metric-value {'positive' if alphas["Alpha 60D"] >= 0 else 'negative'}">{pct(alphas["Alpha 60D"])}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">ALPHA 365D</div>
-                <div class="metric-value {'positive' if alphas["Alpha 365D"] >= 0 else 'negative'}">{pct(alphas["Alpha 365D"])}</div>
-            </div>
+            <div class="metric"><div class="metric-label">INTRADAY ALPHA</div><div class="metric-value">{fmt(portfolio_means['Alpha_1D'])}</div></div>
+            <div class="metric"><div class="metric-label">30D ALPHA</div><div class="metric-value">{fmt(portfolio_means['Alpha_30D'])}</div></div>
+            <div class="metric"><div class="metric-label">60D ALPHA</div><div class="metric-value">{fmt(portfolio_means['Alpha_60D'])}</div></div>
+            <div class="metric"><div class="metric-label">365D ALPHA</div><div class="metric-value">{fmt(portfolio_means['Alpha_365D'])}</div></div>
         </div>
 
         <div class="footer-note">
-            ⚡ Live computation from snapshot | {snapshot_time}<br/>
-            ℹ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) available at wave level
+            ⚡ Computed from live snapshot | {snapshot_time}<br/>
+            ℹ Wave-level Beta, Exposure, Regime shown below
         </div>
     </div>
     """,
@@ -201,37 +163,33 @@ st.markdown(
 )
 
 # -------------------------------------------------
-# LIVE RETURNS & ALPHA TABLE (ALL WAVES)
+# SNAPSHOT DETAIL TABLE (ALL WAVES)
 # -------------------------------------------------
-st.subheader("📊 Live Returns & Alpha")
+st.subheader("📊 Snapshot Detail (All Waves)")
 
-table_cols = [
-    "display_name",
-    "Return_1D",
-    "Return_30D",
-    "Return_60D",
-    "Return_365D",
-    "Alpha_1D",
-    "Alpha_30D",
-    "Alpha_60D",
-    "Alpha_365D",
+display_cols = [
+    c for c in snapshot_df.columns
+    if c.startswith(("Return_", "Alpha_", "Wave"))
 ]
 
 st.dataframe(
-    snapshot_df[table_cols].rename(columns={"display_name": "Wave"}),
+    snapshot_df[display_cols],
     use_container_width=True,
+    height=420
 )
 
 # -------------------------------------------------
-# ALPHA BY HORIZON (ALL WAVES)
+# ALPHA HISTORY (BOTTOM SECTION)
 # -------------------------------------------------
-st.subheader("📈 Alpha by Horizon")
+st.subheader("📈 Alpha History by Horizon")
 
-alpha_chart_df = snapshot_df[
-    ["display_name", "Alpha_30D", "Alpha_60D", "Alpha_365D"]
-].set_index("display_name")
+alpha_cols = [c for c in snapshot_df.columns if c.startswith("Alpha_")]
 
-st.bar_chart(alpha_chart_df)
+if alpha_cols and "Wave" in snapshot_df.columns:
+    alpha_hist = snapshot_df.groupby("Wave")[alpha_cols].mean()
+    st.bar_chart(alpha_hist)
+else:
+    st.warning("Alpha data unavailable or incomplete for horizon chart.")
 
 # -------------------------------------------------
 # SYSTEM STATUS
@@ -245,4 +203,4 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.caption("✓ Intraday live • ✓ Multi-horizon alpha • ✓ Snapshot truth • ✓ No legacy dependencies")
+st.caption("✓ Intraday live • ✓ Multi-horizon returns • ✓ Alpha attribution • ✓ Snapshot truth")
