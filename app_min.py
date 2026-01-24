@@ -19,6 +19,14 @@ st.markdown("""
 body {
     background-color: #0e1117;
 }
+.blue-box {
+    background-color: #081c33;
+    border: 2px solid #3fd0ff;
+    border-radius: 18px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 0 25px rgba(63, 208, 255, 0.35);
+}
 .status-banner {
     background: linear-gradient(90deg, #1f8f4e, #2ecc71);
     padding: 18px;
@@ -48,8 +56,11 @@ portfolio = snapshot_df.mean(numeric_only=True)
 # PORTFOLIO SNAPSHOT (BLUE BOX)
 # =============================
 with st.container():
+    st.markdown('<div class="blue-box">', unsafe_allow_html=True)
     st.subheader("🏛️ Portfolio Snapshot (All Waves)")
     st.caption("STANDARD MODE")
+    
+    # Snapshot Metrics
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Intraday Return", f"{portfolio['Return_1D']*100:.2f}%")
     col2.metric("30D Return", f"{portfolio['Return_30D']*100:.2f}%")
@@ -61,8 +72,10 @@ with st.container():
     col2.metric("Alpha 30D", f"{portfolio['Alpha_30D']*100:.2f}%")
     col3.metric("Alpha 60D", f"{portfolio['Alpha_60D']*100:.2f}%")
     col4.metric("Alpha 365D", f"{portfolio['Alpha_365D']*100:.2f}%")
+
     st.caption(f"⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     st.caption("ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================
 # LIVE RETURNS & ALPHA TABLE
