@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 # =============================
-# STYLES
+# GLOBAL STYLES
 # =============================
 st.markdown("""
 <style>
@@ -20,73 +20,71 @@ body {
     background-color: #0e1117;
 }
 
-/* ===== PORTFOLIO SNAPSHOT ===== */
-.snapshot-box {
+.blue-box {
     background: linear-gradient(145deg, #0b2a4a, #081c33);
     border: 2px solid #3fd0ff;
-    border-radius: 22px;
-    padding: 36px 34px;
-    margin: 30px 0 40px 0;
-    box-shadow: 0 0 35px rgba(63, 208, 255, 0.35);
+    border-radius: 20px;
+    padding: 28px 32px;
+    margin-bottom: 40px;
+    box-shadow: 0 0 35px rgba(63,208,255,0.35);
 }
 
 .snapshot-title {
     font-size: 34px;
     font-weight: 800;
-    color: #ffffff;
-    margin-bottom: 6px;
+    color: white;
+    margin-bottom: 4px;
 }
 
 .snapshot-sub {
-    font-size: 15px;
+    font-size: 14px;
     letter-spacing: 1px;
-    opacity: 0.75;
+    color: #9fbad0;
     margin-bottom: 26px;
 }
 
 .section-label {
     font-size: 15px;
-    letter-spacing: 1.2px;
     font-weight: 700;
+    letter-spacing: 1.5px;
     color: #3fd0ff;
-    margin: 28px 0 16px 0;
+    margin: 22px 0 12px 0;
 }
 
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 26px;
+    gap: 18px;
 }
 
 .metric-card {
     background: rgba(255,255,255,0.03);
     border-radius: 14px;
-    padding: 22px 18px;
+    padding: 18px 16px;
 }
 
 .metric-label {
-    font-size: 14px;
-    opacity: 0.75;
+    font-size: 13px;
+    color: #9aa7b3;
     margin-bottom: 6px;
 }
 
 .metric-value {
-    font-size: 32px;
+    font-size: 30px;
     font-weight: 800;
-    color: #ffffff;
+    color: white;
 }
 
-.snapshot-footer {
-    margin-top: 26px;
+.footer-note {
+    margin-top: 22px;
     font-size: 13px;
-    opacity: 0.7;
+    color: #8fa3b5;
 }
 
-/* ===== STATUS ===== */
 .status-banner {
     background: linear-gradient(90deg, #1f8f4e, #2ecc71);
     padding: 18px;
-    border-radius: 14px;
+    border-radius: 12px;
     font-weight: 700;
     text-align: center;
     color: white;
@@ -103,16 +101,16 @@ st.caption("Intraday • 30D • 60D • 365D • Snapshot-Driven")
 st.divider()
 
 # =============================
-# LOAD SNAPSHOT DATA
+# LOAD DATA
 # =============================
 snapshot_df = pd.read_csv("data/live_snapshot.csv")
-p = snapshot_df.mean(numeric_only=True)
+portfolio = snapshot_df.mean(numeric_only=True)
 
 # =============================
-# PORTFOLIO SNAPSHOT (EXECUTIVE)
+# PORTFOLIO SNAPSHOT (EXECUTIVE BLUE BOX)
 # =============================
 st.markdown(f"""
-<div class="snapshot-box">
+<div class="blue-box">
     <div class="snapshot-title">🏛️ Portfolio Snapshot (All Waves)</div>
     <div class="snapshot-sub">STANDARD MODE</div>
 
@@ -120,19 +118,19 @@ st.markdown(f"""
     <div class="metric-grid">
         <div class="metric-card">
             <div class="metric-label">Intraday</div>
-            <div class="metric-value">{p['Return_1D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Return_1D']*100:.2f}%</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">30D</div>
-            <div class="metric-value">{p['Return_30D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Return_30D']*100:.2f}%</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">60D</div>
-            <div class="metric-value">{p['Return_60D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Return_60D']*100:.2f}%</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">365D</div>
-            <div class="metric-value">{p['Return_365D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Return_365D']*100:.2f}%</div>
         </div>
     </div>
 
@@ -140,23 +138,23 @@ st.markdown(f"""
     <div class="metric-grid">
         <div class="metric-card">
             <div class="metric-label">Intraday</div>
-            <div class="metric-value">{p['Alpha_1D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Alpha_1D']*100:.2f}%</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">30D</div>
-            <div class="metric-value">{p['Alpha_30D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Alpha_30D']*100:.2f}%</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">60D</div>
-            <div class="metric-value">{p['Alpha_60D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Alpha_60D']*100:.2f}%</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">365D</div>
-            <div class="metric-value">{p['Alpha_365D']*100:.2f}%</div>
+            <div class="metric-value">{portfolio['Alpha_365D']*100:.2f}%</div>
         </div>
     </div>
 
-    <div class="snapshot-footer">
+    <div class="footer-note">
         ⚡ Computed from live snapshot | {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC<br/>
         ℹ Wave-level Beta, Exposure, Cash, VIX regime shown below
     </div>
@@ -164,7 +162,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =============================
-# LIVE RETURNS & ALPHA (UNCHANGED)
+# MIDDLE SECTION — LIVE RETURNS & ALPHA
 # =============================
 st.subheader("📊 Live Returns & Alpha")
 st.dataframe(
@@ -185,7 +183,7 @@ st.dataframe(
 )
 
 # =============================
-# ALPHA HISTORY (UNCHANGED)
+# BOTTOM SECTION — ALPHA HISTORY
 # =============================
 st.subheader("📈 Alpha History by Horizon")
 
@@ -198,7 +196,7 @@ else:
     st.bar_chart(alpha_df)
 
 # =============================
-# STATUS (UNCHANGED)
+# STATUS
 # =============================
 st.markdown("""
 <div class="status-banner">
