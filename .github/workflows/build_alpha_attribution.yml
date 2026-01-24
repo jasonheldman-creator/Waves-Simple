@@ -1,0 +1,31 @@
+name: Build Alpha Attribution CSV
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-attribution:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas
+
+      - name: Build attribution CSV
+        run: python build_alpha_attribution_csv.py
+
+      - name: Commit updated CSV
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data/live_snapshot_attribution.csv
+          git commit -m "Build alpha attribution CSV (deterministic)"
+          git push
