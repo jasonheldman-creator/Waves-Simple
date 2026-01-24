@@ -1,10 +1,9 @@
 """
-waves.py — import-safe recovery scaffold (FINAL)
+waves.py — import-safe recovery scaffold (COMPATIBLE FIX)
 
-Compatible with app.py calling:
-    initialize_waves(truth_df=..., unique_wave_ids=...)
-
-Safe for Streamlit import and redeploy.
+This version is fully backward-compatible with existing app.py calls.
+It safely accepts keyword arguments (truth_df, unique_wave_ids) without
+executing logic at import time.
 """
 
 # -----------------------------
@@ -16,39 +15,39 @@ truth_df = None
 
 
 # -----------------------------
-# Public initializer
+# Public initializer (COMPATIBLE)
 # -----------------------------
 
 def initialize_waves(*args, **kwargs):
     """
     Initialize wave entries inside truth_df safely.
 
-    Accepts BOTH positional and keyword arguments to remain
-    backward-compatible with locked app.py.
+    Accepts:
+        initialize_waves(truth_df=..., unique_wave_ids=...)
+        initialize_waves(_truth_df, _unique_wave_ids)
+
+    This keeps app.py untouched and prevents signature mismatch errors.
     """
 
     global truth_df, unique_wave_ids
 
-    # --- Accept keyword arguments (PRIMARY PATH) ---
+    # --- Handle keyword usage (expected by app.py) ---
     if "truth_df" in kwargs:
         truth_df = kwargs.get("truth_df")
         unique_wave_ids = list(kwargs.get("unique_wave_ids", []))
 
-    # --- Accept positional arguments (FALLBACK) ---
+    # --- Handle positional fallback (defensive) ---
     elif len(args) >= 2:
         truth_df = args[0]
         unique_wave_ids = list(args[1])
 
     else:
-        raise TypeError(
-            "initialize_waves requires truth_df and unique_wave_ids"
-        )
+        raise TypeError("initialize_waves requires truth_df and unique_wave_ids")
 
-    # --- Ensure container exists ---
+    # --- Initialize container safely ---
     if not hasattr(truth_df, "waves"):
         truth_df.waves = {}
 
-    # --- Initialize waves ---
     for wave_id in unique_wave_ids:
         if wave_id not in truth_df.waves:
             truth_df.waves[wave_id] = {
@@ -57,10 +56,10 @@ def initialize_waves(*args, **kwargs):
                     "alpha": None,
                     "beta_drift": None,
                     "volatility": None,
-                    "exposure": None
+                    "exposure": None,
                 },
                 "regime_alignment": "neutral",
-                "learning_signals": []
+                "learning_signals": [],
             }
 
     return truth_df.waves
