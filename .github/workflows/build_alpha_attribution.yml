@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,12 +12,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up Python (3.9)
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
@@ -26,12 +28,19 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Alpha Attribution CSV builder
-        run: python build_alpha_attribution_csv.py
+        run: |
+          python build_alpha_attribution_csv.py
 
-      - name: Commit updated data file
+      - name: Commit updated data file (if changed)
         run: |
           git config user.name "GitHub Action"
           git config user.email "github-actions@github.com"
+
+          if git diff --quiet data/alpha_attribution_summary.csv; then
+            echo "No changes to alpha attribution CSV — skipping commit."
+            exit 0
+          fi
+
           git add data/alpha_attribution_summary.csv
-          git commit -m "Build alpha attribution CSV" || echo 'No changes to commit.'
+          git commit -m "Build alpha attribution CSV"
           git push
