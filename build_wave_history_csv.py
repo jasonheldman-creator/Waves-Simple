@@ -122,7 +122,12 @@ def build_wave_history() -> None:
 
     for _, row in registry.iterrows():
         wave_id = row.get("wave_id")
-        benchmark = row.get("benchmark")
+        benchmark_spec = row.get("benchmark_spec")
+        if not benchmark_spec or not isinstance(benchmark_spec, str):
+            continue
+
+     # Use the first benchmark ticker (before :)
+     benchmark = benchmark_spec.split(",")[0].split(":")[0]
 
         if not wave_id or not benchmark:
             continue
