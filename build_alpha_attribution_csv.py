@@ -7,11 +7,14 @@ PURPOSE
 Export REAL, reconciled alpha attribution summaries for each Wave
 using the canonical alpha attribution engine.
 
+GUARANTEES
+----------
 • Uses alpha_attribution.py as the sole source of truth
 • Produces NO synthetic attribution
-• Skips waves with missing inputs (expected in development)
-• NEVER hard-fails CI due to missing data
-• Always writes a valid CSV with a locked schema
+• Skips waves with missing inputs (expected during development)
+• NEVER fails CI due to missing data
+• ALWAYS writes data/alpha_attribution_summary.csv
+• ALWAYS writes a valid CSV with a locked schema
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ DEFAULT_LOOKBACK_DAYS = 365
 
 
 # ---------------------------------------------------------------------
-# SCHEMA (LOCKED)
+# LOCKED OUTPUT SCHEMA
 # ---------------------------------------------------------------------
 
 ORDERED_COLS = [
@@ -68,20 +71,28 @@ ORDERED_COLS = [
 # HELPERS
 # ---------------------------------------------------------------------
 
+def empty_output_df() -> pd.DataFrame:
+    """Return empty DataFrame with locked schema."""
+    return pd.DataFrame({col: [] for col in ORDERED_COLS})
+
+
 def load_wave_registry() -> pd.DataFrame:
     if not WAVE_REGISTRY_CSV.exists():
-        raise FileNotFoundError(f"Wave registry not found: {WAVE_REGISTRY_CSV}")
+        print(f"[WARN] Wave registry missing: {WAVE_REGISTRY_CSV}")
+        return pd.DataFrame()
+
     return pd.read_csv(WAVE_REGISTRY_CSV)
 
 
 def load_history_df(wave_id: str) -> pd.DataFrame | None:
     path = HISTORY_DIR / f"{wave_id}_history.csv"
     if not path.exists():
-        print(f"[WARN] Skipping wave '{wave_id}' — history file missing")
+        print(f"[WARN] Skipping wave '{wave_id}' — history missing")
         return None
 
     df = pd.read_csv(path, parse_dates=["date"])
-    df.set_index("date", inplace=True)
+    if "date" in df.columns:
+        df.set_index("date", inplace=True)
 
     if len(df) > DEFAULT_LOOKBACK_DAYS:
         df = df.tail(DEFAULT_LOOKBACK_DAYS)
@@ -95,27 +106,31 @@ def load_diagnostics_df(wave_id: str) -> pd.DataFrame | None:
         return None
 
     df = pd.read_csv(path, parse_dates=["date"])
-    df.set_index("date", inplace=True)
+    if "date" in df.columns:
+        df.set_index("date", inplace=True)
+
     return df
 
 
-def empty_output_df() -> pd.DataFrame:
-    """Return empty DataFrame with locked schema."""
-    return pd.DataFrame(columns=ORDERED_COLS)
-
-
 # ---------------------------------------------------------------------
-# MAIN BUILD
+# CORE BUILD LOGIC
 # ---------------------------------------------------------------------
 
 def build_alpha_attribution_summary() -> pd.DataFrame:
     registry = load_wave_registry()
     rows: List[dict] = []
 
-    for _, row in registry.iterrows():
-        wave_id = row["wave_id"]
-        wave_name = row["wave_name"]
-        mode = row.get("mode", DEFAULT_MODE)
+    if registry.empty:
+        print("[WARN] Wave registry empty — writing empty attribution CSV")
+        return empty_output_df()
+
+    for _, r in registry.iterrows():
+        wave_id = r.get("wave_id")
+        wave_name = r.get("wave_name", wave_id)
+        mode = r.get("mode", DEFAULT_MODE)
+
+        if not wave_id:
+            continue
 
         history_df = load_history_df(wave_id)
         if history_df is None or history_df.empty:
@@ -130,20 +145,22 @@ def build_alpha_attribution_summary() -> pd.DataFrame:
                 history_df=history_df,
                 diagnostics_df=diagnostics_df,
             )
-            rows.append(summary.to_dict())
+
+            summary_dict = summary.to_dict()
+
+            # Force schema alignment
+            row = {col: summary_dict.get(col) for col in ORDERED_COLS}
+            rows.append(row)
 
         except Exception as e:
             print(f"[WARN] Attribution failed for '{wave_id}': {e}")
             continue
 
     if not rows:
-        print("[WARN] No waves produced attribution output — writing empty CSV")
+        print("[WARN] No waves produced attribution — writing empty CSV")
         return empty_output_df()
 
-    df = pd.DataFrame(rows)
-    df = df.reindex(columns=ORDERED_COLS)
-
-    return df
+    return pd.DataFrame(rows, columns=ORDERED_COLS)
 
 
 # ---------------------------------------------------------------------
@@ -156,9 +173,11 @@ def main() -> None:
     df = build_alpha_attribution_summary()
     df.to_csv(OUTPUT_CSV, index=False)
 
-    print("Alpha attribution summary CSV built")
-    print(f"Output: {OUTPUT_CSV}")
-    print(f"Waves exported: {len(df)}")
+    print("======================================")
+    print("Alpha Attribution CSV build complete")
+    print(f"Path: {OUTPUT_CSV}")
+    print(f"Rows written: {len(df)}")
+    print("======================================")
 
 
 if __name__ == "__main__":
