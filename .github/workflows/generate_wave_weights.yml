@@ -1,0 +1,37 @@
+name: Generate Wave Weights
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-wave-weights:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pandas
+
+      - name: Generate weights.csv for all waves
+        run: |
+          python scripts/generate_all_wave_weights.py
+
+      - name: Commit generated weights
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/waves/*/weights.csv
+          git commit -m "Generate canonical weights.csv for all waves" || echo "No changes to commit"
+          git push
