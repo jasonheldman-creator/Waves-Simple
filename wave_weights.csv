@@ -1,4 +1,4 @@
-data/wave_weights.csv
+wave,ticker,weight
 AI & Cloud MegaCap Wave,NVDA,0.12
 AI & Cloud MegaCap Wave,MSFT,0.1
 AI & Cloud MegaCap Wave,GOOGL,0.08
