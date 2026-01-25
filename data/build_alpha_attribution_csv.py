@@ -1,27 +1,25 @@
 """
 build_alpha_attribution_csv.py
 
-Hard-guaranteed alpha attribution summary builder.
+Builds alpha_attribution_summary.csv with GUARANTEED rows.
 
-RULES:
-• This file MUST write rows
-• Empty CSVs are NOT allowed
-• Zero values are acceptable
-• Silent success is NOT acceptable
-
-This is a forced-output implementation.
+Rules:
+- Every active wave with history MUST produce a row
+- No silent skips
+- No header-only output
+- If nothing is written, the script raises
 """
 
 import pandas as pd
 from pathlib import Path
+from datetime import datetime, timedelta
 
 # =========================
 # CONFIG
 # =========================
-
 DAYS_LOOKBACK = 365
 
-WAVE_REGISTRY_PATH = Path("data/wave_registry.csv")
+REGISTRY_PATH = Path("data/wave_registry.csv")
 HISTORY_DIR = Path("data/history")
 OUTPUT_PATH = Path("data/alpha_attribution_summary.csv")
 
@@ -31,98 +29,97 @@ OUTPUT_COLUMNS = [
     "days",
     "total_alpha",
     "total_wave_return",
-    "benchmark_return",
-    "alpha_pct"
+    "total_benchmark_return",
 ]
 
 # =========================
 # HELPERS
 # =========================
-
-def safe_read_csv(path: Path) -> pd.DataFrame:
+def load_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+        raise FileNotFoundError(f"Missing required file: {path}")
+    return pd.read_csv(path)
+
+
+def ensure_history_exists(wave_id: str) -> Path:
+    hist_path = HISTORY_DIR / wave_id / "history.csv"
+    if not hist_path.exists():
+        raise FileNotFoundError(f"Missing history for wave: {wave_id}")
+    return hist_path
+
 
 # =========================
 # MAIN
 # =========================
-
 def main():
+    registry = load_csv(REGISTRY_PATH)
+
     rows = []
+    cutoff_date = datetime.utcnow() - timedelta(days=DAYS_LOOKBACK)
 
-    registry = safe_read_csv(WAVE_REGISTRY_PATH)
+    print(f"Building alpha attribution for {len(registry)} waves")
+    print(f"Lookback window: {DAYS_LOOKBACK} days")
 
-    if registry.empty:
-        raise RuntimeError("wave_registry.csv is missing or empty — cannot proceed")
+    for _, row in registry.iterrows():
+        wave_id = row.get("wave_id")
+        wave_name = row.get("display_name", wave_id)
+        active = bool(row.get("active", False))
+        mode = row.get("mode", "standard")
 
-    for _, wave in registry.iterrows():
-        wave_id = wave.get("wave_id")
-        wave_name = wave.get("display_name", wave_id)
-        mode = wave.get("mode", "standard")
-
-        history_path = HISTORY_DIR / f"{wave_id}_history.csv"
-        history = safe_read_csv(history_path)
-
-        if history.empty:
-            # 🔒 FORCED ZERO ROW
-            rows.append({
-                "wave_name": wave_name,
-                "mode": mode,
-                "days": DAYS_LOOKBACK,
-                "total_alpha": 0.0,
-                "total_wave_return": 0.0,
-                "benchmark_return": 0.0,
-                "alpha_pct": 0.0
-            })
+        if not active:
+            print(f"SKIP (inactive): {wave_id}")
             continue
 
-        # ---- REAL CALCULATION (SAFE) ----
-        try:
-            total_wave_return = history["wave_return"].sum()
-            benchmark_return = history["benchmark_return"].sum()
-            total_alpha = total_wave_return - benchmark_return
+        # ---- Load history ----
+        hist_path = ensure_history_exists(wave_id)
+        history = pd.read_csv(hist_path, parse_dates=["date"])
 
-            alpha_pct = (
-                (total_alpha / abs(benchmark_return))
-                if benchmark_return != 0 else 0.0
+        history = history[history["date"] >= cutoff_date]
+
+        if history.empty:
+            raise RuntimeError(f"No history rows after cutoff for wave: {wave_id}")
+
+        # ---- Required columns ----
+        required_cols = {"wave_return", "benchmark_return"}
+        missing = required_cols - set(history.columns)
+        if missing:
+            raise RuntimeError(
+                f"Missing columns {missing} in history for wave: {wave_id}"
             )
 
-        except Exception:
-            # 🔒 FAIL-SAFE ZERO ROW
-            total_wave_return = 0.0
-            benchmark_return = 0.0
-            total_alpha = 0.0
-            alpha_pct = 0.0
+        # ---- Compute totals ----
+        total_wave_return = history["wave_return"].sum()
+        total_benchmark_return = history["benchmark_return"].sum()
+        total_alpha = total_wave_return - total_benchmark_return
 
-        rows.append({
-            "wave_name": wave_name,
-            "mode": mode,
-            "days": DAYS_LOOKBACK,
-            "total_alpha": round(total_alpha, 6),
-            "total_wave_return": round(total_wave_return, 6),
-            "benchmark_return": round(benchmark_return, 6),
-            "alpha_pct": round(alpha_pct, 6)
-        })
+        rows.append(
+            {
+                "wave_name": wave_name,
+                "mode": mode,
+                "days": len(history),
+                "total_alpha": round(total_alpha, 6),
+                "total_wave_return": round(total_wave_return, 6),
+                "total_benchmark_return": round(total_benchmark_return, 6),
+            }
+        )
+
+        print(f"OK: {wave_id} → rows={len(history)} alpha={total_alpha:.4f}")
 
     # =========================
-    # FINAL GUARANTEE
+    # FINAL VALIDATION
     # =========================
-
     if not rows:
-        raise RuntimeError("FATAL: No rows produced — this should be impossible")
+        raise RuntimeError(
+            "FATAL: alpha_attribution_summary.csv would be empty. Aborting write."
+        )
 
-    df = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
-    df.to_csv(OUTPUT_PATH, index=False)
+    out_df = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+    out_df.to_csv(OUTPUT_PATH, index=False)
 
     print("======================================")
-    print("Alpha attribution summary written")
-    print(f"Rows written: {len(df)}")
-    print(f"Output: {OUTPUT_PATH}")
+    print(f"Wrote {len(out_df)} rows to {OUTPUT_PATH}")
     print("======================================")
+
 
 if __name__ == "__main__":
     main()
