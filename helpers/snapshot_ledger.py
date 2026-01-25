@@ -50,7 +50,7 @@ SNAPSHOT_COLUMNS = [
 
 
 # -------------------------------------------------------------------
-# Base snapshot loader (FIXED — schema enforced)
+# Base snapshot loader (schema enforced)
 # -------------------------------------------------------------------
 
 def load_snapshot() -> pd.DataFrame:
@@ -59,7 +59,7 @@ def load_snapshot() -> pd.DataFrame:
 
     IMPORTANT:
     - live_snapshot.csv has NO HEADER ROW
-    - We MUST supply column names explicitly
+    - Column names MUST be injected here
     """
 
     snapshot_path = Path("data/live_snapshot.csv")
@@ -69,8 +69,8 @@ def load_snapshot() -> pd.DataFrame:
 
     df = pd.read_csv(
         snapshot_path,
-        header=None,            # 🔑 CRITICAL FIX
-        names=SNAPSHOT_COLUMNS, # 🔑 CRITICAL FIX
+        header=None,
+        names=SNAPSHOT_COLUMNS,
     )
 
     return df
