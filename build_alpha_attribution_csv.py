@@ -10,7 +10,7 @@ using the canonical alpha attribution engine.
 This script:
 • Uses alpha_attribution.py as the sole source of truth
 • Produces NO synthetic attribution
-• Enforces full reconciliation
+• Enforces reconciliation discipline
 • Outputs a stable, institution-grade CSV schema
 
 This file performs EXPORT ONLY.
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pandas as pd
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from alpha_attribution import compute_alpha_attribution_series_safe
 
@@ -31,8 +31,8 @@ from alpha_attribution import compute_alpha_attribution_series_safe
 # ---------------------------------------------------------------------
 
 # Input data
-HISTORY_DIR = Path("data/history")        # per-wave return history
-DIAGNOSTICS_DIR = Path("data/diagnostics")  # optional diagnostics
+HISTORY_DIR = Path("data/history")
+DIAGNOSTICS_DIR = Path("data/diagnostics")
 WAVE_REGISTRY_CSV = Path("data/wave_registry.csv")
 
 # Output
@@ -53,19 +53,30 @@ def load_wave_registry() -> pd.DataFrame:
     return pd.read_csv(WAVE_REGISTRY_CSV)
 
 
-def load_history_df(wave_id: str) -> pd.DataFrame:
+def load_history_df(wave_id: str) -> Optional[pd.DataFrame]:
+    """
+    Load per-wave history.
+    Returns None if history is missing (never raises).
+    """
     path = HISTORY_DIR / f"{wave_id}_history.csv"
     if not path.exists():
-        raise FileNotFoundError(f"History file missing for wave: {wave_id}")
+        print(f"[WARN] Skipping wave '{wave_id}' — history file not found")
+        return None
+
     df = pd.read_csv(path, parse_dates=["date"])
     df.set_index("date", inplace=True)
     return df
 
 
-def load_diagnostics_df(wave_id: str) -> pd.DataFrame | None:
+def load_diagnostics_df(wave_id: str) -> Optional[pd.DataFrame]:
+    """
+    Load optional diagnostics data.
+    Missing diagnostics are allowed.
+    """
     path = DIAGNOSTICS_DIR / f"{wave_id}_diagnostics.csv"
     if not path.exists():
         return None
+
     df = pd.read_csv(path, parse_dates=["date"])
     df.set_index("date", inplace=True)
     return df
@@ -77,7 +88,6 @@ def load_diagnostics_df(wave_id: str) -> pd.DataFrame | None:
 
 def build_alpha_attribution_summary() -> pd.DataFrame:
     registry = load_wave_registry()
-
     rows: List[dict] = []
 
     for _, row in registry.iterrows():
@@ -86,13 +96,16 @@ def build_alpha_attribution_summary() -> pd.DataFrame:
         mode = row.get("mode", DEFAULT_MODE)
 
         history_df = load_history_df(wave_id)
+        if history_df is None:
+            continue  # ← critical: skip safely
+
         diagnostics_df = load_diagnostics_df(wave_id)
 
-        # Enforce lookback window (e.g. 365D)
+        # Enforce lookback window
         if len(history_df) > DEFAULT_LOOKBACK_DAYS:
             history_df = history_df.tail(DEFAULT_LOOKBACK_DAYS)
 
-        # Compute REAL attribution
+        # Compute REAL attribution (engine-owned math)
         _, summary = compute_alpha_attribution_series_safe(
             wave_name=wave_name,
             mode=mode,
@@ -101,6 +114,9 @@ def build_alpha_attribution_summary() -> pd.DataFrame:
         )
 
         rows.append(summary.to_dict())
+
+    if not rows:
+        raise RuntimeError("No waves produced attribution output")
 
     df = pd.DataFrame(rows)
 
@@ -127,9 +143,7 @@ def build_alpha_attribution_summary() -> pd.DataFrame:
         "asset_selection_contribution_pct",
     ]
 
-    df = df[ordered_cols]
-
-    return df
+    return df[ordered_cols]
 
 
 # ---------------------------------------------------------------------
@@ -140,7 +154,6 @@ def main() -> None:
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
 
     df = build_alpha_attribution_summary()
-
     df.to_csv(OUTPUT_CSV, index=False)
 
     print("Alpha attribution summary CSV built successfully")
@@ -150,4 +163,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    
