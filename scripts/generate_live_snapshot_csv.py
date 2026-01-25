@@ -52,7 +52,7 @@ def generate_live_snapshot_csv(out_path: Path = OUTPUT_PATH) -> pd.DataFrame:
 
     rows = []
 
-    for wave_id, group in weights.groupby("wave_id"):
+    for wave_id, group in weights.groupby("wave"):
         tickers = group["ticker"].tolist()
         wts = group["weight"].values
 
