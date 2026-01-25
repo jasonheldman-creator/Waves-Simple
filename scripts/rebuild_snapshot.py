@@ -2,25 +2,37 @@
 """
 Rebuild snapshot script for GitHub Actions workflow.
 
-This script rebuilds the live snapshot by loading the canonical
-live_snapshot.csv via snapshot_ledger and re-emitting it with
-a guaranteed schema.
+This script rebuilds the live snapshot by calling generate_snapshot()
+from helpers.snapshot_ledger.
 
 IMPORTANT:
-- This script DOES NOT compute returns or alpha
-- It validates and rewrites the snapshot so the app can consume it
+- This file is responsible for WRITING data/live_snapshot.csv
+- helpers/snapshot_ledger.py only LOADS / FORMATS the snapshot
 """
 
 import sys
 import os
 from pathlib import Path
 
-# Add repo root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# ------------------------------------------------------------------
+# Ensure project root is on PYTHONPATH
+# ------------------------------------------------------------------
 
-from snapshot_ledger import generate_snapshot
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
+
+# ------------------------------------------------------------------
+# CORRECT IMPORT (THIS WAS THE BUG)
+# ------------------------------------------------------------------
+
+from helpers.snapshot_ledger import generate_snapshot
+
+# ------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------
 
 SEPARATOR = "=" * 80
+OUTPUT_PATH = Path("data/live_snapshot.csv")
 
 REQUIRED_COLUMNS = [
     "Wave_ID",
@@ -45,25 +57,29 @@ REQUIRED_COLUMNS = [
     "CashPercent",
 ]
 
+# ------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------
 
 def main() -> int:
     try:
         print("\n" + SEPARATOR)
-        print("REBUILD SNAPSHOT WORKFLOW — CANONICAL SCHEMA ENFORCEMENT")
+        print("REBUILD SNAPSHOT WORKFLOW")
         print(SEPARATOR)
 
-        output_path = Path("data/live_snapshot.csv")
+        # Generate snapshot and WRITE CSV
+        df = generate_snapshot(output_path=OUTPUT_PATH)
 
-        df = generate_snapshot(output_path=output_path)
-
-        print("\nFINAL SUMMARY")
+        print("\n" + SEPARATOR)
+        print("FINAL SNAPSHOT SUMMARY")
         print(SEPARATOR)
-        print(f"✓ Row count: {len(df)}")
-        print(f"✓ Column count: {len(df.columns)}")
+
+        print(f"✓ Rows written: {len(df)}")
+        print(f"✓ Columns written: {len(df.columns)}")
 
         missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
         if missing:
-            print(f"✗ Missing columns: {missing}")
+            print(f"⚠ Missing columns: {missing}")
         else:
             print("✓ All required columns present")
 
@@ -71,7 +87,8 @@ def main() -> int:
         return 0
 
     except Exception as e:
-        print(f"\n✗ Snapshot rebuild failed: {e}")
+        print("\n✗ SNAPSHOT REBUILD FAILED")
+        print(str(e))
         import traceback
         traceback.print_exc()
         return 1
