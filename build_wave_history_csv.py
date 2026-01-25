@@ -7,14 +7,21 @@ PURPOSE
 Generate REAL per-wave historical return series required for
 alpha attribution.
 
+OUTPUT (CRITICAL)
+-----------------
+Writes:
+  data/history/{wave_id}/history.csv
+
+Schema:
+  date, wave_return, benchmark_return
+
 GUARANTEES
 ----------
 • Uses existing WAVES data sources only
 • Produces NO synthetic data
-• Skips waves with missing inputs (with diagnostics)
+• Never silently skips a wave
 • NEVER fails CI
-• Writes data/history/{wave_id}_history.csv when possible
-• Schema is attribution-safe and deterministic
+• Deterministic + attribution-safe
 """
 
 from __future__ import annotations
@@ -31,34 +38,30 @@ from typing import Dict, Optional
 PRICE_CACHE = Path("data/cache/prices_cache.parquet")
 WAVE_REGISTRY_CSV = Path("data/wave_registry.csv")
 WAVE_WEIGHTS_DIR = Path("data/waves")
-OUTPUT_DIR = Path("data/history")
+OUTPUT_ROOT = Path("data/history")
 
-DEFAULT_LOOKBACK_DAYS = 365
+LOOKBACK_DAYS = 365
 
 
 # ---------------------------------------------------------------------
-# HELPERS
+# LOGGING
 # ---------------------------------------------------------------------
 
 def log(msg: str) -> None:
     print(msg)
 
 
+# ---------------------------------------------------------------------
+# LOADERS
+# ---------------------------------------------------------------------
+
 def normalize_ticker(t: str) -> str:
-    """
-    Canonical ticker normalization to maximize cache alignment.
-    """
-    return (
-        str(t)
-        .upper()
-        .strip()
-        .replace(".", "-")
-    )
+    return str(t).upper().strip().replace(".", "-")
 
 
 def load_price_cache() -> Optional[pd.DataFrame]:
     if not PRICE_CACHE.exists():
-        log("[SKIP] Price cache missing")
+        log("[EXIT] prices_cache.parquet missing")
         return None
 
     df = pd.read_parquet(PRICE_CACHE)
@@ -69,7 +72,6 @@ def load_price_cache() -> Optional[pd.DataFrame]:
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date")
 
-    # Normalize all price column tickers
     rename_map = {
         c: normalize_ticker(c)
         for c in df.columns
@@ -82,17 +84,19 @@ def load_price_cache() -> Optional[pd.DataFrame]:
 
 def load_wave_registry() -> pd.DataFrame:
     if not WAVE_REGISTRY_CSV.exists():
-        log("[SKIP] Wave registry missing")
+        log("[EXIT] wave_registry.csv missing")
         return pd.DataFrame()
 
-    return pd.read_csv(WAVE_REGISTRY_CSV)
+    df = pd.read_csv(WAVE_REGISTRY_CSV)
+
+    if "wave_id" not in df.columns or "benchmark_spec" not in df.columns:
+        log("[EXIT] wave_registry.csv missing required columns")
+        return pd.DataFrame()
+
+    return df
 
 
 def load_wave_weights(wave_id: str) -> Optional[Dict[str, float]]:
-    """
-    Expected path:
-    data/waves/{wave_id}/weights.csv
-    """
     path = WAVE_WEIGHTS_DIR / wave_id / "weights.csv"
 
     if not path.exists():
@@ -101,51 +105,33 @@ def load_wave_weights(wave_id: str) -> Optional[Dict[str, float]]:
 
     df = pd.read_csv(path)
 
-    # Allow either ticker or symbol column
-    if "ticker" in df.columns:
-        ticker_col = "ticker"
-    elif "symbol" in df.columns:
-        ticker_col = "symbol"
-    else:
-        log(f"[SKIP] {wave_id}: weights.csv missing ticker column")
-        return None
-
-    if "weight" not in df.columns:
-        log(f"[SKIP] {wave_id}: weights.csv missing weight column")
+    ticker_col = "ticker" if "ticker" in df.columns else "symbol" if "symbol" in df.columns else None
+    if ticker_col is None or "weight" not in df.columns:
+        log(f"[SKIP] {wave_id}: invalid weights.csv schema")
         return None
 
     df = df[[ticker_col, "weight"]].dropna()
+    df = df[df["weight"] != 0]
 
     if df.empty:
-        log(f"[SKIP] {wave_id}: weights.csv empty after cleaning")
-        return None
-
-    weights = {
-        normalize_ticker(t): float(w)
-        for t, w in zip(df[ticker_col], df["weight"])
-        if w != 0
-    }
-
-    if not weights:
         log(f"[SKIP] {wave_id}: all weights zero")
         return None
 
-    return weights
+    return {
+        normalize_ticker(t): float(w)
+        for t, w in zip(df[ticker_col], df["weight"])
+    }
 
 
 def extract_benchmark(benchmark_spec: str) -> Optional[str]:
-    """
-    Extract first benchmark ticker from registry spec.
-    Example:
-    'SPY:1.0' → 'SPY'
-    'QQQ,SPY' → 'QQQ'
-    """
     if not isinstance(benchmark_spec, str):
         return None
+    return normalize_ticker(benchmark_spec.split(",")[0].split(":")[0])
 
-    raw = benchmark_spec.split(",")[0].split(":")[0]
-    return normalize_ticker(raw)
 
+# ---------------------------------------------------------------------
+# CORE LOGIC
+# ---------------------------------------------------------------------
 
 def compute_weighted_returns(
     returns_df: pd.DataFrame,
@@ -157,92 +143,76 @@ def compute_weighted_returns(
         return None
 
     aligned = returns_df[list(weights.keys())]
-
-    weighted = aligned.mul(
-        pd.Series(weights),
-        axis=1
-    ).sum(axis=1)
-
+    weighted = aligned.mul(pd.Series(weights), axis=1).sum(axis=1)
     weighted = weighted.dropna()
 
-    if weighted.empty:
-        return None
-
-    return weighted
+    return None if weighted.empty else weighted
 
 
 # ---------------------------------------------------------------------
-# MAIN BUILD
+# MAIN
 # ---------------------------------------------------------------------
 
 def build_wave_history() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    price_df = load_price_cache()
-    if price_df is None or price_df.empty:
-        log("[EXIT] No price data available")
+    prices = load_price_cache()
+    if prices is None or prices.empty:
         return
 
     registry = load_wave_registry()
     if registry.empty:
-        log("[EXIT] Wave registry empty")
         return
 
-    # Restrict lookback window
-    price_df = price_df.tail(DEFAULT_LOOKBACK_DAYS)
-    price_df = price_df.set_index("date")
+    prices = prices.tail(LOOKBACK_DAYS).set_index("date")
+    returns = prices.pct_change().dropna(how="all")
 
-    # Compute daily returns ONCE
-    returns_df = price_df.pct_change().dropna(how="all")
-
-    waves_built = 0
+    waves_written = 0
 
     for _, row in registry.iterrows():
-        wave_id = row.get("wave_id")
-        benchmark_spec = row.get("benchmark_spec")
+        wave_id = row["wave_id"]
+        benchmark_spec = row["benchmark_spec"]
 
-        if not isinstance(wave_id, str):
-            continue
+        log(f"[WAVE] Processing {wave_id}")
 
         benchmark = extract_benchmark(benchmark_spec)
-        if not benchmark:
-            log(f"[SKIP] {wave_id}: invalid benchmark spec")
+        if benchmark not in returns.columns:
+            log(f"[SKIP] {wave_id}: benchmark missing")
             continue
 
         weights = load_wave_weights(wave_id)
         if weights is None:
             continue
 
-        if benchmark not in returns_df.columns:
-            log(f"[SKIP] {wave_id}: benchmark '{benchmark}' missing from cache")
-            continue
-
-        wave_returns = compute_weighted_returns(returns_df, weights)
+        wave_returns = compute_weighted_returns(returns, weights)
         if wave_returns is None:
-            log(f"[SKIP] {wave_id}: could not compute wave returns")
+            log(f"[SKIP] {wave_id}: could not compute returns")
             continue
 
-        benchmark_returns = returns_df[benchmark].loc[wave_returns.index]
+        bench_returns = returns[benchmark].loc[wave_returns.index]
 
         out_df = pd.DataFrame({
             "date": wave_returns.index,
             "wave_return": wave_returns.values,
-            "benchmark_return": benchmark_returns.values,
+            "benchmark_return": bench_returns.values,
         })
 
         if out_df.empty:
-            log(f"[SKIP] {wave_id}: output empty after alignment")
+            log(f"[SKIP] {wave_id}: empty output")
             continue
 
-        out_path = OUTPUT_DIR / f"{wave_id}_history.csv"
+        wave_dir = OUTPUT_ROOT / wave_id
+        wave_dir.mkdir(parents=True, exist_ok=True)
+
+        out_path = wave_dir / "history.csv"
         out_df.to_csv(out_path, index=False)
 
-        waves_built += 1
-        log(f"[OK] Built history for {wave_id}")
+        waves_written += 1
+        log(f"[OK] Wrote {out_path}")
 
     log("======================================")
     log("Wave history build complete")
-    log(f"Waves written: {waves_built}")
+    log(f"Waves written: {waves_written}")
     log("======================================")
 
 
