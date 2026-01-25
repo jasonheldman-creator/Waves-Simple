@@ -77,7 +77,7 @@ def safe_read_csv(path: str) -> pd.DataFrame | None:
 df = safe_read_csv("data/live_snapshot.csv")
 attr_summary = safe_read_csv("data/alpha_attribution_summary.csv")
 
-# 🔍 DIAGNOSTIC — DO NOT REMOVE YET
+# 🔍 DIAGNOSTIC — SAFE TO REMOVE LATER
 st.write(
     "DEBUG — alpha_attribution_summary.csv exists:",
     Path("data/alpha_attribution_summary.csv").exists()
@@ -190,22 +190,60 @@ with tab_overview:
     )
 
 # ======================================================
-# ALPHA ATTRIBUTION TAB (SAFE + REAL)
+# ALPHA ATTRIBUTION TAB (SAFE + REAL + NORMALIZED)
 # ======================================================
 with tab_attr:
 
     st.subheader("⚡ Alpha Attribution Breakdown (365D)")
 
-    if attr_summary is None:
+    if attr_summary is None or attr_summary.empty:
         st.warning("⏳ Alpha attribution data not yet available. Awaiting next build.")
         st.stop()
 
-    if attribution_scope == "Portfolio":
-        scope_df = attr_summary
-        scope_label = "Portfolio — All Waves"
+    # -------------------------------
+    # NORMALIZATION HELPERS (MINIMAL)
+    # -------------------------------
+    def _norm_str(x):
+        return str(x).strip().lower()
+
+    def _norm_horizon(x):
+        v = _norm_str(x)
+        if v in {"365", "365d", "1y", "1yr", "one year"}:
+            return "365d"
+        return v
+
+    scope_df = attr_summary.copy()
+
+    # Normalize wave names
+    if "wave_name" in scope_df.columns:
+        scope_df["_wave_norm"] = scope_df["wave_name"].apply(_norm_str)
     else:
-        scope_df = attr_summary[attr_summary["wave_name"] == selected_wave]
+        scope_df["_wave_norm"] = ""
+
+    # Normalize horizon / days
+    if "days" in scope_df.columns:
+        scope_df["_horizon_norm"] = scope_df["days"].apply(_norm_horizon)
+    elif "horizon" in scope_df.columns:
+        scope_df["_horizon_norm"] = scope_df["horizon"].apply(_norm_horizon)
+    else:
+        scope_df["_horizon_norm"] = "365d"
+
+    # Apply scope
+    if attribution_scope == "Portfolio":
+        scope_label = "Portfolio — All Waves"
+        filtered_df = scope_df
+    else:
         scope_label = selected_wave
+        filtered_df = scope_df[
+            scope_df["_wave_norm"] == _norm_str(selected_wave)
+        ]
+
+    # Prefer 365D, but gracefully fall back
+    df_365 = filtered_df[
+        filtered_df["_horizon_norm"] == "365d"
+    ]
+
+    scope_df = df_365 if not df_365.empty else filtered_df
 
     if scope_df.empty:
         st.warning("No attribution data available for the selected scope.")
