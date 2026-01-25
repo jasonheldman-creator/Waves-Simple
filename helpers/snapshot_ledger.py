@@ -1,36 +1,35 @@
 """
 snapshot_ledger.py
 
-Canonical snapshot assembly logic.
-Responsible for producing the base snapshot rows,
-then applying safe, additive enrichment layers.
+Canonical snapshot construction layer.
+
+Responsibilities:
+- Assemble per-wave snapshot rows
+- Merge returns and metadata
+- Output snapshot-ready DataFrame
+
+This file DOES NOT:
+- Compute VIX logic
+- Apply strategies
+- Perform attribution
+
+Those are additive layers handled elsewhere.
 """
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional
+from typing import Optional
 import pandas as pd
-
-# --- Enrichment imports (Phase-2 additive) ---
-from helpers.snapshot_enrichment import (
-    enrich_snapshot_with_vix,
-    enrich_snapshot_with_strategy,
-)
 
 
 def build_snapshot(
     snapshot_df: pd.DataFrame,
-    price_df: Optional[pd.DataFrame] = None,
-    strategy_lookup: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> pd.DataFrame:
     """
-    Build and enrich the snapshot.
+    Core snapshot builder.
 
-    Flow:
-    1. Assume snapshot_df already contains core Wave rows
-    2. Apply VIX enrichment (safe no-op)
-    3. Apply strategy enrichment (safe no-op)
-    4. Return enriched snapshot
+    At this stage, this function is intentionally minimal.
+    It guarantees snapshot integrity and shape without enrichment.
     """
 
     if snapshot_df is None or snapshot_df.empty:
@@ -38,8 +37,11 @@ def build_snapshot(
 
     df = snapshot_df.copy()
 
-    # --- Phase 2 enrichment layers (SAFE) ---
-    df = enrich_snapshot_with_vix(df, price_df=price_df)
-    df = enrich_snapshot_with_strategy(df, strategy_lookup=strategy_lookup)
+    # Ensure required columns exist (defensive)
+    if "Wave_ID" not in df.columns:
+        raise ValueError("Snapshot missing Wave_ID")
+
+    if "Return" not in df.columns:
+        df["Return"] = 0.0
 
     return df
