@@ -1,6 +1,7 @@
-name: Rebuild Snapshot
+name: Rebuild Live Snapshot
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -8,19 +9,45 @@ on:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
 
-      - name: Set up Python environment
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
-          python3 -m pip install --upgrade pip
+          python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           else
-            pip install numpy
+            pip install pandas numpy yfinance
           fi
 
-      - name: Run rebuild snapshot script
+      - name: Verify required inputs
         run: |
-          # Add your rebuild snapshot command here
+          echo "Checking required files..."
+          test -f data/wave_weights.csv || (echo "❌ data/wave_weights.csv missing" && exit 1)
+          echo "✅ wave_weights.csv found"
+
+      - name: Generate live snapshot
+        run: |
+          python scripts/generate_live_snapshot_csv.py
+
+      - name: Verify output snapshot
+        run: |
+          test -f data/live_snapshot.csv || (echo "❌ live_snapshot.csv not created" && exit 1)
+          echo "✅ live_snapshot.csv created"
+          wc -l data/live_snapshot.csv
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data/live_snapshot.csv
+          git commit -m "Rebuild live snapshot" || echo "No changes to commit"
+          git push
