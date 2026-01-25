@@ -2,90 +2,92 @@
 snapshot_ledger.py
 
 Canonical snapshot assembly logic.
-
-Responsible for:
-- Loading the base snapshot
-- Applying safe, additive enrichment layers
-- Returning a fully populated snapshot for rebuild_snapshot.py
-
-This file is the SINGLE source of truth for snapshot generation.
+This file is the SINGLE source of truth for snapshot loading.
 """
 
 from __future__ import annotations
 
 from typing import Optional
 from pathlib import Path
-
 import pandas as pd
 
 
-# ---------------------------------------------------------
-# Base snapshot loader
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
+# Snapshot schema (THIS is what Alpha Attribution depends on)
+# -------------------------------------------------------------------
+
+SNAPSHOT_COLUMNS = [
+    "Wave_ID",
+    "Wave_Name",
+    "Asset_Class",
+    "Mode",
+    "Snapshot_Date",
+
+    "Return_1D",
+    "Return_30D",
+    "Return_60D",
+    "Return_365D",
+
+    "Alpha_1D",
+    "Alpha_30D",
+    "Alpha_60D",
+    "Alpha_365D",
+
+    "Benchmark_Return_1D",
+    "Benchmark_Return_30D",
+    "Benchmark_Return_60D",
+    "Benchmark_Return_365D",
+
+    "VIX_Regime",
+    "Exposure",
+    "CashPercent",
+]
+
+
+# -------------------------------------------------------------------
+# Base snapshot loader (FIXED)
+# -------------------------------------------------------------------
 
 def load_snapshot() -> pd.DataFrame:
     """
     Load the base live snapshot from disk.
 
-    This function does NOT apply enrichment.
+    IMPORTANT:
+    - live_snapshot.csv has NO HEADER ROW
+    - We must supply column names explicitly
     """
+
     snapshot_path = Path("data/live_snapshot.csv")
 
     if not snapshot_path.exists():
         raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
 
-    df = pd.read_csv(snapshot_path)
+    df = pd.read_csv(
+        snapshot_path,
+        header=None,              # 🔑 THIS IS THE FIX
+        names=SNAPSHOT_COLUMNS,   # 🔑 THIS IS THE FIX
+    )
+
     return df
 
 
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
 # Snapshot generator (called by rebuild_snapshot.py)
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
 
 def generate_snapshot(
     output_path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """
-    Generate the canonical snapshot.
+    Generate (or reload) the canonical snapshot.
 
-    This function:
-    - Loads the base snapshot
-    - Applies enrichment layers (VIX, strategy)
-    - Optionally writes the result to disk
+    NOTE:
+    - This function does NOT enrich
+    - Enrichment layers are applied elsewhere
     """
 
-    # 1. Load base snapshot
     df = load_snapshot()
 
-    # 2. Apply enrichment layers (SAFE / NON-FATAL)
-    try:
-        from helpers.snapshot_enrichment import (
-            enrich_snapshot_with_vix,
-            enrich_snapshot_with_strategy,
-        )
-
-        # VIX enrichment
-        try:
-            from helpers.price_book import get_price_book
-            price_df = get_price_book()
-            df = enrich_snapshot_with_vix(df, price_df)
-        except Exception:
-            # VIX enrichment is optional
-            pass
-
-        # Strategy enrichment
-        try:
-            from helpers.strategy_registry import STRATEGY_LOOKUP
-            df = enrich_snapshot_with_strategy(df, STRATEGY_LOOKUP)
-        except Exception:
-            # Strategy enrichment is optional
-            pass
-
-    except Exception:
-        # Snapshot must still return even if enrichment fails
-        pass
-
-    # 3. Write output if requested
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, index=False)
@@ -93,9 +95,9 @@ def generate_snapshot(
     return df
 
 
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
 # Public API
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
 
 __all__ = [
     "load_snapshot",
