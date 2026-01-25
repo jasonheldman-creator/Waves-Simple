@@ -1,4 +1,4 @@
-name: Build Canonical Snapshot
+name: Build Live Snapshot
 
 on:
   workflow_dispatch:
@@ -8,41 +8,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -------------------------------------------------
-      # 1. Checkout repository
-      # -------------------------------------------------
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # -------------------------------------------------
-      # 2. Set up Python
-      # -------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # -------------------------------------------------
-      # 3. Install dependencies
-      # -------------------------------------------------
       - name: Install dependencies
         run: |
-          pip install pandas
+          pip install pandas pyarrow numpy
 
-      # -------------------------------------------------
-      # 4. BUILD CANONICAL SNAPSHOT (REAL FIX)
-      # -------------------------------------------------
-      - name: Build canonical snapshot
+      - name: Generate live snapshot
         run: |
-          python helpers/helpers/build_canonical_snapshot.py
+          python scripts/generate_live_snapshot_csv.py
 
-      # -------------------------------------------------
-      # 5. Commit canonical snapshot
-      # -------------------------------------------------
-      - name: Commit canonical snapshot
+      - name: Commit snapshot
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add data/canonical_snapshot.csv
-          git commit -m "Build canonical snapshot" || echo "No changes to commit"
+          git add data/live_snapshot.csv
+          git commit -m "Generate live snapshot" || echo "No changes"
           git push
