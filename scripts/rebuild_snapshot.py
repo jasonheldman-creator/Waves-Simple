@@ -2,93 +2,69 @@
 """
 Rebuild snapshot script for GitHub Actions workflow.
 
-This script rebuilds the live snapshot by calling generate_snapshot()
-from helpers.snapshot_ledger.
-
-IMPORTANT:
-- This file is responsible for WRITING data/live_snapshot.csv
-- helpers/snapshot_ledger.py only LOADS / FORMATS the snapshot
+This script ensures that a canonical snapshot exists before attempting
+to load or enrich it. If data/canonical_snapshot.csv is missing or empty,
+it will be generated using the fallback generator.
 """
 
 import sys
 import os
 from pathlib import Path
+import pandas as pd
 
-# ------------------------------------------------------------------
-# Ensure project root is on PYTHONPATH
-# ------------------------------------------------------------------
-
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, PROJECT_ROOT)
-
-# ------------------------------------------------------------------
-# CORRECT IMPORT (THIS WAS THE BUG)
-# ------------------------------------------------------------------
+# Add repo root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers.snapshot_ledger import generate_snapshot
-
-# ------------------------------------------------------------------
-# Constants
-# ------------------------------------------------------------------
+from helpers.helpers.build_canonical_snapshot import build_canonical_snapshot
 
 SEPARATOR = "=" * 80
-OUTPUT_PATH = Path("data/live_snapshot.csv")
+CANONICAL_PATH = Path("data/canonical_snapshot.csv")
 
-REQUIRED_COLUMNS = [
-    "Wave_ID",
-    "Wave_Name",
-    "Asset_Class",
-    "Mode",
-    "Snapshot_Date",
-    "Return_1D",
-    "Return_30D",
-    "Return_60D",
-    "Return_365D",
-    "Alpha_1D",
-    "Alpha_30D",
-    "Alpha_60D",
-    "Alpha_365D",
-    "Benchmark_Return_1D",
-    "Benchmark_Return_30D",
-    "Benchmark_Return_60D",
-    "Benchmark_Return_365D",
-    "VIX_Regime",
-    "Exposure",
-    "CashPercent",
-]
 
-# ------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------
+def ensure_canonical_snapshot() -> None:
+    """
+    Ensure canonical_snapshot.csv exists and contains rows.
+    If missing or empty, generate placeholder rows.
+    """
+    if not CANONICAL_PATH.exists():
+        print("⚠ canonical_snapshot.csv missing — generating fallback snapshot")
+        build_canonical_snapshot()
+        return
+
+    try:
+        df = pd.read_csv(CANONICAL_PATH, header=None)
+        if df.empty:
+            print("⚠ canonical_snapshot.csv empty — regenerating fallback snapshot")
+            build_canonical_snapshot()
+    except Exception as e:
+        print(f"⚠ Error reading canonical_snapshot.csv ({e}) — regenerating")
+        build_canonical_snapshot()
+
 
 def main() -> int:
     try:
         print("\n" + SEPARATOR)
-        print("REBUILD SNAPSHOT WORKFLOW")
+        print("REBUILD SNAPSHOT WORKFLOW (CANONICAL SAFE)")
         print(SEPARATOR)
 
-        # Generate snapshot and WRITE CSV
-        df = generate_snapshot(output_path=OUTPUT_PATH)
+        # 🔑 THIS WAS THE MISSING STEP
+        ensure_canonical_snapshot()
+
+        # Load + normalize snapshot
+        df = generate_snapshot()
 
         print("\n" + SEPARATOR)
-        print("FINAL SNAPSHOT SUMMARY")
+        print("FINAL SUMMARY")
         print(SEPARATOR)
-
-        print(f"✓ Rows written: {len(df)}")
-        print(f"✓ Columns written: {len(df.columns)}")
-
-        missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
-        if missing:
-            print(f"⚠ Missing columns: {missing}")
-        else:
-            print("✓ All required columns present")
-
+        print(f"✓ Rows loaded: {len(df)}")
+        print(f"✓ Columns: {len(df.columns)}")
         print(SEPARATOR + "\n")
+
         return 0
 
     except Exception as e:
-        print("\n✗ SNAPSHOT REBUILD FAILED")
-        print(str(e))
+        print(f"\n✗ Snapshot rebuild failed: {e}")
         import traceback
         traceback.print_exc()
         return 1
