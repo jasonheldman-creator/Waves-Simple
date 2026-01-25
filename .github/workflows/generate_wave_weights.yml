@@ -22,16 +22,20 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install pandas
 
       - name: Generate weights.csv for all waves
         run: |
-          python scripts/generate_all_wave_weights.py
+          python generate_all_wave_weights.py
 
       - name: Commit generated weights
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
           git add data/waves/*/weights.csv
-          git commit -m "Generate canonical weights.csv for all waves" || echo "No changes to commit"
+
+          git diff --cached --quiet || git commit -m "Generate canonical weights.csv for all waves"
+
           git push
