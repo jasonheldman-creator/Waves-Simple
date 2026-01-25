@@ -97,3 +97,4 @@ def enrich_snapshot_with_strategy(
         df.at[idx, "strategy_stack_applied"] = bool(stack)
 
     return df
+    
