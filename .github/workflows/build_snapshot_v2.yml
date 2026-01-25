@@ -1,4 +1,4 @@
-name: Build Snapshot V2
+name: Build Canonical Snapshot
 
 on:
   workflow_dispatch:
@@ -8,26 +8,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # -------------------------------------------------
+      # 1. Checkout repository
+      # -------------------------------------------------
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      # -------------------------------------------------
+      # 2. Set up Python
+      # -------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      # -------------------------------------------------
+      # 3. Install dependencies
+      # -------------------------------------------------
       - name: Install dependencies
         run: |
           pip install pandas
 
-      - name: Build snapshot v2
+      # -------------------------------------------------
+      # 4. BUILD CANONICAL SNAPSHOT (REAL FIX)
+      # -------------------------------------------------
+      - name: Build canonical snapshot
         run: |
-          python scripts/build_snapshot_v2.py
+          python helpers/helpers/build_canonical_snapshot.py
 
-      - name: Commit snapshot
+      # -------------------------------------------------
+      # 5. Commit canonical snapshot
+      # -------------------------------------------------
+      - name: Commit canonical snapshot
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add data/live_snapshot_v2.csv
-          git commit -m "Build snapshot v2" || echo "No changes"
+          git add data/canonical_snapshot.csv
+          git commit -m "Build canonical snapshot" || echo "No changes to commit"
           git push
