@@ -1,0 +1,6 @@
+Wave_ID,Wave_Name,Asset_Class,Mode,Snapshot_Date,Return_1D,Return_30D,Return_60D,Return_365D,Alpha_1D,Alpha_30D,Alpha_60D,Alpha_365D,Benchmark_Return_1D,Benchmark_Return_30D,Benchmark_Return_60D,Benchmark_Return_365D,VIX_Regime,Exposure,CashPercent
+sp500_wave,S&P 500 Wave,Equity,Standard,2026-01-25,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,UNKNOWN,1.0,0.0
+ai_cloud_megacap_wave,AI & Cloud MegaCap Wave,Equity,Standard,2026-01-25,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,UNKNOWN,1.0,0.0
+clean_transit_infrastructure_wave,Clean Transit-Infrastructure Wave,Equity,Standard,2026-01-25,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,UNKNOWN,1.0,0.0
+gold_wave,Gold Wave,Commodity,Standard,2026-01-25,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,UNKNOWN,1.0,0.0
+income_wave,Income Wave,Fixed Income,Standard,2026-01-25,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,UNKNOWN,1.0,0.0
