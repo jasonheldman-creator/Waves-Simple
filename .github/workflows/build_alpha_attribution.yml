@@ -3,10 +3,7 @@ name: Build Alpha Attribution CSV
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 2 * * 2-6"  # Tue–Sat after market close (UTC)
-
-permissions:
-  contents: write
+    - cron: "0 2 * * 2-6"
 
 jobs:
   build:
