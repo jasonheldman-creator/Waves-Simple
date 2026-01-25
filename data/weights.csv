@@ -1,6 +1,11 @@
 wave_id,ticker,weight
-1,Ticker1,0.5
-1,Ticker2,0.5
-2,Ticker3,0.333
-2,Ticker4,0.333
-2,Ticker5,0.333
+AI & Cloud MegaCap Wave,NVDA,0.12
+AI & Cloud MegaCap Wave,MSFT,0.10
+AI & Cloud MegaCap Wave,GOOGL,0.08
+AI & Cloud MegaCap Wave,META,0.07
+AI & Cloud MegaCap Wave,AVGO,0.08
+AI & Cloud MegaCap Wave,ADBE,0.07
+AI & Cloud MegaCap Wave,AMD,0.08
+AI & Cloud MegaCap Wave,CRM,0.06
+AI & Cloud MegaCap Wave,ORCL,0.06
+AI & Cloud MegaCap Wave,INTC,0.06
