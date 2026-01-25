@@ -3,6 +3,11 @@ snapshot_ledger.py
 
 Canonical snapshot assembly logic.
 This file is the SINGLE source of truth for snapshot loading.
+
+CRITICAL:
+- live_snapshot.csv DOES NOT contain a header row
+- Column names MUST be injected here
+- Alpha Attribution depends on this schema
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ SNAPSHOT_COLUMNS = [
 
 
 # -------------------------------------------------------------------
-# Base snapshot loader (FIXED)
+# Base snapshot loader (FIXED — schema enforced)
 # -------------------------------------------------------------------
 
 def load_snapshot() -> pd.DataFrame:
@@ -54,7 +59,7 @@ def load_snapshot() -> pd.DataFrame:
 
     IMPORTANT:
     - live_snapshot.csv has NO HEADER ROW
-    - We must supply column names explicitly
+    - We MUST supply column names explicitly
     """
 
     snapshot_path = Path("data/live_snapshot.csv")
@@ -64,15 +69,15 @@ def load_snapshot() -> pd.DataFrame:
 
     df = pd.read_csv(
         snapshot_path,
-        header=None,              # 🔑 THIS IS THE FIX
-        names=SNAPSHOT_COLUMNS,   # 🔑 THIS IS THE FIX
+        header=None,            # 🔑 CRITICAL FIX
+        names=SNAPSHOT_COLUMNS, # 🔑 CRITICAL FIX
     )
 
     return df
 
 
 # -------------------------------------------------------------------
-# Snapshot generator (called by rebuild_snapshot.py)
+# Snapshot generator (called by scripts/rebuild_snapshot.py)
 # -------------------------------------------------------------------
 
 def generate_snapshot(
