@@ -62,7 +62,7 @@ def load_snapshot() -> pd.DataFrame:
     - Column names MUST be injected here
     """
 
-    snapshot_path = Path("data/live_snapshot.csv")
+    snapshot_path = Path("data/canonical_snapshot.csv")
 
     if not snapshot_path.exists():
         raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
