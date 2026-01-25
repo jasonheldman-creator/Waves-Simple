@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
 
 # ======================================================
 # PAGE CONFIG
@@ -56,10 +57,27 @@ body {
 """, unsafe_allow_html=True)
 
 # ======================================================
+# SAFE DATA LOADERS
+# ======================================================
+@st.cache_data(show_spinner=False)
+def safe_read_csv(path: str) -> pd.DataFrame | None:
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        return pd.read_csv(p)
+    except Exception:
+        return None
+
+# ======================================================
 # LOAD DATA
 # ======================================================
-df = pd.read_csv("data/live_snapshot.csv")
-attr_summary = pd.read_csv("data/alpha_attribution_summary.csv")
+df = safe_read_csv("data/live_snapshot.csv")
+attr_summary = safe_read_csv("data/alpha_attribution_summary.csv")
+
+if df is None:
+    st.error("❌ live_snapshot.csv not found — system cannot start.")
+    st.stop()
 
 portfolio = df.mean(numeric_only=True)
 wave_list = sorted(df["Wave"].unique())
@@ -164,11 +182,15 @@ with tab_overview:
     )
 
 # ======================================================
-# ALPHA ATTRIBUTION TAB (REAL, RECONCILED)
+# ALPHA ATTRIBUTION TAB (SAFE + REAL)
 # ======================================================
 with tab_attr:
 
     st.subheader("⚡ Alpha Attribution Breakdown (365D)")
+
+    if attr_summary is None:
+        st.warning("⏳ Alpha attribution data not yet available. Awaiting next build.")
+        st.stop()
 
     if attribution_scope == "Portfolio":
         scope_df = attr_summary
@@ -179,37 +201,38 @@ with tab_attr:
 
     if scope_df.empty:
         st.warning("No attribution data available for the selected scope.")
-    else:
-        total_alpha = scope_df["total_alpha"].mean()
+        st.stop()
 
-        rows = []
-        for label, (alpha_col, pct_col) in ATTR_MAP.items():
-            if alpha_col in scope_df.columns and pct_col in scope_df.columns:
-                rows.append({
-                    "Component": label,
-                    "Alpha Contribution": scope_df[alpha_col].mean(),
-                    "% of Total Alpha": scope_df[pct_col].mean()
-                })
+    total_alpha = scope_df["total_alpha"].mean()
 
-        attr_df = pd.DataFrame(rows).set_index("Component")
+    rows = []
+    for label, (alpha_col, pct_col) in ATTR_MAP.items():
+        if alpha_col in scope_df.columns and pct_col in scope_df.columns:
+            rows.append({
+                "Component": label,
+                "Alpha Contribution": scope_df[alpha_col].mean(),
+                "% of Total Alpha": scope_df[pct_col].mean()
+            })
 
-        st.markdown(f"**Scope:** {scope_label}")
-        st.markdown(f"**Total Alpha (365D):** `{total_alpha:.4f}`")
+    attr_df = pd.DataFrame(rows).set_index("Component")
 
-        def style_pct(val):
-            if val < 0:
-                return "color: #ff5c5c; font-weight: 700"
-            return "color: #7CFFB2; font-weight: 700"
+    st.markdown(f"**Scope:** {scope_label}")
+    st.markdown(f"**Total Alpha (365D):** `{total_alpha:.4f}`")
 
-        st.dataframe(
-            attr_df.style.format({
-                "Alpha Contribution": "{:.4f}",
-                "% of Total Alpha": "{:.1f}%"
-            }).applymap(style_pct, subset=["% of Total Alpha"]),
-            use_container_width=True
-        )
+    def style_pct(val):
+        if val < 0:
+            return "color: #ff5c5c; font-weight: 700"
+        return "color: #7CFFB2; font-weight: 700"
 
-        st.bar_chart(attr_df["Alpha Contribution"])
+    st.dataframe(
+        attr_df.style.format({
+            "Alpha Contribution": "{:.4f}",
+            "% of Total Alpha": "{:.1f}%"
+        }).applymap(style_pct, subset=["% of Total Alpha"]),
+        use_container_width=True
+    )
+
+    st.bar_chart(attr_df["Alpha Contribution"])
 
 # ======================================================
 # ADAPTIVE INTELLIGENCE TAB
