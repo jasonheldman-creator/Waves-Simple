@@ -3,28 +3,28 @@ build_alpha_attribution_csv.py
 
 Production alpha attribution builder.
 
-HARD REQUIREMENTS:
-1. Generates `data/alpha_attribution_summary.csv` with ≥1 data row.
-2. Each wave in `data/wave_registry.csv` must produce a row in the output CSV.
-3. Real data only — do NOT fabricate or simulate returns.
-4. Missing data results in rows with NaN values for returns and explicit status/notes.
-5. Never silently skips a wave from the registry.
-6. Header-only output prohibited.
-7. Missing/empty `wave_registry.csv` raises a hard error.
-8. Deterministic, auditable, and CI-safe behavior.
+HARD GUARANTEES:
+• One output row per wave in wave_registry.csv
+• Never header-only output
+• Never silently skip a wave
+• Real data only (NaNs if missing)
+• Deterministic + CI-safe
 """
 
 import pandas as pd
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # =========================
-# CONFIGURATION
+# CONFIG
 # =========================
 
 WAVE_REGISTRY_PATH = Path("data/wave_registry.csv")
 HISTORY_DIR = Path("data/history")
 OUTPUT_PATH = Path("data/alpha_attribution_summary.csv")
+
+DAYS_LOOKBACK = 365
+
 OUTPUT_COLUMNS = [
     "wave_name",
     "mode",
@@ -35,117 +35,139 @@ OUTPUT_COLUMNS = [
     "status",
     "notes",
 ]
-DAYS_LOOKBACK = 365
-
 
 # =========================
-# READERS
+# LOADERS
 # =========================
 
 def load_wave_registry():
-    """Load and validate the wave registry file."""
     if not WAVE_REGISTRY_PATH.exists():
-        raise FileNotFoundError(f"Wave registry not found: {WAVE_REGISTRY_PATH}")
+        raise FileNotFoundError(f"Missing wave registry: {WAVE_REGISTRY_PATH}")
 
-    registry = pd.read_csv(WAVE_REGISTRY_PATH)
-    if registry.empty:
-        raise ValueError("Wave registry is empty; cannot proceed.")
-    
-    if "wave_id" not in registry.columns:
-        raise ValueError("Wave registry missing required column: 'wave_id'")
-    
-    return registry
+    df = pd.read_csv(WAVE_REGISTRY_PATH)
+
+    if df.empty:
+        raise RuntimeError("wave_registry.csv is empty")
+
+    if "wave_id" not in df.columns:
+        raise RuntimeError("wave_registry.csv missing required column: wave_id")
+
+    return df
 
 
 def load_wave_history(wave_id):
-    """Load the wave's historical returns file."""
-    history_path = HISTORY_DIR / wave_id / "history.csv"
-    if not history_path.exists():
-        return None, "MISSING_HISTORY", f"File not found: {history_path}"
-    
+    path = HISTORY_DIR / wave_id / "history.csv"
+
+    if not path.exists():
+        return None, "MISSING_HISTORY", f"{path} not found"
+
     try:
-        history = pd.read_csv(history_path)
-        if "date" not in history or "wave_return" not in history or "benchmark_return" not in history:
-            return None, "INVALID_HISTORY", "Missing required columns in history file."
-        
-        return history, "OK", ""
+        df = pd.read_csv(path)
+        required = {"date", "wave_return", "benchmark_return"}
+        if not required.issubset(df.columns):
+            return None, "INVALID_HISTORY", "Missing required columns"
+
+        return df, "OK", ""
     except Exception as e:
-        return None, "ERROR_LOADING_HISTORY", str(e)
-
+        return None, "LOAD_ERROR", str(e)
 
 # =========================
-# ATTRIBUTION LOGIC
+# CALCULATION
 # =========================
 
-def calculate_alpha_attribution(history, wave_id):
-    """Calculate alpha attribution metrics for a wave."""
+def calculate_alpha(df):
     try:
-        history["date"] = pd.to_datetime(history["date"]).dt.date
-        cutoff_date = datetime.utcnow().date() - pd.Timedelta(days=DAYS_LOOKBACK)
-        recent_history = history[history["date"] >= cutoff_date]
+        df["date"] = pd.to_datetime(df["date"]).dt.date
+        cutoff = datetime.utcnow().date() - timedelta(days=DAYS_LOOKBACK)
+        df = df[df["date"] >= cutoff]
 
-        total_wave_return = recent_history["wave_return"].sum()
-        total_benchmark_return = recent_history["benchmark_return"].sum()
-        total_alpha = total_wave_return - total_benchmark_return
-        days_count = len(recent_history)
-        
-        if days_count == 0:
-            return 0.0, 0.0, 0.0, 0, "NO_RECENT_HISTORY", "No data within the lookback period."
-        
-        return total_alpha, total_wave_return, total_benchmark_return, days_count, "OK", ""
+        if df.empty:
+            return (
+                float("nan"),
+                float("nan"),
+                float("nan"),
+                0,
+                "NO_RECENT_DATA",
+                "No data in lookback window",
+            )
+
+        wave_ret = df["wave_return"].sum()
+        bench_ret = df["benchmark_return"].sum()
+
+        return (
+            wave_ret - bench_ret,
+            wave_ret,
+            bench_ret,
+            len(df),
+            "OK",
+            "",
+        )
+
     except Exception as e:
-        return float("nan"), float("nan"), float("nan"), 0, "COMPUTATION_ERROR", f"Error during calculation: {e}"
-
+        return (
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            0,
+            "CALC_ERROR",
+            str(e),
+        )
 
 # =========================
-# MAIN LOGIC
+# MAIN
 # =========================
 
 def main():
     registry = load_wave_registry()
-    output_rows = []
+    rows = []
 
-    for idx, wave in registry.iterrows():
+    for _, wave in registry.iterrows():
         wave_id = wave["wave_id"]
         wave_name = wave.get("display_name", wave_id)
-        active = wave.get("active", True)
+        mode = wave.get("mode", "LIVE")
 
-        if not active:
-            continue
-        
-        # Load and validate history for the current wave
-        history, load_status, notes = load_wave_history(wave_id)
-        
-        if load_status != "OK":
-            output_rows.append([
-                wave_name, "LIVE", 0, float("nan"), float("nan"), float("nan"), load_status, notes
+        history, status, notes = load_wave_history(wave_id)
+
+        if status != "OK":
+            rows.append([
+                wave_name,
+                mode,
+                0,
+                float("nan"),
+                float("nan"),
+                float("nan"),
+                status,
+                notes,
             ])
             continue
-        
-        # Compute alpha attribution if history is valid
-        total_alpha, total_wave_return, total_benchmark_return, days_count, calc_status, calc_notes = calculate_alpha_attribution(history, wave_id)
-        
-        output_rows.append([
+
+        (
+            alpha,
+            wave_ret,
+            bench_ret,
+            days,
+            calc_status,
+            calc_notes,
+        ) = calculate_alpha(history)
+
+        rows.append([
             wave_name,
-            "LIVE",
-            days_count,
-            total_alpha,
-            total_wave_return,
-            total_benchmark_return,
+            mode,
+            days,
+            alpha,
+            wave_ret,
+            bench_ret,
             calc_status,
             calc_notes,
         ])
-    
-    # Raise an error if no rows were generated (hard guarantee)
-    if not output_rows:
-        raise RuntimeError("No rows were generated; this violates a hard requirement.")
 
-    # Write results to the output file
+    if not rows:
+        raise RuntimeError("No rows produced — invariant violated")
+
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    output_df = pd.DataFrame(output_rows, columns=OUTPUT_COLUMNS)
-    output_df.to_csv(OUTPUT_PATH, index=False)
+    pd.DataFrame(rows, columns=OUTPUT_COLUMNS).to_csv(OUTPUT_PATH, index=False)
 
-    print(f"[INFO] Alpha attribution completed. Rows written: {len(output_df)}")
+    print(f"[OK] alpha_attribution_summary.csv written with {len(rows)} rows")
 
 
 if __name__ == "__main__":
