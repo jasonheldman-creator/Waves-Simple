@@ -59,18 +59,35 @@ body {
 # LOAD DATA
 # ======================================================
 df = pd.read_csv("data/live_snapshot.csv")
+attr_summary = pd.read_csv("data/alpha_attribution_summary.csv")
 
 portfolio = df.mean(numeric_only=True)
 wave_list = sorted(df["Wave"].unique())
 
-# Attribution columns (REAL, from CSV)
-ATTR_COLS = {
-    "Momentum & Trend Signals": "Alpha_Momentum_365D",
-    "Market Regime / VIX Overlay": "Alpha_Regime_365D",
-    "Beta Discipline & Risk Control": "Alpha_BetaDiscipline_365D",
-    "Stock Selection": "Alpha_StockSelection_365D",
-    "Execution & Rebalancing": "Alpha_Execution_365D",
-    "Residual / Interaction": "Alpha_Residual_365D",
+# ======================================================
+# ATTRIBUTION COLUMN MAP (LOCKED TO REAL ENGINE)
+# ======================================================
+ATTR_MAP = {
+    "Exposure & Timing": (
+        "exposure_timing_alpha",
+        "exposure_timing_contribution_pct"
+    ),
+    "Regime & VIX Overlay": (
+        "regime_vix_alpha",
+        "regime_vix_contribution_pct"
+    ),
+    "Momentum & Trend": (
+        "momentum_trend_alpha",
+        "momentum_trend_contribution_pct"
+    ),
+    "Volatility & Risk Control": (
+        "volatility_control_alpha",
+        "volatility_control_contribution_pct"
+    ),
+    "Asset Selection (Residual)": (
+        "asset_selection_alpha",
+        "asset_selection_contribution_pct"
+    ),
 }
 
 # ======================================================
@@ -147,48 +164,52 @@ with tab_overview:
     )
 
 # ======================================================
-# ALPHA ATTRIBUTION TAB (REAL MATH)
+# ALPHA ATTRIBUTION TAB (REAL, RECONCILED)
 # ======================================================
 with tab_attr:
 
     st.subheader("⚡ Alpha Attribution Breakdown (365D)")
 
     if attribution_scope == "Portfolio":
-        scope_df = df
+        scope_df = attr_summary
         scope_label = "Portfolio — All Waves"
     else:
-        scope_df = df[df["Wave"] == selected_wave]
+        scope_df = attr_summary[attr_summary["wave_name"] == selected_wave]
         scope_label = selected_wave
 
-    total_alpha = scope_df["Alpha_365D"].mean()
+    if scope_df.empty:
+        st.warning("No attribution data available for the selected scope.")
+    else:
+        total_alpha = scope_df["total_alpha"].mean()
 
-    attr_values = {}
-    for label, col in ATTR_COLS.items():
-        attr_values[label] = scope_df[col].mean()
+        rows = []
+        for label, (alpha_col, pct_col) in ATTR_MAP.items():
+            if alpha_col in scope_df.columns and pct_col in scope_df.columns:
+                rows.append({
+                    "Component": label,
+                    "Alpha Contribution": scope_df[alpha_col].mean(),
+                    "% of Total Alpha": scope_df[pct_col].mean()
+                })
 
-    attr_df = pd.DataFrame.from_dict(
-        attr_values, orient="index", columns=["Alpha Contribution"]
-    )
+        attr_df = pd.DataFrame(rows).set_index("Component")
 
-    attr_df["% of Total Alpha"] = attr_df["Alpha Contribution"] / total_alpha * 100
+        st.markdown(f"**Scope:** {scope_label}")
+        st.markdown(f"**Total Alpha (365D):** `{total_alpha:.4f}`")
 
-    st.markdown(f"**Scope:** {scope_label}")
-    st.markdown(f"**Total Alpha (365D):** `{total_alpha:.4f}`")
+        def style_pct(val):
+            if val < 0:
+                return "color: #ff5c5c; font-weight: 700"
+            return "color: #7CFFB2; font-weight: 700"
 
-    def style_pct(val):
-        if val < 0:
-            return "color: #ff5c5c; font-weight: 700"
-        return "color: #7CFFB2; font-weight: 700"
+        st.dataframe(
+            attr_df.style.format({
+                "Alpha Contribution": "{:.4f}",
+                "% of Total Alpha": "{:.1f}%"
+            }).applymap(style_pct, subset=["% of Total Alpha"]),
+            use_container_width=True
+        )
 
-    st.dataframe(
-        attr_df.style.format({
-            "Alpha Contribution": "{:.4f}",
-            "% of Total Alpha": "{:.1f}%"
-        }).applymap(style_pct, subset=["% of Total Alpha"]),
-        use_container_width=True
-    )
-
-    st.bar_chart(attr_df["Alpha Contribution"])
+        st.bar_chart(attr_df["Alpha Contribution"])
 
 # ======================================================
 # ADAPTIVE INTELLIGENCE TAB
