@@ -36,11 +36,10 @@ jobs:
           git config user.name "GitHub Action"
           git config user.email "github-actions@github.com"
 
-          if git diff --quiet data/alpha_attribution_summary.csv; then
+          if git status --porcelain data/alpha_attribution_summary.csv | grep .; then
+            git add data/alpha_attribution_summary.csv
+            git commit -m "Build alpha attribution CSV"
+            git push
+          else
             echo "No changes to alpha attribution CSV — skipping commit."
-            exit 0
           fi
-
-          git add data/alpha_attribution_summary.csv
-          git commit -m "Build alpha attribution CSV"
-          git push
