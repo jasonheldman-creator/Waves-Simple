@@ -77,6 +77,12 @@ def safe_read_csv(path: str) -> pd.DataFrame | None:
 df = safe_read_csv("data/live_snapshot.csv")
 attr_summary = safe_read_csv("data/alpha_attribution_summary.csv")
 
+# 🔍 DIAGNOSTIC — DO NOT REMOVE YET
+st.write(
+    "DEBUG — alpha_attribution_summary.csv exists:",
+    Path("data/alpha_attribution_summary.csv").exists()
+)
+
 if df is None:
     st.error("❌ live_snapshot.csv not found — system cannot start.")
     st.stop()
