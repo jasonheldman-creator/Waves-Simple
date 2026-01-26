@@ -3,12 +3,7 @@
 generate_live_snapshot_csv.py
 
 Authoritative LIVE snapshot generator.
-
-✔ Handles WIDE or LONG price caches
-✔ Handles date as INDEX or COLUMN
-✔ Handles schema drift safely
-✔ Never crashes on missing tickers
-✔ Always writes data/live_snapshot.csv
+Bulletproof against schema drift.
 """
 
 from pathlib import Path
@@ -31,41 +26,50 @@ def compute_return(series: pd.Series, days: int) -> float:
     return (series.iloc[-1] / series.iloc[-days - 1]) - 1.0
 
 
-def normalize_prices(prices: pd.DataFrame) -> pd.DataFrame:
+def normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Accepts:
-      • LONG format: date | ticker/symbol | close
-      • WIDE format with date INDEX
-
-    Returns LONG format: date | symbol | close
+    Accepts ANY reasonable parquet price layout and returns:
+    date | symbol | close
     """
 
-    df = prices.copy()
+    prices = df.copy()
 
-    # --- Ensure date column exists ---
-    if isinstance(df.index, pd.DatetimeIndex):
-        df = df.reset_index().rename(columns={"index": "date"})
+    # --- FORCE a date column ---
+    if "date" not in prices.columns:
+        prices = prices.reset_index()
 
-    if "date" not in df.columns:
-        raise ValueError("Price cache missing required 'date'")
+        # If index had no name, rename it to date
+        if "index" in prices.columns:
+            prices = prices.rename(columns={"index": "date"})
 
-    cols = df.columns.tolist()
+    if "date" not in prices.columns:
+        raise ValueError("Unable to infer date column from price cache")
 
-    # --- Already long format ---
-    if "close" in cols and ("ticker" in cols or "symbol" in cols):
-        symbol_col = "ticker" if "ticker" in cols else "symbol"
-        return df.rename(columns={symbol_col: "symbol"})[["date", "symbol", "close"]]
+    # --- LONG format ---
+    if "close" in prices.columns:
+        symbol_col = None
+        for c in ["ticker", "symbol"]:
+            if c in prices.columns:
+                symbol_col = c
+                break
+
+        if symbol_col is None:
+            raise ValueError("Price cache missing symbol/ticker column")
+
+        return prices.rename(columns={symbol_col: "symbol"})[
+            ["date", "symbol", "close"]
+        ]
 
     # --- WIDE format ---
-    print("ℹ️ Detected WIDE price cache — normalizing")
+    print("ℹ️ Detected WIDE price cache — melting")
 
-    wide_cols = [c for c in cols if c != "date"]
+    value_cols = [c for c in prices.columns if c != "date"]
 
-    long_df = df.melt(
+    long_df = prices.melt(
         id_vars="date",
-        value_vars=wide_cols,
+        value_vars=value_cols,
         var_name="symbol",
-        value_name="close"
+        value_name="close",
     )
 
     return long_df.dropna(subset=["close"])
@@ -89,9 +93,9 @@ def generate_live_snapshot_csv():
 
     weights = pd.read_csv(WAVE_WEIGHTS)
 
-    # Normalize weight schema
+    # Normalize weights schema
     if "wave" not in weights.columns:
-        weights["wave"] = weights["Wave"]
+        weights["wave"] = weights.iloc[:, 0]
 
     if "wave_name" not in weights.columns:
         weights["wave_name"] = weights["wave"]
