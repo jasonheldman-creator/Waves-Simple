@@ -1,7 +1,7 @@
 # app_min.py
-# WAVES Intelligence — Minimal Stable Console
-# PURPOSE: Bulletproof read + display of Portfolio + Alpha Attribution data
-# AUTHOR: Stabilized rebuild
+# WAVES Intelligence — Minimal Stable Console (Extended Attribution)
+# PURPOSE: Stable Portfolio Snapshot + Institutional Alpha Source Breakdown
+# AUTHOR: Full replacement — Option A (Pronounced UI)
 
 import streamlit as st
 import pandas as pd
@@ -26,7 +26,6 @@ LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 # Helpers
 # -----------------------------
 def safe_read_csv(path: Path) -> pd.DataFrame | None:
-    """Safely read CSV, return None on any failure."""
     try:
         if not path.exists():
             return None
@@ -40,7 +39,6 @@ def safe_read_csv(path: Path) -> pd.DataFrame | None:
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize column names for safety."""
     df.columns = (
         df.columns
         .str.strip()
@@ -53,7 +51,7 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------------
 # Header
 # -----------------------------
-st.title("Intelligence Console")
+st.title("WAVES Intelligence Console")
 st.caption("Returns • Alpha • Attribution • Adaptive Intelligence • Operations")
 
 tabs = st.tabs([
@@ -67,7 +65,7 @@ tabs = st.tabs([
 # Overview Tab
 # -----------------------------
 with tabs[0]:
-    st.subheader("Portfolio Snapshot")
+    st.subheader("📊 Portfolio Snapshot")
 
     snapshot_df = safe_read_csv(LIVE_SNAPSHOT_PATH)
 
@@ -83,11 +81,10 @@ with tabs[0]:
 # Alpha Attribution Tab
 # -----------------------------
 with tabs[1]:
-    st.subheader("⚡ Alpha Attribution Breakdown (365D)")
+    st.subheader("⚡ Alpha Attribution — Source Breakdown")
 
     alpha_df = safe_read_csv(ALPHA_ATTR_PATH)
 
-    # Explicit debug visibility (kept intentionally)
     st.caption(
         f"DEBUG — alpha_attribution_summary.csv exists: {ALPHA_ATTR_PATH.exists()}"
     )
@@ -102,33 +99,85 @@ with tabs[1]:
 
     alpha_df = normalize_columns(alpha_df)
 
-    # Required columns (non-negotiable)
+    # -----------------------------
+    # Required schema
+    # -----------------------------
     required_cols = {
         "wave",
-        "alpha_30d",
-        "alpha_60d",
-        "alpha_365d",
+        "horizon",
+        "selection_alpha",
+        "momentum_alpha",
+        "vix_alpha",
+        "volatility_alpha",
+        "exposure_alpha",
+        "residual_alpha",
+        "total_alpha",
     }
 
     missing = required_cols - set(alpha_df.columns)
 
     if missing:
-        st.error(
-            "Alpha attribution file is present but missing required columns:"
-        )
+        st.error("Alpha attribution file is missing required columns:")
         st.code(sorted(missing))
         st.stop()
 
-    # Display
+    # -----------------------------
+    # Pronounced selectors
+    # -----------------------------
+    st.markdown("### 🔍 View Selector")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        waves = ["PORTFOLIO"] + sorted(alpha_df["wave"].unique().tolist())
+        selected_wave = st.selectbox(
+            "📌 SELECT VIEW",
+            waves,
+        )
+
+    with col2:
+        selected_horizon = st.selectbox(
+            "📆 SELECT HORIZON",
+            ["30D", "60D", "365D"],
+            index=2,
+        )
+
+    st.markdown("---")
+
+    # -----------------------------
+    # Filter data
+    # -----------------------------
+    df = alpha_df[alpha_df["horizon"] == selected_horizon]
+
+    if selected_wave != "PORTFOLIO":
+        df = df[df["wave"] == selected_wave]
+
+    if df.empty:
+        st.warning("No attribution data available for this selection.")
+        st.stop()
+
+    # -----------------------------
+    # Display Breakdown
+    # -----------------------------
+    st.markdown(
+        f"## 📈 Alpha Source Breakdown — **{selected_wave}** ({selected_horizon})"
+    )
+
     display_cols = [
-        "wave",
-        "alpha_30d",
-        "alpha_60d",
-        "alpha_365d",
+        "selection_alpha",
+        "momentum_alpha",
+        "vix_alpha",
+        "volatility_alpha",
+        "exposure_alpha",
+        "residual_alpha",
+        "total_alpha",
     ]
 
+    breakdown_df = df[display_cols].copy()
+    breakdown_df.index = ["Alpha Contribution"]
+
     st.dataframe(
-        alpha_df[display_cols].sort_values("alpha_365d", ascending=False),
+        breakdown_df,
         use_container_width=True,
     )
 
