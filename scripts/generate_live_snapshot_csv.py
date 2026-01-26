@@ -3,10 +3,7 @@
 generate_live_snapshot_csv.py
 
 FINAL authoritative LIVE snapshot generator.
-Assumes WIDE-FORM price cache:
-    date | TICKER1 | TICKER2 | ...
-
-This matches the actual prices_cache.parquet in WAVES.
+Supports WIDE-FORM price cache with DATE AS INDEX.
 """
 
 from pathlib import Path
@@ -17,25 +14,29 @@ PRICES_CACHE = Path("data/cache/prices_cache.parquet")
 WAVE_WEIGHTS = Path("data/wave_weights.csv")
 OUTPUT_PATH = Path("data/live_snapshot.csv")
 
+
 def compute_return(series: pd.Series, days: int) -> float:
     if len(series) <= days:
         return np.nan
     return (series.iloc[-1] / series.iloc[-days - 1]) - 1.0
 
+
 def generate_live_snapshot_csv():
-    print("▶ Generating LIVE snapshot (wide-form cache)")
+    print("▶ Generating LIVE snapshot (wide-form cache, date index)")
 
+    # Load price cache
     prices = pd.read_parquet(PRICES_CACHE)
+
+    # ✅ DATE IS INDEX
+    if not isinstance(prices.index, pd.DatetimeIndex):
+        raise ValueError("Price cache index must be DatetimeIndex")
+
+    prices = prices.sort_index()
+
+    # Load weights
     weights = pd.read_csv(WAVE_WEIGHTS)
-
-    if "date" not in prices.columns:
-        raise ValueError("Price cache must contain a 'date' column")
-
-    prices["date"] = pd.to_datetime(prices["date"])
-    prices = prices.set_index("date").sort_index()
-
-    # Normalize weights
     weights.columns = [c.lower() for c in weights.columns]
+
     required = {"wave", "ticker", "weight", "wave_name"}
     if not required.issubset(weights.columns):
         raise ValueError(f"wave_weights.csv missing columns: {required - set(weights.columns)}")
@@ -44,7 +45,11 @@ def generate_live_snapshot_csv():
 
     for wave_id, group in weights.groupby("wave"):
         wave_name = group["wave_name"].iloc[0]
-        tickers = [t for t in group["ticker"] if t in prices.columns]
+
+        tickers = [
+            t for t in group["ticker"]
+            if t in prices.columns
+        ]
 
         if not tickers:
             rows.append({
@@ -65,7 +70,13 @@ def generate_live_snapshot_csv():
             continue
 
         sub_prices = prices[tickers]
-        wts = group.set_index("ticker").loc[tickers]["weight"].values
+        wts = (
+            group
+            .set_index("ticker")
+            .loc[tickers]["weight"]
+            .astype(float)
+            .values
+        )
 
         weighted_price = (sub_prices * wts).sum(axis=1)
 
@@ -98,6 +109,7 @@ def generate_live_snapshot_csv():
     print(f"✔ Rows: {len(df)}")
 
     return df
+
 
 if __name__ == "__main__":
     generate_live_snapshot_csv()
