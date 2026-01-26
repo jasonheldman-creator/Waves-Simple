@@ -1,7 +1,6 @@
 # app_min.py
-# WAVES Intelligence — Minimal Stable Console (Extended Attribution)
-# PURPOSE: Stable Portfolio Snapshot + Institutional Alpha Source Breakdown
-# AUTHOR: Full replacement — Option A (Pronounced UI)
+# WAVES Intelligence — Stable Console
+# PURPOSE: Portfolio + Alpha Attribution + Alpha Source Breakdown
 
 import streamlit as st
 import pandas as pd
@@ -30,8 +29,6 @@ def safe_read_csv(path: Path) -> pd.DataFrame | None:
         if not path.exists():
             return None
         df = pd.read_csv(path)
-        if df.empty:
-            return pd.DataFrame()
         return df
     except Exception as e:
         st.error(f"Failed to read {path.name}: {e}")
@@ -51,7 +48,7 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------------
 # Header
 # -----------------------------
-st.title("WAVES Intelligence Console")
+st.title("Intelligence Console")
 st.caption("Returns • Alpha • Attribution • Adaptive Intelligence • Operations")
 
 tabs = st.tabs([
@@ -65,7 +62,7 @@ tabs = st.tabs([
 # Overview Tab
 # -----------------------------
 with tabs[0]:
-    st.subheader("📊 Portfolio Snapshot")
+    st.subheader("Portfolio Snapshot")
 
     snapshot_df = safe_read_csv(LIVE_SNAPSHOT_PATH)
 
@@ -90,7 +87,7 @@ with tabs[1]:
     )
 
     if alpha_df is None:
-        st.warning("Alpha attribution file not found. Awaiting next build.")
+        st.warning("Alpha attribution file not found.")
         st.stop()
 
     if alpha_df.empty:
@@ -99,9 +96,7 @@ with tabs[1]:
 
     alpha_df = normalize_columns(alpha_df)
 
-    # -----------------------------
-    # Required schema
-    # -----------------------------
+    # REQUIRED COLUMNS (NEW SCHEMA)
     required_cols = {
         "wave",
         "horizon",
@@ -111,7 +106,6 @@ with tabs[1]:
         "volatility_alpha",
         "exposure_alpha",
         "residual_alpha",
-        "total_alpha",
     }
 
     missing = required_cols - set(alpha_df.columns)
@@ -122,64 +116,52 @@ with tabs[1]:
         st.stop()
 
     # -----------------------------
-    # Pronounced selectors
+    # Controls (PRONOUNCED UI)
     # -----------------------------
-    st.markdown("### 🔍 View Selector")
-
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([2, 1])
 
     with col1:
-        waves = ["PORTFOLIO"] + sorted(alpha_df["wave"].unique().tolist())
         selected_wave = st.selectbox(
-            "📌 SELECT VIEW",
-            waves,
+            "🔍 Select Wave",
+            sorted(alpha_df["wave"].unique()),
         )
 
     with col2:
         selected_horizon = st.selectbox(
-            "📆 SELECT HORIZON",
-            ["30D", "60D", "365D"],
+            "📅 Select Horizon",
+            [30, 60, 365],
             index=2,
         )
 
-    st.markdown("---")
-
-    # -----------------------------
-    # Filter data
-    # -----------------------------
-    df = alpha_df[alpha_df["horizon"] == selected_horizon]
-
-    if selected_wave != "PORTFOLIO":
-        df = df[df["wave"] == selected_wave]
-
-    if df.empty:
-        st.warning("No attribution data available for this selection.")
-        st.stop()
-
-    # -----------------------------
-    # Display Breakdown
-    # -----------------------------
     st.markdown(
-        f"## 📈 Alpha Source Breakdown — **{selected_wave}** ({selected_horizon})"
+        f"### **{selected_wave} — {selected_horizon} Day Alpha Sources**"
     )
 
-    display_cols = [
+    # -----------------------------
+    # Filter + Display
+    # -----------------------------
+    view_df = alpha_df[
+        (alpha_df["wave"] == selected_wave)
+        & (alpha_df["horizon"] == selected_horizon)
+    ]
+
+    if view_df.empty:
+        st.warning("No data available for this selection.")
+        st.stop()
+
+    display_df = view_df[[
         "selection_alpha",
         "momentum_alpha",
         "vix_alpha",
         "volatility_alpha",
         "exposure_alpha",
         "residual_alpha",
-        "total_alpha",
-    ]
+    ]].T
 
-    breakdown_df = df[display_cols].copy()
-    breakdown_df.index = ["Alpha Contribution"]
+    display_df.columns = ["Alpha Contribution"]
+    display_df.index = display_df.index.str.replace("_", " ").str.title()
 
-    st.dataframe(
-        breakdown_df,
-        use_container_width=True,
-    )
+    st.dataframe(display_df, use_container_width=True)
 
 # -----------------------------
 # Adaptive Intelligence Tab
