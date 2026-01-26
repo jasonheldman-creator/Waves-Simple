@@ -167,3 +167,4 @@ def generate_live_snapshot_csv():
 
 if __name__ == "__main__":
     generate_live_snapshot_csv()
+    
