@@ -4,7 +4,8 @@ generate_live_snapshot_csv.py
 
 Authoritative LIVE snapshot generator.
 
-✔ Handles WIDE or LONG price cache formats
+✔ Handles WIDE or LONG price caches
+✔ Handles date as INDEX or COLUMN
 ✔ Handles schema drift safely
 ✔ Never crashes on missing tickers
 ✔ Always writes data/live_snapshot.csv
@@ -32,37 +33,42 @@ def compute_return(series: pd.Series, days: int) -> float:
 
 def normalize_prices(prices: pd.DataFrame) -> pd.DataFrame:
     """
-    Accepts either:
-      • LONG format: date | ticker | close
-      • WIDE format: date | AAPL | MSFT | NVDA | ...
+    Accepts:
+      • LONG format: date | ticker/symbol | close
+      • WIDE format with date INDEX
 
-    Returns LONG format.
+    Returns LONG format: date | symbol | close
     """
 
-    cols = prices.columns.tolist()
+    df = prices.copy()
 
-    if "ticker" in cols and "close" in cols:
-        return prices.rename(columns={"ticker": "symbol"})
+    # --- Ensure date column exists ---
+    if isinstance(df.index, pd.DatetimeIndex):
+        df = df.reset_index().rename(columns={"index": "date"})
 
-    if "symbol" in cols and "close" in cols:
-        return prices
+    if "date" not in df.columns:
+        raise ValueError("Price cache missing required 'date'")
 
-    # WIDE FORMAT DETECTED
-    if "date" not in cols:
-        raise ValueError("Price cache missing required 'date' column")
+    cols = df.columns.tolist()
 
+    # --- Already long format ---
+    if "close" in cols and ("ticker" in cols or "symbol" in cols):
+        symbol_col = "ticker" if "ticker" in cols else "symbol"
+        return df.rename(columns={symbol_col: "symbol"})[["date", "symbol", "close"]]
+
+    # --- WIDE format ---
     print("ℹ️ Detected WIDE price cache — normalizing")
 
-    prices = prices.copy()
-    prices = prices.set_index("date")
+    wide_cols = [c for c in cols if c != "date"]
 
-    prices = prices.melt(
-        ignore_index=False,
+    long_df = df.melt(
+        id_vars="date",
+        value_vars=wide_cols,
         var_name="symbol",
         value_name="close"
-    ).reset_index()
+    )
 
-    return prices
+    return long_df.dropna(subset=["close"])
 
 
 # -----------------------------
