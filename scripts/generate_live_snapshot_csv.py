@@ -108,7 +108,6 @@ def compute_return(series: pd.Series, window: int) -> float:
     except Exception:
         return float("nan")
 
-
 # ------------------------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------------------------
@@ -176,6 +175,12 @@ def main():
 
             row[name] = wave_ret
             row[name.replace("return", "alpha")] = wave_ret - bench_ret
+
+        # Compute return_1d explicitly for intraday logic
+        if len(weighted_series) >= 2:
+            row["return_1d"] = (weighted_series.iloc[-1] / weighted_series.iloc[-2]) - 1
+        else:
+            row["return_1d"] = float("nan")
 
         rows.append(row)
 
