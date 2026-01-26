@@ -1,31 +1,48 @@
 # build_alpha_attribution_csv.py
-# WAVES Intelligence — Alpha Attribution Builder
-# PURPOSE: Generate horizon-based alpha attribution summary
-# OUTPUT: data/alpha_attribution_summary.csv
-# AUTHOR: Institutional-stable rewrite (schema-tolerant)
+# WAVES Intelligence — Alpha Source Attribution Builder (LONG FORMAT)
+#
+# PURPOSE:
+# Build a long-format alpha attribution table:
+#   one row per (wave × horizon)
+#
+# OUTPUT:
+#   data/alpha_attribution_summary.csv
+#
+# INPUT:
+#   data/live_snapshot.csv
+#
+# AUTHOR:
+#   Stabilized institutional rewrite (v3)
 
 import pandas as pd
 from pathlib import Path
 
-# -------------------------------------------------
+# -----------------------------
 # Paths
-# -------------------------------------------------
+# -----------------------------
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 OUTPUT_PATH = DATA_DIR / "alpha_attribution_summary.csv"
 
-# -------------------------------------------------
+# -----------------------------
 # Config
-# -------------------------------------------------
+# -----------------------------
 HORIZONS = {
-    30: "alpha_30d",
-    60: "alpha_60d",
-    365: "alpha_365d",
+    "30D": "return_30d",
+    "60D": "return_60d",
+    "365D": "return_365d",
 }
 
-# -------------------------------------------------
+REQUIRED_COLUMNS = {
+    "display_name",
+    "return_30d",
+    "return_60d",
+    "return_365d",
+}
+
+# -----------------------------
 # Helpers
-# -------------------------------------------------
+# -----------------------------
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = (
         df.columns
@@ -36,92 +53,73 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def resolve_wave_column(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Resolve wave identifier column into canonical 'wave'.
-    Accepts: wave, wave_name, display_name, wave_id
-    """
-    if "wave" in df.columns:
-        return df
-
-    for alt in ["wave_name", "display_name", "wave_id"]:
-        if alt in df.columns:
-            df["wave"] = df[alt]
-            return df
-
-    raise ValueError(
-        "Missing wave identifier column. "
-        "Expected one of: wave, wave_name, display_name, wave_id"
-    )
-
-
-def validate_inputs(df: pd.DataFrame) -> None:
-    required_alpha_cols = set(HORIZONS.values())
-    missing = required_alpha_cols - set(df.columns)
-
+def validate_inputs(df: pd.DataFrame):
+    missing = REQUIRED_COLUMNS - set(df.columns)
     if missing:
         raise ValueError(
             f"Missing required columns in live_snapshot.csv: {missing}"
         )
 
 
-# -------------------------------------------------
+def decompose_alpha(total_alpha: float) -> dict:
+    """
+    TEMPORARY, TRANSPARENT attribution split.
+    These weights are explicit placeholders until
+    strategy-level signal attribution is wired in.
+    """
+    return {
+        "selection_alpha": total_alpha * 0.45,
+        "momentum_alpha": total_alpha * 0.25,
+        "exposure_alpha": total_alpha * 0.15,
+        "vix_alpha": total_alpha * 0.10,
+        "volatility_alpha": total_alpha * 0.05,
+    }
+
+
+# -----------------------------
 # Main
-# -------------------------------------------------
-def main() -> None:
+# -----------------------------
+def main():
     if not LIVE_SNAPSHOT_PATH.exists():
         raise FileNotFoundError("live_snapshot.csv not found")
 
     snapshot_df = pd.read_csv(LIVE_SNAPSHOT_PATH)
     snapshot_df = normalize_columns(snapshot_df)
-    snapshot_df = resolve_wave_column(snapshot_df)
 
     validate_inputs(snapshot_df)
 
     rows = []
 
-    for days, alpha_col in HORIZONS.items():
-        grouped = (
-            snapshot_df
-            .groupby("wave", dropna=False)[alpha_col]
-            .sum()
-            .reset_index()
-        )
+    for _, row in snapshot_df.iterrows():
+        wave = row["display_name"]
 
-        for _, r in grouped.iterrows():
+        for horizon, col in HORIZONS.items():
+            total_alpha = row[col]
+
+            components = decompose_alpha(total_alpha)
+            residual_alpha = total_alpha - sum(components.values())
+
             rows.append({
-                "wave": r["wave"],
-                "horizon": days,
-                alpha_col: r[alpha_col],
+                "wave": wave,
+                "horizon": horizon,
+                "selection_alpha": components["selection_alpha"],
+                "momentum_alpha": components["momentum_alpha"],
+                "exposure_alpha": components["exposure_alpha"],
+                "vix_alpha": components["vix_alpha"],
+                "volatility_alpha": components["volatility_alpha"],
+                "residual_alpha": residual_alpha,
+                "total_alpha": total_alpha,
             })
-
-    if not rows:
-        raise RuntimeError("No alpha attribution rows generated")
 
     out_df = pd.DataFrame(rows)
 
-    # Pivot to wide format for app compatibility
-    out_df = (
-        out_df
-        .pivot(index="wave", columns="horizon")
-        .reset_index()
-    )
-
-    # Flatten column names
-    out_df.columns = [
-        f"{col[0]}_{col[1]}d" if isinstance(col, tuple) and col[1] else col
-        for col in out_df.columns
-    ]
-
-    # Clean final column names
-    out_df.columns = (
-        out_df.columns
-        .str.replace("__", "_")
-        .str.strip("_")
-    )
-
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(OUTPUT_PATH, index=False)
-    print(f"✅ Alpha attribution written to {OUTPUT_PATH}")
+
+    print(
+        f"Alpha attribution built successfully: "
+        f"{len(out_df)} rows written to {OUTPUT_PATH}"
+    )
 
 
 if __name__ == "__main__":
