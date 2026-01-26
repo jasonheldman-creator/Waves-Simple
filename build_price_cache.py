@@ -23,30 +23,25 @@ import yfinance as yf
 # ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
-
-UNIVERSE_FILE = "universal_universe.csv"
-WAVE_POSITIONS_FILE = "data/wave_positions.csv"
+TICKERS_FILE = "data/wave_weights.csv"  # Source tickers from wave_weights.csv
 CACHE_DIR = "data/cache"
 CACHE_FILE = os.path.join(CACHE_DIR, "prices_cache.parquet")
 META_FILE = os.path.join(CACHE_DIR, "prices_cache_meta.json")
-
-MIN_TICKERS_REQUIRED = 50
-SPY_TICKER = "SPY"
+MIN_TRADING_DAYS = 252  # Ensure at least 1 trading year of data
 
 # ------------------------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------------------------
-
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
 log = logging.getLogger("build_price_cache")
+
 
 # ------------------------------------------------------------------------------
 # Utilities
 # ------------------------------------------------------------------------------
-
 def hard_fail(msg: str) -> None:
     log.error(msg)
     sys.exit(1)
@@ -59,198 +54,120 @@ def ensure_dir(path: str) -> None:
 # ------------------------------------------------------------------------------
 # Ticker Loading
 # ------------------------------------------------------------------------------
-
-def load_tickers() -> List[str]:
+def load_tickers_from_weights() -> List[str]:
     """
-    Deterministic ticker loading:
-    1. data/wave_positions.csv (if present)
-    2. universal_universe.csv (fallback)
-
-    Must return >= MIN_TICKERS_REQUIRED or hard fail.
+    Load tickers deterministically from wave_weights.csv.
     """
+    log.info("Loading tickers from wave_weights.csv...")
+    if not os.path.exists(TICKERS_FILE):
+        hard_fail("wave_weights.csv not found")
 
-    tickers: List[str] = []
+    df = pd.read_csv(TICKERS_FILE)
+    required_columns = {"wave_id", "ticker", "weight"}
+    if not required_columns.issubset(df.columns):
+        hard_fail(f"wave_weights.csv missing required columns: {required_columns - set(df.columns)}")
 
-    if os.path.exists(WAVE_POSITIONS_FILE):
-        log.info("Using wave_positions.csv as ticker source")
-        df = pd.read_csv(WAVE_POSITIONS_FILE)
+    tickers = (
+        df["ticker"]
+        .dropna()
+        .astype(str)
+        .str.upper()
+        .unique()
+        .tolist()
+    )
+    tickers = sorted(set(tickers))  # De-duplicate and sort
 
-        if "ticker" not in df.columns:
-            hard_fail("wave_positions.csv missing required 'ticker' column")
+    if not tickers:
+        hard_fail("No tickers found in wave_weights.csv")
 
-        tickers = (
-            df["ticker"]
-            .dropna()
-            .astype(str)
-            .str.upper()
-            .unique()
-            .tolist()
-        )
-
-    else:
-        log.warning(
-            "wave_positions.csv not found — falling back to universal_universe.csv"
-        )
-
-        if not os.path.exists(UNIVERSE_FILE):
-            hard_fail("universal_universe.csv not found — cannot load tickers")
-
-        df = pd.read_csv(UNIVERSE_FILE)
-
-        if "ticker" not in df.columns:
-            hard_fail("universal_universe.csv missing required 'ticker' column")
-
-        if "status" in df.columns:
-            df = df[df["status"].str.lower() == "active"]
-
-        tickers = (
-            df["ticker"]
-            .dropna()
-            .astype(str)
-            .str.upper()
-            .unique()
-            .tolist()
-        )
-
-    tickers = sorted(set(tickers))
-
-    log.info(f"Tickers loaded: {len(tickers)}")
-
-    if len(tickers) < MIN_TICKERS_REQUIRED:
-        hard_fail(
-            f"Insufficient tickers loaded ({len(tickers)} < {MIN_TICKERS_REQUIRED})"
-        )
-
+    log.info(f"Loaded {len(tickers)} tickers from wave_weights.csv")
     return tickers
 
 
 # ------------------------------------------------------------------------------
-# SPY Trading Day Validation
+# Price Data Fetching
 # ------------------------------------------------------------------------------
-
-def fetch_spy_max_date() -> str:
+def fetch_price_data(tickers: List[str], lookback_years: int = 2) -> pd.DataFrame:
     """
-    Fetch latest SPY trading date.
-    MUST return ISO date string or hard fail.
+    Fetch historical price data for the given tickers.
+    Ensures sufficient lookback depth (≥ MIN_TRADING_DAYS).
+
+    :param tickers: List of ticker symbols to fetch prices for.
+    :param lookback_years: Number of years back to fetch data.
+    :return: Wide-form DataFrame with tickers as columns and DatetimeIndex.
     """
+    start_date = (datetime.now() - pd.DateOffset(years=lookback_years)).date()
+    log.info(f"Fetching price data starting from {start_date}...")
 
-    log.info("Fetching SPY trading calendar")
+    all_data = {}
+    for ticker in tickers:
+        try:
+            data = yf.download(ticker, start=start_date)
+            if "Close" in data.columns:
+                all_data[ticker] = data["Close"]
+            else:
+                log.warning(f"No 'Close' column found for ticker {ticker}, skipping...")
+        except Exception as e:
+            log.warning(f"Failed to fetch data for ticker {ticker}: {e}")
 
-    try:
-        spy = yf.download(
-            SPY_TICKER,
-            period="10d",
-            interval="1d",
-            progress=False,
-            auto_adjust=True,
-        )
-    except Exception as e:
-        hard_fail(f"SPY download failed: {e}")
+    price_data = pd.DataFrame(all_data)
+    price_data = price_data.dropna(how="all")  # Drop rows with all NaN
 
-    if spy.empty:
-        hard_fail("SPY download returned empty dataframe")
+    if price_data.empty or len(price_data.index) < MIN_TRADING_DAYS:
+        hard_fail("Insufficient trading data fetched. Ensure tickers and dates are valid.")
 
-    spy_max_date = spy.index.max()
-
-    if not isinstance(spy_max_date, pd.Timestamp):
-        hard_fail("SPY max date is not a valid timestamp")
-
-    iso_date = spy_max_date.date().isoformat()
-
-    log.info(f"SPY max trading date: {iso_date}")
-
-    return iso_date
+    log.info(f"Fetched price data with shape {price_data.shape}")
+    return price_data
 
 
 # ------------------------------------------------------------------------------
-# Price Cache Build
+# Cache Validation
 # ------------------------------------------------------------------------------
-
-def build_price_cache(tickers: List[str], years: int) -> pd.DataFrame:
+def validate_cache(cache: pd.DataFrame, tickers: List[str]) -> None:
     """
-    Download price history for all tickers.
+    Validate the built cache to ensure trading days, tickers, and recent data.
+
+    :param cache: Pandas DataFrame of the price cache.
+    :param tickers: List of expected tickers.
     """
+    log.info("Validating cache integrity...")
 
-    log.info(f"Downloading price history for {len(tickers)} tickers ({years} years)")
+    missing_tickers = [ticker for ticker in tickers if ticker not in cache.columns]
+    if missing_tickers:
+        hard_fail(f"Cache validation failed. Missing tickers: {missing_tickers}")
 
-    df = yf.download(
-        tickers,
-        period=f"{years}y",
-        interval="1d",
-        group_by="ticker",
-        auto_adjust=True,
-        threads=True,
-        progress=False,
-    )
+    if cache.index.max() < pd.Timestamp.now().normalize():
+        hard_fail("Cache max date is stale. Ensure the data is current.")
 
-    if df.empty:
-        hard_fail("Price download returned empty dataframe")
+    if len(cache.index) < MIN_TRADING_DAYS:
+        hard_fail(f"Cache has insufficient trading days ({len(cache.index)} < {MIN_TRADING_DAYS})")
 
-    return df
+    log.info("Cache validation passed.")
 
 
 # ------------------------------------------------------------------------------
-# Metadata Write
+# Main Execution
 # ------------------------------------------------------------------------------
-
-def write_metadata(
-    spy_max_date: str,
-    max_price_date: str,
-    tickers_total: int,
-    tickers_successful: int,
-) -> None:
-
-    meta = {
-        "spy_max_date": spy_max_date,
-        "max_price_date": max_price_date,
-        "tickers_total": tickers_total,
-        "tickers_successful": tickers_successful,
-        "generated_at_utc": datetime.utcnow().isoformat(timespec="seconds"),
-    }
-
-    log.info("Writing cache metadata:")
-    for k, v in meta.items():
-        log.info(f"  {k}: {v}")
-
-    with open(META_FILE, "w") as f:
-        json.dump(meta, f, indent=2)
-
-
-# ------------------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------------------
-
-def main() -> None:
-    years = int(float(os.getenv("YEARS", "3")))
-    force_rebuild = os.getenv("FORCE_REBUILD", "false").lower() == "true"
-
-    log.info("=== BUILDING PRICE CACHE ===")
-    log.info(f"Years: {years}")
-    log.info(f"Force rebuild: {force_rebuild}")
-
+def main():
     ensure_dir(CACHE_DIR)
+    tickers = load_tickers_from_weights()
+    price_data = fetch_price_data(tickers)
+    validate_cache(price_data, tickers)
 
-    tickers = load_tickers()
-    spy_max_date = fetch_spy_max_date()
+    # Save to parquet file
+    price_data.to_parquet(CACHE_FILE)
+    metadata = {
+        "generated_at_utc": datetime.utcnow().isoformat(),
+        "tickers_fetched": len(tickers),
+        "max_date": price_data.index.max().strftime("%Y-%m-%d"),
+        "min_date": price_data.index.min().strftime("%Y-%m-%d"),
+        "trading_days": len(price_data.index),
+    }
+    with open(META_FILE, "w") as metafile:
+        json.dump(metadata, metafile, indent=4)
 
-    prices = build_price_cache(tickers, years)
-
-    max_price_date = prices.index.max()
-    if not isinstance(max_price_date, pd.Timestamp):
-        hard_fail("Invalid max price date in price cache")
-
-    max_price_date_iso = max_price_date.date().isoformat()
-
-    prices.to_parquet(CACHE_FILE)
-
-    write_metadata(
-        spy_max_date=spy_max_date,
-        max_price_date=max_price_date_iso,
-        tickers_total=len(tickers),
-        tickers_successful=len(tickers),
-    )
-
-    log.info("Price cache build COMPLETE")
+    log.info(f"Price cache successfully built: {CACHE_FILE}")
+    log.info(f"Metadata written: {META_FILE}")
 
 
 if __name__ == "__main__":
