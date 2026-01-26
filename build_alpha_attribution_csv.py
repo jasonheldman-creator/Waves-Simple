@@ -2,8 +2,7 @@
 # WAVES Intelligence — Alpha Source Attribution Builder (LONG FORMAT)
 #
 # PURPOSE:
-# Build a long-format alpha attribution table:
-#   one row per (wave × horizon)
+# Build alpha source attribution by wave and horizon
 #
 # OUTPUT:
 #   data/alpha_attribution_summary.csv
@@ -12,7 +11,7 @@
 #   data/live_snapshot.csv
 #
 # AUTHOR:
-#   Stabilized institutional rewrite (v3)
+#   Institutional stabilized rewrite (v4)
 
 import pandas as pd
 from pathlib import Path
@@ -33,8 +32,7 @@ HORIZONS = {
     "365D": "return_365d",
 }
 
-REQUIRED_COLUMNS = {
-    "display_name",
+REQUIRED_RETURN_COLUMNS = {
     "return_30d",
     "return_60d",
     "return_365d",
@@ -54,18 +52,29 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def validate_inputs(df: pd.DataFrame):
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
+    missing_returns = REQUIRED_RETURN_COLUMNS - set(df.columns)
+    if missing_returns:
         raise ValueError(
-            f"Missing required columns in live_snapshot.csv: {missing}"
+            f"Missing required return columns in live_snapshot.csv: {missing_returns}"
         )
+
+    if "display_name" not in df.columns and "wave_id" not in df.columns:
+        raise ValueError(
+            "live_snapshot.csv must contain either 'display_name' or 'wave_id'"
+        )
+
+
+def get_wave_name(row: pd.Series) -> str:
+    if "display_name" in row and pd.notna(row["display_name"]):
+        return row["display_name"]
+    return row["wave_id"]
 
 
 def decompose_alpha(total_alpha: float) -> dict:
     """
-    TEMPORARY, TRANSPARENT attribution split.
-    These weights are explicit placeholders until
-    strategy-level signal attribution is wired in.
+    Transparent placeholder attribution.
+    These weights will later be replaced by
+    real signal-level attribution.
     """
     return {
         "selection_alpha": total_alpha * 0.45,
@@ -74,7 +83,6 @@ def decompose_alpha(total_alpha: float) -> dict:
         "vix_alpha": total_alpha * 0.10,
         "volatility_alpha": total_alpha * 0.05,
     }
-
 
 # -----------------------------
 # Main
@@ -91,10 +99,10 @@ def main():
     rows = []
 
     for _, row in snapshot_df.iterrows():
-        wave = row["display_name"]
+        wave = get_wave_name(row)
 
         for horizon, col in HORIZONS.items():
-            total_alpha = row[col]
+            total_alpha = float(row[col])
 
             components = decompose_alpha(total_alpha)
             residual_alpha = total_alpha - sum(components.values())
