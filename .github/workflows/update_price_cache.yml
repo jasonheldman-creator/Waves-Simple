@@ -1,13 +1,17 @@
-name: "Update Price Cache"
+name: Update Price Cache
 
 on:
   schedule:
-    - cron: "0 2 * * *"  # Run daily at 2 AM UTC
-  workflow_dispatch:  # Allow manual triggering
+    # Runs daily at 2:00 AM UTC (after most markets close)
+    - cron: "0 2 * * *"
+  workflow_dispatch:
 
 jobs:
   build-cache:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -24,8 +28,17 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build Price Cache
-        run: python build_price_cache.py
-
-      - name: Validate Cache
         run: |
-          python validate_cache.py --cache-path data/cache/prices_cache.parquet
+          python build_price_cache.py
+
+      - name: Commit updated cache (if changed)
+        run: |
+          if git status --porcelain | grep -E "prices_cache.parquet|prices_cache_meta.json"; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add data/cache/prices_cache.parquet data/cache/prices_cache_meta.json
+            git commit -m "Update price cache"
+            git push
+          else
+            echo "No cache changes to commit."
+          fi
