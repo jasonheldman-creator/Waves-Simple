@@ -14,9 +14,6 @@ HARD GUARANTEES:
 4. Skips invalid tickers safely
 5. FAILS if zero waves are produced
 6. ALWAYS rewrites data/live_snapshot.csv on success
-
-If prices_cache.parquet changes, this file WILL change.
-If not, the script will tell you exactly why.
 """
 
 import os
@@ -120,7 +117,7 @@ def main():
     rows: List[Dict] = []
 
     for wave_id, wave_df in weights.groupby("wave_id"):
-        display_name = wave_id  # AUTHORITATIVE + STABLE
+        display_name = wave_id  # authoritative
 
         series_list = []
         weight_list = []
@@ -151,10 +148,14 @@ def main():
             log.warning(f"{wave_id}: zero weight sum, skipping wave")
             continue
 
-        norm_weights = [w / total_weight for w in weight_list]
-
+        # --- CRITICAL FIX: ALIGN WEIGHTS TO COLUMNS ---
         aligned = pd.concat(series_list, axis=1).dropna()
-        weighted_series = aligned.dot(pd.Series(norm_weights))
+        weights_series = pd.Series(
+            [w / total_weight for w in weight_list],
+            index=aligned.columns
+        )
+
+        weighted_series = aligned.mul(weights_series, axis=1).sum(axis=1)
 
         if len(weighted_series) < MIN_ROWS_REQUIRED:
             log.warning(f"{wave_id}: insufficient aligned rows, skipping")
