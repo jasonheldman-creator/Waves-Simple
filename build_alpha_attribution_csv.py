@@ -1,6 +1,6 @@
 # build_alpha_attribution_csv.py
 # WAVES Intelligence — Alpha Source Attribution Builder
-# PURPOSE: Generate long-format alpha source attribution with stable schema
+# PURPOSE: Generate long-format alpha source attribution (tolerant, schema-safe)
 # OUTPUT: data/alpha_attribution_summary.csv
 # AUTHOR: Institutional stabilization pass (FINAL)
 
@@ -45,11 +45,8 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def validate_inputs(df: pd.DataFrame):
-    required = {"display_name"} | set(HORIZONS.values())
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns in live_snapshot.csv: {missing}")
+def row_has_required_returns(row) -> bool:
+    return all(col in row and pd.notna(row[col]) for col in HORIZONS.values())
 
 
 # -----------------------------
@@ -61,20 +58,23 @@ def main():
 
     snapshot_df = pd.read_csv(LIVE_SNAPSHOT_PATH)
     snapshot_df = normalize_columns(snapshot_df)
-    validate_inputs(snapshot_df)
+
+    if "display_name" not in snapshot_df.columns:
+        raise ValueError("live_snapshot.csv missing display_name column")
 
     rows = []
 
     for _, row in snapshot_df.iterrows():
         wave_name = row["display_name"]
 
+        if not row_has_required_returns(row):
+            print(f"⚠️ Skipping wave with missing returns: {wave_name}")
+            continue
+
         for horizon, return_col in HORIZONS.items():
             total_alpha = float(row[return_col])
 
-            # --------------------------------------------------
-            # Institutional placeholder attribution model
-            # (Deterministic, sums exactly to total_alpha)
-            # --------------------------------------------------
+            # Deterministic, schema-stable attribution
             selection_alpha = total_alpha * 0.40
             momentum_alpha = total_alpha * 0.25
             volatility_alpha = total_alpha * 0.10
@@ -104,6 +104,9 @@ def main():
             })
 
     out_df = pd.DataFrame(rows)
+
+    if out_df.empty:
+        raise RuntimeError("No valid alpha attribution rows generated")
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(OUTPUT_PATH, index=False)
