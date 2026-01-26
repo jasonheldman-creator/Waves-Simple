@@ -1,276 +1,31 @@
-name: Update Price Cache
+name: "Update Price Cache"
 
 on:
   schedule:
-    - cron: "0 2 * * *" # 2:00 UTC daily
-  workflow_dispatch:
-    inputs:
-      years:
-        description: "How many years of history to include in the price cache"
-        required: false
-        default: 3
-        type: number
-      force:
-        description: "Force full rebuild (disregard existing cache)"
-        required: false
-        default: false
-        type: boolean
-      allow_bootstrap:
-        description: "Allow metadata bootstrap (temporary override for one run)"
-        required: false
-        default: false
-        type: boolean
-
-permissions:
-  contents: write
-
-# Prevent overlapping runs (this is a BIG part of fixing 'fetch first' push failures)
-concurrency:
-  group: update-price-cache
-  cancel-in-progress: true
-
-env:
-  MIN_SUCCESS_RATE: "0.90"
-  TZ: UTC
+    - cron: "0 2 * * *"  # Run daily at 2 AM UTC
+  workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  update_cache:
+  build-cache:
     runs-on: ubuntu-latest
-    env:
-      TZ: UTC
 
     steps:
-      - name: Check out repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: true
-          fetch-depth: 0  # needed so pull --rebase works reliably
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Pre-build cache inspection
+      - name: Build Price Cache
+        run: python build_price_cache.py
+
+      - name: Validate Cache
         run: |
-          echo "========================================================================"
-          echo "PRE-BUILD CACHE INSPECTION"
-          echo "========================================================================"
-
-          if [ -f data/cache/prices_cache.parquet ]; then
-            echo "✓ Cache file exists: data/cache/prices_cache.parquet"
-            CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
-            echo "  Size: ${CACHE_SIZE} bytes"
-
-            if [ -f data/cache/prices_cache_meta.json ]; then
-              echo ""
-              echo "Existing Cache Metadata:"
-              cat data/cache/prices_cache_meta.json | python3 -m json.tool
-            fi
-
-            echo ""
-            python3 << 'EOF'
-          import pandas as pd
-          try:
-              df = pd.read_parquet("data/cache/prices_cache.parquet")
-              print(f"  Symbol count: {len(df.columns)}")
-              print(f"  Date range: {df.index.min()} to {df.index.max()}")
-          except Exception as e:
-              print(f"  Error reading cache: {e}")
-          EOF
-          else
-            echo "✗ Cache file does not exist yet"
-          fi
-
-          echo "========================================================================"
-
-      - name: Build price cache
-        env:
-          YEARS_INPUT: ${{ inputs.years || '3' }}
-        run: |
-          echo "=== Building Price Cache ==="
-
-          FORCE_INPUT="${{ github.event.inputs.force }}"
-
-          # Defaults for scheduled runs (no inputs)
-          if [ -z "$FORCE_INPUT" ]; then
-            FORCE_INPUT="false"
-          fi
-
-          # Validate numeric years, coerce to int
-          if ! [[ "$YEARS_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-            echo "Error: years input must be numeric, got: $YEARS_INPUT"
-            exit 1
-          fi
-
-          YEARS_INT=$(python3 - << 'EOF'
-          import os, math
-          y = float(os.environ["YEARS_INPUT"])
-          # round to nearest int, but enforce >= 1
-          yi = int(round(y))
-          yi = max(1, yi)
-          print(yi)
-          EOF
-          )
-
-          echo "Years parameter (raw): $YEARS_INPUT"
-          echo "Years parameter (integer): $YEARS_INT"
-          echo "Force rebuild input: $FORCE_INPUT"
-
-          FORCE_FLAG=""
-          if [ "$FORCE_INPUT" = "true" ]; then
-            FORCE_FLAG="--force"
-          fi
-
-          # Build cache (skip-validation is fine if your script already does validation elsewhere)
-          python build_price_cache.py $FORCE_FLAG --skip-validation --years "$YEARS_INT"
-
-      - name: Validate cache file exists and is non-empty
-        run: |
-          echo "========================================================================"
-          echo "POST-BUILD CACHE VALIDATION"
-          echo "========================================================================"
-
-          if [ ! -f data/cache/prices_cache.parquet ]; then
-            echo "✗ ERROR: Cache file does not exist"
-            exit 1
-          fi
-
-          CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
-          if [ "$CACHE_SIZE" -eq 0 ]; then
-            echo "✗ ERROR: Cache file is empty"
-            exit 1
-          fi
-
-          echo "✓ Cache file exists and is non-empty"
-          echo "  Size: ${CACHE_SIZE} bytes"
-
-          if [ -f data/cache/prices_cache_meta.json ]; then
-            echo ""
-            echo "Cache Metadata:"
-            cat data/cache/prices_cache_meta.json | python3 -m json.tool
-          else
-            echo "⚠ WARNING: prices_cache_meta.json not found"
-          fi
-
-          echo "========================================================================"
-
-      - name: Validate cache metadata
-        env:
-          ALLOW_METADATA_BOOTSTRAP: ${{ github.event.inputs.allow_bootstrap == 'true' && '1' || '' }}
-        run: |
-          echo "========================================================================"
-          echo "CACHE METADATA VALIDATION"
-          echo "========================================================================"
-          
-          # Log bootstrap override status
-          if [ "${{ github.event.inputs.allow_bootstrap }}" = "true" ]; then
-            echo "⚠️  BOOTSTRAP OVERRIDE ENABLED (allow_bootstrap=true)"
-            echo "   This is a TEMPORARY override for ONE run to break the bootstrap deadlock."
-            echo "   Trading-day freshness will log warnings instead of failing."
-            echo "   ⚠️  REMOVE this override in a follow-up PR after this run completes."
-            echo ""
-          fi
-          
-          # Run metadata validation script
-          python3 scripts/validate_cache_metadata.py
-          
-          # Script exits with code 1 if validation fails, which will fail the workflow
-          echo ""
-          echo "✓ Metadata validation passed"
-          echo "========================================================================"
-
-      - name: Check for changes
-        id: check_changes
-        run: |
-          echo "========================================================================"
-          echo "CHANGE DETECTION"
-          echo "========================================================================"
-
-          # Check if cache files have been modified (don't stage yet)
-          if git diff --quiet data/cache/prices_cache.parquet data/cache/prices_cache_meta.json 2>/dev/null; then
-            echo "status=no_changes" >> $GITHUB_OUTPUT
-            echo "ℹ No changes in cache files"
-          else
-            echo "status=has_changes" >> $GITHUB_OUTPUT
-            echo "✓ Changes detected:"
-            git diff --stat data/cache/prices_cache.parquet data/cache/prices_cache_meta.json 2>/dev/null || echo "  (new files)"
-          fi
-
-          echo "========================================================================"
-
-      # Only push on schedule or manual dispatch (never on PR)
-      # For workflow_dispatch: ALWAYS commit (even small metadata changes)
-      # For schedule: only commit if changes detected
-      - name: Commit and push updated cache
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        run: |
-          set -e
-
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-
-          # Clean workspace to ensure we're in a pristine state
-          echo "Cleaning workspace..."
-          git reset --hard
-          git clean -fd
-
-          # Fetch and rebase onto latest main BEFORE staging any changes
-          echo "Fetching latest changes from origin/main..."
-          git fetch origin main
-          echo "Rebasing onto origin/main..."
-          git pull --rebase origin main
-
-          # Now stage the cache files (after rebase is complete)
-          echo "Staging cache files..."
-          git add data/cache/prices_cache.parquet || true
-          git add data/cache/prices_cache_meta.json || true
-
-          # Check if there are any staged differences
-          if git diff --staged --quiet; then
-            # For workflow_dispatch, we still need to check if metadata timestamps matter
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-              echo "⚠ Manual run completed but no changes detected after rebase."
-              echo "This can happen if the cache was just updated by another workflow."
-            else
-              echo "ℹ After rebase, nothing to commit."
-            fi
-            exit 0
-          fi
-
-          # Extract metadata for logging
-          echo ""
-          echo "========================================================================"
-          echo "COMMIT METADATA LOGGING"
-          echo "========================================================================"
-          
-          # Log SPY max date and other key metadata
-          if [ -f data/cache/prices_cache_meta.json ]; then
-            echo "Cache Metadata (spy_max_date, max_price_date, overall_max_date):"
-            python3 -c "import json; meta = json.load(open('data/cache/prices_cache_meta.json')); print(f\"  spy_max_date: {meta.get('spy_max_date', 'N/A')}\"); print(f\"  max_price_date: {meta.get('max_price_date', 'N/A')}\"); print(f\"  overall_max_date: {meta.get('overall_max_date', 'N/A')}\"); print(f\"  generated_at_utc: {meta.get('generated_at_utc', 'N/A')}\")"
-          fi
-
-          # Commit and push the changes
-          echo ""
-          echo "Committing changes..."
-          COMMIT_MSG="Update prices cache (auto)"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            COMMIT_MSG="Update prices cache (manual run)"
-          fi
-          git commit -m "$COMMIT_MSG"
-          
-          COMMIT_SHA=$(git rev-parse HEAD)
-          echo "  Commit SHA: $COMMIT_SHA"
-          
-          echo "Pushing to origin/main..."
-          git push
-          
-          echo ""
-          echo "✓ Cache files committed and pushed successfully"
-          echo "  Last commit SHA: $COMMIT_SHA"
-          echo "========================================================================"
+          python validate_cache.py --cache-path data/cache/prices_cache.parquet
