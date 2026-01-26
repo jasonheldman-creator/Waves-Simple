@@ -7,6 +7,7 @@ Canonical price cache builder for WAVES.
 CI-safe behavior:
 - Batch-downloads ALL tickers in one Yahoo request
 - Skips bad tickers safely
+- Handles timezone normalization correctly
 - Fails only if resulting cache is invalid
 """
 
@@ -139,10 +140,15 @@ def fetch_price_data(tickers: List[str]) -> (pd.DataFrame, List[str]):
     return prices, failed
 
 # ------------------------------------------------------------------------------
-# Validate cache
+# Validate cache (timezone-safe)
 # ------------------------------------------------------------------------------
 def validate_cache(prices: pd.DataFrame) -> None:
     latest = prices.index.max()
+
+    # Normalize to UTC tz-naive
+    if latest.tzinfo is not None:
+        latest = latest.tz_convert("UTC").tz_localize(None)
+
     today = pd.Timestamp.utcnow().normalize()
 
     if (today - latest).days > 5:
