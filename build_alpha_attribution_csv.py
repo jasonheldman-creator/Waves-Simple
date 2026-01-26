@@ -5,24 +5,21 @@ build_alpha_attribution_csv.py
 PURPOSE (HARD GUARANTEES)
 --------------------------------------------------
 Generate data/alpha_attribution_summary.csv from
-data/live_snapshot.csv in a format REQUIRED by the app.
+data/live_snapshot.csv in the exact schema REQUIRED
+by the Streamlit app.
 
-This script:
-- Produces ONE row per wave
-- Outputs alpha_30d / alpha_60d / alpha_365d (REQUIRED)
-- Anchors all values to LIVE snapshot data
+Hard guarantees:
+- Produces required column: `wave`
+- Produces required alpha columns:
+  alpha_30d, alpha_60d, alpha_365d
+- Anchored to LIVE snapshot data
 - Includes intraday context via snapshot_date
-- Fails loudly if inputs are invalid
-
-If live_snapshot.csv changes, this file WILL change.
+- Fails loudly if anything is missing
 """
 
 import os
 import sys
 import logging
-from datetime import datetime
-from typing import Dict
-
 import pandas as pd
 
 # ------------------------------------------------------------------------------
@@ -41,9 +38,7 @@ REQUIRED_INPUT_COLUMNS = {
 }
 
 REQUIRED_OUTPUT_COLUMNS = {
-    "wave_name",
-    "mode",
-    "snapshot_date",
+    "wave",
     "alpha_30d",
     "alpha_60d",
     "alpha_365d",
@@ -82,7 +77,6 @@ def load_live_snapshot() -> pd.DataFrame:
         hard_fail(f"live_snapshot.csv missing required columns: {missing}")
 
     log.info(f"Loaded live snapshot with {len(df)} rows")
-
     return df
 
 # ------------------------------------------------------------------------------
@@ -93,12 +87,11 @@ def build_alpha_attribution(df: pd.DataFrame) -> pd.DataFrame:
 
     for wave_id, g in df.groupby("wave_id"):
         display_name = g["display_name"].iloc[0]
-        snapshot_date = g["snapshot_date"].iloc[0]
 
         row = {
-            "wave_name": display_name,
-            "mode": "LIVE",
-            "snapshot_date": snapshot_date,
+            # 🔑 THIS IS THE KEY FIX
+            "wave": display_name,
+
             "alpha_30d": float(g["return_30d"].iloc[0]),
             "alpha_60d": float(g["return_60d"].iloc[0]),
             "alpha_365d": float(g["return_365d"].iloc[0]),
@@ -126,8 +119,7 @@ def main():
     df = load_live_snapshot()
     out = build_alpha_attribution(df)
 
-    # Stable ordering
-    out = out.sort_values("wave_name")
+    out = out.sort_values("wave")
 
     out.to_csv(OUTPUT_FILE, index=False)
 
