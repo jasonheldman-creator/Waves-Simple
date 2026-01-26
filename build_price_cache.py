@@ -7,24 +7,13 @@ Purpose:
 - Be CI-safe and robust to bad tickers
 - Skip bad/missing/delisted tickers instead of failing
 - Validate the final cache for recency and trading day depth
-
-Requirements:
-1. Load tickers exclusively from data/wave_weights.csv.
-2. Fetch prices using Yahoo Finance in batch requests.
-3. Handle bad/missing tickers gracefully (log and skip).
-4. Validate the resulting cache:
-   - Timestamps must be UTC tz-naive.
-   - Cache must be <5 days old and ≥252 trading days.
-5. Output:
-   - data/cache/prices_cache.parquet
-   - data/cache/prices_cache_meta.json
 """
 
 import os
 import sys
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List
 
 import pandas as pd
@@ -54,28 +43,28 @@ log = logging.getLogger("build_price_cache")
 # ------------------------------------------------------------------------------
 # Utilities
 # ------------------------------------------------------------------------------
-def hard_fail(message: str) -> None:
-    log.error(message)
+def hard_fail(msg: str) -> None:
+    log.error(msg)
     sys.exit(1)
 
 
-def ensure_dir(directory: str) -> None:
-    os.makedirs(directory, exist_ok=True)
+def ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
 
 # ------------------------------------------------------------------------------
 # Ticker Loading
 # ------------------------------------------------------------------------------
 def load_tickers() -> List[str]:
-    log.info(f"Loading tickers from {WAVE_WEIGHTS_FILE}...")
+    log.info("Loading tickers from wave_weights.csv")
 
     if not os.path.exists(WAVE_WEIGHTS_FILE):
-        hard_fail(f"wave_weights.csv not found at {WAVE_WEIGHTS_FILE}")
+        hard_fail("wave_weights.csv not found")
 
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
-    required_columns = {"wave_id", "ticker", "weight"}
-    missing = required_columns - set(df.columns)
+    required = {"wave_id", "ticker", "weight"}
+    missing = required - set(df.columns)
     if missing:
-        hard_fail(f"wave_weights.csv missing required columns: {missing}")
+        hard_fail(f"wave_weights.csv missing columns: {missing}")
 
     tickers = (
         df["ticker"]
@@ -87,93 +76,90 @@ def load_tickers() -> List[str]:
     )
 
     if not tickers:
-        hard_fail("No tickers found in wave_weights.csv")
+        hard_fail("No tickers found")
 
-    log.info(f"Loaded {len(tickers)} unique tickers")
+    log.info(f"Loaded {len(tickers)} tickers")
     return tickers
 
 # ------------------------------------------------------------------------------
 # Price Fetching
 # ------------------------------------------------------------------------------
 def fetch_price_data(tickers: List[str]) -> pd.DataFrame:
-    start_date = (datetime.utcnow() - timedelta(days=LOOKBACK_YEARS * 365)).strftime("%Y-%m-%d")
-    log.info(f"Fetching price data starting from {start_date}")
+    start = pd.Timestamp.utcnow() - pd.DateOffset(years=LOOKBACK_YEARS)
+    start = start.strftime("%Y-%m-%d")
 
-    try:
-        raw = yf.download(
-            tickers,
-            start=start_date,
-            auto_adjust=True,
-            group_by="ticker",
-            threads=True,
-            progress=False,
-        )
-    except Exception as e:
-        hard_fail(f"Yahoo Finance batch download failed: {e}")
+    log.info(f"Fetching prices starting from {start}")
 
-    price_series = {}
-    for ticker in tickers:
+    raw = yf.download(
+        tickers,
+        start=start,
+        auto_adjust=True,
+        group_by="ticker",
+        threads=True,
+        progress=False,
+    )
+
+    series_map = {}
+
+    for t in tickers:
         try:
-            s = raw[ticker]["Close"]
+            s = raw[t]["Close"]
             if isinstance(s, pd.Series) and s.notna().sum() >= MIN_TRADING_DAYS:
-                price_series[ticker] = s
+                series_map[t] = s
             else:
-                log.warning(f"Skipping {ticker}: insufficient data")
+                log.warning(f"Skipping {t}: insufficient data")
         except Exception:
-            log.warning(f"Skipping {ticker}: no usable price series")
+            log.warning(f"Skipping {t}: no price series")
 
-    if not price_series:
-        hard_fail("All tickers failed — no valid price data produced")
+    if not series_map:
+        hard_fail("All tickers failed to fetch")
 
-    price_df = pd.DataFrame(price_series).dropna(how="all")
+    df = pd.DataFrame(series_map).dropna(how="all")
 
-    # Ensure tz-naive DatetimeIndex (critical)
-    price_df.index = pd.to_datetime(price_df.index).tz_localize(None)
+    # 🔑 CRITICAL: force tz-naive index ALWAYS
+    df.index = pd.to_datetime(df.index, utc=True).tz_convert(None)
 
-    log.info(f"Final price cache shape: {price_df.shape}")
-    return price_df
+    log.info(f"Final cache shape: {df.shape}")
+    return df
 
 # ------------------------------------------------------------------------------
 # Validation
 # ------------------------------------------------------------------------------
 def validate_cache(cache: pd.DataFrame) -> None:
     if cache.empty:
-        hard_fail("Cache validation failed: cache is empty")
+        hard_fail("Cache is empty")
 
     max_date = cache.index.max()
+
+    # 🔑 Force BOTH sides tz-naive pandas timestamps
     today = pd.Timestamp.utcnow().normalize()
 
     age_days = (today - max_date).days
     if age_days > MAX_CACHE_AGE_DAYS:
         hard_fail(
-            f"Cache validation failed: max date {max_date.date()} "
-            f"is {age_days} days old (> {MAX_CACHE_AGE_DAYS})"
+            f"Cache too old: max_date={max_date.date()} "
+            f"age_days={age_days}"
         )
 
     if len(cache.index) < MIN_TRADING_DAYS:
         hard_fail(
-            f"Cache validation failed: only {len(cache.index)} trading days "
-            f"(min required {MIN_TRADING_DAYS})"
+            f"Insufficient trading days: {len(cache.index)} < {MIN_TRADING_DAYS}"
         )
 
     log.info(
-        f"Cache validated successfully "
-        f"(max_date={max_date.date()}, trading_days={len(cache.index)})"
+        f"Cache validated (max_date={max_date.date()}, days={len(cache.index)})"
     )
 
 # ------------------------------------------------------------------------------
 # Metadata
 # ------------------------------------------------------------------------------
-def write_metadata(
-    cache: pd.DataFrame,
-    tickers_requested: List[str],
-) -> None:
+def write_metadata(cache: pd.DataFrame, requested: List[str]) -> None:
     used = set(cache.columns)
-    failed = sorted(set(tickers_requested) - used)
+    failed = sorted(set(requested) - used)
 
-    metadata = {
-        "generated_at_utc": datetime.utcnow().isoformat(),
-        "tickers_requested": len(tickers_requested),
+    meta = {
+        "generated_at_utc": pd.Timestamp.utcnow().isoformat(),
+        "tickers_requested": len(requested),
         "tickers_used": len(used),
         "tickers_failed": failed,
         "min_date": cache.index.min().strftime("%Y-%m-%d"),
@@ -182,7 +168,7 @@ def write_metadata(
     }
 
     with open(META_FILE, "w") as f:
-        json.dump(metadata, f, indent=4)
+        json.dump(meta, f, indent=4)
 
     log.info(f"Metadata written to {META_FILE}")
 
@@ -199,7 +185,7 @@ def main():
     cache.to_parquet(CACHE_FILE)
     write_metadata(cache, tickers)
 
-    log.info(f"Price cache successfully written to {CACHE_FILE}")
+    log.info(f"Price cache written to {CACHE_FILE}")
 
 if __name__ == "__main__":
     main()
