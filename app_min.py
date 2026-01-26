@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from intelligence.adaptive_intelligence import render_alpha_quality_and_confidence
 
 # ---------------------------
 # Page Config
@@ -138,90 +139,28 @@ with tabs[1]:
     st.subheader("Source Breakdown")
     st.dataframe(source_df, use_container_width=True, hide_index=True)
 
-    # ===========================
     # Alpha Quality & Confidence
-    # ===========================
-    st.subheader("Alpha Quality & Confidence")
-
-    wave_row = snapshot_df[snapshot_df["display_name"] == selected_wave]
-
-    if wave_row.empty:
-        st.warning("Wave data not available.")
-    else:
-        wave_row = wave_row.iloc[0]
-
-        # ---- Horizon Alpha
-        horizons = ["30d", "60d", "365d"]
-        alpha_vals = []
-        for h in horizons:
-            alpha_vals.append(
-                wave_row[RETURN_COLS[h]] - wave_row[BENCHMARK_COLS[h]]
-            )
-
-        alpha_series = pd.Series(alpha_vals, index=horizons)
-
-        # ---- Residual share
-        residual = source_df.loc[
-            source_df["Alpha Source"] == "Residual Alpha", "Contribution"
-        ].values[0]
-
-        explained = 1 - abs(residual)
-
-        # ---- Consistency score
-        consistency = 1 - alpha_series.std() if alpha_series.notna().all() else 0.3
-
-        # ---- Alpha Confidence Index
-        aci = int(
-            np.clip(
-                (explained * 0.5 + consistency * 0.5) * 100,
-                0, 100
-            )
-        )
-
-        if aci >= 75:
-            aci_label = "High Confidence"
-        elif aci >= 50:
-            aci_label = "Moderate Confidence"
-        else:
-            aci_label = "Fragile Alpha"
-
-        # ---- Summary Table
-        summary_df = pd.DataFrame({
-            "Metric": [
-                "Dominant Driver",
-                "Residual Alpha Share",
-                "Horizon Consistency",
-                "Alpha Confidence Index",
-            ],
-            "Assessment": [
-                source_df.sort_values("Contribution", ascending=False)
-                .iloc[0]["Alpha Source"],
-                f"{residual:.3f}",
-                "Stable" if consistency > 0.7 else "Variable",
-                f"{aci} ({aci_label})",
-            ],
-        })
-
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
-        # ---- IC Narrative
-        st.markdown(
-            f"""
-            **Interpretation**
-
-            • Alpha is primarily driven by **{summary_df.iloc[0]['Assessment']}**  
-            • Residual alpha is **{residual:.3f}**, indicating disciplined signal structure  
-            • Alpha behavior across horizons is **{summary_df.iloc[2]['Assessment']}**  
-            • Overall confidence in alpha persistence is **{aci_label}**
-            """
-        )
+    render_alpha_quality_and_confidence(
+        snapshot_df, source_df, selected_wave, RETURN_COLS, BENCHMARK_COLS
+    )
 
 # ===========================
 # ADAPTIVE INTELLIGENCE TAB
 # ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.info("Adaptive Intelligence monitoring coming next.")
+    st.caption("Derived from Alpha Attribution (read-only)")
+
+    if snapshot_error:
+        st.error(snapshot_error)
+    else:
+        waves = snapshot_df["display_name"].tolist()
+        selected_wave = st.selectbox("Select Wave", waves)
+
+        # Render the Alpha Quality & Confidence logic
+        render_alpha_quality_and_confidence(
+            snapshot_df, None, selected_wave, RETURN_COLS, BENCHMARK_COLS
+        )
 
 # ===========================
 # OPERATIONS TAB
