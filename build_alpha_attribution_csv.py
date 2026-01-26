@@ -1,8 +1,8 @@
 # build_alpha_attribution_csv.py
 # WAVES Intelligence — Alpha Source Attribution Builder
-# PURPOSE: Generate long-format alpha source attribution (tolerant, schema-safe)
+# PURPOSE: Generate long-format alpha source attribution (schema-tolerant)
 # OUTPUT: data/alpha_attribution_summary.csv
-# AUTHOR: Institutional stabilization pass (FINAL)
+# STATUS: FINAL / INSTITUTIONAL SAFE
 
 import pandas as pd
 from pathlib import Path
@@ -45,6 +45,14 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def get_wave_name(row: pd.Series) -> str:
+    if "display_name" in row and pd.notna(row["display_name"]):
+        return str(row["display_name"])
+    if "wave_id" in row and pd.notna(row["wave_id"]):
+        return str(row["wave_id"])
+    return "UNKNOWN_WAVE"
+
+
 def row_has_required_returns(row) -> bool:
     return all(col in row and pd.notna(row[col]) for col in HORIZONS.values())
 
@@ -59,13 +67,10 @@ def main():
     snapshot_df = pd.read_csv(LIVE_SNAPSHOT_PATH)
     snapshot_df = normalize_columns(snapshot_df)
 
-    if "display_name" not in snapshot_df.columns:
-        raise ValueError("live_snapshot.csv missing display_name column")
-
     rows = []
 
     for _, row in snapshot_df.iterrows():
-        wave_name = row["display_name"]
+        wave_name = get_wave_name(row)
 
         if not row_has_required_returns(row):
             print(f"⚠️ Skipping wave with missing returns: {wave_name}")
@@ -74,7 +79,7 @@ def main():
         for horizon, return_col in HORIZONS.items():
             total_alpha = float(row[return_col])
 
-            # Deterministic, schema-stable attribution
+            # Deterministic, stable attribution model
             selection_alpha = total_alpha * 0.40
             momentum_alpha = total_alpha * 0.25
             volatility_alpha = total_alpha * 0.10
@@ -103,15 +108,14 @@ def main():
                 "residual_alpha": residual_alpha,
             })
 
-    out_df = pd.DataFrame(rows)
-
-    if out_df.empty:
+    if not rows:
         raise RuntimeError("No valid alpha attribution rows generated")
 
+    out_df = pd.DataFrame(rows)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(OUTPUT_PATH, index=False)
 
-    print(f"✅ Wrote {len(out_df)} rows to {OUTPUT_PATH}")
+    print(f"✅ Alpha attribution written: {len(out_df)} rows → {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
