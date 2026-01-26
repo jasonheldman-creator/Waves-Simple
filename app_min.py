@@ -1,7 +1,7 @@
 # app_min.py
-# WAVES Intelligence — Alpha Attribution Console (Stable)
-# PURPOSE: Institutional-grade Portfolio + Wave Alpha Source Breakdown
-# AUTHOR: Locked stable rewrite (Portfolio-first, horizon-safe)
+# WAVES Intelligence — Minimal Stable Console (Institutional)
+# PURPOSE: Portfolio + Alpha Source Attribution with Sidebar
+# AUTHOR: Stabilized rebuild (FINAL)
 
 import streamlit as st
 import pandas as pd
@@ -30,6 +30,8 @@ def safe_read_csv(path: Path) -> pd.DataFrame | None:
         if not path.exists():
             return None
         df = pd.read_csv(path)
+        if df.empty:
+            return pd.DataFrame()
         return df
     except Exception as e:
         st.error(f"Failed to read {path.name}: {e}")
@@ -47,6 +49,17 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # -----------------------------
+# Sidebar (RESTORED)
+# -----------------------------
+with st.sidebar:
+    st.header("WAVES Console")
+    st.caption("Navigation & Diagnostics")
+
+    st.markdown("**Data Status**")
+    st.write("Live Snapshot:", LIVE_SNAPSHOT_PATH.exists())
+    st.write("Alpha Attribution:", ALPHA_ATTR_PATH.exists())
+
+# -----------------------------
 # Header
 # -----------------------------
 st.title("Intelligence Console")
@@ -59,11 +72,11 @@ tabs = st.tabs([
     "Operations",
 ])
 
-# =====================================================
+# -----------------------------
 # Overview Tab
-# =====================================================
+# -----------------------------
 with tabs[0]:
-    st.subheader("📊 Portfolio Snapshot")
+    st.subheader("Portfolio Snapshot")
 
     snapshot_df = safe_read_csv(LIVE_SNAPSHOT_PATH)
 
@@ -75,9 +88,9 @@ with tabs[0]:
         snapshot_df = normalize_columns(snapshot_df)
         st.dataframe(snapshot_df, use_container_width=True)
 
-# =====================================================
+# -----------------------------
 # Alpha Attribution Tab
-# =====================================================
+# -----------------------------
 with tabs[1]:
     st.subheader("⚡ Alpha Attribution — Source Breakdown")
 
@@ -93,19 +106,16 @@ with tabs[1]:
 
     alpha_df = normalize_columns(alpha_df)
 
-    # -----------------------------
-    # Required schema (LONG FORMAT)
-    # -----------------------------
     required_cols = {
         "wave",
         "horizon",
+        "total_alpha",
         "selection_alpha",
         "momentum_alpha",
         "volatility_alpha",
         "regime_alpha",
         "exposure_alpha",
         "residual_alpha",
-        "total_alpha",
     }
 
     missing = required_cols - set(alpha_df.columns)
@@ -115,95 +125,64 @@ with tabs[1]:
         st.stop()
 
     # -----------------------------
-    # Normalize horizon to INT
+    # Selectors (PROMINENT)
     # -----------------------------
-    alpha_df["horizon"] = alpha_df["horizon"].astype(int)
-
-    # -----------------------------
-    # Wave Selector (Portfolio FIRST)
-    # -----------------------------
-    waves = sorted(alpha_df["wave"].unique().tolist())
-
-    if "Portfolio" in waves:
-        waves.remove("Portfolio")
-        waves.insert(0, "Portfolio")
+    waves = ["Portfolio"] + sorted(alpha_df["wave"].unique().tolist())
 
     selected_wave = st.selectbox(
-        "🔍 Select Wave",
+        "🔎 Select Wave",
         waves,
-        index=0
+        index=0,
     )
-
-    # -----------------------------
-    # Horizon Selector
-    # -----------------------------
-    horizons = sorted(alpha_df["horizon"].unique().tolist())
 
     selected_horizon = st.selectbox(
         "📅 Select Horizon (Days)",
-        horizons,
-        index=horizons.index(365) if 365 in horizons else 0
+        sorted(alpha_df["horizon"].unique()),
+        index=sorted(alpha_df["horizon"].unique()).index(365),
     )
 
     # -----------------------------
     # Filter
     # -----------------------------
-    filtered = alpha_df[
-        (alpha_df["wave"] == selected_wave) &
-        (alpha_df["horizon"] == selected_horizon)
-    ]
+    if selected_wave == "Portfolio":
+        filtered = alpha_df[alpha_df["horizon"] == selected_horizon]
+        title = f"Portfolio — {selected_horizon} Day Alpha Sources"
+    else:
+        filtered = alpha_df[
+            (alpha_df["wave"] == selected_wave)
+            & (alpha_df["horizon"] == selected_horizon)
+        ]
+        title = f"{selected_wave} — {selected_horizon} Day Alpha Sources"
 
-    # -----------------------------
-    # Display Header (Pronounced)
-    # -----------------------------
-    st.markdown("---")
-    st.markdown(
-        f"## **{selected_wave} — {selected_horizon} Day Alpha Sources**"
-    )
+    st.subheader(title)
 
     if filtered.empty:
-        st.warning(
-            "No alpha source data available for this Wave/Horizon combination.\n\n"
-            "This usually means attribution logic has not yet populated this slice."
-        )
+        st.info("No data available for this selection.")
+    else:
+        display_cols = [
+            "selection_alpha",
+            "momentum_alpha",
+            "volatility_alpha",
+            "regime_alpha",
+            "exposure_alpha",
+            "residual_alpha",
+        ]
 
-        st.markdown("#### 🔎 Diagnostic Preview")
         st.dataframe(
-            alpha_df[
-                alpha_df["wave"] == selected_wave
-            ][["wave", "horizon", "total_alpha"]],
-            use_container_width=True
+            filtered[display_cols],
+            use_container_width=True,
         )
-        st.stop()
 
-    # -----------------------------
-    # Alpha Source Breakdown Table
-    # -----------------------------
-    source_cols = [
-        "selection_alpha",
-        "momentum_alpha",
-        "volatility_alpha",
-        "regime_alpha",
-        "exposure_alpha",
-        "residual_alpha",
-        "total_alpha",
-    ]
-
-    display_df = filtered[source_cols].T.reset_index()
-    display_df.columns = ["Alpha Source", "Contribution"]
-
-    st.dataframe(display_df, use_container_width=True)
-
-# =====================================================
+# -----------------------------
 # Adaptive Intelligence Tab
-# =====================================================
+# -----------------------------
 with tabs[2]:
-    st.subheader("🧠 Adaptive Intelligence")
-    st.info("Adaptive intelligence diagnostics will appear here.")
+    st.subheader("Adaptive Intelligence")
+    st.info("Adaptive intelligence metrics will appear here.")
 
-# =====================================================
+# -----------------------------
 # Operations Tab
-# =====================================================
+# -----------------------------
 with tabs[3]:
-    st.subheader("⚙️ Operations")
+    st.subheader("Operations")
     st.info("Operational controls coming soon.")
