@@ -198,3 +198,4 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     generate_live_snapshot_csv()
+    
