@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from intelligence.adaptive_intelligence import render_alpha_quality_and_confidence
+from adaptive_intelligence import render_alpha_quality_and_confidence
 
 # ---------------------------
 # Page Config
