@@ -5,8 +5,8 @@ generate_live_snapshot_csv.py
 CANONICAL LIVE SNAPSHOT GENERATOR
 --------------------------------
 • Schema-agnostic
-• Never crashes on missing columns
-• Handles wide OR long price caches
+• Weight-aligned (no length mismatch ever)
+• Handles missing tickers safely
 • Always emits data/live_snapshot.csv
 """
 
@@ -54,10 +54,9 @@ def normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
     Normalize prices into:
     date | symbol | close
     """
-
     prices = df.copy()
 
-    # Ensure date column
+    # Ensure date
     if "date" not in prices.columns:
         prices = prices.reset_index(drop=True)
         prices["date"] = pd.date_range(
@@ -70,19 +69,12 @@ def normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
 
     # Long format
     if "close" in prices.columns:
-        symbol_col = None
-        for c in ("ticker", "symbol"):
-            if c in prices.columns:
-                symbol_col = c
-                break
-
-        if symbol_col is None:
+        sym_col = next((c for c in ("ticker", "symbol") if c in prices.columns), None)
+        if sym_col is None:
             raise ValueError("Price cache missing ticker/symbol column")
 
         return (
-            prices.rename(columns={symbol_col: "symbol"})[
-                ["date", "symbol", "close"]
-            ]
+            prices.rename(columns={sym_col: "symbol"})[["date", "symbol", "close"]]
             .dropna(subset=["close"])
         )
 
@@ -127,10 +119,7 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
     rows = []
 
     for wave_id, group in weights.groupby("wave_id"):
-        tickers = group["ticker"].astype(str).tolist()
-        wts = group["weight"].values
-
-        # Determine display name SAFELY
+        # Determine wave name safely
         if "wave_name" in group.columns:
             wave_name = group["wave_name"].iloc[0]
         elif "wave" in group.columns:
@@ -138,7 +127,15 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
         else:
             wave_name = str(wave_id)
 
-        px = prices[prices["symbol"].isin(tickers)]
+        # Build weight map
+        weight_map = (
+            group[["ticker", "weight"]]
+            .dropna()
+            .set_index("ticker")["weight"]
+            .astype(float)
+        )
+
+        px = prices[prices["symbol"].isin(weight_map.index)]
 
         if px.empty:
             rows.append({
@@ -161,7 +158,10 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
             })
             continue
 
-        weighted_price = (pivot * wts).sum(axis=1)
+        # 🔑 ALIGN WEIGHTS TO COLUMNS
+        aligned_weights = weight_map.reindex(pivot.columns).fillna(0.0)
+
+        weighted_price = pivot.mul(aligned_weights, axis=1).sum(axis=1)
 
         r1 = compute_return(weighted_price, 1)
         r30 = compute_return(weighted_price, 30)
@@ -180,8 +180,8 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
             "Alpha_60D": r60,
             "Alpha_365D": r365,
             "VIX_Regime": "NORMAL",
-            "Exposure": 1.0,
-            "CashPercent": 0.0,
+            "Exposure": float(aligned_weights.sum()),
+            "CashPercent": max(0.0, 1.0 - float(aligned_weights.sum())),
         })
 
     df = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
