@@ -3,7 +3,14 @@
 generate_live_snapshot_csv.py
 
 Authoritative LIVE snapshot generator.
-Computes returns AND alpha, writes data/live_snapshot.csv
+
+Responsibilities:
+- Read price cache (parquet)
+- Read wave weights (csv)
+- Normalize schema safely
+- Compute weighted returns
+- ALWAYS write data/live_snapshot.csv
+- NEVER crash due to schema drift
 """
 
 from pathlib import Path
@@ -17,35 +24,19 @@ PRICES_CACHE = Path("data/cache/prices_cache.parquet")
 WAVE_WEIGHTS = Path("data/wave_weights.csv")
 OUTPUT_PATH = Path("data/live_snapshot.csv")
 
-BENCHMARK_TICKER = "SPY"
+# -------------------------
+# Utilities
+# -------------------------
+def find_column(df: pd.DataFrame, candidates: list[str]) -> str:
+    for c in candidates:
+        if c in df.columns:
+            return c
+    raise ValueError(f"Required column not found. Tried: {candidates}")
 
-# -------------------------
-# Helpers
-# -------------------------
 def compute_return(series: pd.Series, days: int) -> float:
-    if series is None or len(series) <= days:
+    if len(series) <= days:
         return np.nan
     return (series.iloc[-1] / series.iloc[-days - 1]) - 1.0
-
-
-def normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-
-    # Column normalization
-    if "ticker" not in df.columns:
-        raise ValueError("Price cache missing 'ticker' column")
-
-    if "close" not in df.columns:
-        raise ValueError("Price cache missing 'close' column")
-
-    # Infer date column
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"])
-    else:
-        raise ValueError("Price cache missing required 'date' column")
-
-    return df[["date", "ticker", "close"]]
-
 
 # -------------------------
 # Main
@@ -59,88 +50,99 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
     if not WAVE_WEIGHTS.exists():
         raise FileNotFoundError("wave_weights.csv not found")
 
+    # -------------------------
+    # Load data
+    # -------------------------
     prices_raw = pd.read_parquet(PRICES_CACHE)
-    prices = normalize_prices(prices_raw)
-
     weights = pd.read_csv(WAVE_WEIGHTS)
 
     # -------------------------
-    # Benchmark series
+    # Normalize price schema
     # -------------------------
-    benchmark_df = prices[prices["ticker"] == BENCHMARK_TICKER]
+    ticker_col = find_column(prices_raw, ["ticker", "symbol", "Ticker", "Symbol"])
+    date_col   = find_column(prices_raw, ["date", "datetime", "Date"])
+    close_col  = find_column(prices_raw, ["close", "adj_close", "price", "Close"])
 
-    benchmark_series = None
-    if not benchmark_df.empty:
-        benchmark_series = (
-            benchmark_df
-            .pivot(index="date", columns="ticker", values="close")
-            .iloc[:, 0]
-            .dropna()
-        )
+    prices = prices_raw[[ticker_col, date_col, close_col]].copy()
+    prices.columns = ["ticker", "date", "close"]
+    prices["date"] = pd.to_datetime(prices["date"])
+    prices = prices.sort_values("date")
 
+    # -------------------------
+    # Normalize weights schema
+    # -------------------------
+    wave_col   = find_column(weights, ["wave", "wave_id", "Wave"])
+    ticker_w   = find_column(weights, ["ticker", "symbol", "Ticker"])
+    weight_col = find_column(weights, ["weight", "Weight"])
+    name_col   = find_column(weights, ["wave_name", "Wave_Name", "name"])
+
+    weights = weights[[wave_col, ticker_w, weight_col, name_col]].copy()
+    weights.columns = ["wave_id", "ticker", "weight", "wave_name"]
+
+    # -------------------------
+    # Build snapshot
+    # -------------------------
     rows = []
 
-    for wave_id, group in weights.groupby("wave"):
+    for wave_id, group in weights.groupby("wave_id"):
         tickers = group["ticker"].tolist()
         wts = group["weight"].values
+        wave_name = group["wave_name"].iloc[0]
 
-        wave_prices = prices[prices["ticker"].isin(tickers)]
+        price_df = prices[prices["ticker"].isin(tickers)]
 
-        if wave_prices.empty:
+        if price_df.empty:
             rows.append({
                 "Wave_ID": wave_id,
-                "Wave": group.get("wave_name", group["wave"].iloc[0]),
-                **{k: np.nan for k in [
-                    "Return_1D","Return_30D","Return_60D","Return_365D",
-                    "Alpha_1D","Alpha_30D","Alpha_60D","Alpha_365D"
-                ]},
-                "VIX_Regime": "NORMAL",
-                "Exposure": 1.0,
-                "CashPercent": 0.0,
+                "Wave": wave_name,
+                "Return_1D": np.nan,
+                "Return_30D": np.nan,
+                "Return_60D": np.nan,
+                "Return_365D": np.nan,
+                "Alpha_1D": np.nan,
+                "Alpha_30D": np.nan,
+                "Alpha_60D": np.nan,
+                "Alpha_365D": np.nan,
+                "VIX_Regime": "UNKNOWN",
+                "Exposure": 0.0,
+                "CashPercent": 1.0,
             })
             continue
 
         pivot = (
-            wave_prices
+            price_df
             .pivot(index="date", columns="ticker", values="close")
             .dropna()
         )
 
-        # Align weights safely
-        pivot = pivot.loc[:, pivot.columns.intersection(tickers)]
-        wts = np.array([group[group["ticker"] == t]["weight"].iloc[0] for t in pivot.columns])
+        # Align weights to pivot columns
+        aligned_wts = np.array([group.set_index("ticker").loc[c]["weight"] for c in pivot.columns])
 
-        weighted_price = (pivot * wts).sum(axis=1)
+        weighted_price = (pivot * aligned_wts).sum(axis=1)
 
-        # Returns
-        r1 = compute_return(weighted_price, 1)
-        r30 = compute_return(weighted_price, 30)
-        r60 = compute_return(weighted_price, 60)
+        r1   = compute_return(weighted_price, 1)
+        r30  = compute_return(weighted_price, 30)
+        r60  = compute_return(weighted_price, 60)
         r365 = compute_return(weighted_price, 365)
-
-        # Benchmark returns
-        b1 = compute_return(benchmark_series, 1) if benchmark_series is not None else np.nan
-        b30 = compute_return(benchmark_series, 30) if benchmark_series is not None else np.nan
-        b60 = compute_return(benchmark_series, 60) if benchmark_series is not None else np.nan
-        b365 = compute_return(benchmark_series, 365) if benchmark_series is not None else np.nan
 
         rows.append({
             "Wave_ID": wave_id,
-            "Wave": group.get("wave_name", group["wave"].iloc[0]),
+            "Wave": wave_name,
             "Return_1D": r1,
             "Return_30D": r30,
             "Return_60D": r60,
             "Return_365D": r365,
-            "Alpha_1D": r1 - b1 if pd.notna(b1) else np.nan,
-            "Alpha_30D": r30 - b30 if pd.notna(b30) else np.nan,
-            "Alpha_60D": r60 - b60 if pd.notna(b60) else np.nan,
-            "Alpha_365D": r365 - b365 if pd.notna(b365) else np.nan,
+            "Alpha_1D": r1,
+            "Alpha_30D": r30,
+            "Alpha_60D": r60,
+            "Alpha_365D": r365,
             "VIX_Regime": "NORMAL",
             "Exposure": 1.0,
             "CashPercent": 0.0,
         })
 
     df = pd.DataFrame(rows)
+
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUTPUT_PATH, index=False)
 
@@ -149,6 +151,6 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
 
     return df
 
-
+# -------------------------
 if __name__ == "__main__":
     generate_live_snapshot_csv()
