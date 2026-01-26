@@ -1,124 +1,146 @@
-#!/usr/bin/env python3
-"""
-build_alpha_attribution_csv.py
-
-Authoritative Alpha Attribution CSV builder.
-
-Consumes:
-- data/live_snapshot.csv
-
-Produces:
-- data/alpha_attribution_summary.csv
-
-Design goals:
-- Never crash
-- Never silently skip valid data
-- Always emit a schema-valid CSV
-- Populate attribution whenever live snapshot has alpha columns
-"""
-
-from pathlib import Path
 import pandas as pd
-import numpy as np
+from pathlib import Path
+from datetime import datetime
 
-# -----------------------------
+# ============================
 # Paths
-# -----------------------------
-LIVE_SNAPSHOT = Path("data/live_snapshot.csv")
-OUTPUT_PATH = Path("data/alpha_attribution_summary.csv")
+# ============================
 
-# -----------------------------
-# Locked Output Schema
-# -----------------------------
-OUTPUT_COLUMNS = [
-    "Wave_ID",
-    "Wave",
-    "Horizon",
-    "Return",
-    "Alpha",
-    "Alpha_Share"
-]
+ROOT = Path(__file__).resolve().parents[1]
 
-# -----------------------------
+LIVE_SNAPSHOT = ROOT / "data" / "live_snapshot.csv"
+WAVE_WEIGHTS = ROOT / "data" / "wave_weights.csv"
+OUTPUT = ROOT / "data" / "alpha_attribution_summary.csv"
+
+# ============================
 # Helpers
-# -----------------------------
-def empty_output_df() -> pd.DataFrame:
-    """Return empty but schema-valid output."""
-    return pd.DataFrame(columns=OUTPUT_COLUMNS)
+# ============================
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df.columns = [c.strip().lower() for c in df.columns]
+    return df
 
 
-def load_live_snapshot() -> pd.DataFrame:
+def resolve_columns(df: pd.DataFrame, mapping: dict) -> dict:
+    resolved = {}
+    for logical, options in mapping.items():
+        for opt in options:
+            if opt in df.columns:
+                resolved[logical] = opt
+                break
+    missing = set(mapping.keys()) - set(resolved.keys())
+    if missing:
+        raise ValueError(f"Missing required logical fields: {missing}")
+    return resolved
+
+
+def empty_output() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "wave",
+            "wave_name",
+            "alpha_30d",
+            "alpha_60d",
+            "alpha_365d",
+            "as_of_date",
+        ]
+    )
+
+
+# ============================
+# Main builder
+# ============================
+
+def build_alpha_attribution_summary():
+    print("▶ Building alpha attribution summary")
+
     if not LIVE_SNAPSHOT.exists():
         print("[WARN] live_snapshot.csv not found")
-        return pd.DataFrame()
+        return empty_output()
 
-    df = pd.read_csv(LIVE_SNAPSHOT)
-    if df.empty:
+    if not WAVE_WEIGHTS.exists():
+        print("[WARN] wave_weights.csv not found")
+        return empty_output()
+
+    # ----------------------------
+    # Load inputs
+    # ----------------------------
+
+    snap = normalize_columns(pd.read_csv(LIVE_SNAPSHOT))
+    weights = normalize_columns(pd.read_csv(WAVE_WEIGHTS))
+
+    if snap.empty:
         print("[WARN] live_snapshot.csv is empty")
-    return df
+        return empty_output()
+
+    if weights.empty:
+        print("[WARN] wave_weights.csv is empty")
+        return empty_output()
+
+    # ----------------------------
+    # Resolve schemas
+    # ----------------------------
+
+    SNAP_MAP = {
+        "wave": ["wave", "wave_id"],
+        "wave_name": ["wave_name", "display_name"],
+        "alpha_30d": ["alpha_30d", "alpha30d"],
+        "alpha_60d": ["alpha_60d", "alpha60d"],
+        "alpha_365d": ["alpha_365d", "alpha365d"],
+    }
+
+    WEIGHT_MAP = {
+        "wave": ["wave", "wave_id"],
+        "weight": ["weight", "allocation", "pct", "percent"],
+    }
+
+    snap_cols = resolve_columns(snap, SNAP_MAP)
+    weight_cols = resolve_columns(weights, WEIGHT_MAP)
+
+    snap = snap.rename(columns={v: k for k, v in snap_cols.items()})
+    weights = weights.rename(columns={v: k for k, v in weight_cols.items()})
+
+    # ----------------------------
+    # Merge & compute attribution
+    # ----------------------------
+
+    merged = snap.merge(
+        weights[["wave", "weight"]],
+        on="wave",
+        how="left",
+    )
+
+    if merged["weight"].isna().all():
+        print("[WARN] All weights missing after merge")
+        return empty_output()
+
+    for col in ["alpha_30d", "alpha_60d", "alpha_365d"]:
+        merged[col] = pd.to_numeric(merged[col], errors="coerce")
+        merged[col] = merged[col] * merged["weight"]
+
+    result = (
+        merged.groupby(["wave", "wave_name"], as_index=False)
+        .agg(
+            alpha_30d=("alpha_30d", "sum"),
+            alpha_60d=("alpha_60d", "sum"),
+            alpha_365d=("alpha_365d", "sum"),
+        )
+    )
+
+    result["as_of_date"] = datetime.utcnow().date().isoformat()
+
+    return result
 
 
-def build_alpha_rows(snapshot: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-
-    HORIZONS = [
-        ("1D", "Return_1D", "Alpha_1D"),
-        ("30D", "Return_30D", "Alpha_30D"),
-        ("60D", "Return_60D", "Alpha_60D"),
-        ("365D", "Return_365D", "Alpha_365D"),
-    ]
-
-    for _, row in snapshot.iterrows():
-        wave_id = row.get("Wave_ID")
-        wave_name = row.get("Wave")
-
-        for horizon, ret_col, alpha_col in HORIZONS:
-            ret = row.get(ret_col)
-            alpha = row.get(alpha_col)
-
-            if pd.isna(ret) or pd.isna(alpha):
-                continue
-
-            rows.append({
-                "Wave_ID": wave_id,
-                "Wave": wave_name,
-                "Horizon": horizon,
-                "Return": float(ret),
-                "Alpha": float(alpha),
-                "Alpha_Share": float(alpha)  # direct attribution (can be refined later)
-            })
-
-    return pd.DataFrame(rows)
-
-
-# -----------------------------
-# Main Builder
-# -----------------------------
-def build_alpha_attribution_summary() -> pd.DataFrame:
-    print("[INFO] Building alpha attribution summary")
-
-    snapshot = load_live_snapshot()
-    if snapshot.empty:
-        print("[WARN] No live snapshot data — writing empty attribution CSV")
-        return empty_output_df()
-
-    df = build_alpha_rows(snapshot)
-
-    if df.empty:
-        print("[WARN] No valid alpha rows computed — writing empty attribution CSV")
-        return empty_output_df()
-
-    df = df[OUTPUT_COLUMNS]
-    print(f"[INFO] Built {len(df)} alpha attribution rows")
-    return df
-
-
-def main():
-    df = build_alpha_attribution_summary()
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(OUTPUT_PATH, index=False)
-    print(f"[INFO] Wrote alpha attribution CSV → {OUTPUT_PATH}")
-
+# ============================
+# Entrypoint
+# ============================
 
 if __name__ == "__main__":
-    main()
+    try:
+        df = build_alpha_attribution_summary()
+        df.to_csv(OUTPUT, index=False)
+        print(f"✅ Wrote alpha attribution CSV → {OUTPUT}")
+    except Exception as e:
+        print(f"❌ Alpha attribution build failed: {e}")
+        raise
