@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from adaptive_intelligence import render_alpha_quality_and_confidence
+from intelligence.adaptive_intelligence import render_alpha_quality_and_confidence
 
 # ---------------------------
 # Page Config
@@ -122,9 +122,12 @@ with tabs[1]:
     st.header("Alpha Attribution")
 
     waves = snapshot_df["display_name"].tolist()
-    selected_wave = st.selectbox("Select Wave", waves)
+    selected_wave = st.selectbox(
+        "Select Wave",
+        waves,
+        key="alpha_attribution_wave"
+    )
 
-    # ---- Source Breakdown
     source_df = pd.DataFrame({
         "Alpha Source": [
             "Selection Alpha",
@@ -139,9 +142,12 @@ with tabs[1]:
     st.subheader("Source Breakdown")
     st.dataframe(source_df, use_container_width=True, hide_index=True)
 
-    # Alpha Quality & Confidence
     render_alpha_quality_and_confidence(
-        snapshot_df, source_df, selected_wave, RETURN_COLS, BENCHMARK_COLS
+        snapshot_df,
+        source_df,
+        selected_wave,
+        RETURN_COLS,
+        BENCHMARK_COLS
     )
 
 # ===========================
@@ -155,11 +161,18 @@ with tabs[2]:
         st.error(snapshot_error)
     else:
         waves = snapshot_df["display_name"].tolist()
-        selected_wave = st.selectbox("Select Wave", waves)
+        selected_wave = st.selectbox(
+            "Select Wave",
+            waves,
+            key="adaptive_intelligence_wave"
+        )
 
-        # Render the Alpha Quality & Confidence logic
         render_alpha_quality_and_confidence(
-            snapshot_df, None, selected_wave, RETURN_COLS, BENCHMARK_COLS
+            snapshot_df,
+            None,
+            selected_wave,
+            RETURN_COLS,
+            BENCHMARK_COLS
         )
 
 # ===========================
