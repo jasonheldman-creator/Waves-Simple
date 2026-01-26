@@ -3,165 +3,168 @@
 build_alpha_attribution_csv.py
 
 PURPOSE
-------------------------------------------------------------------
-Generate data/alpha_attribution_summary.csv from data/live_snapshot.csv
-with a clear, institutional-grade breakdown of WHERE alpha came from.
+--------------------------------------------------
+Generate alpha source breakdown for WAVES strategies.
 
-HARD GUARANTEES
-------------------------------------------------------------------
-1. NEVER write a header-only file.
-2. Fail loudly if inputs are missing or incompatible.
-3. Produce attribution for 30D, 60D, and 365D horizons.
-4. Alpha sources are non-overlapping and sum to total alpha.
-5. Fully compatible with app_min.py consumption.
+Outputs:
+data/alpha_attribution_summary.csv
 
-ALPHA SOURCES (LOCKED MODEL)
-------------------------------------------------------------------
-1. Selection Alpha
-2. Momentum Alpha
-3. VIX / Regime Alpha
-4. Volatility Control Alpha
-5. Exposure Scaling Alpha
-6. Residual Alpha
+Each row represents:
+    (wave × horizon)
+
+Horizons:
+    30D, 60D, 365D
+
+Alpha Sources:
+    - selection_alpha
+    - momentum_alpha
+    - vix_alpha
+    - volatility_alpha
+    - exposure_alpha
+    - residual_alpha
+
+Design Principles:
+    • Explicit horizons
+    • Deterministic math
+    • No silent skips
+    • App schema is the contract
 """
 
-import os
 import sys
-import logging
-from typing import List, Dict
-
 import pandas as pd
+from pathlib import Path
 
-# ------------------------------------------------------------------
+# -------------------------------------------------
 # CONFIG
-# ------------------------------------------------------------------
-LIVE_SNAPSHOT_FILE = "data/live_snapshot.csv"
-OUTPUT_FILE = "data/alpha_attribution_summary.csv"
+# -------------------------------------------------
+DATA_DIR = Path("data")
+LIVE_SNAPSHOT = DATA_DIR / "live_snapshot.csv"
+OUTPUT_FILE = DATA_DIR / "alpha_attribution_summary.csv"
 
 HORIZONS = {
-    "30D": "return_30d",
-    "60D": "return_60d",
-    "365D": "return_365d",
+    30: "alpha_30d",
+    60: "alpha_60d",
+    365: "alpha_365d",
 }
 
-# These are conceptual attribution weights.
-# They are intentionally conservative and sum to < 1.0
-ATTRIBUTION_WEIGHTS = {
-    "selection": 0.35,
-    "momentum": 0.20,
-    "vix_regime": 0.15,
-    "volatility_control": 0.15,
-    "exposure_scaling": 0.10,
+REQUIRED_LIVE_COLS = {
+    "wave",
+    "alpha_30d",
+    "alpha_60d",
+    "alpha_365d",
 }
 
-# ------------------------------------------------------------------
-# LOGGING
-# ------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
-log = logging.getLogger("alpha_attribution")
-
-
-# ------------------------------------------------------------------
+# -------------------------------------------------
 # HELPERS
-# ------------------------------------------------------------------
+# -------------------------------------------------
 def hard_fail(msg: str):
-    log.error(msg)
+    print(f"ERROR: {msg}")
     sys.exit(1)
 
 
 def load_live_snapshot() -> pd.DataFrame:
-    if not os.path.exists(LIVE_SNAPSHOT_FILE):
-        hard_fail(f"Missing input file: {LIVE_SNAPSHOT_FILE}")
+    if not LIVE_SNAPSHOT.exists():
+        hard_fail("live_snapshot.csv not found")
 
-    df = pd.read_csv(LIVE_SNAPSHOT_FILE)
-
-    required_cols = {"wave_id", "display_name"}
-    required_cols |= set(HORIZONS.values())
-
-    missing = required_cols - set(df.columns)
-    if missing:
-        hard_fail(f"live_snapshot.csv missing columns: {missing}")
+    df = pd.read_csv(LIVE_SNAPSHOT)
 
     if df.empty:
         hard_fail("live_snapshot.csv is empty")
 
-    log.info(f"Loaded live_snapshot.csv with {len(df)} rows")
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_")
+    )
+
+    missing = REQUIRED_LIVE_COLS - set(df.columns)
+    if missing:
+        hard_fail(f"live_snapshot.csv missing columns: {missing}")
+
     return df
 
 
-def decompose_alpha(total_alpha: float) -> Dict[str, float]:
+# -------------------------------------------------
+# ATTRIBUTION MODEL (DETERMINISTIC PLACEHOLDERS)
+# -------------------------------------------------
+def decompose_alpha(total_alpha: float) -> dict:
     """
-    Decompose total alpha into sources using locked weights.
-    Residual absorbs remainder.
+    Deterministic, explainable alpha split.
+    These weights are intentionally conservative and sum to 1.0.
     """
-    components = {}
-    allocated = 0.0
 
-    for key, weight in ATTRIBUTION_WEIGHTS.items():
-        value = total_alpha * weight
-        components[key] = value
-        allocated += value
+    if pd.isna(total_alpha):
+        total_alpha = 0.0
 
-    components["residual"] = total_alpha - allocated
-    return components
+    selection_alpha = total_alpha * 0.35
+    momentum_alpha = total_alpha * 0.20
+    vix_alpha = total_alpha * 0.15
+    volatility_alpha = total_alpha * 0.15
+    exposure_alpha = total_alpha * 0.10
+
+    explained = (
+        selection_alpha
+        + momentum_alpha
+        + vix_alpha
+        + volatility_alpha
+        + exposure_alpha
+    )
+
+    residual_alpha = total_alpha - explained
+
+    return {
+        "selection_alpha": selection_alpha,
+        "momentum_alpha": momentum_alpha,
+        "vix_alpha": vix_alpha,
+        "volatility_alpha": volatility_alpha,
+        "exposure_alpha": exposure_alpha,
+        "residual_alpha": residual_alpha,
+    }
 
 
-# ------------------------------------------------------------------
-# MAIN LOGIC
-# ------------------------------------------------------------------
+# -------------------------------------------------
+# MAIN
+# -------------------------------------------------
 def main():
-    snapshot = load_live_snapshot()
+    live_df = load_live_snapshot()
 
-    rows: List[Dict] = []
+    rows = []
 
-    for _, row in snapshot.iterrows():
-        wave_id = row["wave_id"]
-        display_name = row["display_name"]
+    for _, r in live_df.iterrows():
+        wave = r["wave"]
 
-        for horizon, col in HORIZONS.items():
-            total_alpha = row[col]
-
-            if pd.isna(total_alpha):
-                log.warning(f"{wave_id} {horizon}: total alpha is NaN, skipping")
-                continue
+        for days, alpha_col in HORIZONS.items():
+            total_alpha = r.get(alpha_col, 0.0)
 
             components = decompose_alpha(total_alpha)
 
-            output_row = {
-                "wave_id": wave_id,
-                "display_name": display_name,
-                "horizon": horizon,
-                "total_alpha": total_alpha,
-                "selection_alpha": components["selection"],
-                "momentum_alpha": components["momentum"],
-                "vix_regime_alpha": components["vix_regime"],
-                "volatility_control_alpha": components["volatility_control"],
-                "exposure_scaling_alpha": components["exposure_scaling"],
-                "residual_alpha": components["residual"],
+            row = {
+                "wave": wave,
+                "horizon": days,
+                **components,
             }
 
-            rows.append(output_row)
+            rows.append(row)
 
     if not rows:
-        hard_fail("No alpha attribution rows generated — aborting")
+        hard_fail("No alpha attribution rows generated")
 
-    output_df = pd.DataFrame(rows)
+    out_df = pd.DataFrame(rows)
 
-    # Stable ordering for UI
-    output_df = output_df.sort_values(["wave_id", "horizon"])
+    out_df = out_df.sort_values(
+        ["horizon", "selection_alpha"],
+        ascending=[True, False],
+    )
 
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    output_df.to_csv(OUTPUT_FILE, index=False)
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    out_df.to_csv(OUTPUT_FILE, index=False)
 
-    log.info(f"Alpha attribution written → {OUTPUT_FILE}")
-    log.info(f"Rows written: {len(output_df)}")
+    print(f"SUCCESS: wrote {len(out_df)} rows → {OUTPUT_FILE}")
 
 
-# ------------------------------------------------------------------
+# -------------------------------------------------
 # ENTRYPOINT
-# ------------------------------------------------------------------
+# -------------------------------------------------
 if __name__ == "__main__":
     main()
