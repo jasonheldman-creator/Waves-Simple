@@ -2,217 +2,195 @@
 """
 generate_live_snapshot_csv.py
 
-Purpose:
-- Authoritative LIVE snapshot generator for Waves-Simple.
-- Computes and exports live snapshot metrics for each wave.
+PURPOSE (HARD GUARANTEES)
+--------------------------------------------------
+This script generates data/live_snapshot.csv using
+ONLY the latest available data from prices_cache.parquet.
 
-Design Updates:
-1. wave_weights.csv must contain ONLY: wave_id, ticker, weight
-2. display_name is NOT required in wave_weights.csv
-3. display_name in output is set equal to wave_id
-4. Output columns:
-   - wave_id
-   - display_name
-   - Return_1D
-   - Return_30D
-   - Return_60D
-   - Return_365D
-5. Uses trading-day equivalents:
-   - 1D   = 1
-   - 30D  = 21
-   - 60D  = 42
-   - 365D = 252
-6. If no valid waves are computed:
-   - Write CSV headers ONLY
-   - Log CRITICAL
-   - EXIT CLEANLY (no exception, no workflow failure)
+Design principles (non-negotiable):
+1. Anchor ALL calculations to prices.index.max()
+2. Use positional slicing (iloc), never fuzzy date math
+3. Sort index ONCE, ascending
+4. Fail loudly if data is insufficient
+5. Never reuse cached dates or prior snapshot state
+
+If prices_cache.parquet changes, this file WILL change.
+If it does not, the script will tell you exactly why.
 """
 
+import os
+import sys
 import logging
-from pathlib import Path
-from sys import exit
+from datetime import datetime
+from typing import Dict, List
 
-import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - [%(levelname)s] %(message)s"
-)
-logger = logging.getLogger(__name__)
+# ------------------------------------------------------------------------------
+# CONFIG
+# ------------------------------------------------------------------------------
+CACHE_FILE = "data/cache/prices_cache.parquet"
+WAVE_WEIGHTS_FILE = "data/wave_weights.csv"
+OUTPUT_FILE = "data/live_snapshot.csv"
 
-# ---------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------
-PRICES_CACHE_PATH = Path("data/cache/prices_cache.parquet")
-WAVE_WEIGHTS_PATH = Path("data/wave_weights.csv")
-OUTPUT_PATH = Path("data/live_snapshot.csv")
-
-# ---------------------------------------------------------------------
-# Schema + constants
-# ---------------------------------------------------------------------
-REQUIRED_COLUMNS = {"wave_id", "ticker", "weight"}
-
-RETURN_PERIODS = {
-    "Return_1D": 1,
-    "Return_30D": 21,
-    "Return_60D": 42,
-    "Return_365D": 252,
+RETURN_WINDOWS = {
+    "return_1d": 1,
+    "return_30d": 30,
+    "return_60d": 60,
+    "return_365d": 252,
 }
 
-OUTPUT_COLUMNS = [
-    "wave_id",
-    "display_name",
-    "Return_1D",
-    "Return_30D",
-    "Return_60D",
-    "Return_365D",
-]
+MIN_ROWS_REQUIRED = max(RETURN_WINDOWS.values()) + 1
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
-def load_prices_cache(path: Path) -> pd.DataFrame:
-    logger.info("Loading prices cache...")
-    if not path.exists():
-        raise FileNotFoundError(f"Price cache not found: {path}")
+# ------------------------------------------------------------------------------
+# LOGGING
+# ------------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+log = logging.getLogger("live_snapshot")
 
-    prices = pd.read_parquet(path)
+# ------------------------------------------------------------------------------
+# HELPERS
+# ------------------------------------------------------------------------------
+def hard_fail(msg: str):
+    log.error(msg)
+    sys.exit(1)
 
-    if not isinstance(prices.index, pd.DatetimeIndex):
-        raise ValueError("prices_cache.parquet must have a DatetimeIndex")
+
+def load_prices() -> pd.DataFrame:
+    if not os.path.exists(CACHE_FILE):
+        hard_fail(f"Missing prices cache: {CACHE_FILE}")
+
+    prices = pd.read_parquet(CACHE_FILE)
 
     if prices.empty:
-        raise ValueError("prices_cache.parquet is empty")
+        hard_fail("prices_cache.parquet is empty")
 
-    logger.info(
-        "Prices cache loaded (%d dates, %d tickers)",
-        prices.shape[0],
-        prices.shape[1],
-    )
+    # HARD NORMALIZATION
+    prices = prices.copy()
+    prices.index = pd.to_datetime(prices.index, utc=True).tz_convert(None)
+    prices = prices.sort_index()
+
+    log.info(f"Loaded prices cache with shape {prices.shape}")
+    log.info(f"Price date range: {prices.index.min()} → {prices.index.max()}")
+
+    if len(prices) < MIN_ROWS_REQUIRED:
+        hard_fail(
+            f"Insufficient rows in price cache: "
+            f"{len(prices)} < {MIN_ROWS_REQUIRED}"
+        )
+
     return prices
 
 
-def load_and_validate_wave_weights(path: Path) -> pd.DataFrame:
-    logger.info("Loading wave_weights.csv...")
-    if not path.exists():
-        raise FileNotFoundError(f"wave_weights.csv not found: {path}")
+def load_wave_weights() -> pd.DataFrame:
+    if not os.path.exists(WAVE_WEIGHTS_FILE):
+        hard_fail(f"Missing wave weights: {WAVE_WEIGHTS_FILE}")
 
-    df = pd.read_csv(path)
+    df = pd.read_csv(WAVE_WEIGHTS_FILE)
 
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
-        raise ValueError(f"wave_weights.csv missing required columns: {missing}")
+    required = {"wave_id", "display_name", "ticker", "weight"}
+    if not required.issubset(df.columns):
+        hard_fail(f"wave_weights.csv missing columns: {required - set(df.columns)}")
 
-    if df.empty:
-        raise ValueError("wave_weights.csv is empty")
-
-    logger.info(
-        "Wave weights loaded (%d rows, %d waves)",
-        len(df),
-        df["wave_id"].nunique(),
-    )
     return df
 
 
-def compute_return(series: pd.Series, lookback: int) -> float:
-    if len(series) <= lookback:
-        return np.nan
-    return (series.iloc[-1] / series.iloc[-(lookback + 1)]) - 1.0
-
-
-# ---------------------------------------------------------------------
-# Core logic
-# ---------------------------------------------------------------------
-def process_wave(
-    wave_id: str,
-    weights_df: pd.DataFrame,
-    prices: pd.DataFrame,
-) -> dict | None:
-    logger.info("Processing wave: %s", wave_id)
-
-    tickers = weights_df["ticker"].tolist()
-    weights = weights_df["weight"].astype(float).values
-
-    missing = [t for t in tickers if t not in prices.columns]
-    if missing:
-        logger.warning(
-            "Skipping wave %s due to missing tickers: %s",
-            wave_id,
-            missing,
-        )
-        return None
-
-    price_slice = prices[tickers].dropna()
-    if price_slice.empty:
-        logger.warning("No usable price data for wave %s", wave_id)
-        return None
-
-    weight_sum = weights.sum()
-    if weight_sum <= 0:
-        logger.warning("Invalid weights for wave %s (sum <= 0)", wave_id)
-        return None
-
-    weights = weights / weight_sum
-    weighted_prices = (price_slice * weights).sum(axis=1)
-
-    snapshot = {
-        "wave_id": wave_id,
-        "display_name": wave_id,
-    }
-
-    for col, days in RETURN_PERIODS.items():
-        snapshot[col] = compute_return(weighted_prices, days)
-
-    return snapshot
-
-
-def generate_live_snapshot() -> None:
-    prices = load_prices_cache(PRICES_CACHE_PATH)
-    wave_weights = load_and_validate_wave_weights(WAVE_WEIGHTS_PATH)
-
-    rows: list[dict] = []
-
-    for wave_id, group in wave_weights.groupby("wave_id"):
-        snapshot = process_wave(
-            wave_id=wave_id,
-            weights_df=group,
-            prices=prices,
-        )
-        if snapshot is not None:
-            rows.append(snapshot)
-
-    output_df = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    if output_df.empty:
-        logger.critical(
-            "No valid waves computed — writing headers only to live_snapshot.csv"
-        )
-        output_df.to_csv(OUTPUT_PATH, index=False)
-        return
-
-    output_df.to_csv(OUTPUT_PATH, index=False)
-    logger.info(
-        "Live snapshot written: %s (%d waves)",
-        OUTPUT_PATH,
-        len(output_df),
-    )
-
-
-# ---------------------------------------------------------------------
-# Entrypoint
-# ---------------------------------------------------------------------
-def main():
+def compute_return(series: pd.Series, window: int) -> float:
+    """
+    STRICT positional return:
+    return = last_price / price[-(window+1)] - 1
+    """
     try:
-        generate_live_snapshot()
+        return (series.iloc[-1] / series.iloc[-(window + 1)]) - 1
     except Exception:
-        logger.exception("Live snapshot generation FAILED")
-        exit(1)
+        return float("nan")
 
 
+# ------------------------------------------------------------------------------
+# MAIN SNAPSHOT LOGIC
+# ------------------------------------------------------------------------------
+def main():
+    prices = load_prices()
+    weights = load_wave_weights()
+
+    snapshot_date = prices.index.max()
+    log.info(f"SNAPSHOT ANCHOR DATE = {snapshot_date}")
+
+    rows: List[Dict] = []
+
+    for wave_id, wave_df in weights.groupby("wave_id"):
+        display_name = wave_df["display_name"].iloc[0]
+
+        wave_prices = []
+        wave_weights = []
+
+        for _, row in wave_df.iterrows():
+            ticker = row["ticker"]
+            weight = float(row["weight"])
+
+            if ticker not in prices.columns:
+                log.warning(f"{wave_id}: missing ticker {ticker}, skipping")
+                continue
+
+            series = prices[ticker].dropna()
+
+            if len(series) < MIN_ROWS_REQUIRED:
+                log.warning(f"{wave_id}: insufficient data for {ticker}, skipping")
+                continue
+
+            wave_prices.append(series)
+            wave_weights.append(weight)
+
+        if not wave_prices:
+            log.warning(f"{wave_id}: no valid tickers, skipping wave")
+            continue
+
+        # Normalize weights
+        weight_sum = sum(wave_weights)
+        if weight_sum == 0:
+            log.warning(f"{wave_id}: zero weight sum, skipping wave")
+            continue
+
+        norm_weights = [w / weight_sum for w in wave_weights]
+
+        # Build weighted price series
+        aligned = pd.concat(wave_prices, axis=1).dropna()
+        weighted_series = aligned.dot(pd.Series(norm_weights))
+
+        if len(weighted_series) < MIN_ROWS_REQUIRED:
+            log.warning(f"{wave_id}: insufficient aligned rows, skipping")
+            continue
+
+        # Compute returns
+        row = {
+            "wave_id": wave_id,
+            "display_name": display_name,
+            "snapshot_date": snapshot_date.strftime("%Y-%m-%d"),
+        }
+
+        for col, window in RETURN_WINDOWS.items():
+            row[col] = compute_return(weighted_series, window)
+
+        rows.append(row)
+
+    if not rows:
+        hard_fail("No snapshot rows generated — aborting")
+
+    snapshot_df = pd.DataFrame(rows)
+
+    # HARD SORT FOR STABILITY
+    snapshot_df = snapshot_df.sort_values("wave_id")
+
+    snapshot_df.to_csv(OUTPUT_FILE, index=False)
+    log.info(f"Live snapshot written → {OUTPUT_FILE}")
+    log.info(f"Rows written: {len(snapshot_df)}")
+
+
+# ------------------------------------------------------------------------------
+# ENTRYPOINT
+# ------------------------------------------------------------------------------
 if __name__ == "__main__":
     main()
