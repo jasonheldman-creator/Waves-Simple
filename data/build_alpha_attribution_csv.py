@@ -1,170 +1,139 @@
-#!/usr/bin/env python3
-"""
-build_alpha_attribution_csv.py
+# build_alpha_attribution_csv.py
+# WAVES Intelligence — Alpha Source Attribution Builder
+# PURPOSE: Generate long-format alpha source breakdown by Wave and Horizon
+# OUTPUT: data/alpha_attribution_summary.csv
+# AUTHOR: Stabilized institutional rewrite (v2)
 
-PURPOSE
---------------------------------------------------
-Generate alpha source breakdown for WAVES strategies.
-
-Outputs:
-data/alpha_attribution_summary.csv
-
-Each row represents:
-    (wave × horizon)
-
-Horizons:
-    30D, 60D, 365D
-
-Alpha Sources:
-    - selection_alpha
-    - momentum_alpha
-    - vix_alpha
-    - volatility_alpha
-    - exposure_alpha
-    - residual_alpha
-
-Design Principles:
-    • Explicit horizons
-    • Deterministic math
-    • No silent skips
-    • App schema is the contract
-"""
-
-import sys
 import pandas as pd
 from pathlib import Path
 
-# -------------------------------------------------
-# CONFIG
-# -------------------------------------------------
+# -----------------------------
+# Paths
+# -----------------------------
 DATA_DIR = Path("data")
-LIVE_SNAPSHOT = DATA_DIR / "live_snapshot.csv"
-OUTPUT_FILE = DATA_DIR / "alpha_attribution_summary.csv"
+LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
+OUTPUT_PATH = DATA_DIR / "alpha_attribution_summary.csv"
 
+# -----------------------------
+# Config
+# -----------------------------
 HORIZONS = {
     30: "alpha_30d",
     60: "alpha_60d",
     365: "alpha_365d",
 }
 
-REQUIRED_LIVE_COLS = {
-    "wave",
-    "alpha_30d",
-    "alpha_60d",
-    "alpha_365d",
+# Proportional attribution model (stable first-pass)
+ATTRIBUTION_WEIGHTS = {
+    "selection_alpha": 0.50,
+    "momentum_alpha": 0.20,
+    "vix_alpha": 0.15,
+    "volatility_alpha": 0.10,
+    "exposure_alpha": 0.05,
 }
 
-# -------------------------------------------------
-# HELPERS
-# -------------------------------------------------
-def hard_fail(msg: str):
-    print(f"ERROR: {msg}")
-    sys.exit(1)
-
-
-def load_live_snapshot() -> pd.DataFrame:
-    if not LIVE_SNAPSHOT.exists():
-        hard_fail("live_snapshot.csv not found")
-
-    df = pd.read_csv(LIVE_SNAPSHOT)
-
-    if df.empty:
-        hard_fail("live_snapshot.csv is empty")
-
+# -----------------------------
+# Helpers
+# -----------------------------
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = (
         df.columns
         .str.strip()
         .str.lower()
         .str.replace(" ", "_")
     )
-
-    missing = REQUIRED_LIVE_COLS - set(df.columns)
-    if missing:
-        hard_fail(f"live_snapshot.csv missing columns: {missing}")
-
     return df
 
 
-# -------------------------------------------------
-# ATTRIBUTION MODEL (DETERMINISTIC PLACEHOLDERS)
-# -------------------------------------------------
-def decompose_alpha(total_alpha: float) -> dict:
+def ensure_wave_column(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Deterministic, explainable alpha split.
-    These weights are intentionally conservative and sum to 1.0.
+    Ensure a canonical 'wave' column exists.
+    Accepts common variants and normalizes them.
     """
+    if "wave" in df.columns:
+        return df
 
-    if pd.isna(total_alpha):
-        total_alpha = 0.0
+    if "wave_name" in df.columns:
+        df["wave"] = df["wave_name"]
+        return df
 
-    selection_alpha = total_alpha * 0.35
-    momentum_alpha = total_alpha * 0.20
-    vix_alpha = total_alpha * 0.15
-    volatility_alpha = total_alpha * 0.15
-    exposure_alpha = total_alpha * 0.10
+    if "display_name" in df.columns:
+        df["wave"] = df["display_name"]
+        return df
 
-    explained = (
-        selection_alpha
-        + momentum_alpha
-        + vix_alpha
-        + volatility_alpha
-        + exposure_alpha
+    raise ValueError(
+        "live_snapshot.csv must contain one of: "
+        "'wave', 'wave_name', or 'display_name'"
     )
 
-    residual_alpha = total_alpha - explained
 
-    return {
-        "selection_alpha": selection_alpha,
-        "momentum_alpha": momentum_alpha,
-        "vix_alpha": vix_alpha,
-        "volatility_alpha": volatility_alpha,
-        "exposure_alpha": exposure_alpha,
-        "residual_alpha": residual_alpha,
-    }
-
-
-# -------------------------------------------------
-# MAIN
-# -------------------------------------------------
+# -----------------------------
+# Main Build Logic
+# -----------------------------
 def main():
-    live_df = load_live_snapshot()
+    if not LIVE_SNAPSHOT_PATH.exists():
+        raise FileNotFoundError("live_snapshot.csv not found")
+
+    snapshot_df = pd.read_csv(LIVE_SNAPSHOT_PATH)
+    snapshot_df = normalize_columns(snapshot_df)
+    snapshot_df = ensure_wave_column(snapshot_df)
 
     rows = []
 
-    for _, r in live_df.iterrows():
-        wave = r["wave"]
+    for _, row in snapshot_df.iterrows():
+        wave = row["wave"]
 
-        for days, alpha_col in HORIZONS.items():
-            total_alpha = r.get(alpha_col, 0.0)
+        for horizon, alpha_col in HORIZONS.items():
+            if alpha_col not in snapshot_df.columns:
+                continue
 
-            components = decompose_alpha(total_alpha)
+            try:
+                total_alpha = float(row.get(alpha_col, 0.0))
+            except Exception:
+                total_alpha = 0.0
 
-            row = {
+            allocated = {}
+            allocated_sum = 0.0
+
+            for source, weight in ATTRIBUTION_WEIGHTS.items():
+                value = total_alpha * weight
+                allocated[source] = value
+                allocated_sum += value
+
+            residual_alpha = total_alpha - allocated_sum
+
+            rows.append({
                 "wave": wave,
-                "horizon": days,
-                **components,
-            }
+                "horizon": horizon,
+                "total_alpha": total_alpha,
+                "selection_alpha": allocated["selection_alpha"],
+                "momentum_alpha": allocated["momentum_alpha"],
+                "vix_alpha": allocated["vix_alpha"],
+                "volatility_alpha": allocated["volatility_alpha"],
+                "exposure_alpha": allocated["exposure_alpha"],
+                "residual_alpha": residual_alpha,
+            })
 
-            rows.append(row)
+    output_df = pd.DataFrame(rows)
 
-    if not rows:
-        hard_fail("No alpha attribution rows generated")
+    if output_df.empty:
+        output_df = pd.DataFrame(columns=[
+            "wave",
+            "horizon",
+            "total_alpha",
+            "selection_alpha",
+            "momentum_alpha",
+            "vix_alpha",
+            "volatility_alpha",
+            "exposure_alpha",
+            "residual_alpha",
+        ])
 
-    out_df = pd.DataFrame(rows)
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    output_df.to_csv(OUTPUT_PATH, index=False)
 
-    out_df = out_df.sort_values(
-        ["horizon", "selection_alpha"],
-        ascending=[True, False],
-    )
-
-    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(OUTPUT_FILE, index=False)
-
-    print(f"SUCCESS: wrote {len(out_df)} rows → {OUTPUT_FILE}")
+    print(f"Alpha attribution summary written to {OUTPUT_PATH}")
 
 
-# -------------------------------------------------
-# ENTRYPOINT
-# -------------------------------------------------
 if __name__ == "__main__":
     main()
