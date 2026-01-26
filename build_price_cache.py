@@ -4,11 +4,12 @@ build_price_cache.py
 
 Canonical price cache builder for WAVES.
 
-RULES:
-- Fetch prices for all tickers in wave_weights.csv
-- SKIP bad / delisted tickers automatically
-- FAIL only if too many tickers fail (guardrail)
-- ALWAYS produce a valid, fresh cache OR fail loudly
+Behavior:
+- Loads tickers from wave_weights.csv
+- Fetches historical prices via yfinance
+- SKIPS bad / delisted / malformed tickers
+- FAILS only if too many tickers fail
+- ALWAYS produces a valid, fresh prices_cache.parquet or exits non-zero
 """
 
 import os
@@ -31,7 +32,7 @@ META_FILE = os.path.join(CACHE_DIR, "prices_cache_meta.json")
 
 LOOKBACK_YEARS = 2
 MIN_TRADING_DAYS = 252
-MAX_FAILURE_RATIO = 0.15  # allow up to 15% bad tickers
+MAX_FAILURE_RATIO = 0.15  # allow up to 15% failed tickers
 
 # ------------------------------------------------------------------------------
 # Logging
@@ -86,13 +87,13 @@ def load_tickers_from_weights() -> List[str]:
     return tickers
 
 # ------------------------------------------------------------------------------
-# Fetch prices (SKIP BAD TICKERS)
+# Fetch prices (robust, skip bad tickers)
 # ------------------------------------------------------------------------------
-def fetch_price_data(tickers: List[str]) -> pd.DataFrame:
+def fetch_price_data(tickers: List[str]) -> (pd.DataFrame, List[str]):
     start_date = (datetime.utcnow() - pd.DateOffset(years=LOOKBACK_YEARS)).date()
     log.info(f"Fetching prices starting from {start_date}")
 
-    price_series: Dict[str, pd.Series] = {}
+    series_list: List[pd.Series] = []
     failed: List[str] = []
 
     for ticker in tickers:
@@ -109,17 +110,26 @@ def fetch_price_data(tickers: List[str]) -> pd.DataFrame:
             if data.empty or "Close" not in data.columns:
                 raise ValueError("No Close data")
 
-            series = data["Close"].dropna()
-            if len(series) < MIN_TRADING_DAYS:
+            s = data["Close"].dropna()
+
+            # HARD VALIDATION
+            if not isinstance(s, pd.Series):
+                raise ValueError("Not a Series")
+
+            if not isinstance(s.index, pd.DatetimeIndex):
+                raise ValueError("Index is not DatetimeIndex")
+
+            if len(s) < MIN_TRADING_DAYS:
                 raise ValueError("Insufficient history")
 
-            price_series[ticker] = series
+            s.name = ticker
+            series_list.append(s)
 
         except Exception as e:
             log.warning(f"Skipping {ticker}: {e}")
             failed.append(ticker)
 
-    if not price_series:
+    if not series_list:
         hard_fail("ALL tickers failed — cannot build price cache")
 
     failure_ratio = len(failed) / len(tickers)
@@ -131,10 +141,11 @@ def fetch_price_data(tickers: List[str]) -> pd.DataFrame:
 
     log.warning(f"Skipped {len(failed)} tickers: {failed}")
 
-    prices = pd.DataFrame(price_series).sort_index()
+    # CRITICAL FIX: concat Series safely
+    prices = pd.concat(series_list, axis=1).sort_index()
 
     if prices.empty or len(prices) < MIN_TRADING_DAYS:
-        hard_fail("Price cache invalid after filtering")
+        hard_fail("Price cache invalid after concatenation")
 
     log.info(
         f"Final cache shape: {prices.shape[0]} days × {prices.shape[1]} tickers"
