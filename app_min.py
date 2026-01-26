@@ -1,6 +1,6 @@
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
-# FINAL FIX — Order-safe intraday handling + portfolio aggregate + alpha history
+# POLISH PASS — Intraday display + Alpha History visualization
 
 import streamlit as st
 import pandas as pd
@@ -45,7 +45,6 @@ def load_snapshot():
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # display_name normalization
     if "display_name" not in df.columns:
         if "wave_name" in df.columns:
             df["display_name"] = df["wave_name"]
@@ -54,13 +53,8 @@ def load_snapshot():
         else:
             df["display_name"] = "Unnamed Wave"
 
-    # 🔒 CRITICAL FIX:
-    # Pre-inject all expected return columns BEFORE any access
-    for col in RETURN_COLS.values():
-        if col not in df.columns:
-            df[col] = np.nan
-
-    for col in BENCHMARK_COLS.values():
+    # Pre-inject expected columns
+    for col in list(RETURN_COLS.values()) + list(BENCHMARK_COLS.values()):
         if col not in df.columns:
             df[col] = np.nan
 
@@ -69,7 +63,7 @@ def load_snapshot():
 snapshot_df, snapshot_error = load_snapshot()
 
 # ---------------------------
-# Sidebar Status
+# Sidebar
 # ---------------------------
 st.sidebar.title("Data Status")
 st.sidebar.markdown(
@@ -101,23 +95,20 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
-        # ---- Portfolio aggregate (mean across waves)
+        # Portfolio aggregate
         portfolio_row = {"display_name": "TOTAL PORTFOLIO"}
         for key, col in RETURN_COLS.items():
             portfolio_row[col] = df[col].mean(skipna=True)
 
         df = pd.concat([pd.DataFrame([portfolio_row]), df], ignore_index=True)
 
-        # ---- Dynamic column assembly (NO eager access)
-        columns_to_show = ["display_name"]
-        columns_to_show += [RETURN_COLS["intraday"]]
-        columns_to_show += [
+        view = df[[
+            "display_name",
+            RETURN_COLS["intraday"],
             RETURN_COLS["30d"],
             RETURN_COLS["60d"],
             RETURN_COLS["365d"],
-        ]
-
-        snapshot_view = df[columns_to_show].rename(columns={
+        ]].rename(columns={
             "display_name": "Wave",
             RETURN_COLS["intraday"]: "Intraday",
             RETURN_COLS["30d"]: "30D Return",
@@ -125,7 +116,10 @@ with tabs[0]:
             RETURN_COLS["365d"]: "365D Return",
         })
 
-        st.dataframe(snapshot_view, use_container_width=True, hide_index=True)
+        # Clean display (no "None")
+        view = view.replace({np.nan: "—"})
+
+        st.dataframe(view, use_container_width=True, hide_index=True)
 
 # ===========================
 # ALPHA ATTRIBUTION TAB
@@ -135,9 +129,6 @@ with tabs[1]:
 
     waves = snapshot_df["display_name"].tolist()
     selected_wave = st.selectbox("Select Wave", waves)
-
-    horizon = st.selectbox("Select Horizon", ["30D", "60D", "365D"])
-    h_key = horizon.lower()
 
     # ---- Source Breakdown (unchanged)
     st.subheader("Source Breakdown")
@@ -156,11 +147,8 @@ with tabs[1]:
         hide_index=True
     )
 
-    # ---- Alpha History (REAL, derived)
+    # ---- Alpha History (DESIGNED)
     st.subheader("Alpha History")
-
-    ret_col = RETURN_COLS[h_key]
-    bench_col = BENCHMARK_COLS[h_key]
 
     wave_row = snapshot_df[snapshot_df["display_name"] == selected_wave]
 
@@ -168,14 +156,26 @@ with tabs[1]:
         st.warning("Wave data not available.")
     else:
         wave_row = wave_row.iloc[0]
-        alpha_value = wave_row[ret_col] - wave_row[bench_col]
 
-        alpha_history_df = pd.DataFrame({
-            "Horizon": [horizon],
-            "Alpha": [alpha_value]
+        horizons = ["30D", "60D", "365D"]
+        alpha_values = []
+
+        for h in horizons:
+            key = h.lower()
+            alpha = (
+                wave_row[RETURN_COLS[key]] -
+                wave_row[BENCHMARK_COLS[key]]
+            )
+            alpha_values.append(alpha)
+
+        alpha_chart_df = pd.DataFrame({
+            "Horizon": horizons,
+            "Alpha": alpha_values
         })
 
-        st.dataframe(alpha_history_df, use_container_width=True, hide_index=True)
+        st.line_chart(
+            alpha_chart_df.set_index("Horizon")
+        )
 
 # ===========================
 # ADAPTIVE INTELLIGENCE TAB
@@ -190,4 +190,3 @@ with tabs[2]:
 with tabs[3]:
     st.header("Operations")
     st.info("Operations control center coming next.")
-    
