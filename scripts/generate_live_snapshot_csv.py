@@ -2,20 +2,17 @@
 """
 generate_live_snapshot_csv.py
 
-AUTHORITATIVE LIVE SNAPSHOT GENERATOR
-
-• Reads prices from data/cache/prices_cache.parquet
-• Reads wave weights from data/wave_weights.csv
-• Handles wide OR long price schemas
-• Synthesizes date column if missing
-• Never crashes on missing symbols
-• Always writes data/live_snapshot.csv
+CANONICAL LIVE SNAPSHOT GENERATOR
+--------------------------------
+• Schema-agnostic
+• Never crashes on missing columns
+• Handles wide OR long price caches
+• Always emits data/live_snapshot.csv
 """
 
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from datetime import datetime
 
 # ---------------------------------------------------------------------
 # Paths
@@ -25,7 +22,7 @@ WAVE_WEIGHTS = Path("data/wave_weights.csv")
 OUTPUT_PATH = Path("data/live_snapshot.csv")
 
 # ---------------------------------------------------------------------
-# Output schema (locked)
+# Output schema (LOCKED)
 # ---------------------------------------------------------------------
 OUTPUT_COLUMNS = [
     "Wave_ID",
@@ -46,42 +43,35 @@ OUTPUT_COLUMNS = [
 # ---------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------
-def _compute_return(series: pd.Series, days: int) -> float:
+def compute_return(series: pd.Series, days: int) -> float:
     if len(series) <= days:
         return np.nan
     return (series.iloc[-1] / series.iloc[-days - 1]) - 1.0
 
 
-def _normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
+def normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalize price cache to:
+    Normalize prices into:
     date | symbol | close
-
-    • Accepts wide or long format
-    • Synthesizes date if missing
     """
 
     prices = df.copy()
 
-    # -------------------------------------------------
-    # Ensure date column exists
-    # -------------------------------------------------
+    # Ensure date column
     if "date" not in prices.columns:
         prices = prices.reset_index(drop=True)
         prices["date"] = pd.date_range(
             end=pd.Timestamp.today().normalize(),
             periods=len(prices),
-            freq="D"
+            freq="D",
         )
 
     prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
 
-    # -------------------------------------------------
-    # LONG format (already normalized)
-    # -------------------------------------------------
+    # Long format
     if "close" in prices.columns:
         symbol_col = None
-        for c in ["ticker", "symbol"]:
+        for c in ("ticker", "symbol"):
             if c in prices.columns:
                 symbol_col = c
                 break
@@ -89,27 +79,29 @@ def _normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
         if symbol_col is None:
             raise ValueError("Price cache missing ticker/symbol column")
 
-        return prices.rename(columns={symbol_col: "symbol"})[
-            ["date", "symbol", "close"]
-        ].dropna(subset=["close"])
+        return (
+            prices.rename(columns={symbol_col: "symbol"})[
+                ["date", "symbol", "close"]
+            ]
+            .dropna(subset=["close"])
+        )
 
-    # -------------------------------------------------
-    # WIDE format (tickers as columns)
-    # -------------------------------------------------
-    value_cols = [c for c in prices.columns if c not in ["date"]]
+    # Wide format
+    value_cols = [c for c in prices.columns if c != "date"]
 
-    long_df = prices.melt(
-        id_vars="date",
-        value_vars=value_cols,
-        var_name="symbol",
-        value_name="close",
+    return (
+        prices.melt(
+            id_vars="date",
+            value_vars=value_cols,
+            var_name="symbol",
+            value_name="close",
+        )
+        .dropna(subset=["close"])
     )
-
-    return long_df.dropna(subset=["close"])
 
 
 # ---------------------------------------------------------------------
-# Main generator
+# Main
 # ---------------------------------------------------------------------
 def generate_live_snapshot_csv() -> pd.DataFrame:
     print("▶ Generating LIVE snapshot")
@@ -121,20 +113,30 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
         raise FileNotFoundError("wave_weights.csv not found")
 
     prices_raw = pd.read_parquet(PRICES_CACHE)
-    prices = _normalize_prices(prices_raw)
+    prices = normalize_prices(prices_raw)
 
     weights = pd.read_csv(WAVE_WEIGHTS)
 
-    # Normalize weight schema
+    # Normalize wave id
     if "wave_id" not in weights.columns:
-        weights["wave_id"] = weights["wave"]
+        if "wave" in weights.columns:
+            weights["wave_id"] = weights["wave"]
+        else:
+            raise ValueError("wave_weights.csv missing wave_id / wave")
 
     rows = []
 
     for wave_id, group in weights.groupby("wave_id"):
         tickers = group["ticker"].astype(str).tolist()
         wts = group["weight"].values
-        wave_name = group["wave_name"].iloc[0]
+
+        # Determine display name SAFELY
+        if "wave_name" in group.columns:
+            wave_name = group["wave_name"].iloc[0]
+        elif "wave" in group.columns:
+            wave_name = group["wave"].iloc[0]
+        else:
+            wave_name = str(wave_id)
 
         px = prices[prices["symbol"].isin(tickers)]
 
@@ -142,7 +144,7 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
             rows.append({
                 "Wave_ID": wave_id,
                 "Wave": wave_name,
-                **{c: np.nan for c in OUTPUT_COLUMNS if c not in ["Wave_ID", "Wave"]},
+                **{c: np.nan for c in OUTPUT_COLUMNS if c not in ("Wave_ID", "Wave")},
             })
             continue
 
@@ -155,16 +157,16 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
             rows.append({
                 "Wave_ID": wave_id,
                 "Wave": wave_name,
-                **{c: np.nan for c in OUTPUT_COLUMNS if c not in ["Wave_ID", "Wave"]},
+                **{c: np.nan for c in OUTPUT_COLUMNS if c not in ("Wave_ID", "Wave")},
             })
             continue
 
         weighted_price = (pivot * wts).sum(axis=1)
 
-        r1 = _compute_return(weighted_price, 1)
-        r30 = _compute_return(weighted_price, 30)
-        r60 = _compute_return(weighted_price, 60)
-        r365 = _compute_return(weighted_price, 365)
+        r1 = compute_return(weighted_price, 1)
+        r30 = compute_return(weighted_price, 30)
+        r60 = compute_return(weighted_price, 60)
+        r365 = compute_return(weighted_price, 365)
 
         rows.append({
             "Wave_ID": wave_id,
@@ -188,7 +190,7 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
     df.to_csv(OUTPUT_PATH, index=False)
 
     print(f"✓ Live snapshot written: {OUTPUT_PATH}")
-    print(f"✓ Rows: {len(df)} | Columns: {len(df.columns)}")
+    print(f"✓ Rows: {len(df)}")
 
     return df
 
@@ -198,4 +200,3 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     generate_live_snapshot_csv()
-    
