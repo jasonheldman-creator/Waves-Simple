@@ -215,3 +215,4 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("Operations")
     st.info("Operational controls coming soon.")
+    
