@@ -2,26 +2,26 @@
 """
 generate_live_snapshot_csv.py
 
-PURPOSE (HARD GUARANTEES)
---------------------------------------------------
-This script generates data/live_snapshot.csv using
-ONLY the latest available data from prices_cache.parquet.
+AUTHORITATIVE LIVE SNAPSHOT GENERATOR
+------------------------------------
+This script generates data/live_snapshot.csv using ONLY the
+latest data from data/cache/prices_cache.parquet.
 
-Design principles (non-negotiable):
-1. Anchor ALL calculations to prices.index.max()
-2. Use positional slicing (iloc), never fuzzy date math
-3. Sort index ONCE, ascending
-4. Fail loudly if data is insufficient
-5. Never reuse cached dates or prior snapshot state
+HARD GUARANTEES:
+1. Anchors ALL calculations to prices.index.max()
+2. Uses positional slicing only (iloc)
+3. Sorts prices ONCE, ascending
+4. Skips invalid tickers safely
+5. FAILS if zero waves are produced
+6. ALWAYS rewrites data/live_snapshot.csv on success
 
 If prices_cache.parquet changes, this file WILL change.
-If it does not, the script will tell you exactly why.
+If not, the script will tell you exactly why.
 """
 
 import os
 import sys
 import logging
-from datetime import datetime
 from typing import Dict, List
 
 import pandas as pd
@@ -35,8 +35,8 @@ OUTPUT_FILE = "data/live_snapshot.csv"
 
 RETURN_WINDOWS = {
     "return_1d": 1,
-    "return_30d": 30,
-    "return_60d": 60,
+    "return_30d": 21,
+    "return_60d": 42,
     "return_365d": 252,
 }
 
@@ -52,13 +52,15 @@ logging.basicConfig(
 log = logging.getLogger("live_snapshot")
 
 # ------------------------------------------------------------------------------
-# HELPERS
+# UTIL
 # ------------------------------------------------------------------------------
 def hard_fail(msg: str):
     log.error(msg)
     sys.exit(1)
 
-
+# ------------------------------------------------------------------------------
+# LOADERS
+# ------------------------------------------------------------------------------
 def load_prices() -> pd.DataFrame:
     if not os.path.exists(CACHE_FILE):
         hard_fail(f"Missing prices cache: {CACHE_FILE}")
@@ -68,13 +70,12 @@ def load_prices() -> pd.DataFrame:
     if prices.empty:
         hard_fail("prices_cache.parquet is empty")
 
-    # HARD NORMALIZATION
     prices = prices.copy()
     prices.index = pd.to_datetime(prices.index, utc=True).tz_convert(None)
     prices = prices.sort_index()
 
-    log.info(f"Loaded prices cache with shape {prices.shape}")
-    log.info(f"Price date range: {prices.index.min()} → {prices.index.max()}")
+    log.info(f"Loaded prices cache: {prices.shape[0]} rows × {prices.shape[1]} tickers")
+    log.info(f"Price range: {prices.index.min()} → {prices.index.max()}")
 
     if len(prices) < MIN_ROWS_REQUIRED:
         hard_fail(
@@ -91,26 +92,23 @@ def load_wave_weights() -> pd.DataFrame:
 
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
 
-    required = {"wave_id", "display_name", "ticker", "weight"}
+    required = {"wave_id", "ticker", "weight"}
     if not required.issubset(df.columns):
         hard_fail(f"wave_weights.csv missing columns: {required - set(df.columns)}")
 
     return df
 
-
+# ------------------------------------------------------------------------------
+# CALC
+# ------------------------------------------------------------------------------
 def compute_return(series: pd.Series, window: int) -> float:
-    """
-    STRICT positional return:
-    return = last_price / price[-(window+1)] - 1
-    """
     try:
         return (series.iloc[-1] / series.iloc[-(window + 1)]) - 1
     except Exception:
         return float("nan")
 
-
 # ------------------------------------------------------------------------------
-# MAIN SNAPSHOT LOGIC
+# MAIN
 # ------------------------------------------------------------------------------
 def main():
     prices = load_prices()
@@ -122,10 +120,10 @@ def main():
     rows: List[Dict] = []
 
     for wave_id, wave_df in weights.groupby("wave_id"):
-        display_name = wave_df["display_name"].iloc[0]
+        display_name = wave_id  # AUTHORITATIVE + STABLE
 
-        wave_prices = []
-        wave_weights = []
+        series_list = []
+        weight_list = []
 
         for _, row in wave_df.iterrows():
             ticker = row["ticker"]
@@ -135,36 +133,33 @@ def main():
                 log.warning(f"{wave_id}: missing ticker {ticker}, skipping")
                 continue
 
-            series = prices[ticker].dropna()
+            s = prices[ticker].dropna()
 
-            if len(series) < MIN_ROWS_REQUIRED:
+            if len(s) < MIN_ROWS_REQUIRED:
                 log.warning(f"{wave_id}: insufficient data for {ticker}, skipping")
                 continue
 
-            wave_prices.append(series)
-            wave_weights.append(weight)
+            series_list.append(s)
+            weight_list.append(weight)
 
-        if not wave_prices:
+        if not series_list:
             log.warning(f"{wave_id}: no valid tickers, skipping wave")
             continue
 
-        # Normalize weights
-        weight_sum = sum(wave_weights)
-        if weight_sum == 0:
+        total_weight = sum(weight_list)
+        if total_weight == 0:
             log.warning(f"{wave_id}: zero weight sum, skipping wave")
             continue
 
-        norm_weights = [w / weight_sum for w in wave_weights]
+        norm_weights = [w / total_weight for w in weight_list]
 
-        # Build weighted price series
-        aligned = pd.concat(wave_prices, axis=1).dropna()
+        aligned = pd.concat(series_list, axis=1).dropna()
         weighted_series = aligned.dot(pd.Series(norm_weights))
 
         if len(weighted_series) < MIN_ROWS_REQUIRED:
             log.warning(f"{wave_id}: insufficient aligned rows, skipping")
             continue
 
-        # Compute returns
         row = {
             "wave_id": wave_id,
             "display_name": display_name,
@@ -179,18 +174,15 @@ def main():
     if not rows:
         hard_fail("No snapshot rows generated — aborting")
 
-    snapshot_df = pd.DataFrame(rows)
-
-    # HARD SORT FOR STABILITY
-    snapshot_df = snapshot_df.sort_values("wave_id")
+    snapshot_df = pd.DataFrame(rows).sort_values("wave_id")
 
     snapshot_df.to_csv(OUTPUT_FILE, index=False)
+
     log.info(f"Live snapshot written → {OUTPUT_FILE}")
     log.info(f"Rows written: {len(snapshot_df)}")
 
-
 # ------------------------------------------------------------------------------
-# ENTRYPOINT
+# ENTRY
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
     main()
