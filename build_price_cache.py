@@ -177,4 +177,29 @@ def write_metadata(
         "tickers_used": len(used),
         "tickers_failed": failed,
         "min_date": cache.index.min().strftime("%Y-%m-%d"),
-        "max_date": cache.index.max().strftime("%Y
+        "max_date": cache.index.max().strftime("%Y-%m-%d"),
+        "trading_days": len(cache.index),
+    }
+
+    with open(META_FILE, "w") as f:
+        json.dump(metadata, f, indent=4)
+
+    log.info(f"Metadata written to {META_FILE}")
+
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
+def main():
+    ensure_dir(CACHE_DIR)
+
+    tickers = load_tickers()
+    cache = fetch_price_data(tickers)
+    validate_cache(cache)
+
+    cache.to_parquet(CACHE_FILE)
+    write_metadata(cache, tickers)
+
+    log.info(f"Price cache successfully written to {CACHE_FILE}")
+
+if __name__ == "__main__":
+    main()
