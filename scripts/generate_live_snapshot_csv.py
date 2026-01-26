@@ -2,37 +2,36 @@
 """
 generate_live_snapshot_csv.py
 
-PURPOSE (HARD GUARANTEES)
+PURPOSE
 --------------------------------------------------
-Generate data/live_snapshot.csv from prices_cache.parquet.
-
-This file is the SINGLE SOURCE OF TRUTH for:
+Generate data/live_snapshot.csv with:
 - Wave returns
-- Wave alpha vs benchmark
+- Wave alpha vs SPY
 
-NON-NEGOTIABLE DESIGN RULES
+This file is the SINGLE SOURCE OF TRUTH for alpha inputs.
+
+HARD GUARANTEES
 --------------------------------------------------
 1. All calculations anchor to prices.index.max()
-2. Positional math ONLY (iloc), no fuzzy date logic
-3. Index sorted ONCE (ascending)
-4. Fail loudly on insufficient data
-5. Alpha = Wave Return − Benchmark Return
-6. If prices_cache.parquet changes, output MUST change
+2. Positional math ONLY (iloc)
+3. Index sorted ONCE
+4. Explicit index alignment for dot products
+5. Fail loudly on any inconsistency
 """
 
 import os
 import sys
 import logging
-from typing import Dict, List
-
 import pandas as pd
+from pathlib import Path
 
 # ------------------------------------------------------------------------------
 # CONFIG
 # ------------------------------------------------------------------------------
-PRICES_FILE = "data/cache/prices_cache.parquet"
-WAVE_WEIGHTS_FILE = "data/wave_weights.csv"
-OUTPUT_FILE = "data/live_snapshot.csv"
+DATA_DIR = Path("data")
+PRICES_FILE = DATA_DIR / "cache/prices_cache.parquet"
+WAVE_WEIGHTS_FILE = DATA_DIR / "wave_weights.csv"
+OUTPUT_FILE = DATA_DIR / "live_snapshot.csv"
 
 BENCHMARK_TICKER = "SPY"
 
@@ -49,7 +48,7 @@ MIN_ROWS_REQUIRED = max(RETURN_WINDOWS.values()) + 1
 # ------------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
 log = logging.getLogger("live_snapshot")
 
@@ -62,7 +61,7 @@ def hard_fail(msg: str):
 
 
 def load_prices() -> pd.DataFrame:
-    if not os.path.exists(PRICES_FILE):
+    if not PRICES_FILE.exists():
         hard_fail(f"Missing prices cache: {PRICES_FILE}")
 
     prices = pd.read_parquet(PRICES_FILE)
@@ -79,8 +78,7 @@ def load_prices() -> pd.DataFrame:
 
     if len(prices) < MIN_ROWS_REQUIRED:
         hard_fail(
-            f"Insufficient rows in price cache: "
-            f"{len(prices)} < {MIN_ROWS_REQUIRED}"
+            f"Insufficient price rows: {len(prices)} < {MIN_ROWS_REQUIRED}"
         )
 
     if BENCHMARK_TICKER not in prices.columns:
@@ -90,7 +88,7 @@ def load_prices() -> pd.DataFrame:
 
 
 def load_wave_weights() -> pd.DataFrame:
-    if not os.path.exists(WAVE_WEIGHTS_FILE):
+    if not WAVE_WEIGHTS_FILE.exists():
         hard_fail(f"Missing wave weights: {WAVE_WEIGHTS_FILE}")
 
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
@@ -123,11 +121,11 @@ def main():
 
     benchmark_series = prices[BENCHMARK_TICKER].dropna()
 
-    rows: List[Dict] = []
+    rows = []
 
     for wave_id, wave_df in weights.groupby("wave_id"):
-        wave_prices = []
-        wave_weights = []
+        series_list = {}
+        weight_map = {}
 
         for _, row in wave_df.iterrows():
             ticker = row["ticker"]
@@ -137,32 +135,35 @@ def main():
                 log.warning(f"{wave_id}: missing ticker {ticker}, skipping")
                 continue
 
-            series = prices[ticker].dropna()
+            s = prices[ticker].dropna()
 
-            if len(series) < MIN_ROWS_REQUIRED:
+            if len(s) < MIN_ROWS_REQUIRED:
                 log.warning(f"{wave_id}: insufficient data for {ticker}, skipping")
                 continue
 
-            wave_prices.append(series)
-            wave_weights.append(weight)
+            series_list[ticker] = s
+            weight_map[ticker] = weight
 
-        if not wave_prices:
+        if not series_list:
             log.warning(f"{wave_id}: no valid tickers, skipping wave")
             continue
 
-        weight_sum = sum(wave_weights)
-        if weight_sum == 0:
-            log.warning(f"{wave_id}: zero weight sum, skipping")
-            continue
+        # Build aligned price matrix
+        aligned = pd.DataFrame(series_list).dropna()
 
-        norm_weights = [w / weight_sum for w in wave_weights]
-
-        aligned = pd.concat(wave_prices, axis=1).dropna()
-        weighted_series = aligned.dot(pd.Series(norm_weights))
-
-        if len(weighted_series) < MIN_ROWS_REQUIRED:
+        if len(aligned) < MIN_ROWS_REQUIRED:
             log.warning(f"{wave_id}: insufficient aligned rows, skipping")
             continue
+
+        # NORMALIZE WEIGHTS **WITH MATCHING INDEX**
+        weights_series = pd.Series(weight_map)
+        weights_series = weights_series / weights_series.sum()
+        weights_series = weights_series.reindex(aligned.columns)
+
+        if weights_series.isna().any():
+            hard_fail(f"{wave_id}: weight alignment failure")
+
+        weighted_series = aligned.dot(weights_series)
 
         row = {
             "wave_id": wave_id,
