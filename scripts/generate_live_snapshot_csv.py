@@ -2,96 +2,51 @@
 """
 generate_live_snapshot_csv.py
 
-Authoritative LIVE snapshot generator.
+FINAL authoritative LIVE snapshot generator.
+Assumes WIDE-FORM price cache:
+    date | TICKER1 | TICKER2 | ...
 
-Responsibilities:
-- Read price cache (parquet)
-- Read wave weights (csv)
-- Normalize schema safely
-- Compute weighted returns
-- ALWAYS write data/live_snapshot.csv
-- NEVER crash due to schema drift
+This matches the actual prices_cache.parquet in WAVES.
 """
 
 from pathlib import Path
 import pandas as pd
 import numpy as np
 
-# -------------------------
-# Paths
-# -------------------------
 PRICES_CACHE = Path("data/cache/prices_cache.parquet")
 WAVE_WEIGHTS = Path("data/wave_weights.csv")
 OUTPUT_PATH = Path("data/live_snapshot.csv")
-
-# -------------------------
-# Utilities
-# -------------------------
-def find_column(df: pd.DataFrame, candidates: list[str]) -> str:
-    for c in candidates:
-        if c in df.columns:
-            return c
-    raise ValueError(f"Required column not found. Tried: {candidates}")
 
 def compute_return(series: pd.Series, days: int) -> float:
     if len(series) <= days:
         return np.nan
     return (series.iloc[-1] / series.iloc[-days - 1]) - 1.0
 
-# -------------------------
-# Main
-# -------------------------
-def generate_live_snapshot_csv() -> pd.DataFrame:
-    print("▶ Generating LIVE snapshot")
+def generate_live_snapshot_csv():
+    print("▶ Generating LIVE snapshot (wide-form cache)")
 
-    if not PRICES_CACHE.exists():
-        raise FileNotFoundError("prices_cache.parquet not found")
-
-    if not WAVE_WEIGHTS.exists():
-        raise FileNotFoundError("wave_weights.csv not found")
-
-    # -------------------------
-    # Load data
-    # -------------------------
-    prices_raw = pd.read_parquet(PRICES_CACHE)
+    prices = pd.read_parquet(PRICES_CACHE)
     weights = pd.read_csv(WAVE_WEIGHTS)
 
-    # -------------------------
-    # Normalize price schema
-    # -------------------------
-    ticker_col = find_column(prices_raw, ["ticker", "symbol", "Ticker", "Symbol"])
-    date_col   = find_column(prices_raw, ["date", "datetime", "Date"])
-    close_col  = find_column(prices_raw, ["close", "adj_close", "price", "Close"])
+    if "date" not in prices.columns:
+        raise ValueError("Price cache must contain a 'date' column")
 
-    prices = prices_raw[[ticker_col, date_col, close_col]].copy()
-    prices.columns = ["ticker", "date", "close"]
     prices["date"] = pd.to_datetime(prices["date"])
-    prices = prices.sort_values("date")
+    prices = prices.set_index("date").sort_index()
 
-    # -------------------------
-    # Normalize weights schema
-    # -------------------------
-    wave_col   = find_column(weights, ["wave", "wave_id", "Wave"])
-    ticker_w   = find_column(weights, ["ticker", "symbol", "Ticker"])
-    weight_col = find_column(weights, ["weight", "Weight"])
-    name_col   = find_column(weights, ["wave_name", "Wave_Name", "name"])
+    # Normalize weights
+    weights.columns = [c.lower() for c in weights.columns]
+    required = {"wave", "ticker", "weight", "wave_name"}
+    if not required.issubset(weights.columns):
+        raise ValueError(f"wave_weights.csv missing columns: {required - set(weights.columns)}")
 
-    weights = weights[[wave_col, ticker_w, weight_col, name_col]].copy()
-    weights.columns = ["wave_id", "ticker", "weight", "wave_name"]
-
-    # -------------------------
-    # Build snapshot
-    # -------------------------
     rows = []
 
-    for wave_id, group in weights.groupby("wave_id"):
-        tickers = group["ticker"].tolist()
-        wts = group["weight"].values
+    for wave_id, group in weights.groupby("wave"):
         wave_name = group["wave_name"].iloc[0]
+        tickers = [t for t in group["ticker"] if t in prices.columns]
 
-        price_df = prices[prices["ticker"].isin(tickers)]
-
-        if price_df.empty:
+        if not tickers:
             rows.append({
                 "Wave_ID": wave_id,
                 "Wave": wave_name,
@@ -109,20 +64,14 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
             })
             continue
 
-        pivot = (
-            price_df
-            .pivot(index="date", columns="ticker", values="close")
-            .dropna()
-        )
+        sub_prices = prices[tickers]
+        wts = group.set_index("ticker").loc[tickers]["weight"].values
 
-        # Align weights to pivot columns
-        aligned_wts = np.array([group.set_index("ticker").loc[c]["weight"] for c in pivot.columns])
+        weighted_price = (sub_prices * wts).sum(axis=1)
 
-        weighted_price = (pivot * aligned_wts).sum(axis=1)
-
-        r1   = compute_return(weighted_price, 1)
-        r30  = compute_return(weighted_price, 30)
-        r60  = compute_return(weighted_price, 60)
+        r1 = compute_return(weighted_price, 1)
+        r30 = compute_return(weighted_price, 30)
+        r60 = compute_return(weighted_price, 60)
         r365 = compute_return(weighted_price, 365)
 
         rows.append({
@@ -142,7 +91,6 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
         })
 
     df = pd.DataFrame(rows)
-
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUTPUT_PATH, index=False)
 
@@ -151,6 +99,5 @@ def generate_live_snapshot_csv() -> pd.DataFrame:
 
     return df
 
-# -------------------------
 if __name__ == "__main__":
     generate_live_snapshot_csv()
