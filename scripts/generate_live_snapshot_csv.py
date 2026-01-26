@@ -6,14 +6,26 @@ Purpose:
 - Authoritative LIVE snapshot generator for Waves-Simple.
 - Computes and exports live snapshot metrics for each wave.
 
-Design Requirements:
-1. Assume prices_cache.parquet is wide-form (index = date, columns = tickers, values = prices).
-2. Explicitly validate wave_weights.csv schema; raise a ValueError if columns are missing.
-3. Use column names: wave_id, display_name, Return_1D, Return_30D, Return_60D, Return_365D.
-4. Normalize weights before computing weighted prices.
-5. Use 1, 21, 42, and 252 as return-period trading-day equivalents.
-6. Never silently write an empty file; write headers only and log a CRITICAL warning if no valid waves are computed.
-7. Use clear logging for all major steps and exit non-zero on any failure.
+Design Updates:
+1. wave_weights.csv must contain ONLY: wave_id, ticker, weight
+2. display_name is NOT required in wave_weights.csv
+3. display_name in output is set equal to wave_id
+4. Output columns:
+   - wave_id
+   - display_name
+   - Return_1D
+   - Return_30D
+   - Return_60D
+   - Return_365D
+5. Uses trading-day equivalents:
+   - 1D   = 1
+   - 30D  = 21
+   - 60D  = 42
+   - 365D = 252
+6. If no valid waves are computed:
+   - Write CSV headers ONLY
+   - Log CRITICAL
+   - EXIT CLEANLY (no exception, no workflow failure)
 """
 
 import logging
@@ -42,7 +54,7 @@ OUTPUT_PATH = Path("data/live_snapshot.csv")
 # ---------------------------------------------------------------------
 # Schema + constants
 # ---------------------------------------------------------------------
-REQUIRED_WEIGHT_COLUMNS = {"wave_id", "display_name", "ticker", "weight"}
+REQUIRED_COLUMNS = {"wave_id", "ticker", "weight"}
 
 RETURN_PERIODS = {
     "Return_1D": 1,
@@ -91,7 +103,7 @@ def load_and_validate_wave_weights(path: Path) -> pd.DataFrame:
 
     df = pd.read_csv(path)
 
-    missing = REQUIRED_WEIGHT_COLUMNS - set(df.columns)
+    missing = REQUIRED_COLUMNS - set(df.columns)
     if missing:
         raise ValueError(f"wave_weights.csv missing required columns: {missing}")
 
@@ -117,7 +129,6 @@ def compute_return(series: pd.Series, lookback: int) -> float:
 # ---------------------------------------------------------------------
 def process_wave(
     wave_id: str,
-    display_name: str,
     weights_df: pd.DataFrame,
     prices: pd.DataFrame,
 ) -> dict | None:
@@ -126,7 +137,6 @@ def process_wave(
     tickers = weights_df["ticker"].tolist()
     weights = weights_df["weight"].astype(float).values
 
-    # Ensure tickers exist
     missing = [t for t in tickers if t not in prices.columns]
     if missing:
         logger.warning(
@@ -141,19 +151,17 @@ def process_wave(
         logger.warning("No usable price data for wave %s", wave_id)
         return None
 
-    # Normalize weights
     weight_sum = weights.sum()
     if weight_sum <= 0:
         logger.warning("Invalid weights for wave %s (sum <= 0)", wave_id)
         return None
 
     weights = weights / weight_sum
-
     weighted_prices = (price_slice * weights).sum(axis=1)
 
     snapshot = {
         "wave_id": wave_id,
-        "display_name": display_name,
+        "display_name": wave_id,
     }
 
     for col, days in RETURN_PERIODS.items():
@@ -169,20 +177,15 @@ def generate_live_snapshot() -> None:
     rows: list[dict] = []
 
     for wave_id, group in wave_weights.groupby("wave_id"):
-        display_name = group["display_name"].iloc[0]
-
         snapshot = process_wave(
             wave_id=wave_id,
-            display_name=display_name,
             weights_df=group,
             prices=prices,
         )
-
         if snapshot is not None:
             rows.append(snapshot)
 
     output_df = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
-
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     if output_df.empty:
@@ -206,7 +209,7 @@ def generate_live_snapshot() -> None:
 def main():
     try:
         generate_live_snapshot()
-    except Exception as e:
+    except Exception:
         logger.exception("Live snapshot generation FAILED")
         exit(1)
 
