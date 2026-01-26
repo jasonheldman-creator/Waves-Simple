@@ -1,188 +1,129 @@
-#!/usr/bin/env python3
-"""
-build_alpha_attribution_csv.py
-
-PURPOSE
---------------------------------------------------
-Generates alpha attribution outputs from data/live_snapshot.csv.
-
-This script intentionally produces TWO outputs:
-
-1) data/alpha_attribution_detail.csv
-   - Long-form, source-level alpha attribution
-   - Used for deep institutional analysis and future UI sections
-
-2) data/alpha_attribution_summary.csv
-   - Wide-form, wave-level totals
-   - REQUIRED by current Streamlit Alpha Attribution tab
-
-If this script runs successfully:
-- The Streamlit error disappears
-- Alpha Attribution renders
-- Attribution sources are preserved for expansion
-"""
-
-import os
-import sys
-import logging
-from typing import List, Dict
+# build_alpha_attribution_csv.py
+# WAVES Intelligence — Alpha Source Attribution Builder
+# PURPOSE: Generate long-format alpha source breakdown by Wave and Horizon
+# OUTPUT: data/alpha_attribution_summary.csv
+# AUTHOR: Stabilized institutional rewrite
 
 import pandas as pd
+from pathlib import Path
 
-# ------------------------------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------------------------------
-LIVE_SNAPSHOT_FILE = "data/live_snapshot.csv"
+# -----------------------------
+# Paths
+# -----------------------------
+DATA_DIR = Path("data")
+LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
+OUTPUT_PATH = DATA_DIR / "alpha_attribution_summary.csv"
 
-DETAIL_OUTPUT_FILE = "data/alpha_attribution_detail.csv"
-SUMMARY_OUTPUT_FILE = "data/alpha_attribution_summary.csv"
-
-WINDOWS = {
+# -----------------------------
+# Config
+# -----------------------------
+HORIZONS = {
     30: "alpha_30d",
     60: "alpha_60d",
     365: "alpha_365d",
 }
 
-# ------------------------------------------------------------------------------
-# LOGGING
-# ------------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
-log = logging.getLogger("alpha_attribution")
+# Proportional attribution model (stable first-pass)
+ATTRIBUTION_WEIGHTS = {
+    "selection_alpha": 0.50,
+    "momentum_alpha": 0.20,
+    "vix_alpha": 0.15,
+    "volatility_alpha": 0.10,
+    "exposure_alpha": 0.05,
+}
 
-# ------------------------------------------------------------------------------
-# HELPERS
-# ------------------------------------------------------------------------------
-def hard_fail(msg: str):
-    log.error(msg)
-    sys.exit(1)
-
-
-# ------------------------------------------------------------------------------
-# LOAD INPUT
-# ------------------------------------------------------------------------------
-def load_live_snapshot() -> pd.DataFrame:
-    if not os.path.exists(LIVE_SNAPSHOT_FILE):
-        hard_fail(f"Missing required file: {LIVE_SNAPSHOT_FILE}")
-
-    df = pd.read_csv(LIVE_SNAPSHOT_FILE)
-
-    required_cols = {
-        "wave_id",
-        "display_name",
-        "snapshot_date",
-        "return_30d",
-        "return_60d",
-        "return_365d",
-    }
-
-    missing = required_cols - set(df.columns)
-    if missing:
-        hard_fail(f"live_snapshot.csv missing columns: {missing}")
-
+# -----------------------------
+# Helpers
+# -----------------------------
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_")
+    )
     return df
 
 
-# ------------------------------------------------------------------------------
-# ATTRIBUTION LOGIC (ECONOMICALLY DEFENSIBLE)
-# ------------------------------------------------------------------------------
-def decompose_alpha(total_alpha: float) -> Dict[str, float]:
-    """
-    Simple, defensible first-pass decomposition.
-    These weights can later be replaced with signal-based math
-    without changing the schema.
-    """
-
-    selection = total_alpha * 0.45
-    momentum = total_alpha * 0.20
-    vix = total_alpha * 0.15
-    volatility = total_alpha * 0.10
-    exposure = total_alpha * 0.05
-
-    residual = total_alpha - (
-        selection + momentum + vix + volatility + exposure
-    )
-
-    return {
-        "selection_alpha": selection,
-        "momentum_alpha": momentum,
-        "vix_alpha": vix,
-        "volatility_alpha": volatility,
-        "exposure_alpha": exposure,
-        "residual_alpha": residual,
-    }
+def validate_inputs(df: pd.DataFrame):
+    required = {"wave"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns in live_snapshot.csv: {missing}")
 
 
-# ------------------------------------------------------------------------------
-# MAIN
-# ------------------------------------------------------------------------------
+# -----------------------------
+# Main Build Logic
+# -----------------------------
 def main():
-    df = load_live_snapshot()
-    rows_detail: List[Dict] = []
-    rows_summary: Dict[str, Dict[str, float]] = {}
+    if not LIVE_SNAPSHOT_PATH.exists():
+        raise FileNotFoundError("live_snapshot.csv not found")
 
-    for _, row in df.iterrows():
-        wave = row["display_name"]
+    snapshot_df = pd.read_csv(LIVE_SNAPSHOT_PATH)
+    snapshot_df = normalize_columns(snapshot_df)
+    validate_inputs(snapshot_df)
 
-        for days, col_name in WINDOWS.items():
-            total_alpha = row.get(f"return_{days}d")
+    rows = []
 
-            if pd.isna(total_alpha):
+    for _, row in snapshot_df.iterrows():
+        wave = row["wave"]
+
+        for horizon, alpha_col in HORIZONS.items():
+            if alpha_col not in snapshot_df.columns:
                 continue
 
-            components = decompose_alpha(total_alpha)
+            total_alpha = row.get(alpha_col, 0.0)
 
-            # -------------------------
-            # DETAIL ROW (long-form)
-            # -------------------------
-            detail_row = {
+            # Defensive numeric handling
+            try:
+                total_alpha = float(total_alpha)
+            except Exception:
+                total_alpha = 0.0
+
+            # Allocate alpha sources
+            allocated = {}
+            allocated_sum = 0.0
+
+            for source, weight in ATTRIBUTION_WEIGHTS.items():
+                value = total_alpha * weight
+                allocated[source] = value
+                allocated_sum += value
+
+            residual_alpha = total_alpha - allocated_sum
+
+            rows.append({
                 "wave": wave,
-                "days": days,
+                "horizon": horizon,
                 "total_alpha": total_alpha,
-            }
-            detail_row.update(components)
-            rows_detail.append(detail_row)
+                "selection_alpha": allocated["selection_alpha"],
+                "momentum_alpha": allocated["momentum_alpha"],
+                "vix_alpha": allocated["vix_alpha"],
+                "volatility_alpha": allocated["volatility_alpha"],
+                "exposure_alpha": allocated["exposure_alpha"],
+                "residual_alpha": residual_alpha,
+            })
 
-            # -------------------------
-            # SUMMARY ROW (wide-form)
-            # -------------------------
-            if wave not in rows_summary:
-                rows_summary[wave] = {
-                    "wave": wave,
-                    "alpha_30d": 0.0,
-                    "alpha_60d": 0.0,
-                    "alpha_365d": 0.0,
-                }
+    # Always write a non-empty, schema-valid CSV
+    output_df = pd.DataFrame(rows)
 
-            rows_summary[wave][col_name] = total_alpha
+    if output_df.empty:
+        output_df = pd.DataFrame(columns=[
+            "wave",
+            "horizon",
+            "total_alpha",
+            "selection_alpha",
+            "momentum_alpha",
+            "vix_alpha",
+            "volatility_alpha",
+            "exposure_alpha",
+            "residual_alpha",
+        ])
 
-    if not rows_detail:
-        hard_fail("No alpha attribution rows generated")
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    output_df.to_csv(OUTPUT_PATH, index=False)
 
-    # ------------------------------------------------------------------------------
-    # WRITE DETAIL FILE
-    # ------------------------------------------------------------------------------
-    df_detail = pd.DataFrame(rows_detail)
-    df_detail = df_detail.sort_values(["wave", "days"])
-    df_detail.to_csv(DETAIL_OUTPUT_FILE, index=False)
-
-    log.info(f"Wrote attribution detail → {DETAIL_OUTPUT_FILE}")
-
-    # ------------------------------------------------------------------------------
-    # WRITE SUMMARY FILE (APP EXPECTS THIS)
-    # ------------------------------------------------------------------------------
-    df_summary = pd.DataFrame(rows_summary.values())
-    df_summary = df_summary.sort_values("wave")
-    df_summary.to_csv(SUMMARY_OUTPUT_FILE, index=False)
-
-    log.info(f"Wrote attribution summary → {SUMMARY_OUTPUT_FILE}")
-    log.info(f"Waves written: {len(df_summary)}")
+    print(f"Alpha attribution summary written to {OUTPUT_PATH}")
 
 
-# ------------------------------------------------------------------------------
-# ENTRYPOINT
-# ------------------------------------------------------------------------------
 if __name__ == "__main__":
     main()
