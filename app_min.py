@@ -1,5 +1,6 @@
 # app_min.py
-# WAVES Intelligence™ Console — Minimal (Institutional Overview Upgrade)
+# WAVES Intelligence™ Console — Minimal (B2)
+# Overview + Alpha Attribution + Adaptive Intelligence (Preview)
 
 import streamlit as st
 import pandas as pd
@@ -11,44 +12,91 @@ from intelligence.adaptive_intelligence import (
     render_adaptive_intelligence_preview,
 )
 
-# ---------------------------
-# Page Config
-# ---------------------------
+# ===========================
+# PAGE CONFIG
+# ===========================
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ---------------------------
-# Constants
-# ---------------------------
+# ===========================
+# GLOBAL STYLES (SAFE)
+# ===========================
+st.markdown("""
+<style>
+.snapshot-card {
+    background: radial-gradient(circle at top left, #0f1b2d, #070c16);
+    border-radius: 18px;
+    padding: 28px;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 0 40px rgba(0,255,255,0.08);
+    margin-bottom: 36px;
+}
+
+.snapshot-title {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.snapshot-sub {
+    font-size: 14px;
+    opacity: 0.75;
+    margin-bottom: 22px;
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+.metric-tile {
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    text-align: center;
+}
+
+.metric-label {
+    font-size: 12px;
+    opacity: 0.65;
+    margin-bottom: 6px;
+}
+
+.metric-value {
+    font-size: 22px;
+    font-weight: 700;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ===========================
+# CONSTANTS
+# ===========================
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 
 RETURN_COLS = {
-    "intraday": "return_1d",
+    "1d": "return_1d",
     "30d": "return_30d",
     "60d": "return_60d",
     "365d": "return_365d",
 }
 
 ALPHA_COLS = {
-    "intraday": "alpha_1d",
+    "1d": "alpha_1d",
     "30d": "alpha_30d",
     "60d": "alpha_60d",
     "365d": "alpha_365d",
 }
 
-BENCHMARK_COLS = {
-    "30d": "benchmark_return_30d",
-    "60d": "benchmark_return_60d",
-    "365d": "benchmark_return_365d",
-}
-
-# ---------------------------
-# Load Snapshot
-# ---------------------------
+# ===========================
+# LOAD SNAPSHOT
+# ===========================
 def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
         return None, "Live snapshot file not found"
@@ -57,50 +105,29 @@ def load_snapshot():
     df.columns = [c.strip().lower() for c in df.columns]
 
     if "display_name" not in df.columns:
-        if "wave_name" in df.columns:
-            df["display_name"] = df["wave_name"]
-        elif "wave_id" in df.columns:
-            df["display_name"] = df["wave_id"]
-        else:
-            df["display_name"] = "Unnamed Wave"
-
-    for col in list(RETURN_COLS.values()) + list(ALPHA_COLS.values()):
-        if col not in df.columns:
-            df[col] = np.nan
+        df["display_name"] = df.get("wave_name", df.get("wave_id", "Unnamed Wave"))
 
     return df, None
 
 
 snapshot_df, snapshot_error = load_snapshot()
 
-# ---------------------------
-# Sidebar
-# ---------------------------
+# ===========================
+# SIDEBAR
+# ===========================
 st.sidebar.title("System Status")
-
 st.sidebar.markdown(
     f"""
-**Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
-**Alpha Attribution:** ✅ Active  
-**Adaptive Intelligence:** 🟡 Preview Mode  
-"""
+    **Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
+    **Alpha Attribution:** ✅ Active  
+    **Adaptive Intelligence:** 🟡 Preview Mode  
+    """
 )
-
 st.sidebar.divider()
 
-if snapshot_error is None:
-    wave_options = ["TOTAL PORTFOLIO (Equal-Weighted)"] + snapshot_df["display_name"].tolist()
-    selected_view = st.sidebar.selectbox(
-        "View",
-        wave_options,
-        key="overview_view_selector",
-    )
-else:
-    selected_view = None
-
-# ---------------------------
-# Tabs
-# ---------------------------
+# ===========================
+# TABS
+# ===========================
 tabs = st.tabs(
     [
         "Overview",
@@ -111,7 +138,7 @@ tabs = st.tabs(
 )
 
 # ===========================
-# OVERVIEW (INSTITUTIONAL)
+# OVERVIEW TAB
 # ===========================
 with tabs[0]:
     st.header("Portfolio Overview")
@@ -121,95 +148,74 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
-        if selected_view == "TOTAL PORTFOLIO (Equal-Weighted)":
-            scope_label = "Equal-Weighted Diagnostic Portfolio"
-            agg = df.mean(numeric_only=True)
-        else:
-            scope_label = selected_view
-            agg = df[df["display_name"] == selected_view].iloc[0]
+        # Equal-weighted diagnostics
+        ew = {}
+        for k, col in RETURN_COLS.items():
+            ew[col] = df[col].mean(skipna=True) if col in df.columns else np.nan
 
-        def fmt(x):
-            return "—" if pd.isna(x) else f"{x*100:.2f}%"
+        for k, col in ALPHA_COLS.items():
+            ew[col] = df[col].mean(skipna=True) if col in df.columns else np.nan
 
-        # ---- CSS ----
-        st.markdown(
-            """
-<style>
-.snapshot-card {
-    background: linear-gradient(145deg, #0f172a, #020617);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 18px;
-    padding: 28px;
-    box-shadow: 0 0 40px rgba(0,255,255,0.12);
-}
-.metric-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 18px;
-    margin-top: 22px;
-}
-.metric-tile {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 12px;
-    padding: 16px;
-    text-align: center;
-}
-.metric-label {
-    font-size: 12px;
-    color: #9ca3af;
-    letter-spacing: 0.08em;
-}
-.metric-value {
-    font-size: 20px;
-    font-weight: 600;
-    margin-top: 6px;
-    color: #e5e7eb;
-}
-.snapshot-sub {
-    color: #94a3b8;
-    font-size: 13px;
-    margin-top: 6px;
-}
-</style>
-""",
-            unsafe_allow_html=True,
-        )
+        # -------- Snapshot Card (HTML ONLY) --------
+        st.markdown(f"""
+        <div class="snapshot-card">
+            <div class="snapshot-title">🏛 Portfolio Snapshot</div>
+            <div class="snapshot-sub">
+                Equal-Weighted Diagnostic Portfolio · Live Data
+            </div>
 
-        # ---- Snapshot Card ----
-        st.markdown(
-            f"""
-<div class="snapshot-card">
-    <h3>🏛 Portfolio Snapshot</h3>
-    <div class="snapshot-sub">{scope_label} · Live Data</div>
+            <div class="metric-grid">
+                <div class="metric-tile">
+                    <div class="metric-label">1D Return</div>
+                    <div class="metric-value">{ew['return_1d']:.2%}</div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">30D Return</div>
+                    <div class="metric-value">{ew['return_30d']:.2%}</div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">60D Return</div>
+                    <div class="metric-value">{ew['return_60d']:.2%}</div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">365D Return</div>
+                    <div class="metric-value">{ew['return_365d']:.2%}</div>
+                </div>
 
-    <div class="metric-grid">
-        <div class="metric-tile"><div class="metric-label">INTRADAY RETURN</div><div class="metric-value">{fmt(agg[RETURN_COLS['intraday']])}</div></div>
-        <div class="metric-tile"><div class="metric-label">30D RETURN</div><div class="metric-value">{fmt(agg[RETURN_COLS['30d']])}</div></div>
-        <div class="metric-tile"><div class="metric-label">60D RETURN</div><div class="metric-value">{fmt(agg[RETURN_COLS['60d']])}</div></div>
-        <div class="metric-tile"><div class="metric-label">365D RETURN</div><div class="metric-value">{fmt(agg[RETURN_COLS['365d']])}</div></div>
+                <div class="metric-tile">
+                    <div class="metric-label">Alpha 1D</div>
+                    <div class="metric-value">{ew.get('alpha_1d', np.nan):.2%}</div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">Alpha 30D</div>
+                    <div class="metric-value">{ew.get('alpha_30d', np.nan):.2%}</div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">Alpha 60D</div>
+                    <div class="metric-value">{ew.get('alpha_60d', np.nan):.2%}</div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">Alpha 365D</div>
+                    <div class="metric-value">{ew.get('alpha_365d', np.nan):.2%}</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        <div class="metric-tile"><div class="metric-label">INTRADAY ALPHA</div><div class="metric-value">{fmt(agg[ALPHA_COLS['intraday']])}</div></div>
-        <div class="metric-tile"><div class="metric-label">30D ALPHA</div><div class="metric-value">{fmt(agg[ALPHA_COLS['30d']])}</div></div>
-        <div class="metric-tile"><div class="metric-label">60D ALPHA</div><div class="metric-value">{fmt(agg[ALPHA_COLS['60d']])}</div></div>
-        <div class="metric-tile"><div class="metric-label">365D ALPHA</div><div class="metric-value">{fmt(agg[ALPHA_COLS['365d']])}</div></div>
-    </div>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
+        # -------- Wave Table --------
+        table_cols = ["display_name"] + list(RETURN_COLS.values())
+        view = df[table_cols].rename(columns={
+            "display_name": "Wave",
+            "return_1d": "1D",
+            "return_30d": "30D",
+            "return_60d": "60D",
+            "return_365d": "365D",
+        })
 
-        st.divider()
-
-        # ---- Vertical Audit View ----
-        st.subheader("Diagnostic Metrics")
-        for label, col in RETURN_COLS.items():
-            st.metric(f"{label.upper()} RETURN", fmt(agg[col]))
-        for label, col in ALPHA_COLS.items():
-            st.metric(f"{label.upper()} ALPHA", fmt(agg[col]))
+        st.dataframe(view, use_container_width=True, hide_index=True)
 
 # ===========================
-# ALPHA ATTRIBUTION (UNCHANGED)
+# ALPHA ATTRIBUTION
 # ===========================
 with tabs[1]:
     st.header("Alpha Attribution")
@@ -219,30 +225,29 @@ with tabs[1]:
         st.error(snapshot_error)
     else:
         waves = snapshot_df["display_name"].tolist()
-        selected_wave = st.selectbox("Select Wave", waves, key="alpha_attr_wave_select")
 
-        source_df = pd.DataFrame(
-            {
-                "Alpha Source": [
-                    "Selection Alpha",
-                    "Momentum Alpha",
-                    "Regime Alpha",
-                    "Exposure Alpha",
-                    "Residual Alpha",
-                ],
-                "Contribution": [
-                    snapshot_df.loc[snapshot_df["display_name"] == selected_wave, c].values[0]
-                    if c in snapshot_df.columns else None
-                    for c in [
-                        "selection_alpha",
-                        "momentum_alpha",
-                        "regime_alpha",
-                        "exposure_alpha",
-                        "residual_alpha",
-                    ]
-                ],
-            }
+        selected_wave = st.selectbox(
+            "Select Wave",
+            waves,
+            key="alpha_attr_wave_select",
         )
+
+        source_df = pd.DataFrame({
+            "Alpha Source": [
+                "Selection Alpha",
+                "Momentum Alpha",
+                "Regime Alpha",
+                "Exposure Alpha",
+                "Residual Alpha",
+            ],
+            "Contribution": [
+                snapshot_df.loc[snapshot_df["display_name"] == selected_wave].get("selection_alpha", pd.Series([np.nan])).values[0],
+                snapshot_df.loc[snapshot_df["display_name"] == selected_wave].get("momentum_alpha", pd.Series([np.nan])).values[0],
+                snapshot_df.loc[snapshot_df["display_name"] == selected_wave].get("regime_alpha", pd.Series([np.nan])).values[0],
+                snapshot_df.loc[snapshot_df["display_name"] == selected_wave].get("exposure_alpha", pd.Series([np.nan])).values[0],
+                snapshot_df.loc[snapshot_df["display_name"] == selected_wave].get("residual_alpha", pd.Series([np.nan])).values[0],
+            ]
+        })
 
         st.subheader("Source Breakdown")
         st.dataframe(source_df, use_container_width=True, hide_index=True)
@@ -252,7 +257,7 @@ with tabs[1]:
             None,
             selected_wave,
             RETURN_COLS,
-            BENCHMARK_COLS,
+            {},
         )
 
 # ===========================
@@ -266,14 +271,19 @@ with tabs[2]:
         st.error(snapshot_error)
     else:
         waves = snapshot_df["display_name"].tolist()
-        selected_wave = st.selectbox("Select Wave", waves, key="adaptive_intel_wave_select")
+
+        selected_wave = st.selectbox(
+            "Select Wave",
+            waves,
+            key="adaptive_intel_wave_select",
+        )
 
         render_adaptive_intelligence_preview(
             snapshot_df,
             None,
             selected_wave,
             RETURN_COLS,
-            BENCHMARK_COLS,
+            {},
         )
 
 # ===========================
@@ -281,4 +291,4 @@ with tabs[2]:
 # ===========================
 with tabs[3]:
     st.header("Operations")
-    st.info("Human-in-the-loop execution & overrides coming next.")
+    st.info("Execution & override controls will live here.")
