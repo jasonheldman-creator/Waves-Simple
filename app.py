@@ -1,6 +1,6 @@
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
-# IC-GRADE POLISH — Alpha Quality Summary + Alpha Confidence Index
+# IC-GRADE POLISH — Institutional Overview Rewrite
 
 import streamlit as st
 import pandas as pd
@@ -25,20 +25,75 @@ DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 
 RETURN_COLS = {
-    "intraday": "return_1d",
-    "30d": "return_30d",
-    "60d": "return_60d",
-    "365d": "return_365d",
+    "1D": "return_1d",
+    "30D": "return_30d",
+    "60D": "return_60d",
+    "365D": "return_365d",
 }
 
 BENCHMARK_COLS = {
-    "30d": "benchmark_return_30d",
-    "60d": "benchmark_return_60d",
-    "365d": "benchmark_return_365d",
+    "30D": "benchmark_return_30d",
+    "60D": "benchmark_return_60d",
+    "365D": "benchmark_return_365d",
 }
 
 # ===========================
-# Load + Normalize Snapshot
+# CSS — Institutional Cards
+# ===========================
+st.markdown("""
+<style>
+.metric-card {
+    background: linear-gradient(135deg, #0b132b, #111827);
+    border: 1px solid rgba(0,255,255,0.25);
+    border-radius: 18px;
+    padding: 22px;
+    margin-bottom: 24px;
+    box-shadow: 0 0 18px rgba(0,255,255,0.15);
+}
+.metric-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.metric-sub {
+    color: #9ca3af;
+    font-size: 13px;
+    margin-bottom: 14px;
+}
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+}
+.metric-cell {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 12px;
+    text-align: center;
+}
+.metric-label {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-bottom: 6px;
+}
+.metric-value {
+    font-size: 18px;
+    font-weight: 700;
+}
+.pos { color: #22c55e; }
+.neg { color: #ef4444; }
+.na  { color: #9ca3af; }
+.divider {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 16px 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ===========================
+# Load Snapshot
 # ===========================
 def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
@@ -55,10 +110,6 @@ def load_snapshot():
         else:
             df["display_name"] = "Unnamed Wave"
 
-    for col in list(RETURN_COLS.values()) + list(BENCHMARK_COLS.values()):
-        if col not in df.columns:
-            df[col] = np.nan
-
     return df, None
 
 
@@ -67,14 +118,24 @@ snapshot_df, snapshot_error = load_snapshot()
 # ===========================
 # Sidebar
 # ===========================
-st.sidebar.title("Data Status")
+st.sidebar.title("System Status")
 st.sidebar.markdown(
     f"""
-    **Live Snapshot:** {'✅ True' if snapshot_error is None else '❌ False'}  
-    **Alpha Attribution:** ✅ True
+    **Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
+    **Alpha Attribution:** ✅ Active
     """
 )
 st.sidebar.divider()
+
+if snapshot_error is None:
+    wave_list = snapshot_df["display_name"].tolist()
+    selected_wave = st.sidebar.selectbox(
+        "Wave Diagnostic View",
+        wave_list,
+        index=0
+    )
+else:
+    selected_wave = None
 
 # ===========================
 # Tabs
@@ -87,34 +148,83 @@ tabs = st.tabs([
 ])
 
 # ===========================
+# Helper: Metric Grid
+# ===========================
+def render_metric_grid(values: dict):
+    html = '<div class="metric-grid">'
+    for label, val in values.items():
+        if val is None or pd.isna(val):
+            cls = "na"
+            txt = "—"
+        else:
+            cls = "pos" if val >= 0 else "neg"
+            txt = f"{val*100:.2f}%"
+        html += f"""
+        <div class="metric-cell">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value {cls}">{txt}</div>
+        </div>
+        """
+    html += "</div>"
+    return html
+
+# ===========================
 # OVERVIEW TAB
 # ===========================
 with tabs[0]:
-    st.header("Portfolio & Wave Performance Snapshot")
+    st.header("Portfolio Overview")
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
         df = snapshot_df.copy()
 
-        portfolio_row = {"display_name": "TOTAL PORTFOLIO"}
-        for col in RETURN_COLS.values():
-            portfolio_row[col] = df[col].mean(skipna=True)
+        # ---- Portfolio (Equal-Weighted Diagnostic)
+        portfolio_vals = {}
+        portfolio_alpha = {}
 
-        df = pd.concat([pd.DataFrame([portfolio_row]), df], ignore_index=True)
+        for k, col in RETURN_COLS.items():
+            portfolio_vals[k] = df[col].mean(skipna=True)
 
-        view = df[
-            ["display_name"] + list(RETURN_COLS.values())
-        ].rename(columns={
-            "display_name": "Wave",
-            "return_1d": "Intraday",
-            "return_30d": "30D Return",
-            "return_60d": "60D Return",
-            "return_365d": "365D Return",
-        })
+        for k, bcol in BENCHMARK_COLS.items():
+            rcol = RETURN_COLS[k]
+            portfolio_alpha[f"α {k}"] = (
+                df[rcol].mean(skipna=True) - df[bcol].mean(skipna=True)
+                if bcol in df.columns else None
+            )
 
-        view = view.replace({np.nan: "—"})
-        st.dataframe(view, use_container_width=True, hide_index=True)
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">🏛 Portfolio Snapshot</div>
+            <div class="metric-sub">Equal-Weighted Diagnostic Portfolio · Live Data</div>
+            {render_metric_grid(portfolio_vals)}
+            <div class="divider"></div>
+            {render_metric_grid(portfolio_alpha)}
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ---- Wave Snapshot
+        wave_df = df[df["display_name"] == selected_wave].iloc[0]
+
+        wave_vals = {k: wave_df[v] for k, v in RETURN_COLS.items()}
+        wave_alpha = {
+            f"α {k}": (
+                wave_df[RETURN_COLS[k]] - wave_df[BENCHMARK_COLS[k]]
+                if k in BENCHMARK_COLS and BENCHMARK_COLS[k] in df.columns
+                else None
+            )
+            for k in RETURN_COLS
+        }
+
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">🏛 {selected_wave}</div>
+            <div class="metric-sub">Wave-Level Diagnostic Snapshot</div>
+            {render_metric_grid(wave_vals)}
+            <div class="divider"></div>
+            {render_metric_grid(wave_alpha)}
+        </div>
+        """, unsafe_allow_html=True)
 
 # ===========================
 # ALPHA ATTRIBUTION TAB
@@ -125,33 +235,9 @@ with tabs[1]:
     if snapshot_error:
         st.error(snapshot_error)
     else:
-        waves = snapshot_df["display_name"].tolist()
-
-        selected_wave = st.selectbox(
-            "Select Wave",
-            waves,
-            key="alpha_attr_wave_select"
-        )
-
-        # ---- Source Breakdown (placeholder / demo data)
-        source_df = pd.DataFrame({
-            "Alpha Source": [
-                "Selection Alpha",
-                "Momentum Alpha",
-                "Regime Alpha",
-                "Exposure Alpha",
-                "Residual Alpha",
-            ],
-            "Contribution": [0.012, 0.008, -0.003, 0.004, 0.001],
-        })
-
-        st.subheader("Source Breakdown")
-        st.dataframe(source_df, use_container_width=True, hide_index=True)
-
-        # Alpha Quality & Confidence
         render_alpha_quality_and_confidence(
             snapshot_df,
-            source_df,
+            None,
             selected_wave,
             RETURN_COLS,
             BENCHMARK_COLS,
@@ -162,19 +248,11 @@ with tabs[1]:
 # ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Derived from Alpha Attribution (read-only)")
+    st.caption("Interpretive layer derived from Alpha Attribution")
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
-        waves = snapshot_df["display_name"].tolist()
-
-        selected_wave = st.selectbox(
-            "Select Wave",
-            waves,
-            key="adaptive_intel_wave_select"
-        )
-
         render_alpha_quality_and_confidence(
             snapshot_df,
             None,
@@ -188,4 +266,4 @@ with tabs[2]:
 # ===========================
 with tabs[3]:
     st.header("Operations")
-    st.info("Operations control center coming next.")
+    st.info("Execution & override controls will live here.")
