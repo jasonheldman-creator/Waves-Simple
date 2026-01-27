@@ -10,7 +10,7 @@ ALPHA_HISTORY_PATH = DATA_DIR / "alpha_history.csv"
 LIVE_ATTRIBUTION_PATH = DATA_DIR / "live_snapshot_attribution.csv"
 
 
-def render_alpha_quality_and_confidence():
+def render_alpha_quality_and_confidence(snapshot_df=None, benchmark_cols=None):
     st.subheader("Alpha Quality & Confidence")
 
     if not ALPHA_HISTORY_PATH.exists():
@@ -67,7 +67,7 @@ The outputs shown here are diagnostic, not prescriptive.
     )
 
 
-def render_alpha_attribution_drivers():
+def render_alpha_attribution_drivers(snapshot_df=None, benchmark_cols=None):
     st.subheader("Alpha Attribution Drivers (Intraday)")
 
     if not LIVE_ATTRIBUTION_PATH.exists():
@@ -122,11 +122,11 @@ def render_alpha_attribution_drivers():
             st.progress(min(max((attribution_sum + 0.05) / 0.10, 0), 1))
 
 
-def render_adaptive_intelligence_panel():
+def render_adaptive_intelligence_panel(snapshot_df=None, benchmark_cols=None):
     st.header("Adaptive Intelligence")
 
-    render_alpha_quality_and_confidence()
+    render_alpha_quality_and_confidence(snapshot_df, benchmark_cols)
     st.divider()
-    render_alpha_attribution_drivers()
+    render_alpha_attribution_drivers(snapshot_df, benchmark_cols)
     st.divider()
     render_adaptive_intelligence_preview()
