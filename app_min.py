@@ -10,6 +10,7 @@ from pathlib import Path
 
 from intelligence.adaptive_intelligence import (
     render_alpha_quality_and_confidence,
+    render_alpha_attribution_drivers,   # <-- added import
 )
 
 # ===========================
@@ -225,7 +226,7 @@ with tabs[0]:
                     )
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB (CLEANED — SINGLE PATH)
+# ALPHA ATTRIBUTION TAB (TWO SECTIONS)
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
@@ -233,6 +234,10 @@ with tabs[1]:
     if snapshot_error:
         st.error(snapshot_error)
     else:
+
+        # -------------------------------
+        # SECTION 1 — Alpha Quality & Confidence
+        # -------------------------------
         with st.container():
             st.subheader("Alpha Quality & Confidence")
 
@@ -246,6 +251,21 @@ with tabs[1]:
             render_alpha_quality_and_confidence(
                 snapshot_df,
                 None,
+                selected_wave,
+                RETURN_COLS,
+                BENCHMARK_COLS,
+            )
+
+        # -------------------------------
+        # SECTION 2 — Alpha Attribution Drivers
+        # -------------------------------
+        with st.container():
+            st.subheader("Alpha Attribution Drivers")
+            st.caption("Explanatory decomposition of realized alpha across strategy components.")
+            st.divider()
+
+            render_alpha_attribution_drivers(
+                snapshot_df,
                 selected_wave,
                 RETURN_COLS,
                 BENCHMARK_COLS,
