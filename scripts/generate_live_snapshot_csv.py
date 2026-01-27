@@ -42,6 +42,10 @@ RETURN_WINDOWS = {
 
 MIN_ROWS_REQUIRED = max(RETURN_WINDOWS.values()) + 1
 
+# Module-level caches to support thin wrapper hooks
+_PRICES_CACHE: pd.DataFrame | None = None
+_WAVE_WEIGHTS: pd.DataFrame | None = None
+
 # ------------------------------------------------------------------------------
 # LOGGING
 # ------------------------------------------------------------------------------
@@ -52,8 +56,146 @@ logging.basicConfig(
 log = logging.getLogger("live_snapshot")
 
 # ------------------------------------------------------------------------------
+# HOOK WRAPPERS (THIN DELEGATES TO EXISTING LOGIC)
+# ------------------------------------------------------------------------------
+
+
+def load_wave_universe() -> pd.DataFrame:
+    global _WAVE_WEIGHTS
+    if _WAVE_WEIGHTS is None:
+        _WAVE_WEIGHTS = load_wave_weights()
+    return _WAVE_WEIGHTS
+
+
+def get_wave_intraday_prices(wave_id: str) -> tuple[float, float]:
+    if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
+        return float("nan"), float("nan")
+
+    prices = _PRICES_CACHE
+    weights = _WAVE_WEIGHTS
+
+    session = derive_intraday_session(prices)
+    if not session:
+        return float("nan"), float("nan")
+
+    wdf = weights[weights["wave_id"] == wave_id]
+    if wdf.empty:
+        return float("nan"), float("nan")
+
+    price_map = {
+        r["ticker"]: prices[r["ticker"]]
+        for _, r in wdf.iterrows()
+        if r["ticker"] in prices.columns
+    }
+    if not price_map:
+        return float("nan"), float("nan")
+
+    df_prices = pd.DataFrame(price_map).dropna()
+    if len(df_prices) < MIN_ROWS_REQUIRED:
+        return float("nan"), float("nan")
+
+    weight_vec = (
+        wdf.set_index("ticker")["weight"]
+        .reindex(df_prices.columns)
+        .fillna(0.0)
+    )
+    if weight_vec.sum() == 0:
+        return float("nan"), float("nan")
+
+    weight_vec /= weight_vec.sum()
+    weighted_series = df_prices.dot(weight_vec)
+
+    try:
+        latest_price = weighted_series.loc[session["price_now_ts"]]
+        prior_close_price = weighted_series.loc[session["prior_close_ts"]]
+    except Exception:
+        return float("nan"), float("nan")
+
+    return float(latest_price), float(prior_close_price)
+
+
+def get_benchmark_intraday_prices() -> tuple[float, float]:
+    if _PRICES_CACHE is None:
+        return float("nan"), float("nan")
+
+    prices = _PRICES_CACHE
+    if BENCHMARK_TICKER not in prices.columns:
+        return float("nan"), float("nan")
+
+    benchmark_series = prices[BENCHMARK_TICKER].dropna()
+    if benchmark_series.empty:
+        return float("nan"), float("nan")
+
+    session = derive_intraday_session(prices)
+    if not session:
+        return float("nan"), float("nan")
+
+    try:
+        latest_price = benchmark_series.loc[session["price_now_ts"]]
+        prior_close_price = benchmark_series.loc[session["prior_close_ts"]]
+    except Exception:
+        return float("nan"), float("nan")
+
+    return float(latest_price), float(prior_close_price)
+
+
+def get_wave_horizon_return(wave_id: str, days: int) -> float:
+    if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
+        return float("nan")
+
+    prices = _PRICES_CACHE
+    weights = _WAVE_WEIGHTS
+
+    wdf = weights[weights["wave_id"] == wave_id]
+    if wdf.empty:
+        return float("nan")
+
+    price_map = {
+        r["ticker"]: prices[r["ticker"]]
+        for _, r in wdf.iterrows()
+        if r["ticker"] in prices.columns
+    }
+    if not price_map:
+        return float("nan")
+
+    df_prices = pd.DataFrame(price_map).dropna()
+    if len(df_prices) < MIN_ROWS_REQUIRED:
+        return float("nan")
+
+    weight_vec = (
+        wdf.set_index("ticker")["weight"]
+        .reindex(df_prices.columns)
+        .fillna(0.0)
+    )
+    if weight_vec.sum() == 0:
+        return float("nan")
+
+    weight_vec /= weight_vec.sum()
+    weighted_series = df_prices.dot(weight_vec)
+
+    return compute_return(weighted_series, days)
+
+
+def get_benchmark_horizon_return(days: int) -> float:
+    if _PRICES_CACHE is None:
+        return float("nan")
+
+    prices = _PRICES_CACHE
+    if BENCHMARK_TICKER not in prices.columns:
+        return float("nan")
+
+    benchmark_series = prices[BENCHMARK_TICKER].dropna()
+    if benchmark_series.empty:
+        return float("nan")
+
+    return compute_return(benchmark_series, days)
+
+
+# ------------------------------------------------------------------------------
 # HELPERS
 # ------------------------------------------------------------------------------
+
+
 def hard_fail(msg: str):
     log.error(msg)
     sys.exit(1)
@@ -64,7 +206,6 @@ def load_prices() -> pd.DataFrame:
         hard_fail(f"Missing prices cache: {PRICES_FILE}")
 
     prices = pd.read_parquet(PRICES_FILE)
-
     if prices.empty:
         hard_fail("prices_cache.parquet is empty")
 
@@ -86,9 +227,7 @@ def load_wave_weights() -> pd.DataFrame:
         hard_fail(f"Missing wave weights: {WAVE_WEIGHTS_FILE}")
 
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
-    required = {"wave_id", "ticker", "weight"}
-
-    if not required.issubset(df.columns):
+    if not {"wave_id", "ticker", "weight"}.issubset(df.columns):
         hard_fail("wave_weights.csv missing required columns")
 
     return df
@@ -122,71 +261,48 @@ def derive_intraday_session(prices: pd.DataFrame):
     }
 
 
-def compute_intraday_return(series, prior_close_ts, price_now_ts):
-    try:
-        return (series.loc[price_now_ts] / series.loc[prior_close_ts]) - 1
-    except Exception:
-        return float("nan")
-
 # ------------------------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------------------------
+
+
 def main():
+    global _PRICES_CACHE, _WAVE_WEIGHTS
+
     prices = load_prices()
-    weights = load_wave_weights()
+    _PRICES_CACHE = prices
+    _WAVE_WEIGHTS = load_wave_universe()
+
     session = derive_intraday_session(prices)
 
-    benchmark_series = prices[BENCHMARK_TICKER].dropna()
-    benchmark_intraday = (
-        compute_intraday_return(
-            benchmark_series,
-            session["prior_close_ts"],
-            session["price_now_ts"],
-        )
-        if session
-        else float("nan")
-    )
+    latest_bench, prior_bench = get_benchmark_intraday_prices()
+    if session and pd.notna(latest_bench) and pd.notna(prior_bench):
+        benchmark_intraday = (latest_bench / prior_bench) - 1
+    else:
+        benchmark_intraday = float("nan")
 
     rows = []
 
-    for wave_id, wdf in weights.groupby("wave_id"):
-        price_map = {}
-
-        for _, r in wdf.iterrows():
-            ticker = r["ticker"]
-            if ticker in prices.columns:
-                price_map[ticker] = prices[ticker]
-
-        if not price_map:
-            continue
-
-        df_prices = pd.DataFrame(price_map).dropna()
-        if len(df_prices) < MIN_ROWS_REQUIRED:
-            continue
-
-        weight_vec = (
-            wdf.set_index("ticker")["weight"]
-            .reindex(df_prices.columns)
-            .fillna(0.0)
-        )
-        weight_vec /= weight_vec.sum()
-
-        weighted_series = df_prices.dot(weight_vec)
-
+    for wave_id in sorted(_WAVE_WEIGHTS["wave_id"].unique()):
         row = {"wave_id": wave_id}
 
         for name, window in RETURN_WINDOWS.items():
-            wave_ret = compute_return(weighted_series, window)
-            bench_ret = compute_return(benchmark_series, window)
+            wave_ret = get_wave_horizon_return(wave_id, window)
+            bench_ret = get_benchmark_horizon_return(window)
             row[name] = wave_ret
-            row[name.replace("return", "alpha")] = wave_ret - bench_ret
+            row[name.replace("return", "alpha")] = (
+                wave_ret - bench_ret
+                if pd.notna(wave_ret) and pd.notna(bench_ret)
+                else float("nan")
+            )
 
         if session:
-            intraday_ret = compute_intraday_return(
-                weighted_series,
-                session["prior_close_ts"],
-                session["price_now_ts"],
-            )
+            latest_wave, prior_wave = get_wave_intraday_prices(wave_id)
+            if pd.notna(latest_wave) and pd.notna(prior_wave):
+                intraday_ret = (latest_wave / prior_wave) - 1
+            else:
+                intraday_ret = float("nan")
+
             row["return_intraday"] = intraday_ret
             row["alpha_intraday"] = (
                 intraday_ret - benchmark_intraday
@@ -208,33 +324,18 @@ def main():
     snapshot_df.to_csv(OUTPUT_FILE, index=False)
     log.info(f"Snapshot written → {OUTPUT_FILE}")
 
-    # ------------------------------------------------------------------
-    # Append alpha history (NON-BLOCKING, APPEND-ONLY)
-    # ------------------------------------------------------------------
+    # Append alpha history (intraday-first, append-only)
     try:
-        file_exists = os.path.isfile(ALPHA_HISTORY_FILE)
-        if not file_exists:
+        if not os.path.isfile(ALPHA_HISTORY_FILE):
             with open(ALPHA_HISTORY_FILE, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["date", "wave_id", "alpha_1d"])
+                csv.writer(f).writerow(["date", "wave_id", "alpha_1d"])
 
         snapshot_date = datetime.now().strftime("%Y-%m-%d")
-
         with open(ALPHA_HISTORY_FILE, "a", newline="") as f:
             writer = csv.writer(f)
-            for _, row in snapshot_df.iterrows():
-                alpha_value = row.get("alpha_1d")
-                if pd.isna(alpha_value):
-                    alpha_value = row.get("alpha_intraday")
-
-                writer.writerow([
-                    snapshot_date,
-                    row["wave_id"],
-                    alpha_value,
-                ])
-
+            for _, r in snapshot_df.iterrows():
+                writer.writerow([snapshot_date, r["wave_id"], r["alpha_intraday"]])
     except Exception:
-        # Must never block snapshot generation
         pass
 
 
