@@ -1,226 +1,132 @@
-# ============================================================
 # intelligence/adaptive_intelligence.py
-# WAVES Intelligence™
-# Alpha Quality, Attribution Drivers & Adaptive Intelligence
-# ============================================================
+# WAVES Intelligence™ — Adaptive Intelligence Module
 
-from pathlib import Path
-import pandas as pd
 import streamlit as st
+import pandas as pd
+from pathlib import Path
+
+DATA_DIR = Path("data")
+ALPHA_HISTORY_PATH = DATA_DIR / "alpha_history.csv"
+LIVE_ATTRIBUTION_PATH = DATA_DIR / "live_snapshot_attribution.csv"
 
 
-# ------------------------------------------------------------
-# Alpha Quality & Confidence
-# ------------------------------------------------------------
-def render_alpha_quality_and_confidence(
-    snapshot_df,
-    source_df,
-    selected_wave,
-    return_cols,
-    benchmark_cols,
-):
-    """
-    Renders Alpha Quality & Confidence diagnostics for a selected wave.
+def render_alpha_quality_and_confidence():
+    st.subheader("Alpha Quality & Confidence")
 
-    • Consumes append-only data/alpha_history.csv
-    • Deduplicates to one row per wave per day
-    • Requires a minimum observation threshold
-    • Degrades gracefully when data is missing
-    • No trading logic, no persistence, no side effects
-    """
-
-    with st.container():
-        st.subheader("Alpha Quality & Confidence")
-        st.caption("Risk-adjusted alpha diagnostics derived from daily realized performance")
-
-        if selected_wave is None:
-            st.info("No wave selected.")
-            return
-
-        alpha_history_path = Path("data") / "alpha_history.csv"
-
-        try:
-            if not alpha_history_path.exists():
-                _render_alpha_placeholders()
-                return
-
-            df = pd.read_csv(alpha_history_path)
-
-            required_cols = {"date", "wave_id", "alpha_1d"}
-            if not required_cols.issubset(df.columns):
-                _render_alpha_placeholders()
-                return
-
-            df = df[df["wave_id"] == selected_wave].copy()
-            if df.empty:
-                _render_alpha_placeholders()
-                return
-
-            df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            df = df.dropna(subset=["date"])
-            if df.empty:
-                _render_alpha_placeholders()
-                return
-
-            df = df.sort_values("date")
-            df = df.groupby("date").tail(1)
-
-            MIN_OBS = 5
-            if len(df) < MIN_OBS:
-                _render_alpha_placeholders(
-                    caption=f"Requires ≥ {MIN_OBS} daily observations"
-                )
-                return
-
-            alpha_series = df["alpha_1d"]
-
-            alpha_mean = alpha_series.mean()
-            alpha_vol = alpha_series.std()
-
-            quality_score = 0.0 if pd.isna(alpha_vol) or alpha_vol == 0 else alpha_mean / alpha_vol
-            quality_score = max(min(quality_score * 10, 100), -100)
-
-            confidence_level = min(len(df) / 60, 1.0) * 100
-
-            window = min(20, len(alpha_series))
-            rolling_vol = alpha_series.rolling(window=window).std()
-            alpha_vol_metric = rolling_vol.iloc[-1] if not rolling_vol.empty else float("nan")
-
-            hit_rate = (alpha_series > 0).mean() * 100
-
-            if alpha_mean > 0:
-                alpha_regime = "Positive"
-            elif alpha_mean < 0:
-                alpha_regime = "Negative"
-            else:
-                alpha_regime = "Neutral"
-
-        except Exception:
-            _render_alpha_placeholders()
-            return
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Alpha Quality Score", f"{quality_score:.1f}")
-        with col2:
-            st.metric("Confidence Level", f"{confidence_level:.0f}%")
-
-        st.divider()
-
-        st.line_chart(
-            df.set_index("date")["alpha_1d"],
-            use_container_width=True,
-        )
-
-        st.divider()
-
-        col3, col4, col5 = st.columns(3)
-
-        with col3:
-            st.metric(
-                "Alpha Volatility (Rolling)",
-                "—" if pd.isna(alpha_vol_metric) else f"{alpha_vol_metric:.4f}",
-            )
-
-        with col4:
-            st.metric("Hit Rate", f"{hit_rate:.0f}%")
-
-        with col5:
-            st.metric("Alpha Regime", alpha_regime)
-
-
-# ------------------------------------------------------------
-# Alpha Attribution Drivers (EXPLANATORY SECTION)
-# ------------------------------------------------------------
-def render_alpha_attribution_drivers(
-    snapshot_df,
-    selected_wave,
-    return_cols,
-    benchmark_cols,
-):
-    """
-    Explanatory decomposition of realized alpha.
-    This is a UI-only placeholder until full driver data is wired.
-    """
-
-    with st.container():
-        if selected_wave is None:
-            st.info("No wave selected.")
-            return
-
-        st.caption("Strategy-level attribution of realized alpha")
-
-        # NOTE:
-        # The computational driver logic already exists elsewhere in the repo.
-        # This renderer is intentionally conservative and non-fabricating.
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric("VIX / Volatility Overlay", "—")
-
-        with col2:
-            st.metric("Momentum / Trend Overlay", "—")
-
-        with col3:
-            st.metric("Stock Selection / Residual", "—")
-
-        st.caption(
-            "Driver attribution will populate automatically once the "
-            "strategy-level decomposition stream is reconnected."
-        )
-
-
-# ------------------------------------------------------------
-# Helper: Placeholder renderer
-# ------------------------------------------------------------
-def _render_alpha_placeholders(caption: str | None = None):
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric("Alpha Quality Score", "—")
-
-    with col2:
-        st.metric("Confidence Level", "—")
-
-    if caption:
-        st.caption(caption)
-
-
-# ------------------------------------------------------------
-# Adaptive Intelligence — Preview (Read-Only)
-# ------------------------------------------------------------
-def render_adaptive_intelligence_preview(
-    snapshot_df,
-    source_df,
-    selected_wave,
-    return_cols,
-    benchmark_cols,
-):
-    """
-    Interpretive preview derived from Alpha Attribution.
-    No trading logic. No persistence. No adaptive actions.
-    """
-
-    st.subheader("Adaptive Intelligence — Preview")
-    st.caption("Interpretive layer derived from Alpha Attribution (read-only)")
-
-    if selected_wave is None:
-        st.info("No wave selected.")
+    if not ALPHA_HISTORY_PATH.exists():
+        st.info("Alpha history not available.")
         return
 
-    render_alpha_quality_and_confidence(
-        snapshot_df=snapshot_df,
-        source_df=source_df,
-        selected_wave=selected_wave,
-        return_cols=return_cols,
-        benchmark_cols=benchmark_cols,
+    df = pd.read_csv(ALPHA_HISTORY_PATH)
+
+    required_cols = [
+        "date",
+        "alpha_1d",
+        "alpha_30d",
+        "alpha_90d",
+        "alpha_365d",
+        "confidence_score",
+    ]
+
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.info("Alpha history schema incomplete.")
+        return
+
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date")
+
+    latest = df.iloc[-1]
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    col1.metric("Alpha 1D", f"{latest['alpha_1d']:.2%}")
+    col2.metric("Alpha 30D", f"{latest['alpha_30d']:.2%}")
+    col3.metric("Alpha 90D", f"{latest['alpha_90d']:.2%}")
+    col4.metric("Alpha 1Y", f"{latest['alpha_365d']:.2%}")
+    col5.metric("Confidence", f"{latest['confidence_score']:.1f}")
+
+    st.caption("Confidence reflects consistency, drawdown control, and persistence of alpha.")
+
+
+def render_adaptive_intelligence_preview():
+    st.subheader("Adaptive Intelligence Preview")
+
+    st.markdown(
+        """
+This panel represents the live reasoning layer of WAVES Intelligence™.
+
+Adaptive Intelligence continuously evaluates:
+- Source of alpha (momentum, volatility control, allocation, residual skill)
+- Stability vs regime change
+- Signal decay and reinforcement
+- Confidence-adjusted decision weighting
+
+The outputs shown here are diagnostic, not prescriptive.
+"""
     )
 
+
+def render_alpha_attribution_drivers():
+    st.subheader("Alpha Attribution Drivers (Intraday)")
+
+    if not LIVE_ATTRIBUTION_PATH.exists():
+        st.info("Live alpha attribution data not available.")
+        return
+
+    df = pd.read_csv(LIVE_ATTRIBUTION_PATH)
+
+    required_cols = [
+        "wave_id",
+        "timestamp",
+        "alpha_beta",
+        "alpha_momentum",
+        "alpha_volatility",
+        "alpha_allocation",
+        "alpha_residual",
+    ]
+
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.info("Alpha attribution schema incomplete.")
+        return
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp")
+
+    latest_ts = df["timestamp"].max()
+    df_latest = df[df["timestamp"] == latest_ts]
+
+    st.caption(f"Last update: {latest_ts}")
+
+    for _, row in df_latest.iterrows():
+        with st.container():
+            st.markdown(f"**{row['wave_id']}**")
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+
+            c1.metric("Beta", f"{row['alpha_beta']:.2%}")
+            c2.metric("Momentum", f"{row['alpha_momentum']:.2%}")
+            c3.metric("Volatility", f"{row['alpha_volatility']:.2%}")
+            c4.metric("Allocation", f"{row['alpha_allocation']:.2%}")
+            c5.metric("Residual", f"{row['alpha_residual']:.2%}")
+
+            attribution_sum = (
+                row["alpha_beta"]
+                + row["alpha_momentum"]
+                + row["alpha_volatility"]
+                + row["alpha_allocation"]
+                + row["alpha_residual"]
+            )
+
+            st.progress(min(max((attribution_sum + 0.05) / 0.10, 0), 1))
+
+
+def render_adaptive_intelligence_panel():
+    st.header("Adaptive Intelligence")
+
+    render_alpha_quality_and_confidence()
     st.divider()
-
-    st.metric("Adaptive Bias", "Neutral")
-    st.metric("Regime Read", "Undetermined")
-    st.metric("Signal Strength", "—")
-
-    st.info("Preview mode only. No adaptive actions executed.")
+    render_alpha_attribution_drivers()
+    st.divider()
+    render_adaptive_intelligence_preview()
