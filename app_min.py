@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
@@ -124,6 +123,16 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
+        def format_percentage(value: float) -> str:
+            if pd.isna(value):
+                return "—"
+            if abs(value) < 1e-10:
+                return "0.00%"
+            pct = value * 100
+            if pct > 0:
+                return f"+{pct:.2f}%"
+            return f"{pct:.2f}%"
+
         # ---------------------------
         # Portfolio Snapshot (Equal-Weighted)
         # ---------------------------
@@ -139,19 +148,22 @@ with tabs[0]:
 
         with st.container():
             st.subheader("🏛️ Portfolio Snapshot — Equal-Weighted")
+            st.caption("Equal-weighted view across all active waves.")
 
-            cols = st.columns(4)
+            # Returns row: 1D | 30D | 60D | 365D
+            st.markdown("**Returns**")
+            return_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_returns.items()):
-                cols[i].metric(
-                    label=f"{label} Return",
-                    value="—" if pd.isna(value) else f"{value:.2%}",
+                return_cols[i].markdown(
+                    f"**{label}:** {format_percentage(value)}"
                 )
 
-            cols = st.columns(4)
+            # Alpha row: 1D | 30D | 60D | 365D
+            st.markdown("**Alpha**")
+            alpha_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_alpha.items()):
-                cols[i].metric(
-                    label=f"{label} Alpha",
-                    value="—" if pd.isna(value) else f"{value:.2%}",
+                alpha_cols[i].markdown(
+                    f"**{label}:** {format_percentage(value)}"
                 )
 
         st.divider()
@@ -173,20 +185,22 @@ with tabs[0]:
             }
 
             with st.container():
-                st.subheader(f"📊 Wave Snapshot — {selected_wave}")
+                st.subheader(f"📊 Selected Wave Snapshot — {selected_wave}")
 
-                cols = st.columns(4)
+                # Returns row: 1D | 30D | 60D | 365D
+                st.markdown("**Returns**")
+                wave_return_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_returns.items()):
-                    cols[i].metric(
-                        label=f"{label} Return",
-                        value="—" if pd.isna(value) else f"{value:.2%}",
+                    wave_return_cols[i].markdown(
+                        f"**{label}:** {format_percentage(value)}"
                     )
 
-                cols = st.columns(4)
+                # Alpha row: 1D | 30D | 60D | 365D
+                st.markdown("**Alpha**")
+                wave_alpha_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_alpha.items()):
-                    cols[i].metric(
-                        label=f"{label} Alpha",
-                        value="—" if pd.isna(value) else f"{value:.2%}",
+                    wave_alpha_cols[i].markdown(
+                        f"**{label}:** {format_percentage(value)}"
                     )
 
 # ============================================================
@@ -230,4 +244,3 @@ with tabs[2]:
 with tabs[3]:
     st.header("Operations")
     st.info("Execution & override layer coming next.")
-```
