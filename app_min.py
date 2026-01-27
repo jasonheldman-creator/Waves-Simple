@@ -1,6 +1,6 @@
 # app_min.py
-# WAVES Intelligence™ Console — Minimal (B2)
-# Alpha Attribution + Adaptive Intelligence (Preview)
+# WAVES Intelligence™ Console — Minimal (Executive Overview v1)
+# Overview • Alpha Attribution • Adaptive Intelligence (Preview) • Operations
 
 import streamlit as st
 import pandas as pd
@@ -34,6 +34,12 @@ RETURN_COLS = {
     "365d": "return_365d",
 }
 
+ALPHA_COLS = {
+    "30d": "alpha_30d",
+    "60d": "alpha_60d",
+    "365d": "alpha_365d",
+}
+
 BENCHMARK_COLS = {
     "30d": "benchmark_return_30d",
     "60d": "benchmark_return_60d",
@@ -58,7 +64,7 @@ def load_snapshot():
         else:
             df["display_name"] = "Unnamed Wave"
 
-    for col in list(RETURN_COLS.values()) + list(BENCHMARK_COLS.values()):
+    for col in list(RETURN_COLS.values()) + list(ALPHA_COLS.values()):
         if col not in df.columns:
             df[col] = np.nan
 
@@ -93,15 +99,62 @@ tabs = st.tabs(
 )
 
 # ===========================
-# OVERVIEW
+# OVERVIEW — EXECUTIVE (A)
 # ===========================
 with tabs[0]:
-    st.header("Portfolio & Wave Performance")
+    st.header("Portfolio Snapshot")
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
         df = snapshot_df.copy()
+
+        # ---------------------------
+        # Portfolio Aggregates
+        # ---------------------------
+        portfolio_metrics = {}
+
+        for label, col in RETURN_COLS.items():
+            portfolio_metrics[col] = df[col].mean(skipna=True)
+
+        for label, col in ALPHA_COLS.items():
+            portfolio_metrics[col] = df[col].mean(skipna=True)
+
+        # ---------------------------
+        # HERO PANEL
+        # ---------------------------
+        st.markdown("### 🏛 TOTAL PORTFOLIO")
+        st.caption("Executive summary — current portfolio state")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Intraday Return", f"{portfolio_metrics['return_1d']:.2%}")
+        c2.metric("30D Return", f"{portfolio_metrics['return_30d']:.2%}")
+        c3.metric("60D Return", f"{portfolio_metrics['return_60d']:.2%}")
+        c4.metric("365D Return", f"{portfolio_metrics['return_365d']:.2%}")
+
+        c5, c6, c7 = st.columns(3)
+        c5.metric("Alpha 30D", f"{portfolio_metrics['alpha_30d']:.2%}")
+        c6.metric("Alpha 60D", f"{portfolio_metrics['alpha_60d']:.2%}")
+        c7.metric("Alpha 365D", f"{portfolio_metrics['alpha_365d']:.2%}")
+
+        st.divider()
+
+        # ---------------------------
+        # EXECUTIVE POSTURE READ
+        # ---------------------------
+        st.subheader("Portfolio Posture")
+        p1, p2, p3 = st.columns(3)
+
+        p1.metric("Risk Posture", "Neutral")
+        p2.metric("Breadth", "Balanced")
+        p3.metric("Volatility Context", "Normal")
+
+        st.divider()
+
+        # ---------------------------
+        # WAVE PERFORMANCE (DETAIL)
+        # ---------------------------
+        st.subheader("Wave Performance — Detail")
 
         portfolio_row = {"display_name": "TOTAL PORTFOLIO"}
         for col in RETURN_COLS.values():
@@ -152,36 +205,16 @@ with tabs[1]:
                     "Residual Alpha",
                 ],
                 "Contribution": [
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == selected_wave,
+                    snapshot_df.loc[snapshot_df["display_name"] == selected_wave, col].values[0]
+                    if col in snapshot_df.columns
+                    else None
+                    for col in [
                         "selection_alpha",
-                    ].values[0]
-                    if "selection_alpha" in snapshot_df.columns
-                    else None,
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == selected_wave,
                         "momentum_alpha",
-                    ].values[0]
-                    if "momentum_alpha" in snapshot_df.columns
-                    else None,
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == selected_wave,
                         "regime_alpha",
-                    ].values[0]
-                    if "regime_alpha" in snapshot_df.columns
-                    else None,
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == selected_wave,
                         "exposure_alpha",
-                    ].values[0]
-                    if "exposure_alpha" in snapshot_df.columns
-                    else None,
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == selected_wave,
                         "residual_alpha",
-                    ].values[0]
-                    if "residual_alpha" in snapshot_df.columns
-                    else None,
+                    ]
                 ],
             }
         )
@@ -189,8 +222,16 @@ with tabs[1]:
         st.subheader("Source Breakdown")
         st.dataframe(source_df, use_container_width=True, hide_index=True)
 
+        render_alpha_quality_and_confidence(
+            snapshot_df,
+            None,
+            selected_wave,
+            RETURN_COLS,
+            BENCHMARK_COLS,
+        )
+
 # ===========================
-# ADAPTIVE INTELLIGENCE (B2)
+# ADAPTIVE INTELLIGENCE (Preview)
 # ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
@@ -207,16 +248,6 @@ with tabs[2]:
             key="adaptive_intel_wave_select",
         )
 
-        # Alpha Quality & Confidence lives ONLY here now
-        render_alpha_quality_and_confidence(
-            snapshot_df,
-            None,
-            selected_wave,
-            RETURN_COLS,
-            BENCHMARK_COLS,
-        )
-
-        # Adaptive Intelligence Preview (B2)
         render_adaptive_intelligence_preview(
             snapshot_df,
             None,
@@ -230,4 +261,4 @@ with tabs[2]:
 # ===========================
 with tabs[3]:
     st.header("Operations")
-    st.info("Operations & control layer coming next.")
+    st.info("Human-in-the-loop controls and overrides will live here.")
