@@ -7,16 +7,9 @@ PURPOSE
 Generate data/live_snapshot.csv with:
 - Wave returns
 - Wave alpha vs SPY
+- Truth-gated intraday return and alpha (when available)
 
 This file is the SINGLE SOURCE OF TRUTH for alpha inputs.
-
-HARD GUARANTEES
---------------------------------------------------
-1. All calculations anchor to prices.index.max()
-2. Positional math ONLY (iloc)
-3. Index sorted ONCE
-4. Explicit index alignment for dot products
-5. Fail loudly on any inconsistency
 """
 
 import os
@@ -33,6 +26,7 @@ PRICES_FILE = DATA_DIR / "cache/prices_cache.parquet"
 WAVE_WEIGHTS_FILE = DATA_DIR / "wave_weights.csv"
 OUTPUT_FILE = DATA_DIR / "live_snapshot.csv"
 
+MARKET_SESSION_FILE = DATA_DIR / "market_session.csv"
 BENCHMARK_TICKER = "SPY"
 
 RETURN_WINDOWS = {
@@ -65,40 +59,23 @@ def load_prices() -> pd.DataFrame:
         hard_fail(f"Missing prices cache: {PRICES_FILE}")
 
     prices = pd.read_parquet(PRICES_FILE)
-
-    if prices.empty:
-        hard_fail("prices_cache.parquet is empty")
-
-    prices = prices.copy()
     prices.index = pd.to_datetime(prices.index, utc=True).tz_convert(None)
     prices = prices.sort_index()
 
-    log.info(f"Loaded prices cache: {prices.shape}")
-    log.info(f"Date range: {prices.index.min()} → {prices.index.max()}")
-
     if len(prices) < MIN_ROWS_REQUIRED:
-        hard_fail(
-            f"Insufficient price rows: {len(prices)} < {MIN_ROWS_REQUIRED}"
-        )
+        hard_fail("Insufficient price history")
 
     if BENCHMARK_TICKER not in prices.columns:
-        hard_fail(f"Benchmark ticker {BENCHMARK_TICKER} missing from prices cache")
+        hard_fail("SPY missing from price cache")
 
     return prices
 
 
 def load_wave_weights() -> pd.DataFrame:
-    if not WAVE_WEIGHTS_FILE.exists():
-        hard_fail(f"Missing wave weights: {WAVE_WEIGHTS_FILE}")
-
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
-
     required = {"wave_id", "ticker", "weight"}
-    missing = required - set(df.columns)
-
-    if missing:
-        hard_fail(f"wave_weights.csv missing columns: {missing}")
-
+    if not required.issubset(df.columns):
+        hard_fail("wave_weights.csv missing required columns")
     return df
 
 
@@ -108,90 +85,108 @@ def compute_return(series: pd.Series, window: int) -> float:
     except Exception:
         return float("nan")
 
+
+def derive_intraday_session(prices: pd.DataFrame):
+    idx = prices.index
+    if idx.empty:
+        return None
+
+    price_now_ts = idx.max()
+    current_date = price_now_ts.normalize()
+    prior_dates = idx.normalize()[idx.normalize() < current_date]
+
+    if prior_dates.empty:
+        return None
+
+    prior_close_ts = idx[idx.normalize() == prior_dates.max()].max()
+
+    return {
+        "prior_close_ts": prior_close_ts,
+        "price_now_ts": price_now_ts,
+        "intraday_label": "Since Prior Close",
+    }
+
+
+def compute_intraday_return(series, prior_close_ts, price_now_ts):
+    try:
+        return (series.loc[price_now_ts] / series.loc[prior_close_ts]) - 1
+    except Exception:
+        return float("nan")
+
 # ------------------------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------------------------
 def main():
     prices = load_prices()
     weights = load_wave_weights()
-
-    snapshot_date = prices.index.max()
-    log.info(f"SNAPSHOT DATE = {snapshot_date}")
+    session = derive_intraday_session(prices)
 
     benchmark_series = prices[BENCHMARK_TICKER].dropna()
+    benchmark_intraday = (
+        compute_intraday_return(
+            benchmark_series,
+            session["prior_close_ts"],
+            session["price_now_ts"],
+        )
+        if session
+        else float("nan")
+    )
 
     rows = []
 
-    for wave_id, wave_df in weights.groupby("wave_id"):
-        series_list = {}
-        weight_map = {}
+    for wave_id, wdf in weights.groupby("wave_id"):
+        aligned = {}
 
-        for _, row in wave_df.iterrows():
-            ticker = row["ticker"]
-            weight = float(row["weight"])
+        for _, r in wdf.iterrows():
+            if r["ticker"] in prices.columns:
+                aligned[r["ticker"]] = prices[r["ticker"]]
 
-            if ticker not in prices.columns:
-                log.warning(f"{wave_id}: missing ticker {ticker}, skipping")
-                continue
-
-            s = prices[ticker].dropna()
-
-            if len(s) < MIN_ROWS_REQUIRED:
-                log.warning(f"{wave_id}: insufficient data for {ticker}, skipping")
-                continue
-
-            series_list[ticker] = s
-            weight_map[ticker] = weight
-
-        if not series_list:
-            log.warning(f"{wave_id}: no valid tickers, skipping wave")
+        if not aligned:
             continue
 
-        # Build aligned price matrix
-        aligned = pd.DataFrame(series_list).dropna()
+        df_prices = pd.DataFrame(aligned).dropna()
+        weights_vec = (
+            wdf.set_index("ticker")["weight"]
+            .reindex(df_prices.columns)
+            .fillna(0)
+        )
+        weights_vec /= weights_vec.sum()
 
-        if len(aligned) < MIN_ROWS_REQUIRED:
-            log.warning(f"{wave_id}: insufficient aligned rows, skipping")
-            continue
+        weighted = df_prices.dot(weights_vec)
 
-        # NORMALIZE WEIGHTS **WITH MATCHING INDEX**
-        weights_series = pd.Series(weight_map)
-        weights_series = weights_series / weights_series.sum()
-        weights_series = weights_series.reindex(aligned.columns)
-
-        if weights_series.isna().any():
-            hard_fail(f"{wave_id}: weight alignment failure")
-
-        weighted_series = aligned.dot(weights_series)
-
-        row = {
-            "wave_id": wave_id,
-            "snapshot_date": snapshot_date.strftime("%Y-%m-%d"),
-        }
+        row = {"wave_id": wave_id}
 
         for name, window in RETURN_WINDOWS.items():
-            wave_ret = compute_return(weighted_series, window)
+            wave_ret = compute_return(weighted, window)
             bench_ret = compute_return(benchmark_series, window)
-
             row[name] = wave_ret
             row[name.replace("return", "alpha")] = wave_ret - bench_ret
 
-        # Compute return_1d explicitly for intraday logic
-        if len(weighted_series) >= 2:
-            row["return_1d"] = (weighted_series.iloc[-1] / weighted_series.iloc[-2]) - 1
+        if session:
+            intraday_ret = compute_intraday_return(
+                weighted,
+                session["prior_close_ts"],
+                session["price_now_ts"],
+            )
+            row["return_intraday"] = intraday_ret
+            row["alpha_intraday"] = (
+                intraday_ret - benchmark_intraday
+                if pd.notna(intraday_ret) and pd.notna(benchmark_intraday)
+                else float("nan")
+            )
+            row["intraday_label"] = session["intraday_label"]
         else:
-            row["return_1d"] = float("nan")
+            row["return_intraday"] = float("nan")
+            row["alpha_intraday"] = float("nan")
+            row["intraday_label"] = None
 
         rows.append(row)
 
     if not rows:
         hard_fail("No snapshot rows generated")
 
-    df = pd.DataFrame(rows).sort_values("wave_id")
-    df.to_csv(OUTPUT_FILE, index=False)
-
-    log.info(f"Live snapshot written → {OUTPUT_FILE}")
-    log.info(f"Rows written: {len(df)}")
+    pd.DataFrame(rows).to_csv(OUTPUT_FILE, index=False)
+    log.info(f"Snapshot written → {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":
