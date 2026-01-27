@@ -1,24 +1,26 @@
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
-# LOCKED CONTEXT — Defensive Intraday + Portfolio Aggregate + Alpha History
+# IC-GRADE POLISH — Alpha Quality Summary + Alpha Confidence Index
 
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 import numpy as np
+from pathlib import Path
 
-# ---------------------------
+from intelligence.adaptive_intelligence import render_alpha_quality_and_confidence
+
+# ===========================
 # Page Config
-# ---------------------------
+# ===========================
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ---------------------------
+# ===========================
 # Constants
-# ---------------------------
+# ===========================
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 
@@ -35,17 +37,16 @@ BENCHMARK_COLS = {
     "365d": "benchmark_return_365d",
 }
 
-# ---------------------------
+# ===========================
 # Load + Normalize Snapshot
-# ---------------------------
-def load_and_normalize_snapshot():
+# ===========================
+def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
         return None, "Live snapshot file not found"
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # display_name normalization
     if "display_name" not in df.columns:
         if "wave_name" in df.columns:
             df["display_name"] = df["wave_name"]
@@ -54,13 +55,18 @@ def load_and_normalize_snapshot():
         else:
             df["display_name"] = "Unnamed Wave"
 
+    for col in list(RETURN_COLS.values()) + list(BENCHMARK_COLS.values()):
+        if col not in df.columns:
+            df[col] = np.nan
+
     return df, None
 
-snapshot_df, snapshot_error = load_and_normalize_snapshot()
 
-# ---------------------------
-# Sidebar Status
-# ---------------------------
+snapshot_df, snapshot_error = load_snapshot()
+
+# ===========================
+# Sidebar
+# ===========================
 st.sidebar.title("Data Status")
 st.sidebar.markdown(
     f"""
@@ -70,9 +76,9 @@ st.sidebar.markdown(
 )
 st.sidebar.divider()
 
-# ---------------------------
+# ===========================
 # Tabs
-# ---------------------------
+# ===========================
 tabs = st.tabs([
     "Overview",
     "Alpha Attribution",
@@ -91,37 +97,24 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
-        # ---- Defensive intraday handling
-        intraday_col = RETURN_COLS["intraday"]
-        if intraday_col not in df.columns:
-            df[intraday_col] = np.nan
-
-        # ---- Portfolio aggregate (mean across waves)
-        portfolio_row = {
-            "display_name": "TOTAL PORTFOLIO",
-            intraday_col: df[intraday_col].mean(skipna=True),
-            RETURN_COLS["30d"]: df[RETURN_COLS["30d"]].mean(skipna=True),
-            RETURN_COLS["60d"]: df[RETURN_COLS["60d"]].mean(skipna=True),
-            RETURN_COLS["365d"]: df[RETURN_COLS["365d"]].mean(skipna=True),
-        }
+        portfolio_row = {"display_name": "TOTAL PORTFOLIO"}
+        for col in RETURN_COLS.values():
+            portfolio_row[col] = df[col].mean(skipna=True)
 
         df = pd.concat([pd.DataFrame([portfolio_row]), df], ignore_index=True)
 
-        snapshot_view = df[[
-            "display_name",
-            intraday_col,
-            RETURN_COLS["30d"],
-            RETURN_COLS["60d"],
-            RETURN_COLS["365d"],
-        ]].rename(columns={
+        view = df[
+            ["display_name"] + list(RETURN_COLS.values())
+        ].rename(columns={
             "display_name": "Wave",
-            intraday_col: "Intraday",
-            RETURN_COLS["30d"]: "30D Return",
-            RETURN_COLS["60d"]: "60D Return",
-            RETURN_COLS["365d"]: "365D Return",
+            "return_1d": "Intraday",
+            "return_30d": "30D Return",
+            "return_60d": "60D Return",
+            "return_365d": "365D Return",
         })
 
-        st.dataframe(snapshot_view, use_container_width=True, hide_index=True)
+        view = view.replace({np.nan: "—"})
+        st.dataframe(view, use_container_width=True, hide_index=True)
 
 # ===========================
 # ALPHA ATTRIBUTION TAB
@@ -129,57 +122,66 @@ with tabs[0]:
 with tabs[1]:
     st.header("Alpha Attribution")
 
-    waves = snapshot_df["display_name"].tolist()
-    selected_wave = st.selectbox("Select Wave", waves)
-
-    horizon = st.selectbox("Select Horizon", ["30D", "60D", "365D"])
-    h_key = horizon.lower().replace("d", "d")
-
-    # ---- Source Breakdown (unchanged)
-    alpha_sources = {
-        "Alpha Source": [
-            "Selection Alpha",
-            "Momentum Alpha",
-            "Regime Alpha",
-            "Exposure Alpha",
-            "Residual Alpha"
-        ],
-        "Contribution": [0.012, 0.008, -0.003, 0.004, 0.001]
-    }
-
-    st.subheader("Source Breakdown")
-    st.dataframe(pd.DataFrame(alpha_sources), use_container_width=True, hide_index=True)
-
-    # ---- Alpha History (REAL, DEFENSIVE)
-    st.subheader("Alpha History")
-
-    if (
-        RETURN_COLS[h_key] not in snapshot_df.columns
-        or BENCHMARK_COLS[h_key] not in snapshot_df.columns
-    ):
-        st.warning("Insufficient data to compute alpha history.")
+    if snapshot_error:
+        st.error(snapshot_error)
     else:
-        wave_row = snapshot_df[snapshot_df["display_name"] == selected_wave]
+        waves = snapshot_df["display_name"].tolist()
 
-        if wave_row.empty:
-            st.warning("Wave data not available.")
-        else:
-            wave_row = wave_row.iloc[0]
-            alpha_value = wave_row[RETURN_COLS[h_key]] - wave_row[BENCHMARK_COLS[h_key]]
+        selected_wave = st.selectbox(
+            "Select Wave",
+            waves,
+            key="alpha_attr_wave_select"
+        )
 
-            alpha_history_df = pd.DataFrame({
-                "Horizon": [horizon],
-                "Alpha": [alpha_value]
-            })
+        # ---- Source Breakdown (placeholder / demo data)
+        source_df = pd.DataFrame({
+            "Alpha Source": [
+                "Selection Alpha",
+                "Momentum Alpha",
+                "Regime Alpha",
+                "Exposure Alpha",
+                "Residual Alpha",
+            ],
+            "Contribution": [0.012, 0.008, -0.003, 0.004, 0.001],
+        })
 
-            st.dataframe(alpha_history_df, use_container_width=True, hide_index=True)
+        st.subheader("Source Breakdown")
+        st.dataframe(source_df, use_container_width=True, hide_index=True)
+
+        # Alpha Quality & Confidence
+        render_alpha_quality_and_confidence(
+            snapshot_df,
+            source_df,
+            selected_wave,
+            RETURN_COLS,
+            BENCHMARK_COLS,
+        )
 
 # ===========================
 # ADAPTIVE INTELLIGENCE TAB
 # ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.info("Adaptive Intelligence monitoring coming next.")
+    st.caption("Derived from Alpha Attribution (read-only)")
+
+    if snapshot_error:
+        st.error(snapshot_error)
+    else:
+        waves = snapshot_df["display_name"].tolist()
+
+        selected_wave = st.selectbox(
+            "Select Wave",
+            waves,
+            key="adaptive_intel_wave_select"
+        )
+
+        render_alpha_quality_and_confidence(
+            snapshot_df,
+            None,
+            selected_wave,
+            RETURN_COLS,
+            BENCHMARK_COLS,
+        )
 
 # ===========================
 # OPERATIONS TAB
