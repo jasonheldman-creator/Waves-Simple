@@ -149,29 +149,32 @@ with tabs[0]:
             for k, v in ALPHA_COLS.items()
         }
 
-        st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
-        st.caption("Equal‑weighted performance across all active waves.")
-        st.divider()
+        with st.container():
+            st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
+            st.caption("Equal‑weighted performance across all active waves.")
+            st.divider()
 
-        # Returns Row
-        st.markdown("**Returns**")
-        ret_cols = st.columns(4)
-        for i, (label, value) in enumerate(portfolio_returns.items()):
-            ret_cols[i].markdown(
-                f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
-                unsafe_allow_html=True,
-            )
+            # Returns Row
+            st.markdown("**Returns**")
+            ret_cols = st.columns(4)
+            for i, (label, value) in enumerate(portfolio_returns.items()):
+                ret_cols[i].markdown(
+                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
+                    f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                    unsafe_allow_html=True,
+                )
 
-        # Alpha Row
-        st.markdown("**Alpha**")
-        alpha_cols = st.columns(4)
-        for i, (label, value) in enumerate(portfolio_alpha.items()):
-            alpha_cols[i].markdown(
-                f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
-                unsafe_allow_html=True,
-            )
+            # Alpha Row
+            st.markdown("**Alpha**")
+            alpha_cols = st.columns(4)
+            for i, (label, value) in enumerate(portfolio_alpha.items()):
+                alpha_cols[i].markdown(
+                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
+                    f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                    unsafe_allow_html=True,
+                )
 
-        # Divider between cards (Option 1)
+        # Divider between cards
         st.divider()
 
         # ============================================================
@@ -190,27 +193,30 @@ with tabs[0]:
                 for k, v in ALPHA_COLS.items()
             }
 
-            st.markdown(f"### 📊 Selected Wave Snapshot — {selected_wave}")
-            st.caption("Performance profile for the selected wave.")
-            st.divider()
+            with st.container():
+                st.markdown(f"### 📊 Selected Wave Snapshot — {selected_wave}")
+                st.caption("Performance profile for the selected wave.")
+                st.divider()
 
-            # Returns Row
-            st.markdown("**Returns**")
-            wret_cols = st.columns(4)
-            for i, (label, value) in enumerate(wave_returns.items()):
-                wret_cols[i].markdown(
-                    f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
-                    unsafe_allow_html=True,
-                )
+                # Returns Row
+                st.markdown("**Returns**")
+                wret_cols = st.columns(4)
+                for i, (label, value) in enumerate(wave_returns.items()):
+                    wret_cols[i].markdown(
+                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
+                        f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                        unsafe_allow_html=True,
+                    )
 
-            # Alpha Row
-            st.markdown("**Alpha**")
-            walpha_cols = st.columns(4)
-            for i, (label, value) in enumerate(wave_alpha.items()):
-                walpha_cols[i].markdown(
-                    f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
-                    unsafe_allow_html=True,
-                )
+                # Alpha Row
+                st.markdown("**Alpha**")
+                walpha_cols = st.columns(4)
+                for i, (label, value) in enumerate(wave_alpha.items()):
+                    walpha_cols[i].markdown(
+                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
+                        f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                        unsafe_allow_html=True,
+                    )
 
 # ============================================================
 # ALPHA ATTRIBUTION TAB — DO NOT MODIFY
