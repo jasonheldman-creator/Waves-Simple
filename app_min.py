@@ -1,6 +1,6 @@
 # app_min.py
-# WAVES Intelligence™ Console — Minimal (B2)
-# Institutional Overview + Alpha Attribution (Stable)
+# WAVES Intelligence™ Console — Minimal (Institutional B2)
+# Overview • Alpha Attribution • Adaptive Intelligence • Operations
 
 import streamlit as st
 import pandas as pd
@@ -13,7 +13,7 @@ from intelligence.adaptive_intelligence import (
 )
 
 # =========================================================
-# PAGE CONFIG
+# Page Config
 # =========================================================
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
@@ -22,76 +22,7 @@ st.set_page_config(
 )
 
 # =========================================================
-# GLOBAL CSS — INSTITUTIONAL THEME
-# =========================================================
-st.markdown(
-    """
-    <style>
-    .glow-box {
-        background: linear-gradient(135deg, #0b1220, #0e1628);
-        border-radius: 16px;
-        padding: 22px;
-        border: 1px solid rgba(0, 255, 255, 0.25);
-        box-shadow: 0 0 24px rgba(0, 255, 255, 0.18);
-        margin-bottom: 22px;
-    }
-
-    .section-title {
-        font-size: 26px;
-        font-weight: 700;
-        margin-bottom: 6px;
-    }
-
-    .section-subtitle {
-        font-size: 14px;
-        opacity: 0.75;
-        margin-bottom: 18px;
-    }
-
-    .metric-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 14px;
-        margin-top: 10px;
-    }
-
-    .metric-cell {
-        background: rgba(255,255,255,0.04);
-        border-radius: 12px;
-        padding: 14px;
-        border: 1px solid rgba(255,255,255,0.08);
-        text-align: center;
-    }
-
-    .metric-label {
-        font-size: 12px;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-        opacity: 0.7;
-        margin-bottom: 6px;
-    }
-
-    .metric-value {
-        font-size: 20px;
-        font-weight: 700;
-    }
-
-    .positive { color: #3CFFB1; }
-    .negative { color: #FF5C5C; }
-    .neutral  { color: #BBBBBB; }
-
-    .divider {
-        height: 1px;
-        background: linear-gradient(to right, transparent, rgba(255,255,255,0.2), transparent);
-        margin: 18px 0;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# =========================================================
-# CONSTANTS
+# Constants
 # =========================================================
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
@@ -111,7 +42,7 @@ ALPHA_COLS = {
 }
 
 # =========================================================
-# LOAD SNAPSHOT
+# Load Data
 # =========================================================
 def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
@@ -124,7 +55,7 @@ def load_snapshot():
         if "wave_name" in df.columns:
             df["display_name"] = df["wave_name"]
         else:
-            df["display_name"] = df.index.astype(str)
+            df["display_name"] = df["wave_id"]
 
     return df, None
 
@@ -132,61 +63,86 @@ def load_snapshot():
 snapshot_df, snapshot_error = load_snapshot()
 
 # =========================================================
-# HELPERS
+# Styling
 # =========================================================
-def color_class(val):
-    if pd.isna(val):
-        return "neutral"
-    if val > 0:
-        return "positive"
-    if val < 0:
-        return "negative"
-    return "neutral"
-
-
-def render_horizontal_metrics(title, subtitle, returns, alphas):
-    html = f"""
-    <div class="glow-box">
-        <div class="section-title">🏛️ {title}</div>
-        <div class="section-subtitle">{subtitle}</div>
-
-        <div class="metric-grid">
+st.markdown(
     """
+<style>
+.metric-box {
+    background: linear-gradient(135deg, #0b1220, #0e1628);
+    border-radius: 18px;
+    padding: 26px;
+    border: 1px solid rgba(0,255,255,0.18);
+    box-shadow: 0 0 28px rgba(0,255,255,0.15);
+    margin-bottom: 28px;
+}
 
-    for k, v in returns.items():
-        cls = color_class(v)
-        display = "—" if pd.isna(v) else f"{v*100:.2f}%"
-        html += f"""
-        <div class="metric-cell">
-            <div class="metric-label">{k}</div>
-            <div class="metric-value {cls}">{display}</div>
-        </div>
-        """
+.metric-title {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
 
-    html += "</div><div class='divider'></div><div class='metric-grid'>"
+.metric-sub {
+    color: #9aa4b2;
+    font-size: 14px;
+    margin-bottom: 22px;
+}
 
-    for k, v in alphas.items():
-        cls = color_class(v)
-        display = "—" if pd.isna(v) else f"{v*100:.2f}%"
-        html += f"""
-        <div class="metric-cell">
-            <div class="metric-label">α {k}</div>
-            <div class="metric-value {cls}">{display}</div>
-        </div>
-        """
+.metric-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 14px;
+}
 
-    html += "</div></div>"
-    st.markdown(html, unsafe_allow_html=True)
+.metric-cell {
+    background: rgba(255,255,255,0.04);
+    border-radius: 14px;
+    padding: 14px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.08);
+}
 
-# =========================================================
-# TABS
-# =========================================================
-tabs = st.tabs(
-    ["Overview", "Alpha Attribution", "Adaptive Intelligence", "Operations"]
+.metric-label {
+    font-size: 12px;
+    letter-spacing: 1px;
+    color: #9aa4b2;
+}
+
+.metric-value {
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+.positive { color: #00ff9c; }
+.negative { color: #ff6b6b; }
+.neutral  { color: #d0d4dc; }
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
 # =========================================================
-# OVERVIEW TAB — REBUILT
+# Sidebar
+# =========================================================
+st.sidebar.title("System Status")
+st.sidebar.markdown(
+    f"""
+**Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
+**Alpha Attribution:** ✅ Active  
+**Adaptive Intelligence:** 🟡 Preview  
+"""
+)
+
+# =========================================================
+# Tabs
+# =========================================================
+tabs = st.tabs(["Overview", "Alpha Attribution", "Adaptive Intelligence", "Operations"])
+
+# =========================================================
+# OVERVIEW TAB
 # =========================================================
 with tabs[0]:
     st.header("Portfolio Overview")
@@ -196,42 +152,59 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
-        # Equal-weight portfolio diagnostic
-        portfolio_returns = {
-            k: df[v].mean(skipna=True) if v in df.columns else np.nan
+        # Equal-weight portfolio math
+        returns = {
+            k: df[v].mean(skipna=True)
             for k, v in RETURN_COLS.items()
+            if v in df.columns
         }
 
-        portfolio_alpha = {
-            k: df.get(ALPHA_COLS[k], pd.Series(dtype=float)).mean(skipna=True)
-            for k in ALPHA_COLS
+        alphas = {
+            k: df[v].mean(skipna=True)
+            for k, v in ALPHA_COLS.items()
+            if v in df.columns
         }
 
-        render_horizontal_metrics(
-            "Portfolio Snapshot",
-            "Equal-Weighted Diagnostic Portfolio · Live Data",
-            portfolio_returns,
-            portfolio_alpha,
-        )
+        def fmt(val):
+            if pd.isna(val):
+                return "—", "neutral"
+            return f"{val*100:.2f}%", "positive" if val >= 0 else "negative"
 
-        # Wave-level snapshots
-        for _, row in df.iterrows():
-            wave_returns = {
-                k: row.get(v, np.nan) for k, v in RETURN_COLS.items()
-            }
-            wave_alpha = {
-                k: row.get(ALPHA_COLS[k], np.nan) for k in ALPHA_COLS
-            }
+        # Build HTML
+        html = """
+        <div class="metric-box">
+            <div class="metric-title">🏛 Portfolio Snapshot</div>
+            <div class="metric-sub">Equal-Weighted Diagnostic Portfolio · Live Data</div>
 
-            render_horizontal_metrics(
-                row["display_name"],
-                "Wave-Level Diagnostic Snapshot",
-                wave_returns,
-                wave_alpha,
-            )
+            <div class="metric-row">
+        """
+
+        for k in RETURN_COLS.keys():
+            val, cls = fmt(returns.get(k))
+            html += f"""
+            <div class="metric-cell">
+                <div class="metric-label">{k} RETURN</div>
+                <div class="metric-value {cls}">{val}</div>
+            </div>
+            """
+
+        html += "</div><div class='metric-row'>"
+
+        for k in ALPHA_COLS.keys():
+            val, cls = fmt(alphas.get(k))
+            html += f"""
+            <div class="metric-cell">
+                <div class="metric-label">{k} ALPHA</div>
+                <div class="metric-value {cls}">{val}</div>
+            </div>
+            """
+
+        html += "</div></div>"
+
+        st.markdown(html, unsafe_allow_html=True)
 
 # =========================================================
-# ALPHA ATTRIBUTION (UNCHANGED)
+# ALPHA ATTRIBUTION TAB
 # =========================================================
 with tabs[1]:
     st.header("Alpha Attribution")
@@ -241,7 +214,23 @@ with tabs[1]:
         st.error(snapshot_error)
     else:
         waves = snapshot_df["display_name"].tolist()
-        selected_wave = st.selectbox("Select Wave", waves)
+        selected_wave = st.selectbox("Select Wave", waves, key="alpha_wave")
+
+        rows = []
+        for src in ["selection", "momentum", "regime", "exposure", "residual"]:
+            col = f"{src}_alpha"
+            rows.append(
+                {
+                    "Source": src.title(),
+                    "Contribution": snapshot_df.loc[
+                        snapshot_df["display_name"] == selected_wave, col
+                    ].values[0]
+                    if col in snapshot_df.columns
+                    else None,
+                }
+            )
+
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
         render_alpha_quality_and_confidence(
             snapshot_df,
@@ -252,17 +241,17 @@ with tabs[1]:
         )
 
 # =========================================================
-# ADAPTIVE INTELLIGENCE (UNCHANGED)
+# ADAPTIVE INTELLIGENCE TAB
 # =========================================================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Read-only interpretive layer derived from Alpha Attribution")
+    st.caption("Interpretive layer · No execution")
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
         waves = snapshot_df["display_name"].tolist()
-        selected_wave = st.selectbox("Select Wave", waves)
+        selected_wave = st.selectbox("Select Wave", waves, key="adaptive_wave")
 
         render_adaptive_intelligence_preview(
             snapshot_df,
@@ -273,7 +262,7 @@ with tabs[2]:
         )
 
 # =========================================================
-# OPERATIONS
+# OPERATIONS TAB
 # =========================================================
 with tabs[3]:
     st.header("Operations")
