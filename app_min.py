@@ -28,7 +28,7 @@ DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 
 RETURN_COLS = {
-    "INTRADAY": "return_1d",
+    "INTRADAY": "return_intraday",
     "30D": "return_30d",
     "60D": "return_60d",
     "365D": "return_365d",
@@ -41,7 +41,7 @@ BENCHMARK_COLS = {
 }
 
 ALPHA_COLS = {
-    "INTRADAY": "alpha_1d",
+    "INTRADAY": "alpha_intraday",
     "30D": "alpha_30d",
     "60D": "alpha_60d",
     "365D": "alpha_365d",
@@ -65,6 +65,7 @@ def load_snapshot():
         else:
             df["display_name"] = "Unnamed Wave"
 
+    # Ensure expected numeric columns exist
     for col in (
         list(RETURN_COLS.values())
         + list(BENCHMARK_COLS.values())
@@ -72,6 +73,10 @@ def load_snapshot():
     ):
         if col not in df.columns:
             df[col] = np.nan
+
+    # Ensure intraday_label exists
+    if "intraday_label" not in df.columns:
+        df["intraday_label"] = None
 
     return df, None
 
@@ -113,7 +118,7 @@ tabs = st.tabs([
 ])
 
 # ============================================================
-# OVERVIEW TAB — ALLOWED MODIFICATION ZONE
+# OVERVIEW TAB
 # ============================================================
 with tabs[0]:
     st.header("Portfolio Overview")
@@ -137,7 +142,7 @@ with tabs[0]:
             return f"{pct:.2f}%"
 
         # ============================================================
-        # PORTFOLIO SNAPSHOT CARD
+        # PORTFOLIO SNAPSHOT
         # ============================================================
         portfolio_returns = {
             k: df[v].mean(skipna=True)
@@ -149,40 +154,43 @@ with tabs[0]:
             for k, v in ALPHA_COLS.items()
         }
 
+        intraday_labels = df["intraday_label"].dropna().unique().tolist()
+        portfolio_intraday_label = intraday_labels[0] if len(intraday_labels) == 1 else None
+
         with st.container():
             st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
-            st.caption("Equal-weighted performance across all active waves.")
+            if portfolio_intraday_label:
+                st.caption(f"Equal-weighted performance across all active waves · {portfolio_intraday_label}")
+            else:
+                st.caption("Equal-weighted performance across all active waves.")
             st.divider()
 
-            # Returns Row: INTRADAY | 30D | 60D | 365D
             st.markdown("**Returns**")
             ret_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_returns.items()):
                 ret_cols[i].markdown(
                     f"<div style='line-height:1.4'>"
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return:</span><br>"
+                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return</span><br>"
                     f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
 
-            # Alpha Row: INTRADAY | 30D | 60D | 365D
             st.markdown("**Alpha**")
             alpha_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_alpha.items()):
                 alpha_cols[i].markdown(
                     f"<div style='line-height:1.4'>"
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha:</span><br>"
+                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha</span><br>"
                     f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
 
-        # Divider between cards
         st.divider()
 
         # ============================================================
-        # SELECTED WAVE SNAPSHOT CARD
+        # SELECTED WAVE SNAPSHOT
         # ============================================================
         if selected_wave is not None:
             wave_row = df[df["display_name"] == selected_wave].iloc[0]
@@ -197,37 +205,45 @@ with tabs[0]:
                 for k, v in ALPHA_COLS.items()
             }
 
+            wave_intraday_label = wave_row.get("intraday_label", None)
+            wave_intraday_label = (
+                wave_intraday_label
+                if isinstance(wave_intraday_label, str) and wave_intraday_label.strip()
+                else None
+            )
+
             with st.container():
                 st.markdown(f"### 📊 Selected Wave Snapshot — {selected_wave}")
-                st.caption("Performance profile for the selected wave.")
+                if wave_intraday_label:
+                    st.caption(f"Performance profile for the selected wave · {wave_intraday_label}")
+                else:
+                    st.caption("Performance profile for the selected wave.")
                 st.divider()
 
-                # Returns Row: INTRADAY | 30D | 60D | 365D
                 st.markdown("**Returns**")
                 wret_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_returns.items()):
                     wret_cols[i].markdown(
                         f"<div style='line-height:1.4'>"
-                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return:</span><br>"
+                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return</span><br>"
                         f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
 
-                # Alpha Row: INTRADAY | 30D | 60D | 365D
                 st.markdown("**Alpha**")
                 walpha_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_alpha.items()):
                     walpha_cols[i].markdown(
                         f"<div style='line-height:1.4'>"
-                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha:</span><br>"
+                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha</span><br>"
                         f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB — DO NOT MODIFY
+# ALPHA ATTRIBUTION TAB
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
@@ -244,7 +260,7 @@ with tabs[1]:
         )
 
 # ============================================================
-# ADAPTIVE INTELLIGENCE TAB — DO NOT MODIFY
+# ADAPTIVE INTELLIGENCE TAB
 # ============================================================
 with tabs[2]:
     st.header("Adaptive Intelligence")
@@ -262,7 +278,7 @@ with tabs[2]:
         )
 
 # ============================================================
-# OPERATIONS TAB — DO NOT MODIFY
+# OPERATIONS TAB
 # ============================================================
 with tabs[3]:
     st.header("Operations")
