@@ -262,6 +262,66 @@ def derive_intraday_session(prices: pd.DataFrame):
         "intraday_label": "Since Prior Close",
     }
 
+
+def get_benchmark_price_series() -> pd.Series | None:
+    """
+    Return the full benchmark price series from the existing price cache.
+    No new data sources, no transformations beyond dropna.
+    """
+    if _PRICES_CACHE is None:
+        return None
+    prices = _PRICES_CACHE
+    if BENCHMARK_TICKER not in prices.columns:
+        return None
+    return prices[BENCHMARK_TICKER].dropna()
+
+
+def get_wave_series_and_equal_weight(wave_id: str) -> tuple[pd.Series | None, pd.Series | None]:
+    """
+    Reuse the same price cache + wave weights logic as get_wave_horizon_return,
+    but return:
+        - weighted_series: wave using actual weights
+        - equal_weight_series: same tickers, equal-weighted
+    If anything is missing or insufficient, return (None, None).
+    """
+    if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
+        return None, None
+
+    prices = _PRICES_CACHE
+    weights = _WAVE_WEIGHTS
+
+    wdf = weights[weights["wave_id"] == wave_id]
+    if wdf.empty:
+        return None, None
+
+    price_map = {
+        r["ticker"]: prices[r["ticker"]]
+        for _, r in wdf.iterrows()
+        if r["ticker"] in prices.columns
+    }
+    if not price_map:
+        return None, None
+
+    df_prices = pd.DataFrame(price_map).dropna()
+    if len(df_prices) < MIN_ROWS_REQUIRED:
+        return None, None
+
+    weight_vec = (
+        wdf.set_index("ticker")["weight"]
+        .reindex(df_prices.columns)
+        .fillna(0.0)
+    )
+    if weight_vec.sum() == 0:
+        return None, None
+
+    weight_vec /= weight_vec.sum()
+    weighted_series = df_prices.dot(weight_vec)
+
+    # Equal-weight baseline over the same tickers
+    equal_weight_series = df_prices.mean(axis=1)
+
+    return weighted_series, equal_weight_series
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -281,18 +341,30 @@ def main():
         else np.nan
     )
 
+    benchmark_series = get_benchmark_price_series()
+
     rows = []
     attribution_rows = []
 
     for wave_id in sorted(_WAVE_WEIGHTS["wave_id"].unique()):
         row = {"wave_id": wave_id}
 
+        # ----------------------------------------------------
+        # Horizon returns + alpha (existing logic)
+        # ----------------------------------------------------
         for name, days in RETURN_WINDOWS.items():
             wave_ret = get_wave_horizon_return(wave_id, days)
             bench_ret = get_benchmark_horizon_return(days)
             row[name] = wave_ret
-            row[name.replace("return", "alpha")] = wave_ret - bench_ret
+            row[name.replace("return", "alpha")] = (
+                wave_ret - bench_ret
+                if pd.notna(wave_ret) and pd.notna(bench_ret)
+                else np.nan
+            )
 
+        # ----------------------------------------------------
+        # Intraday returns + alpha (existing logic)
+        # ----------------------------------------------------
         if session:
             w_latest, w_prior = get_wave_intraday_prices(wave_id)
             intraday_ret = (
@@ -323,6 +395,158 @@ def main():
             row["return_intraday"] = np.nan
             row["alpha_intraday"] = np.nan
             row["intraday_label"] = None
+
+        # ----------------------------------------------------
+        # Multi-horizon alpha attribution components (REAL)
+        # ----------------------------------------------------
+        # Use only existing data:
+        #   - price cache
+        #   - wave weights
+        #   - benchmark series
+        # No estimation or scaling beyond direct, auditable math.
+        #
+        # Components:
+        #   alpha_beta_{horizon}
+        #   alpha_momentum_{horizon}   (NaN if not computable)
+        #   alpha_volatility_{horizon} (NaN if not computable)
+        #   alpha_allocation_{horizon}
+        #   alpha_residual_{horizon}   = alpha_{horizon} − sum(other components)
+        #
+        # Horizons: 30D / 60D / 365D (252 trading days)
+        horizon_meta = {
+            "30d": 30,
+            "60d": 60,
+            "365d": 252,
+        }
+
+        wave_series, equal_weight_series = get_wave_series_and_equal_weight(wave_id)
+
+        for suffix, days in horizon_meta.items():
+            alpha_col = f"alpha_{suffix}"
+            alpha_val = row.get(alpha_col, np.nan)
+
+            # Default all components to NaN; only fill when we can compute
+            beta_contrib = np.nan
+            mom_contrib = np.nan
+            vol_contrib = np.nan
+            alloc_contrib = np.nan
+            residual_contrib = np.nan
+
+            # If we don't even have alpha, we can't reconcile components
+            if pd.isna(alpha_val):
+                row[f"alpha_beta_{suffix}"] = beta_contrib
+                row[f"alpha_momentum_{suffix}"] = mom_contrib
+                row[f"alpha_volatility_{suffix}"] = vol_contrib
+                row[f"alpha_allocation_{suffix}"] = alloc_contrib
+                row[f"alpha_residual_{suffix}"] = residual_contrib
+                continue
+
+            # We need wave series and benchmark series for beta and allocation
+            if wave_series is None or benchmark_series is None:
+                row[f"alpha_beta_{suffix}"] = beta_contrib
+                row[f"alpha_momentum_{suffix}"] = mom_contrib
+                row[f"alpha_volatility_{suffix}"] = vol_contrib
+                row[f"alpha_allocation_{suffix}"] = alloc_contrib
+                row[f"alpha_residual_{suffix}"] = residual_contrib
+                continue
+
+            # Slice the last (days + 1) points for horizon computation
+            if len(wave_series) < days + 1 or len(benchmark_series) < days + 1:
+                row[f"alpha_beta_{suffix}"] = beta_contrib
+                row[f"alpha_momentum_{suffix}"] = mom_contrib
+                row[f"alpha_volatility_{suffix}"] = vol_contrib
+                row[f"alpha_allocation_{suffix}"] = alloc_contrib
+                row[f"alpha_residual_{suffix}"] = residual_contrib
+                continue
+
+            ws = wave_series.iloc[-(days + 1):]
+            bs = benchmark_series.iloc[-(days + 1):]
+
+            aligned = pd.concat([ws, bs], axis=1, join="inner").dropna()
+            if len(aligned) < days + 1:
+                row[f"alpha_beta_{suffix}"] = beta_contrib
+                row[f"alpha_momentum_{suffix}"] = mom_contrib
+                row[f"alpha_volatility_{suffix}"] = vol_contrib
+                row[f"alpha_allocation_{suffix}"] = alloc_contrib
+                row[f"alpha_residual_{suffix}"] = residual_contrib
+                continue
+
+            wave_prices = aligned.iloc[:, 0]
+            bench_prices = aligned.iloc[:, 1]
+
+            wave_rets = wave_prices.pct_change().dropna()
+            bench_rets = bench_prices.pct_change().dropna()
+
+            # -----------------------------
+            # 1) Beta contribution
+            # -----------------------------
+            if len(wave_rets) >= 2 and len(bench_rets) >= 2 and bench_rets.var() > 0:
+                cov = np.cov(wave_rets, bench_rets)[0, 1]
+                var_b = np.var(bench_rets)
+                beta = cov / var_b
+
+                bench_ret_h = (bench_prices.iloc[-1] / bench_prices.iloc[0]) - 1
+                # Benchmark beta vs itself is 1.0
+                beta_contrib = (beta - 1.0) * bench_ret_h
+            else:
+                beta_contrib = np.nan
+
+            # -----------------------------
+            # 2) Momentum contribution
+            # -----------------------------
+            # No explicit momentum overlay or tagging is present in the current
+            # data model. Without knowing which holdings are momentum-tilted
+            # versus baseline, we cannot compute a defensible momentum
+            # contribution. Governance rule: leave as NaN rather than guess.
+            mom_contrib = np.nan
+
+            # -----------------------------
+            # 3) Volatility contribution
+            # -----------------------------
+            # No explicit volatility / VIX control series or parameters are
+            # available in this pipeline. We cannot isolate variance-drag
+            # reduction vs benchmark without additional state. Governance rule:
+            # leave as NaN rather than infer.
+            vol_contrib = np.nan
+
+            # -----------------------------
+            # 4) Allocation contribution
+            # -----------------------------
+            # Use intra-wave weight differences vs an equal-weight baseline
+            # over the same tickers. Both use existing price cache + weights.
+            if equal_weight_series is not None and len(equal_weight_series) >= days + 1:
+                es = equal_weight_series.iloc[-(days + 1):]
+                aligned_eq = pd.concat([wave_prices, es], axis=1, join="inner").dropna()
+                if len(aligned_eq) >= 2:
+                    w_p = aligned_eq.iloc[:, 0]
+                    e_p = aligned_eq.iloc[:, 1]
+                    wave_ret_h = (w_p.iloc[-1] / w_p.iloc[0]) - 1
+                    eq_ret_h = (e_p.iloc[-1] / e_p.iloc[0]) - 1
+                    # Allocation contribution = difference in realized returns
+                    # between actual weights and equal-weight baseline.
+                    alloc_contrib = wave_ret_h - eq_ret_h
+                else:
+                    alloc_contrib = np.nan
+            else:
+                alloc_contrib = np.nan
+
+            # -----------------------------
+            # 5) Residual contribution
+            # -----------------------------
+            components = [beta_contrib, mom_contrib, vol_contrib, alloc_contrib]
+            finite_components = [c for c in components if pd.notna(c)]
+
+            if finite_components:
+                residual_contrib = alpha_val - sum(finite_components)
+            else:
+                # If we cannot compute any component, residual is the total alpha.
+                residual_contrib = alpha_val
+
+            row[f"alpha_beta_{suffix}"] = beta_contrib
+            row[f"alpha_momentum_{suffix}"] = mom_contrib
+            row[f"alpha_volatility_{suffix}"] = vol_contrib
+            row[f"alpha_allocation_{suffix}"] = alloc_contrib
+            row[f"alpha_residual_{suffix}"] = residual_contrib
 
         rows.append(row)
 
