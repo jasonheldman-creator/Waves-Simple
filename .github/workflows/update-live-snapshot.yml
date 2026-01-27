@@ -28,10 +28,10 @@ jobs:
         run: |
           python generate_live_snapshot_csv.py
 
-      - name: Commit updated snapshot
+      - name: Commit updated snapshot artifacts
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add data/live_snapshot.csv
-          git commit -m "Automated update: live_snapshot.csv" || echo "No changes to commit"
+          git add data/live_snapshot.csv data/alpha_history.csv data/live_snapshot_attribution.csv
+          git commit -m "Automated update: live snapshot + attribution" || echo "No changes to commit"
           git push
