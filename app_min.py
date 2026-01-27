@@ -174,7 +174,7 @@ with tabs[0]:
             alpha_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_alpha.items()):
                 alpha_cols[i].markdown(
-                    f"<div style='line-height:1.4'>"
+                    f"<div style='line-line-height:1.4'>"
                     f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha</span><br>"
                     f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
                     f"</div>",
@@ -274,7 +274,7 @@ with tabs[1]:
         st.divider()
 
         # -------------------------------
-        # SECTION 3 — Attribution Period Snapshot (30D / 60D / 365D)
+        # SECTION 3 — Attribution Period Snapshot (INTRADAY / 30D / 60D / 365D)
         # -------------------------------
         with st.container():
             st.subheader("Attribution Snapshot by Period")
@@ -282,7 +282,7 @@ with tabs[1]:
 
             period_label = st.selectbox(
                 "Attribution period",
-                ["30D", "60D", "365D"],
+                ["INTRADAY (LIVE)", "30D", "60D", "365D"],
                 index=0,
                 key="alpha_attr_period_select",
             )
@@ -292,15 +292,24 @@ with tabs[1]:
             if selected_wave is None:
                 st.info("Select a wave in the sidebar to view period-level attribution snapshots.")
             else:
-                st.caption(
-                    f"Daily attribution snapshot for {selected_wave} over the last {period_label} "
-                    "(stream will populate once the attribution history feed is wired)."
-                )
-                st.info(
-                    "Period-level attribution tables are intentionally withheld until the "
-                    "institutional attribution history stream is connected. "
-                    "No synthetic or fabricated attribution is displayed."
-                )
+                if period_label == "INTRADAY (LIVE)":
+                    st.caption(
+                        f"Intraday attribution for {selected_wave} is computed live from the current snapshot."
+                    )
+                    st.info(
+                        "Intraday attribution stream is not yet connected. "
+                        "No synthetic or fabricated attribution is displayed."
+                    )
+                else:
+                    st.caption(
+                        f"Daily attribution snapshot for {selected_wave} over the last {period_label} "
+                        "(stream will populate once the attribution history feed is wired)."
+                    )
+                    st.info(
+                        "Period-level attribution tables are intentionally withheld until the "
+                        "institutional attribution history stream is connected. "
+                        "No synthetic or fabricated attribution is displayed."
+                    )
 
 # ============================================================
 # ADAPTIVE INTELLIGENCE TAB — APPLE-STYLE (DARK)
