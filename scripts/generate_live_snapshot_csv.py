@@ -42,6 +42,7 @@ WAVE_WEIGHTS_FILE = DATA_DIR / "wave_weights.csv"
 
 OUTPUT_FILE = DATA_DIR / "live_snapshot.csv"
 ALPHA_HISTORY_FILE = DATA_DIR / "alpha_history.csv"
+ATTRIBUTION_FILE = DATA_DIR / "live_snapshot_attribution.csv"
 
 BENCHMARK_TICKER = "SPY"
 
@@ -53,7 +54,6 @@ RETURN_WINDOWS = {
 
 MIN_ROWS_REQUIRED = max(RETURN_WINDOWS.values()) + 1
 
-# Module-level caches (thin hook delegates depend on these)
 _PRICES_CACHE: pd.DataFrame | None = None
 _WAVE_WEIGHTS: pd.DataFrame | None = None
 
@@ -68,11 +68,10 @@ logging.basicConfig(
 log = logging.getLogger("live_snapshot")
 
 # ============================================================
-# HOOK WRAPPERS (CANONICAL CONTRACT)
+# HOOK WRAPPERS
 # ============================================================
 
 def load_wave_universe() -> pd.DataFrame:
-    """Return wave metadata via existing wave_weights.csv"""
     global _WAVE_WEIGHTS
     if _WAVE_WEIGHTS is None:
         _WAVE_WEIGHTS = load_wave_weights()
@@ -80,10 +79,6 @@ def load_wave_universe() -> pd.DataFrame:
 
 
 def get_wave_intraday_prices(wave_id: str) -> tuple[float, float]:
-    """
-    Return (latest_price, prior_close_price) for a Wave
-    using existing intraday session logic.
-    """
     if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
         return np.nan, np.nan
 
@@ -131,7 +126,6 @@ def get_wave_intraday_prices(wave_id: str) -> tuple[float, float]:
 
 
 def get_benchmark_intraday_prices() -> tuple[float, float]:
-    """Return (latest_price, prior_close_price) for SPY"""
     if _PRICES_CACHE is None:
         return np.nan, np.nan
 
@@ -154,7 +148,6 @@ def get_benchmark_intraday_prices() -> tuple[float, float]:
 
 
 def get_wave_horizon_return(wave_id: str, days: int) -> float:
-    """DAILY weighted return for a Wave over N days"""
     if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
         return np.nan
 
@@ -192,7 +185,6 @@ def get_wave_horizon_return(wave_id: str, days: int) -> float:
 
 
 def get_benchmark_horizon_return(days: int) -> float:
-    """DAILY benchmark return for SPY"""
     if _PRICES_CACHE is None:
         return np.nan
 
@@ -234,7 +226,7 @@ def load_prices() -> pd.DataFrame:
 
 def load_wave_weights() -> pd.DataFrame:
     if not WAVE_WEIGHTS_FILE.exists():
-        hard_fail(f"Missing wave_weights.csv")
+        hard_fail("Missing wave_weights.csv")
 
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
     if not {"wave_id", "ticker", "weight"}.issubset(df.columns):
@@ -290,6 +282,7 @@ def main():
     )
 
     rows = []
+    attribution_rows = []
 
     for wave_id in sorted(_WAVE_WEIGHTS["wave_id"].unique()):
         row = {"wave_id": wave_id}
@@ -307,13 +300,25 @@ def main():
                 if pd.notna(w_latest) and pd.notna(w_prior)
                 else np.nan
             )
-            row["return_intraday"] = intraday_ret
-            row["alpha_intraday"] = (
+            alpha_intraday = (
                 intraday_ret - benchmark_intraday
                 if pd.notna(intraday_ret) and pd.notna(benchmark_intraday)
                 else np.nan
             )
+
+            row["return_intraday"] = intraday_ret
+            row["alpha_intraday"] = alpha_intraday
             row["intraday_label"] = session["intraday_label"]
+
+            attribution_rows.append({
+                "wave_id": wave_id,
+                "timestamp": session["price_now_ts"],
+                "alpha_beta": 0.0,
+                "alpha_momentum": 0.0,
+                "alpha_volatility": 0.0,
+                "alpha_allocation": 0.0,
+                "alpha_residual": alpha_intraday,
+            })
         else:
             row["return_intraday"] = np.nan
             row["alpha_intraday"] = np.nan
@@ -328,9 +333,10 @@ def main():
     snapshot_df.to_csv(OUTPUT_FILE, index=False)
     log.info(f"Wrote live snapshot → {OUTPUT_FILE}")
 
-    # --------------------------------------------------------
-    # Append alpha history (alpha_intraday → alpha_1d)
-    # --------------------------------------------------------
+    if attribution_rows:
+        pd.DataFrame(attribution_rows).to_csv(ATTRIBUTION_FILE, index=False)
+        log.info(f"Wrote attribution snapshot → {ATTRIBUTION_FILE}")
+
     try:
         if not ALPHA_HISTORY_FILE.exists():
             with open(ALPHA_HISTORY_FILE, "w", newline="") as f:
@@ -343,7 +349,7 @@ def main():
             for _, r in snapshot_df.iterrows():
                 writer.writerow([today, r["wave_id"], r["alpha_intraday"]])
     except Exception:
-        pass  # must never block snapshot generation
+        pass
 
 
 if __name__ == "__main__":
