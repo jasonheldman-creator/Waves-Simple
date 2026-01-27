@@ -181,3 +181,4 @@ with tabs[2]:
 with tabs[3]:
     st.header("Operations")
     st.info("Operations control center coming next.")
+    
