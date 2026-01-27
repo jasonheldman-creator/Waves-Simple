@@ -28,7 +28,7 @@ DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 
 RETURN_COLS = {
-    "1D": "return_1d",
+    "INTRADAY": "return_1d",
     "30D": "return_30d",
     "60D": "return_60d",
     "365D": "return_365d",
@@ -41,7 +41,7 @@ BENCHMARK_COLS = {
 }
 
 ALPHA_COLS = {
-    "1D": "alpha_1d",
+    "INTRADAY": "alpha_1d",
     "30D": "alpha_30d",
     "60D": "alpha_60d",
     "365D": "alpha_365d",
@@ -123,6 +123,9 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
+        # ---------------------------
+        # Percentage Formatting (Option C)
+        # ---------------------------
         def format_percentage(value: float) -> str:
             if pd.isna(value):
                 return "—"
@@ -151,24 +154,31 @@ with tabs[0]:
             st.caption("Equal-weighted performance across all active waves.")
             st.divider()
 
+            # Returns Row: INTRADAY | 30D | 60D | 365D
             st.markdown("**Returns**")
             ret_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_returns.items()):
                 ret_cols[i].markdown(
-                    f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
-                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
+                    f"<div style='line-height:1.4'>"
+                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return:</span><br>"
+                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
 
+            # Alpha Row: INTRADAY | 30D | 60D | 365D
             st.markdown("**Alpha**")
             alpha_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_alpha.items()):
                 alpha_cols[i].markdown(
-                    f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
-                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
+                    f"<div style='line-height:1.4'>"
+                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha:</span><br>"
+                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
 
+        # Divider between cards
         st.divider()
 
         # ============================================================
@@ -192,21 +202,27 @@ with tabs[0]:
                 st.caption("Performance profile for the selected wave.")
                 st.divider()
 
+                # Returns Row: INTRADAY | 30D | 60D | 365D
                 st.markdown("**Returns**")
                 wret_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_returns.items()):
                     wret_cols[i].markdown(
-                        f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
-                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
+                        f"<div style='line-height:1.4'>"
+                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return:</span><br>"
+                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
+                        f"</div>",
                         unsafe_allow_html=True,
                     )
 
+                # Alpha Row: INTRADAY | 30D | 60D | 365D
                 st.markdown("**Alpha**")
                 walpha_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_alpha.items()):
                     walpha_cols[i].markdown(
-                        f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
-                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
+                        f"<div style='line-height:1.4'>"
+                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha:</span><br>"
+                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
+                        f"</div>",
                         unsafe_allow_html=True,
                     )
 
