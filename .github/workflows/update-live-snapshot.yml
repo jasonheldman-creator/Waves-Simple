@@ -3,7 +3,7 @@ name: Update Live Snapshot
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 * * * *"   # optional: runs hourly; remove if not desired
+    - cron: "0 * * * *"
 
 jobs:
   generate-and-commit:
@@ -26,7 +26,7 @@ jobs:
 
       - name: Run generator
         run: |
-          python generate_live_snapshot_csv.py
+          python scripts/generate_live_snapshot_csv.py
 
       - name: Commit updated snapshot artifacts
         run: |
