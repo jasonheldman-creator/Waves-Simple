@@ -10,7 +10,7 @@ ALPHA_HISTORY_PATH = DATA_DIR / "alpha_history.csv"
 LIVE_ATTRIBUTION_PATH = DATA_DIR / "live_snapshot_attribution.csv"
 
 
-def render_alpha_quality_and_confidence(snapshot_df=None, benchmark_cols=None):
+def render_alpha_quality_and_confidence(*args, **kwargs):
     st.subheader("Alpha Quality & Confidence")
 
     if not ALPHA_HISTORY_PATH.exists():
@@ -28,28 +28,28 @@ def render_alpha_quality_and_confidence(snapshot_df=None, benchmark_cols=None):
         "confidence_score",
     ]
 
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        st.info("Alpha history schema incomplete.")
-        return
+    for col in required_cols:
+        if col not in df.columns:
+            st.info("Alpha history schema incomplete.")
+            return
 
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date")
 
     latest = df.iloc[-1]
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    c1, c2, c3, c4, c5 = st.columns(5)
 
-    col1.metric("Alpha 1D", f"{latest['alpha_1d']:.2%}")
-    col2.metric("Alpha 30D", f"{latest['alpha_30d']:.2%}")
-    col3.metric("Alpha 90D", f"{latest['alpha_90d']:.2%}")
-    col4.metric("Alpha 1Y", f"{latest['alpha_365d']:.2%}")
-    col5.metric("Confidence", f"{latest['confidence_score']:.1f}")
+    c1.metric("Alpha 1D", f"{latest['alpha_1d']:.2%}")
+    c2.metric("Alpha 30D", f"{latest['alpha_30d']:.2%}")
+    c3.metric("Alpha 90D", f"{latest['alpha_90d']:.2%}")
+    c4.metric("Alpha 1Y", f"{latest['alpha_365d']:.2%}")
+    c5.metric("Confidence", f"{latest['confidence_score']:.1f}")
 
     st.caption("Confidence reflects consistency, drawdown control, and persistence of alpha.")
 
 
-def render_adaptive_intelligence_preview():
+def render_adaptive_intelligence_preview(*args, **kwargs):
     st.subheader("Adaptive Intelligence Preview")
 
     st.markdown(
@@ -67,7 +67,7 @@ The outputs shown here are diagnostic, not prescriptive.
     )
 
 
-def render_alpha_attribution_drivers(snapshot_df=None, benchmark_cols=None):
+def render_alpha_attribution_drivers(*args, **kwargs):
     st.subheader("Alpha Attribution Drivers (Intraday)")
 
     if not LIVE_ATTRIBUTION_PATH.exists():
@@ -86,10 +86,10 @@ def render_alpha_attribution_drivers(snapshot_df=None, benchmark_cols=None):
         "alpha_residual",
     ]
 
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        st.info("Alpha attribution schema incomplete.")
-        return
+    for col in required_cols:
+        if col not in df.columns:
+            st.info("Alpha attribution schema incomplete.")
+            return
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp")
@@ -122,11 +122,11 @@ def render_alpha_attribution_drivers(snapshot_df=None, benchmark_cols=None):
             st.progress(min(max((attribution_sum + 0.05) / 0.10, 0), 1))
 
 
-def render_adaptive_intelligence_panel(snapshot_df=None, benchmark_cols=None):
+def render_adaptive_intelligence_panel(*args, **kwargs):
     st.header("Adaptive Intelligence")
 
-    render_alpha_quality_and_confidence(snapshot_df, benchmark_cols)
+    render_alpha_quality_and_confidence(*args, **kwargs)
     st.divider()
-    render_alpha_attribution_drivers(snapshot_df, benchmark_cols)
+    render_alpha_attribution_drivers(*args, **kwargs)
     st.divider()
-    render_adaptive_intelligence_preview()
+    render_adaptive_intelligence_preview(*args, **kwargs)
