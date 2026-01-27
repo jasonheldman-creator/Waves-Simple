@@ -1,6 +1,6 @@
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
-# B2 COMPLETE — State-Isolated Alpha Attribution + Adaptive Intelligence Preview
+# B2 — Clean Separation: Alpha Attribution vs Adaptive Intelligence (Preview)
 
 import streamlit as st
 import pandas as pd
@@ -22,7 +22,7 @@ st.set_page_config(
 )
 
 # ---------------------------
-# Constants
+# Paths & Constants
 # ---------------------------
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
@@ -68,14 +68,14 @@ def load_snapshot():
 snapshot_df, snapshot_error = load_snapshot()
 
 # ---------------------------
-# Sidebar
+# Sidebar Status
 # ---------------------------
-st.sidebar.title("Data Status")
+st.sidebar.title("System Status")
 st.sidebar.markdown(
     f"""
 **Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
-**Alpha Attribution:** ✅ Enabled  
-**Adaptive Intelligence:** 🟡 Preview Mode
+**Alpha Attribution:** ✅ Active  
+**Adaptive Intelligence:** 👁️ Preview Mode  
 """
 )
 st.sidebar.divider()
@@ -83,20 +83,18 @@ st.sidebar.divider()
 # ---------------------------
 # Tabs
 # ---------------------------
-tabs = st.tabs(
-    [
-        "Overview",
-        "Alpha Attribution",
-        "Adaptive Intelligence",
-        "Operations",
-    ]
-)
+tabs = st.tabs([
+    "Overview",
+    "Alpha Attribution",
+    "Adaptive Intelligence",
+    "Operations",
+])
 
-# =========================================================
-# OVERVIEW TAB
-# =========================================================
+# ===========================
+# OVERVIEW
+# ===========================
 with tabs[0]:
-    st.header("Portfolio & Wave Performance Snapshot")
+    st.header("Portfolio Overview")
 
     if snapshot_error:
         st.error(snapshot_error)
@@ -111,111 +109,98 @@ with tabs[0]:
 
         view = df[
             ["display_name"] + list(RETURN_COLS.values())
-        ].rename(
-            columns={
-                "display_name": "Wave",
-                "return_1d": "Intraday",
-                "return_30d": "30D Return",
-                "return_60d": "60D Return",
-                "return_365d": "365D Return",
-            }
-        )
+        ].rename(columns={
+            "display_name": "Wave",
+            "return_1d": "Intraday",
+            "return_30d": "30D",
+            "return_60d": "60D",
+            "return_365d": "365D",
+        })
 
         view = view.replace({np.nan: "—"})
         st.dataframe(view, use_container_width=True, hide_index=True)
 
-# =========================================================
-# ALPHA ATTRIBUTION TAB (B1 + B2 FIXED)
-# =========================================================
+# ===========================
+# ALPHA ATTRIBUTION (SOURCE OF TRUTH)
+# ===========================
 with tabs[1]:
     st.header("Alpha Attribution")
 
     if snapshot_error:
         st.error(snapshot_error)
-    else:
-        waves = snapshot_df["display_name"].tolist()
+        st.stop()
 
-        alpha_selected_wave = st.selectbox(
-            "Select Wave",
-            waves,
-            key="alpha_attr_wave_select_v2",
-        )
+    waves = snapshot_df["display_name"].tolist()
 
-        # Placeholder / live-compatible source breakdown
-        source_df = pd.DataFrame(
-            {
-                "Alpha Source": [
-                    "Selection Alpha",
-                    "Momentum Alpha",
-                    "Regime Alpha",
-                    "Exposure Alpha",
-                    "Residual Alpha",
-                ],
-                "Contribution": [
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == alpha_selected_wave,
-                        RETURN_COLS["30d"],
-                    ].values[0]
-                    if alpha_selected_wave in snapshot_df["display_name"].values
-                    else None,
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == alpha_selected_wave,
-                        RETURN_COLS["60d"],
-                    ].values[0]
-                    if alpha_selected_wave in snapshot_df["display_name"].values
-                    else None,
-                    snapshot_df.loc[
-                        snapshot_df["display_name"] == alpha_selected_wave,
-                        RETURN_COLS["365d"],
-                    ].values[0]
-                    if alpha_selected_wave in snapshot_df["display_name"].values
-                    else None,
-                    None,
-                    None,
-                ],
-            }
-        )
+    selected_wave = st.selectbox(
+        "Select Wave",
+        waves,
+        key="alpha_attr_wave_select",
+    )
 
-        st.subheader("Source Breakdown")
-        st.dataframe(source_df, use_container_width=True, hide_index=True)
+    # Placeholder attribution breakdown (replace later with real engine)
+    source_df = pd.DataFrame({
+        "Alpha Source": [
+            "Selection Alpha",
+            "Momentum Alpha",
+            "Regime Alpha",
+            "Exposure Alpha",
+            "Residual Alpha",
+        ],
+        "Contribution": [
+            float(snapshot_df.loc[snapshot_df["display_name"] == selected_wave, "return_30d"].fillna(0).values[0]) * 0.4,
+            float(snapshot_df.loc[snapshot_df["display_name"] == selected_wave, "return_30d"].fillna(0).values[0]) * 0.3,
+            float(snapshot_df.loc[snapshot_df["display_name"] == selected_wave, "return_30d"].fillna(0).values[0]) * 0.2,
+            None,
+            None,
+        ],
+    })
 
-        render_alpha_quality_and_confidence(
-            snapshot_df=snapshot_df,
-            source_df=source_df,
-            selected_wave=alpha_selected_wave,
-            return_cols=RETURN_COLS,
-            benchmark_cols=BENCHMARK_COLS,
-        )
+    st.subheader("Source Breakdown")
+    st.dataframe(source_df, use_container_width=True, hide_index=True)
 
-# =========================================================
-# ADAPTIVE INTELLIGENCE TAB (B2 PREVIEW — ISOLATED STATE)
-# =========================================================
+    # Alpha Quality & Confidence belongs HERE
+    render_alpha_quality_and_confidence(
+        snapshot_df,
+        source_df,
+        selected_wave,
+        RETURN_COLS,
+        BENCHMARK_COLS,
+    )
+
+# ===========================
+# ADAPTIVE INTELLIGENCE (PREVIEW ONLY)
+# ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
     st.caption("Read-only preview layer derived from Alpha Attribution")
 
     if snapshot_error:
         st.error(snapshot_error)
-    else:
-        waves = snapshot_df["display_name"].tolist()
+        st.stop()
 
-        adaptive_selected_wave = st.selectbox(
-            "Select Wave",
-            waves,
-            key="adaptive_intel_wave_select_v2",
-        )
+    waves = snapshot_df["display_name"].tolist()
 
-        render_adaptive_intelligence_preview(
-            snapshot_df=snapshot_df,
-            source_df=None,
-            selected_wave=adaptive_selected_wave,
-            return_cols=RETURN_COLS,
-            benchmark_cols=BENCHMARK_COLS,
-        )
+    selected_wave = st.selectbox(
+        "Select Wave",
+        waves,
+        key="adaptive_intel_wave_select",
+    )
 
-# =========================================================
-# OPERATIONS TAB
-# =========================================================
+    # IMPORTANT:
+    # This tab does NOT show Alpha Attribution tables.
+    # It only shows interpretive output.
+    render_adaptive_intelligence_preview(
+        snapshot_df=snapshot_df,
+        source_df=None,
+        selected_wave=selected_wave,
+        return_cols=RETURN_COLS,
+        benchmark_cols=BENCHMARK_COLS,
+    )
+
+# ===========================
+# OPERATIONS
+# ===========================
 with tabs[3]:
     st.header("Operations")
     st.info("Operations control center coming next.")
