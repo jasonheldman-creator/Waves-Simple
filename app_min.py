@@ -251,13 +251,41 @@ with tabs[1]:
     if snapshot_error:
         st.error(snapshot_error)
     else:
-        render_alpha_quality_and_confidence(
-            snapshot_df,
-            None,
-            selected_wave,
-            RETURN_COLS,
-            BENCHMARK_COLS,
-        )
+        with st.container():
+            st.markdown("### Alpha Quality & Confidence")
+            if selected_wave is not None:
+                st.caption(f"Attribution profile for the selected wave: {selected_wave}")
+            else:
+                st.caption("Attribution profile for the current portfolio context.")
+            st.divider()
+
+            cols = st.columns(2)
+            with cols[0]:
+                st.markdown(
+                    "<div style='line-height:1.4'>"
+                    "<span style='font-size:0.85rem; font-weight:500; color:#666;'>Alpha Quality Score</span><br>"
+                    "<span style='font-size:1.25rem; font-weight:700;'>—</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                st.markdown(
+                    "<div style='line-height:1.4'>"
+                    "<span style='font-size:0.85rem; font-weight:500; color:#666;'>Confidence Level</span><br>"
+                    "<span style='font-size:1.25rem; font-weight:700;'>—</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.divider()
+
+            render_alpha_quality_and_confidence(
+                snapshot_df,
+                None,
+                selected_wave,
+                RETURN_COLS,
+                BENCHMARK_COLS,
+            )
 
 # ============================================================
 # ADAPTIVE INTELLIGENCE TAB
