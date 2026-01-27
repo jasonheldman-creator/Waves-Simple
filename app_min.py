@@ -1,5 +1,5 @@
 # app_min.py
-# WAVES Intelligence™ Console — Minimal (Institutional Overview Fixed)
+# WAVES Intelligence™ Console (Minimal, CLEAN OVERVIEW)
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ from intelligence.adaptive_intelligence import render_alpha_quality_and_confiden
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
 # ===========================
@@ -30,10 +30,11 @@ RETURN_COLS = {
     "365D": "return_365d",
 }
 
-BENCHMARK_COLS = {
-    "30D": "benchmark_return_30d",
-    "60D": "benchmark_return_60d",
-    "365D": "benchmark_return_365d",
+ALPHA_COLS = {
+    "1D": "alpha_1d",
+    "30D": "alpha_30d",
+    "60D": "alpha_60d",
+    "365D": "alpha_365d",
 }
 
 # ===========================
@@ -49,24 +50,21 @@ def load_snapshot():
     if "display_name" not in df.columns:
         if "wave_name" in df.columns:
             df["display_name"] = df["wave_name"]
-        elif "wave_id" in df.columns:
-            df["display_name"] = df["wave_id"]
         else:
-            df["display_name"] = "Unnamed Wave"
+            df["display_name"] = df["wave_id"]
 
-    for col in list(RETURN_COLS.values()) + list(BENCHMARK_COLS.values()):
+    for col in list(RETURN_COLS.values()) + list(ALPHA_COLS.values()):
         if col not in df.columns:
             df[col] = np.nan
 
     return df, None
 
-
 snapshot_df, snapshot_error = load_snapshot()
 
 # ===========================
-# Sidebar (GLOBAL WAVE SELECTOR)
+# Sidebar
 # ===========================
-st.sidebar.title("Wave Selection")
+st.sidebar.title("Controls")
 
 if snapshot_error:
     st.sidebar.error(snapshot_error)
@@ -76,107 +74,89 @@ else:
     selected_wave = st.sidebar.selectbox(
         "Select Wave",
         wave_options,
-        key="global_wave_select",
+        key="overview_wave_select"
     )
 
 st.sidebar.divider()
-st.sidebar.markdown(
-    """
-    **System Status**
-    - Overview: ✅ Active  
-    - Alpha Attribution: ✅ Active  
-    - Adaptive Intelligence: 🟡 Preview  
-    """
-)
+st.sidebar.caption("WAVES Intelligence™")
 
 # ===========================
 # Tabs
 # ===========================
-tabs = st.tabs(
-    [
-        "Overview",
-        "Alpha Attribution",
-        "Adaptive Intelligence",
-        "Operations",
-    ]
-)
+tabs = st.tabs([
+    "Overview",
+    "Alpha Attribution",
+    "Adaptive Intelligence",
+    "Operations"
+])
 
-# =====================================================
-# OVERVIEW TAB — CLEAN, BOXED, HORIZONTAL, IC-GRADE
-# =====================================================
+# ===========================
+# OVERVIEW TAB
+# ===========================
 with tabs[0]:
-    st.header("Overview")
+    st.header("Portfolio Overview")
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
+        df = snapshot_df.copy()
+
         # ---------------------------
-        # Portfolio Snapshot (Equal Weight)
+        # Portfolio Snapshot (Equal-Weighted)
         # ---------------------------
         portfolio_returns = {
-            k: snapshot_df[v].mean(skipna=True)
-            for k, v in RETURN_COLS.items()
+            k: df[v].mean(skipna=True) for k, v in RETURN_COLS.items()
         }
-
         portfolio_alpha = {
-            k: (
-                snapshot_df[RETURN_COLS[k]].mean(skipna=True)
-                - snapshot_df[BENCHMARK_COLS[k]].mean(skipna=True)
-                if k in BENCHMARK_COLS
-                else np.nan
-            )
-            for k in RETURN_COLS
+            k: df[v].mean(skipna=True) for k, v in ALPHA_COLS.items()
         }
 
-        st.subheader("Portfolio Snapshot (Equal-Weighted)")
+        with st.container(border=True):
+            st.subheader("🏛️ Portfolio Snapshot — Equal-Weighted")
 
-        cols = st.columns(4)
-        for i, horizon in enumerate(["1D", "30D", "60D", "365D"]):
-            with cols[i]:
-                st.metric(
+            ret_cols = st.columns(4)
+            for i, horizon in enumerate(RETURN_COLS.keys()):
+                ret_cols[i].metric(
                     label=f"{horizon} Return",
                     value=f"{portfolio_returns[horizon]:.2%}"
-                    if not pd.isna(portfolio_returns[horizon])
-                    else "—",
                 )
-                st.metric(
+
+            st.divider()
+
+            alpha_cols = st.columns(4)
+            for i, horizon in enumerate(ALPHA_COLS.keys()):
+                val = portfolio_alpha[horizon]
+                alpha_cols[i].metric(
                     label=f"{horizon} Alpha",
-                    value=f"{portfolio_alpha[horizon]:.2%}"
-                    if not pd.isna(portfolio_alpha[horizon])
-                    else "—",
+                    value="—" if np.isnan(val) else f"{val:.2%}"
                 )
 
-        st.divider()
+        st.markdown("")
 
         # ---------------------------
-        # Selected Wave Snapshot
+        # Wave Snapshot (Selected)
         # ---------------------------
-        wave_row = snapshot_df[
-            snapshot_df["display_name"] == selected_wave
-        ].iloc[0]
+        wave_row = df[df["display_name"] == selected_wave].iloc[0]
 
-        st.subheader(f"Wave Snapshot — {selected_wave}")
+        with st.container(border=True):
+            st.subheader(f"📈 Wave Snapshot — {selected_wave}")
 
-        cols = st.columns(4)
-        for i, horizon in enumerate(["1D", "30D", "60D", "365D"]):
-            ret_val = wave_row[RETURN_COLS[horizon]]
-            alpha_val = (
-                wave_row[RETURN_COLS[horizon]]
-                - wave_row[BENCHMARK_COLS[horizon]]
-                if horizon in BENCHMARK_COLS
-                else np.nan
-            )
-
-            with cols[i]:
-                st.metric(
+            ret_cols = st.columns(4)
+            for i, (horizon, col) in enumerate(RETURN_COLS.items()):
+                val = wave_row[col]
+                ret_cols[i].metric(
                     label=f"{horizon} Return",
-                    value=f"{ret_val:.2%}" if not pd.isna(ret_val) else "—",
+                    value="—" if np.isnan(val) else f"{val:.2%}"
                 )
-                st.metric(
+
+            st.divider()
+
+            alpha_cols = st.columns(4)
+            for i, (horizon, col) in enumerate(ALPHA_COLS.items()):
+                val = wave_row[col]
+                alpha_cols[i].metric(
                     label=f"{horizon} Alpha",
-                    value=f"{alpha_val:.2%}"
-                    if not pd.isna(alpha_val)
-                    else "—",
+                    value="—" if np.isnan(val) else f"{val:.2%}"
                 )
 
 # ===========================
@@ -184,41 +164,6 @@ with tabs[0]:
 # ===========================
 with tabs[1]:
     st.header("Alpha Attribution")
-    st.caption("Where performance came from (descriptive, audit-ready)")
-
-    if snapshot_error:
-        st.error(snapshot_error)
-    else:
-        source_df = pd.DataFrame(
-            {
-                "Alpha Source": [
-                    "Selection Alpha",
-                    "Momentum Alpha",
-                    "Regime Alpha",
-                    "Exposure Alpha",
-                    "Residual Alpha",
-                ],
-                "Contribution": [0.012, 0.008, -0.003, 0.004, 0.001],
-            }
-        )
-
-        st.subheader("Source Breakdown")
-        st.dataframe(source_df, use_container_width=True, hide_index=True)
-
-        render_alpha_quality_and_confidence(
-            snapshot_df,
-            source_df,
-            selected_wave,
-            RETURN_COLS,
-            BENCHMARK_COLS,
-        )
-
-# ===========================
-# ADAPTIVE INTELLIGENCE TAB
-# ===========================
-with tabs[2]:
-    st.header("Adaptive Intelligence")
-    st.caption("Interpretive layer — what the system is learning")
 
     if snapshot_error:
         st.error(snapshot_error)
@@ -228,7 +173,25 @@ with tabs[2]:
             None,
             selected_wave,
             RETURN_COLS,
-            BENCHMARK_COLS,
+            {},
+        )
+
+# ===========================
+# ADAPTIVE INTELLIGENCE TAB
+# ===========================
+with tabs[2]:
+    st.header("Adaptive Intelligence")
+    st.caption("Read-only interpretive layer")
+
+    if snapshot_error:
+        st.error(snapshot_error)
+    else:
+        render_alpha_quality_and_confidence(
+            snapshot_df,
+            None,
+            selected_wave,
+            RETURN_COLS,
+            {},
         )
 
 # ===========================
@@ -236,7 +199,4 @@ with tabs[2]:
 # ===========================
 with tabs[3]:
     st.header("Operations")
-    st.info(
-        "Execution & override layer coming next. "
-        "Adaptive Intelligence insights will surface here for human approval."
-    )
+    st.info("Execution & override controls coming next.")
