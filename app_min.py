@@ -1,12 +1,16 @@
 # app_min.py
-# WAVES Intelligence™ Console (Minimal, Locked Layout)
+# WAVES Intelligence™ Console (Minimal)
+# IC-GRADE OVERVIEW + ATTRIBUTION + ADAPTIVE INTELLIGENCE
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
-from intelligence.adaptive_intelligence import render_alpha_quality_and_confidence
+from intelligence.adaptive_intelligence import (
+    render_alpha_quality_and_confidence,
+    render_adaptive_intelligence_preview,
+)
 
 # ===========================
 # Page Config
@@ -14,7 +18,7 @@ from intelligence.adaptive_intelligence import render_alpha_quality_and_confiden
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # ===========================
@@ -73,34 +77,38 @@ snapshot_df, snapshot_error = load_snapshot()
 # ===========================
 # Sidebar
 # ===========================
-st.sidebar.title("Console Status")
-
+st.sidebar.title("System Status")
 st.sidebar.markdown(
     f"""
     **Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
-    **Mode:** Diagnostic  
+    **Alpha Attribution:** ✅ Active  
+    **Adaptive Intelligence:** 🟡 Preview  
     """
 )
+st.sidebar.divider()
 
-if snapshot_error is None:
-    wave_options = snapshot_df["display_name"].tolist()
+# Global wave selector (single source of truth)
+if snapshot_error:
+    selected_wave = None
+else:
+    st.sidebar.subheader("Wave Selection")
     selected_wave = st.sidebar.selectbox(
         "Select Wave",
-        wave_options,
-        index=0
+        snapshot_df["display_name"].tolist(),
+        key="global_wave_selector",
     )
-else:
-    selected_wave = None
 
 # ===========================
 # Tabs
 # ===========================
-tabs = st.tabs([
-    "Overview",
-    "Alpha Attribution",
-    "Adaptive Intelligence",
-    "Operations"
-])
+tabs = st.tabs(
+    [
+        "Overview",
+        "Alpha Attribution",
+        "Adaptive Intelligence",
+        "Operations",
+    ]
+)
 
 # ===========================
 # OVERVIEW TAB (LOCKED)
@@ -133,7 +141,7 @@ with tabs[0]:
             for i, (label, value) in enumerate(portfolio_returns.items()):
                 cols[i].metric(
                     label=f"{label} Return",
-                    value="—" if pd.isna(value) else f"{value:.2%}"
+                    value="—" if pd.isna(value) else f"{value:.2%}",
                 )
 
             # ALPHA ROW
@@ -141,56 +149,96 @@ with tabs[0]:
             for i, (label, value) in enumerate(portfolio_alpha.items()):
                 cols[i].metric(
                     label=f"{label} Alpha",
-                    value="—" if pd.isna(value) else f"{value:.2%}"
+                    value="—" if pd.isna(value) else f"{value:.2%}",
                 )
 
         st.divider()
 
         # ---------------------------
-        # Wave Snapshot (Sidebar-Driven)
+        # Selected Wave Snapshot
         # ---------------------------
-        wave_row = df[df["display_name"] == selected_wave].iloc[0]
+        if selected_wave is not None:
+            wave_row = df[df["display_name"] == selected_wave].iloc[0]
 
-        with st.container():
-            st.subheader(f"📈 Wave Snapshot — {selected_wave}")
+            wave_returns = {
+                k: wave_row[v] for k, v in RETURN_COLS.items()
+            }
+            wave_alpha = {
+                k: wave_row[v] for k, v in ALPHA_COLS.items()
+            }
 
-            # RETURNS ROW
-            cols = st.columns(4)
-            for i, (label, col) in enumerate(RETURN_COLS.items()):
-                val = wave_row[col]
-                cols[i].metric(
-                    label=f"{label} Return",
-                    value="—" if pd.isna(val) else f"{val:.2%}"
-                )
+            with st.container():
+                st.subheader(f"📊 Wave Snapshot — {selected_wave}")
 
-            # ALPHA ROW
-            cols = st.columns(4)
-            for i, (label, col) in enumerate(ALPHA_COLS.items()):
-                val = wave_row[col]
-                cols[i].metric(
-                    label=f"{label} Alpha",
-                    value="—" if pd.isna(val) else f"{val:.2%}"
-                )
+                # RETURNS ROW
+                cols = st.columns(4)
+                for i, (label, value) in enumerate(wave_returns.items()):
+                    cols[i].metric(
+                        label=f"{label} Return",
+                        value="—" if pd.isna(value) else f"{value:.2%}",
+                    )
+
+                # ALPHA ROW
+                cols = st.columns(4)
+                for i, (label, value) in enumerate(wave_alpha.items()):
+                    cols[i].metric(
+                        label=f"{label} Alpha",
+                        value="—" if pd.isna(value) else f"{value:.2%}",
+                    )
 
 # ===========================
-# ALPHA ATTRIBUTION TAB
+# ALPHA ATTRIBUTION
 # ===========================
 with tabs[1]:
     st.header("Alpha Attribution")
+    st.caption("Explains where returns came from")
 
-    if snapshot_error:
-        st.error(snapshot_error)
+    if snapshot_error or selected_wave is None:
+        st.info("Select a wave to view attribution.")
     else:
-        source_df = pd.DataFrame({
-            "Alpha Source": [
-                "Selection Alpha",
-                "Momentum Alpha",
-                "Regime Alpha",
-                "Exposure Alpha",
-                "Residual Alpha",
-            ],
-            "Contribution": [0.012, 0.008, -0.003, 0.004, 0.001],
-        })
+        source_df = pd.DataFrame(
+            {
+                "Alpha Source": [
+                    "Selection Alpha",
+                    "Momentum Alpha",
+                    "Regime Alpha",
+                    "Exposure Alpha",
+                    "Residual Alpha",
+                ],
+                "Contribution": [
+                    snapshot_df.loc[
+                        snapshot_df["display_name"] == selected_wave,
+                        "selection_alpha",
+                    ].values[0]
+                    if "selection_alpha" in snapshot_df.columns
+                    else np.nan,
+                    snapshot_df.loc[
+                        snapshot_df["display_name"] == selected_wave,
+                        "momentum_alpha",
+                    ].values[0]
+                    if "momentum_alpha" in snapshot_df.columns
+                    else np.nan,
+                    snapshot_df.loc[
+                        snapshot_df["display_name"] == selected_wave,
+                        "regime_alpha",
+                    ].values[0]
+                    if "regime_alpha" in snapshot_df.columns
+                    else np.nan,
+                    snapshot_df.loc[
+                        snapshot_df["display_name"] == selected_wave,
+                        "exposure_alpha",
+                    ].values[0]
+                    if "exposure_alpha" in snapshot_df.columns
+                    else np.nan,
+                    snapshot_df.loc[
+                        snapshot_df["display_name"] == selected_wave,
+                        "residual_alpha",
+                    ].values[0]
+                    if "residual_alpha" in snapshot_df.columns
+                    else np.nan,
+                ],
+            }
+        )
 
         st.subheader("Source Breakdown")
         st.dataframe(source_df, use_container_width=True, hide_index=True)
@@ -204,16 +252,16 @@ with tabs[1]:
         )
 
 # ===========================
-# ADAPTIVE INTELLIGENCE TAB
+# ADAPTIVE INTELLIGENCE
 # ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Read-only interpretive layer derived from Alpha Attribution")
+    st.caption("Interpretive, forward-looking (read-only)")
 
-    if snapshot_error:
-        st.error(snapshot_error)
+    if snapshot_error or selected_wave is None:
+        st.info("Select a wave to view adaptive intelligence.")
     else:
-        render_alpha_quality_and_confidence(
+        render_adaptive_intelligence_preview(
             snapshot_df,
             None,
             selected_wave,
@@ -222,8 +270,8 @@ with tabs[2]:
         )
 
 # ===========================
-# OPERATIONS TAB
+# OPERATIONS
 # ===========================
 with tabs[3]:
     st.header("Operations")
-    st.info("Operations control center coming next.")
+    st.info("Human-in-the-loop execution & overrides coming next.")
