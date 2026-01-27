@@ -10,7 +10,8 @@ from pathlib import Path
 
 from intelligence.adaptive_intelligence import (
     render_alpha_quality_and_confidence,
-    render_alpha_attribution_drivers,   # <-- added import
+    render_alpha_attribution_drivers,
+    render_adaptive_intelligence_preview,
 )
 
 # ===========================
@@ -226,27 +227,24 @@ with tabs[0]:
                     )
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB (TWO SECTIONS)
+# ALPHA ATTRIBUTION TAB — APPLE-STYLE (DARK)
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
+    st.caption("Cinematic, governance-native view of realized alpha and its drivers.")
+    st.divider()
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
-
         # -------------------------------
-        # SECTION 1 — Alpha Quality & Confidence
+        # SECTION 1 — Alpha Quality & Confidence (Hero)
         # -------------------------------
         with st.container():
-            st.subheader("Alpha Quality & Confidence")
-
             if selected_wave is not None:
-                st.caption(f"Attribution profile for the selected wave: {selected_wave}")
+                st.caption(f"Wave focus: {selected_wave}")
             else:
-                st.caption("Attribution profile for the current portfolio context.")
-
-            st.divider()
+                st.caption("Wave focus: None selected")
 
             render_alpha_quality_and_confidence(
                 snapshot_df,
@@ -255,6 +253,8 @@ with tabs[1]:
                 RETURN_COLS,
                 BENCHMARK_COLS,
             )
+
+        st.divider()
 
         # -------------------------------
         # SECTION 2 — Alpha Attribution Drivers
@@ -271,23 +271,56 @@ with tabs[1]:
                 BENCHMARK_COLS,
             )
 
+        st.divider()
+
+        # -------------------------------
+        # SECTION 3 — Attribution Period Snapshot (30D / 60D / 365D)
+        # -------------------------------
+        with st.container():
+            st.subheader("Attribution Snapshot by Period")
+            st.caption("Select a horizon to inspect how realized alpha has behaved over time.")
+
+            period_label = st.selectbox(
+                "Attribution period",
+                ["30D", "60D", "365D"],
+                index=0,
+                key="alpha_attr_period_select",
+            )
+
+            st.divider()
+
+            if selected_wave is None:
+                st.info("Select a wave in the sidebar to view period-level attribution snapshots.")
+            else:
+                st.caption(
+                    f"Daily attribution snapshot for {selected_wave} over the last {period_label} "
+                    "(stream will populate once the attribution history feed is wired)."
+                )
+                st.info(
+                    "Period-level attribution tables are intentionally withheld until the "
+                    "institutional attribution history stream is connected. "
+                    "No synthetic or fabricated attribution is displayed."
+                )
+
 # ============================================================
-# ADAPTIVE INTELLIGENCE TAB
+# ADAPTIVE INTELLIGENCE TAB — APPLE-STYLE (DARK)
 # ============================================================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Interpretive layer derived from attribution")
+    st.caption("Interpretive layer derived from Alpha Attribution — read-only, governance-first.")
+    st.divider()
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
-        render_alpha_quality_and_confidence(
-            snapshot_df,
-            None,
-            selected_wave,
-            RETURN_COLS,
-            BENCHMARK_COLS,
-        )
+        with st.container():
+            render_adaptive_intelligence_preview(
+                snapshot_df,
+                None,
+                selected_wave,
+                RETURN_COLS,
+                BENCHMARK_COLS,
+            )
 
 # ============================================================
 # OPERATIONS TAB
