@@ -57,7 +57,7 @@ def render_alpha_quality_and_confidence(
         # -------------------------------------------------
         # Enforce minimum observations
         # -------------------------------------------------
-        MIN_OBS = 20
+        MIN_OBS = 5
         WINDOW = 30
 
         if len(df) < MIN_OBS:
