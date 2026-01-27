@@ -1,6 +1,6 @@
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
-# B1 IMPLEMENTATION — Wave-aware Alpha Attribution + Derived Adaptive Intelligence
+# B2 — Deterministic Alpha Attribution from Snapshot Data
 
 import streamlit as st
 import pandas as pd
@@ -38,7 +38,7 @@ BENCHMARK_COLS = {
 }
 
 # ---------------------------
-# Load Snapshot
+# Load + Normalize Snapshot
 # ---------------------------
 def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
@@ -71,8 +71,7 @@ st.sidebar.title("Data Status")
 st.sidebar.markdown(
     f"""
     **Live Snapshot:** {'✅ True' if snapshot_error is None else '❌ False'}  
-    **Alpha Attribution:** ✅ B1 (Wave-aware placeholders)  
-    **Adaptive Intelligence:** ✅ Derived (Preview)
+    **Alpha Attribution:** {'✅ True' if snapshot_error is None else '❌ False'}
     """
 )
 st.sidebar.divider()
@@ -118,7 +117,7 @@ with tabs[0]:
         st.dataframe(view, use_container_width=True, hide_index=True)
 
 # ===========================
-# ALPHA ATTRIBUTION TAB (B1)
+# ALPHA ATTRIBUTION TAB (B2)
 # ===========================
 with tabs[1]:
     st.header("Alpha Attribution")
@@ -134,8 +133,30 @@ with tabs[1]:
             key="alpha_attr_wave_select"
         )
 
-        # ---- B1: Wave-aware placeholder attribution ----
-        np.random.seed(abs(hash(selected_wave)) % (10**6))
+        wave_row = snapshot_df[
+            snapshot_df["display_name"] == selected_wave
+        ].iloc[0]
+
+        # ---- B2 Deterministic Alpha Attribution ----
+        selection_alpha = (
+            wave_row["return_30d"] - wave_row["benchmark_return_30d"]
+        )
+
+        momentum_alpha = (
+            wave_row["return_30d"] - wave_row["return_60d"]
+        )
+
+        regime_alpha = (
+            np.sign(wave_row["return_365d"]) * abs(wave_row["return_30d"])
+        )
+
+        exposure_alpha = (
+            abs(wave_row["return_30d"]) - abs(wave_row["benchmark_return_30d"])
+        )
+
+        residual_alpha = selection_alpha - (
+            momentum_alpha + regime_alpha + exposure_alpha
+        )
 
         source_df = pd.DataFrame({
             "Alpha Source": [
@@ -145,10 +166,13 @@ with tabs[1]:
                 "Exposure Alpha",
                 "Residual Alpha",
             ],
-            "Contribution": np.round(
-                np.random.normal(loc=0.004, scale=0.004, size=5),
-                3
-            ),
+            "Contribution": np.round([
+                selection_alpha,
+                momentum_alpha,
+                regime_alpha,
+                exposure_alpha,
+                residual_alpha,
+            ], 4),
         })
 
         st.subheader("Source Breakdown")
@@ -163,11 +187,11 @@ with tabs[1]:
         )
 
 # ===========================
-# ADAPTIVE INTELLIGENCE TAB (DERIVED)
+# ADAPTIVE INTELLIGENCE TAB
 # ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Read-only interpretive layer derived from Alpha Attribution")
+    st.caption("Read-only preview layer derived from Alpha Attribution")
 
     if snapshot_error:
         st.warning("Adaptive Intelligence preview not available.")
@@ -180,8 +204,6 @@ with tabs[2]:
             key="adaptive_intel_wave_select"
         )
 
-        st.subheader("Alpha Quality & Confidence")
-
         render_alpha_quality_and_confidence(
             snapshot_df,
             None,
@@ -189,15 +211,6 @@ with tabs[2]:
             RETURN_COLS,
             BENCHMARK_COLS,
         )
-
-        st.divider()
-        st.subheader("Interpretive Read")
-
-        st.metric("Alpha Quality Tier", "Developing")
-        st.metric("Confidence Level", "Moderate")
-        st.metric("Regime Read", "Neutral")
-
-        st.info("Preview mode only — no adaptive actions executed.")
 
 # ===========================
 # OPERATIONS TAB
