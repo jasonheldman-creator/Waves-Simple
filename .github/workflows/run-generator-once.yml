@@ -4,57 +4,46 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  run-live-snapshot:
+  run-generator:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------------------------------------
-      # 1) Check out the repository
-      # ------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           persist-credentials: true
 
-      # ------------------------------------------------------------
-      # 2) Set up Python
-      # ------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ------------------------------------------------------------
-      # 3) Install dependencies required by the generator
-      # ------------------------------------------------------------
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install pandas pyarrow
 
-      # ------------------------------------------------------------
-      # 4) Run the live snapshot generator
-      #
-      # IMPORTANT:
-      # Update the path below if the file is NOT at repo root.
-      #
-      # Examples:
-      #   python scripts/generate_live_snapshot_csv.py
-      #   python scripts/generate_live_snapshot_csv.py
-      #   python data/generate_live_snapshot_csv.py
-      # ------------------------------------------------------------
+      - name: Locate generator file
+        id: find_generator
+        run: |
+          echo "Searching for generate_live_snapshot_csv.py..."
+          FILE_PATH=$(find . -name "generate_live_snapshot_csv.py" | head -n 1)
+          if [ -z "$FILE_PATH" ]; then
+            echo "❌ generate_live_snapshot_csv.py not found"
+            exit 1
+          fi
+          echo "✅ Found generator at: $FILE_PATH"
+          echo "GENERATOR_PATH=$FILE_PATH" >> $GITHUB_ENV
+
       - name: Run live snapshot generator
         run: |
-          python generate_live_snapshot_csv.py
+          python "$GENERATOR_PATH"
 
-      # ------------------------------------------------------------
-      # 5) Commit updated snapshot files (if changed)
-      # ------------------------------------------------------------
-      - name: Commit updated snapshot
+      - name: Commit updated live snapshot
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
           git add data/live_snapshot.csv
-          git add data/alpha_history.csv || true
-          git commit -m "Automated update: live_snapshot.csv" || echo "No changes to commit"
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "Automated update: live_snapshot.csv"
+
           git push
