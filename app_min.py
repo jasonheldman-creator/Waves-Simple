@@ -123,9 +123,6 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
-        # ---------------------------
-        # Percentage Formatting (Option C)
-        # ---------------------------
         def format_percentage(value: float) -> str:
             if pd.isna(value):
                 return "—"
@@ -151,30 +148,27 @@ with tabs[0]:
 
         with st.container():
             st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
-            st.caption("Equal‑weighted performance across all active waves.")
+            st.caption("Equal-weighted performance across all active waves.")
             st.divider()
 
-            # Returns Row
             st.markdown("**Returns**")
             ret_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_returns.items()):
                 ret_cols[i].markdown(
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
-                    f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                    f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
+                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
                     unsafe_allow_html=True,
                 )
 
-            # Alpha Row
             st.markdown("**Alpha**")
             alpha_cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_alpha.items()):
                 alpha_cols[i].markdown(
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
-                    f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                    f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
+                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
                     unsafe_allow_html=True,
                 )
 
-        # Divider between cards
         st.divider()
 
         # ============================================================
@@ -198,23 +192,21 @@ with tabs[0]:
                 st.caption("Performance profile for the selected wave.")
                 st.divider()
 
-                # Returns Row
                 st.markdown("**Returns**")
                 wret_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_returns.items()):
                     wret_cols[i].markdown(
-                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
-                        f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                        f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
+                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
                         unsafe_allow_html=True,
                     )
 
-                # Alpha Row
                 st.markdown("**Alpha**")
                 walpha_cols = st.columns(4)
                 for i, (label, value) in enumerate(wave_alpha.items()):
                     walpha_cols[i].markdown(
-                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span> "
-                        f"<span style='font-size:1.15rem; font-weight:650;'>{format_percentage(value)}</span>",
+                        f"<div style='line-height:1.4'><span style='font-size:0.85rem; font-weight:500; color:#666;'>{label}:</span><br>"
+                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span></div>",
                         unsafe_allow_html=True,
                     )
 
