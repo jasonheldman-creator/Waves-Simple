@@ -1,22 +1,15 @@
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
-# IC-GRADE POLISH — Stable Overview + Alpha Attribution + Adaptive Intelligence Preview
+# OPTION A — Alpha Attribution + Adaptive Intelligence (Preview)
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
-# --- Imports (defensive) ---
-try:
-    from intelligence.adaptive_intelligence import (
-        render_alpha_quality_and_confidence,
-        render_adaptive_intelligence_preview,
-    )
-except Exception:
-    render_alpha_quality_and_confidence = None
-    render_adaptive_intelligence_preview = None
-
+from intelligence.adaptive_intelligence import (
+    render_alpha_quality_and_confidence,
+)
 
 # ---------------------------
 # Page Config
@@ -47,7 +40,7 @@ BENCHMARK_COLS = {
 }
 
 # ---------------------------
-# Load + Normalize Snapshot
+# Load Snapshot
 # ---------------------------
 def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
@@ -76,28 +69,32 @@ snapshot_df, snapshot_error = load_snapshot()
 # ---------------------------
 # Sidebar
 # ---------------------------
-st.sidebar.title("Data Status")
+st.sidebar.title("System Status")
+
 st.sidebar.markdown(
     f"""
-    **Live Snapshot:** {'✅ True' if snapshot_error is None else '❌ False'}  
-    **Alpha Attribution Engine:** {'✅ Loaded' if render_alpha_quality_and_confidence else '⚠️ Missing'}  
-    **Adaptive Intelligence Preview:** {'✅ Loaded' if render_adaptive_intelligence_preview else '⚠️ Missing'}
-    """
+**Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
+**Alpha Attribution Engine:** ✅ Enabled  
+**Adaptive Intelligence:** 🟡 Preview Mode  
+"""
 )
+
 st.sidebar.divider()
 
 # ---------------------------
 # Tabs
 # ---------------------------
-tabs = st.tabs([
-    "Overview",
-    "Alpha Attribution",
-    "Adaptive Intelligence",
-    "Operations",
-])
+tabs = st.tabs(
+    [
+        "Overview",
+        "Alpha Attribution",
+        "Adaptive Intelligence",
+        "Operations",
+    ]
+)
 
 # ===========================
-# OVERVIEW TAB
+# OVERVIEW
 # ===========================
 with tabs[0]:
     st.header("Portfolio & Wave Performance Snapshot")
@@ -115,51 +112,54 @@ with tabs[0]:
 
         view = df[
             ["display_name"] + list(RETURN_COLS.values())
-        ].rename(columns={
-            "display_name": "Wave",
-            "return_1d": "Intraday",
-            "return_30d": "30D Return",
-            "return_60d": "60D Return",
-            "return_365d": "365D Return",
-        })
+        ].rename(
+            columns={
+                "display_name": "Wave",
+                "return_1d": "Intraday",
+                "return_30d": "30D Return",
+                "return_60d": "60D Return",
+                "return_365d": "365D Return",
+            }
+        )
 
         view = view.replace({np.nan: "—"})
         st.dataframe(view, use_container_width=True, hide_index=True)
 
 # ===========================
-# ALPHA ATTRIBUTION TAB
+# ALPHA ATTRIBUTION
 # ===========================
 with tabs[1]:
     st.header("Alpha Attribution")
 
     if snapshot_error:
-        st.error(snapshot_error)
-    elif render_alpha_quality_and_confidence is None:
-        st.error("Alpha Attribution engine not available.")
+        st.error("Alpha Attribution requires a valid snapshot.")
     else:
         waves = snapshot_df["display_name"].tolist()
 
         selected_wave = st.selectbox(
             "Select Wave",
             waves,
-            key="alpha_attribution_wave_select",
+            key="alpha_attr_wave_select",
         )
 
-        # ---- Source Breakdown (placeholder but stable)
-        source_df = pd.DataFrame({
-            "Alpha Source": [
-                "Selection Alpha",
-                "Momentum Alpha",
-                "Regime Alpha",
-                "Exposure Alpha",
-                "Residual Alpha",
-            ],
-            "Contribution": [0.012, 0.008, -0.003, 0.004, 0.001],
-        })
+        # Placeholder attribution sources (Option A)
+        source_df = pd.DataFrame(
+            {
+                "Alpha Source": [
+                    "Selection Alpha",
+                    "Momentum Alpha",
+                    "Regime Alpha",
+                    "Exposure Alpha",
+                    "Residual Alpha",
+                ],
+                "Contribution": [0.012, 0.008, -0.003, 0.004, 0.001],
+            }
+        )
 
         st.subheader("Source Breakdown")
         st.dataframe(source_df, use_container_width=True, hide_index=True)
 
+        # Core Alpha Quality & Confidence
         render_alpha_quality_and_confidence(
             snapshot_df,
             source_df,
@@ -169,26 +169,33 @@ with tabs[1]:
         )
 
 # ===========================
-# ADAPTIVE INTELLIGENCE TAB
+# ADAPTIVE INTELLIGENCE (OPTION A)
 # ===========================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Read-only preview layer derived from Alpha Attribution")
+    st.caption("Read-only preview derived from Alpha Attribution")
 
     if snapshot_error:
-        st.error(snapshot_error)
-    elif render_adaptive_intelligence_preview is None:
-        st.warning("Adaptive Intelligence preview not available.")
+        st.warning("Adaptive Intelligence requires a valid snapshot.")
     else:
         waves = snapshot_df["display_name"].tolist()
 
         selected_wave = st.selectbox(
             "Select Wave",
             waves,
-            key="adaptive_intelligence_wave_select",
+            key="adaptive_intel_wave_select",
         )
 
-        render_adaptive_intelligence_preview(
+        # Interpretive preview layer
+        st.subheader("Adaptive Signal Preview")
+
+        st.info(
+            "This is a **preview-only interpretive layer**. "
+            "No adaptive actions, rebalancing, or execution is performed."
+        )
+
+        # Reuse quality & confidence as signal input
+        render_alpha_quality_and_confidence(
             snapshot_df,
             None,
             selected_wave,
@@ -196,8 +203,15 @@ with tabs[2]:
             BENCHMARK_COLS,
         )
 
+        st.divider()
+
+        # Simple heuristic preview (Option A)
+        st.metric("Adaptive Bias", "Neutral")
+        st.metric("Confidence Regime", "Moderate")
+        st.metric("Recommended Action", "Observe")
+
 # ===========================
-# OPERATIONS TAB
+# OPERATIONS
 # ===========================
 with tabs[3]:
     st.header("Operations")
