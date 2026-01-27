@@ -8,10 +8,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
+# UPDATED IMPORTS — match current adaptive_intelligence.py
 from intelligence.adaptive_intelligence import (
-    render_alpha_quality_and_confidence,
-    render_alpha_attribution_drivers,
-    render_adaptive_intelligence_preview,
+    render_alpha_attribution_intraday,
 )
 
 # ===========================
@@ -28,6 +27,7 @@ st.set_page_config(
 # ===========================
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
+ATTRIBUTION_INTRADAY_PATH = DATA_DIR / "live_snapshot_attribution.csv"
 
 RETURN_COLS = {
     "INTRADAY": "return_intraday",
@@ -81,7 +81,17 @@ def load_snapshot():
     return df, None
 
 
+def load_intraday_attribution():
+    if not ATTRIBUTION_INTRADAY_PATH.exists():
+        return None
+    df = pd.read_csv(ATTRIBUTION_INTRADAY_PATH)
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
+
+
 snapshot_df, snapshot_error = load_snapshot()
+attribution_intraday_df = load_intraday_attribution()
 
 # ===========================
 # Sidebar
@@ -90,10 +100,10 @@ st.sidebar.title("System Status")
 
 st.sidebar.markdown(
     f"""
-    **Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
-    **Alpha Attribution:** ✅ Active  
-    **Adaptive Intelligence:** 🟡 Interpretive  
-    """
+**Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
+**Alpha Attribution:** {'✅ Active' if attribution_intraday_df is not None else '🟡 Pending'}  
+**Adaptive Intelligence:** 🟡 Interpretive  
+"""
 )
 
 st.sidebar.divider()
@@ -134,9 +144,7 @@ with tabs[0]:
             if abs(value) < 1e-10:
                 return "0.00%"
             pct = value * 100
-            if pct > 0:
-                return f"+{pct:.2f}%"
-            return f"{pct:.2f}%"
+            return f"+{pct:.2f}%" if pct > 0 else f"{pct:.2f}%"
 
         portfolio_returns = {
             k: df[v].mean(skipna=True)
@@ -154,7 +162,9 @@ with tabs[0]:
         with st.container():
             st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
             if portfolio_intraday_label:
-                st.caption(f"Equal-weighted performance across all active waves · {portfolio_intraday_label}")
+                st.caption(
+                    f"Equal-weighted performance across all active waves · {portfolio_intraday_label}"
+                )
             else:
                 st.caption("Equal-weighted performance across all active waves.")
             st.divider()
@@ -182,99 +192,32 @@ with tabs[0]:
                 )
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB — APPLE-STYLE (DARK)
+# ALPHA ATTRIBUTION TAB — GOVERNANCE-NATIVE
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
-    st.caption("Cinematic, governance-native view of realized alpha and its drivers.")
+    st.caption("Portfolio-first attribution with wave-level drill-down.")
     st.divider()
 
-    if snapshot_error:
-        st.error(snapshot_error)
+    if attribution_intraday_df is None:
+        st.info("Intraday attribution stream not yet available.")
     else:
-        with st.container():
-            render_alpha_quality_and_confidence(
-                snapshot_df,
-                None,
-                selected_wave,
-                RETURN_COLS,
-                BENCHMARK_COLS,
-            )
-
-        st.divider()
-
-        with st.container():
-            st.subheader("Alpha Attribution Drivers")
-            st.caption("Explanatory decomposition of realized alpha across strategy components.")
-            st.divider()
-
-            render_alpha_attribution_drivers(
-                snapshot_df,
-                selected_wave,
-                RETURN_COLS,
-                BENCHMARK_COLS,
-            )
-
-        st.divider()
-
-        # -------------------------------
-        # FIXED: INTRADAY NOW POPULATES
-        # -------------------------------
-        with st.container():
-            st.subheader("Attribution Snapshot by Period")
-            st.caption("Select a horizon to inspect how realized alpha has behaved over time.")
-
-            period_label = st.selectbox(
-                "Attribution period",
-                ["INTRADAY (LIVE)", "30D", "60D", "365D"],
-                index=0,
-                key="alpha_attr_period_select",
-            )
-
-            st.divider()
-
-            if selected_wave is None:
-                st.info("Select a wave in the sidebar to view attribution snapshots.")
-            else:
-                row = snapshot_df[snapshot_df["display_name"] == selected_wave].iloc[0]
-
-                if period_label == "INTRADAY (LIVE)":
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        st.metric("Intraday Return", format_percentage(row["return_intraday"]))
-
-                    with col2:
-                        st.metric("Intraday Alpha", format_percentage(row["alpha_intraday"]))
-
-                    if row.get("intraday_label"):
-                        st.caption(row["intraday_label"])
-                else:
-                    st.info(
-                        "Period-level attribution tables are intentionally withheld until the "
-                        "institutional attribution history stream is connected. "
-                        "No synthetic or fabricated attribution is displayed."
-                    )
+        render_alpha_attribution_intraday(attribution_intraday_df)
 
 # ============================================================
-# ADAPTIVE INTELLIGENCE TAB — APPLE-STYLE (DARK)
+# ADAPTIVE INTELLIGENCE TAB
 # ============================================================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Interpretive layer derived from Alpha Attribution — read-only, governance-first.")
+    st.caption(
+        "Interpretive layer derived from Alpha Attribution — read-only, governance-first."
+    )
     st.divider()
 
-    if snapshot_error:
-        st.error(snapshot_error)
-    else:
-        with st.container():
-            render_adaptive_intelligence_preview(
-                snapshot_df,
-                None,
-                selected_wave,
-                RETURN_COLS,
-                BENCHMARK_COLS,
-            )
+    st.info(
+        "Adaptive Intelligence signals (confidence, regime awareness, signal decay) "
+        "will activate once attribution history accumulation thresholds are met."
+    )
 
 # ============================================================
 # OPERATIONS TAB
