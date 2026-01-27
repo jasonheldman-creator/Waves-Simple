@@ -65,7 +65,6 @@ def load_snapshot():
         else:
             df["display_name"] = "Unnamed Wave"
 
-    # Ensure expected numeric columns exist
     for col in (
         list(RETURN_COLS.values())
         + list(BENCHMARK_COLS.values())
@@ -74,7 +73,6 @@ def load_snapshot():
         if col not in df.columns:
             df[col] = np.nan
 
-    # Ensure intraday_label exists
     if "intraday_label" not in df.columns:
         df["intraday_label"] = None
 
@@ -128,9 +126,6 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
-        # ---------------------------
-        # Percentage Formatting (Option C)
-        # ---------------------------
         def format_percentage(value: float) -> str:
             if pd.isna(value):
                 return "—"
@@ -141,9 +136,6 @@ with tabs[0]:
                 return f"+{pct:.2f}%"
             return f"{pct:.2f}%"
 
-        # ============================================================
-        # PORTFOLIO SNAPSHOT
-        # ============================================================
         portfolio_returns = {
             k: df[v].mean(skipna=True)
             for k, v in RETURN_COLS.items()
@@ -189,21 +181,11 @@ with tabs[0]:
 
         st.divider()
 
-        # ============================================================
-        # SELECTED WAVE SNAPSHOT
-        # ============================================================
         if selected_wave is not None:
             wave_row = df[df["display_name"] == selected_wave].iloc[0]
 
-            wave_returns = {
-                k: wave_row[v]
-                for k, v in RETURN_COLS.items()
-            }
-
-            wave_alpha = {
-                k: wave_row[v]
-                for k, v in ALPHA_COLS.items()
-            }
+            wave_returns = {k: wave_row[v] for k, v in RETURN_COLS.items()}
+            wave_alpha = {k: wave_row[v] for k, v in ALPHA_COLS.items()}
 
             wave_intraday_label = wave_row.get("intraday_label", None)
             wave_intraday_label = (
@@ -243,7 +225,7 @@ with tabs[0]:
                     )
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB
+# ALPHA ATTRIBUTION TAB (CLEANED — SINGLE PATH)
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
@@ -252,30 +234,12 @@ with tabs[1]:
         st.error(snapshot_error)
     else:
         with st.container():
-            st.markdown("### Alpha Quality & Confidence")
+            st.subheader("Alpha Quality & Confidence")
+
             if selected_wave is not None:
                 st.caption(f"Attribution profile for the selected wave: {selected_wave}")
             else:
                 st.caption("Attribution profile for the current portfolio context.")
-            st.divider()
-
-            cols = st.columns(2)
-            with cols[0]:
-                st.markdown(
-                    "<div style='line-height:1.4'>"
-                    "<span style='font-size:0.85rem; font-weight:500; color:#666;'>Alpha Quality Score</span><br>"
-                    "<span style='font-size:1.25rem; font-weight:700;'>—</span>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-            with cols[1]:
-                st.markdown(
-                    "<div style='line-height:1.4'>"
-                    "<span style='font-size:0.85rem; font-weight:500; color:#666;'>Confidence Level</span><br>"
-                    "<span style='font-size:1.25rem; font-weight:700;'>—</span>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
 
             st.divider()
 
