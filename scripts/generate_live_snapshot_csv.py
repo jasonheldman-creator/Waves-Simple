@@ -9,24 +9,29 @@ Generate data/live_snapshot.csv with:
 - Wave alpha vs SPY
 - Truth-gated intraday return and alpha (when available)
 
+Append alpha history in a non-blocking, append-only manner.
+
 This file is the SINGLE SOURCE OF TRUTH for alpha inputs.
 """
 
 import os
 import sys
+import csv
 import logging
-import pandas as pd
+from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
 
 # ------------------------------------------------------------------------------
 # CONFIG
 # ------------------------------------------------------------------------------
 DATA_DIR = Path("data")
-PRICES_FILE = DATA_DIR / "cache/prices_cache.parquet"
+PRICES_FILE = DATA_DIR / "cache" / "prices_cache.parquet"
 WAVE_WEIGHTS_FILE = DATA_DIR / "wave_weights.csv"
 OUTPUT_FILE = DATA_DIR / "live_snapshot.csv"
+ALPHA_HISTORY_FILE = DATA_DIR / "alpha_history.csv"
 
-MARKET_SESSION_FILE = DATA_DIR / "market_session.csv"
 BENCHMARK_TICKER = "SPY"
 
 RETURN_WINDOWS = {
@@ -59,6 +64,11 @@ def load_prices() -> pd.DataFrame:
         hard_fail(f"Missing prices cache: {PRICES_FILE}")
 
     prices = pd.read_parquet(PRICES_FILE)
+
+    if prices.empty:
+        hard_fail("prices_cache.parquet is empty")
+
+    prices = prices.copy()
     prices.index = pd.to_datetime(prices.index, utc=True).tz_convert(None)
     prices = prices.sort_index()
 
@@ -72,10 +82,15 @@ def load_prices() -> pd.DataFrame:
 
 
 def load_wave_weights() -> pd.DataFrame:
+    if not WAVE_WEIGHTS_FILE.exists():
+        hard_fail(f"Missing wave weights: {WAVE_WEIGHTS_FILE}")
+
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
     required = {"wave_id", "ticker", "weight"}
+
     if not required.issubset(df.columns):
         hard_fail("wave_weights.csv missing required columns")
+
     return df
 
 
@@ -93,8 +108,8 @@ def derive_intraday_session(prices: pd.DataFrame):
 
     price_now_ts = idx.max()
     current_date = price_now_ts.normalize()
-    prior_dates = idx.normalize()[idx.normalize() < current_date]
 
+    prior_dates = idx.normalize()[idx.normalize() < current_date]
     if prior_dates.empty:
         return None
 
@@ -135,36 +150,40 @@ def main():
     rows = []
 
     for wave_id, wdf in weights.groupby("wave_id"):
-        aligned = {}
+        price_map = {}
 
         for _, r in wdf.iterrows():
-            if r["ticker"] in prices.columns:
-                aligned[r["ticker"]] = prices[r["ticker"]]
+            ticker = r["ticker"]
+            if ticker in prices.columns:
+                price_map[ticker] = prices[ticker]
 
-        if not aligned:
+        if not price_map:
             continue
 
-        df_prices = pd.DataFrame(aligned).dropna()
-        weights_vec = (
+        df_prices = pd.DataFrame(price_map).dropna()
+        if len(df_prices) < MIN_ROWS_REQUIRED:
+            continue
+
+        weight_vec = (
             wdf.set_index("ticker")["weight"]
             .reindex(df_prices.columns)
-            .fillna(0)
+            .fillna(0.0)
         )
-        weights_vec /= weights_vec.sum()
+        weight_vec /= weight_vec.sum()
 
-        weighted = df_prices.dot(weights_vec)
+        weighted_series = df_prices.dot(weight_vec)
 
         row = {"wave_id": wave_id}
 
         for name, window in RETURN_WINDOWS.items():
-            wave_ret = compute_return(weighted, window)
+            wave_ret = compute_return(weighted_series, window)
             bench_ret = compute_return(benchmark_series, window)
             row[name] = wave_ret
             row[name.replace("return", "alpha")] = wave_ret - bench_ret
 
         if session:
             intraday_ret = compute_intraday_return(
-                weighted,
+                weighted_series,
                 session["prior_close_ts"],
                 session["price_now_ts"],
             )
@@ -185,8 +204,38 @@ def main():
     if not rows:
         hard_fail("No snapshot rows generated")
 
-    pd.DataFrame(rows).to_csv(OUTPUT_FILE, index=False)
+    snapshot_df = pd.DataFrame(rows)
+    snapshot_df.to_csv(OUTPUT_FILE, index=False)
     log.info(f"Snapshot written → {OUTPUT_FILE}")
+
+    # ------------------------------------------------------------------
+    # Append alpha history (NON-BLOCKING, APPEND-ONLY)
+    # ------------------------------------------------------------------
+    try:
+        file_exists = os.path.isfile(ALPHA_HISTORY_FILE)
+        if not file_exists:
+            with open(ALPHA_HISTORY_FILE, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["date", "wave_id", "alpha_1d"])
+
+        snapshot_date = datetime.now().strftime("%Y-%m-%d")
+
+        with open(ALPHA_HISTORY_FILE, "a", newline="") as f:
+            writer = csv.writer(f)
+            for _, row in snapshot_df.iterrows():
+                alpha_value = row.get("alpha_1d")
+                if pd.isna(alpha_value):
+                    alpha_value = row.get("alpha_intraday")
+
+                writer.writerow([
+                    snapshot_date,
+                    row["wave_id"],
+                    alpha_value,
+                ])
+
+    except Exception:
+        # Must never block snapshot generation
+        pass
 
 
 if __name__ == "__main__":
