@@ -1,11 +1,10 @@
 # ============================================================
 # intelligence/adaptive_intelligence.py
 # WAVES Intelligence™
-# Alpha Quality & Adaptive Intelligence (Production-Safe)
+# Alpha Quality, Attribution Drivers & Adaptive Intelligence
 # ============================================================
 
 from pathlib import Path
-
 import pandas as pd
 import streamlit as st
 
@@ -40,9 +39,6 @@ def render_alpha_quality_and_confidence(
 
         alpha_history_path = Path("data") / "alpha_history.csv"
 
-        # ------------------------------------------------------------
-        # Load + validate alpha history
-        # ------------------------------------------------------------
         try:
             if not alpha_history_path.exists():
                 _render_alpha_placeholders()
@@ -55,26 +51,20 @@ def render_alpha_quality_and_confidence(
                 _render_alpha_placeholders()
                 return
 
-            # Filter to selected wave
             df = df[df["wave_id"] == selected_wave].copy()
             if df.empty:
                 _render_alpha_placeholders()
                 return
 
-            # Parse + clean dates
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df = df.dropna(subset=["date"])
             if df.empty:
                 _render_alpha_placeholders()
                 return
 
-            # Deduplicate → keep last observation per day
             df = df.sort_values("date")
             df = df.groupby("date").tail(1)
 
-            # ------------------------------------------------------------
-            # Observation sufficiency gate
-            # ------------------------------------------------------------
             MIN_OBS = 5
             if len(df) < MIN_OBS:
                 _render_alpha_placeholders(
@@ -84,23 +74,14 @@ def render_alpha_quality_and_confidence(
 
             alpha_series = df["alpha_1d"]
 
-            # ------------------------------------------------------------
-            # Core statistics
-            # ------------------------------------------------------------
             alpha_mean = alpha_series.mean()
             alpha_vol = alpha_series.std()
 
-            if pd.isna(alpha_vol) or alpha_vol == 0:
-                quality_score = 0.0
-            else:
-                quality_score = alpha_mean / alpha_vol
-
-            # Normalize for display
+            quality_score = 0.0 if pd.isna(alpha_vol) or alpha_vol == 0 else alpha_mean / alpha_vol
             quality_score = max(min(quality_score * 10, 100), -100)
 
             confidence_level = min(len(df) / 60, 1.0) * 100
 
-            # Rolling volatility (stability proxy)
             window = min(20, len(alpha_series))
             rolling_vol = alpha_series.rolling(window=window).std()
             alpha_vol_metric = rolling_vol.iloc[-1] if not rolling_vol.empty else float("nan")
@@ -118,22 +99,14 @@ def render_alpha_quality_and_confidence(
             _render_alpha_placeholders()
             return
 
-        # ------------------------------------------------------------
-        # Executive metrics row
-        # ------------------------------------------------------------
         col1, col2 = st.columns(2)
-
         with col1:
             st.metric("Alpha Quality Score", f"{quality_score:.1f}")
-
         with col2:
             st.metric("Confidence Level", f"{confidence_level:.0f}%")
 
         st.divider()
 
-        # ------------------------------------------------------------
-        # Alpha time series visualization
-        # ------------------------------------------------------------
         st.line_chart(
             df.set_index("date")["alpha_1d"],
             use_container_width=True,
@@ -141,23 +114,61 @@ def render_alpha_quality_and_confidence(
 
         st.divider()
 
-        # ------------------------------------------------------------
-        # Secondary diagnostics
-        # ------------------------------------------------------------
         col3, col4, col5 = st.columns(3)
 
         with col3:
-            if pd.isna(alpha_vol_metric):
-                vol_display = "—"
-            else:
-                vol_display = f"{alpha_vol_metric:.4f}"
-            st.metric("Alpha Volatility (Rolling)", vol_display)
+            st.metric(
+                "Alpha Volatility (Rolling)",
+                "—" if pd.isna(alpha_vol_metric) else f"{alpha_vol_metric:.4f}",
+            )
 
         with col4:
             st.metric("Hit Rate", f"{hit_rate:.0f}%")
 
         with col5:
             st.metric("Alpha Regime", alpha_regime)
+
+
+# ------------------------------------------------------------
+# Alpha Attribution Drivers (EXPLANATORY SECTION)
+# ------------------------------------------------------------
+def render_alpha_attribution_drivers(
+    snapshot_df,
+    selected_wave,
+    return_cols,
+    benchmark_cols,
+):
+    """
+    Explanatory decomposition of realized alpha.
+    This is a UI-only placeholder until full driver data is wired.
+    """
+
+    with st.container():
+        if selected_wave is None:
+            st.info("No wave selected.")
+            return
+
+        st.caption("Strategy-level attribution of realized alpha")
+
+        # NOTE:
+        # The computational driver logic already exists elsewhere in the repo.
+        # This renderer is intentionally conservative and non-fabricating.
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("VIX / Volatility Overlay", "—")
+
+        with col2:
+            st.metric("Momentum / Trend Overlay", "—")
+
+        with col3:
+            st.metric("Stock Selection / Residual", "—")
+
+        st.caption(
+            "Driver attribution will populate automatically once the "
+            "strategy-level decomposition stream is reconnected."
+        )
 
 
 # ------------------------------------------------------------
