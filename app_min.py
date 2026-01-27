@@ -11,7 +11,6 @@ from pathlib import Path
 from intelligence.adaptive_intelligence import (
     render_alpha_quality_and_confidence,
     render_alpha_attribution_drivers,
-    render_adaptive_intelligence_preview,
 )
 
 # ===========================
@@ -20,7 +19,7 @@ from intelligence.adaptive_intelligence import (
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # ===========================
@@ -110,12 +109,9 @@ else:
 # ===========================
 # Tabs
 # ===========================
-tabs = st.tabs([
-    "Overview",
-    "Alpha Attribution",
-    "Adaptive Intelligence",
-    "Operations",
-])
+tabs = st.tabs(
+    ["Overview", "Alpha Attribution", "Adaptive Intelligence", "Operations"]
+)
 
 # ============================================================
 # OVERVIEW TAB
@@ -134,202 +130,85 @@ with tabs[0]:
             if abs(value) < 1e-10:
                 return "0.00%"
             pct = value * 100
-            if pct > 0:
-                return f"+{pct:.2f}%"
-            return f"{pct:.2f}%"
+            return f"+{pct:.2f}%" if pct > 0 else f"{pct:.2f}%"
 
-        portfolio_returns = {
-            k: df[v].mean(skipna=True)
-            for k, v in RETURN_COLS.items()
-        }
-
-        portfolio_alpha = {
-            k: df[v].mean(skipna=True)
-            for k, v in ALPHA_COLS.items()
-        }
-
-        intraday_labels = df["intraday_label"].dropna().unique().tolist()
-        portfolio_intraday_label = intraday_labels[0] if len(intraday_labels) == 1 else None
+        portfolio_returns = {k: df[v].mean(skipna=True) for k, v in RETURN_COLS.items()}
+        portfolio_alpha = {k: df[v].mean(skipna=True) for k, v in ALPHA_COLS.items()}
 
         with st.container():
             st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
-            if portfolio_intraday_label:
-                st.caption(f"Equal-weighted performance across all active waves · {portfolio_intraday_label}")
-            else:
-                st.caption("Equal-weighted performance across all active waves.")
             st.divider()
 
             st.markdown("**Returns**")
-            ret_cols = st.columns(4)
+            cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_returns.items()):
-                ret_cols[i].markdown(
-                    f"<div style='line-height:1.4'>"
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return</span><br>"
-                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+                cols[i].metric(label, format_percentage(value))
 
             st.markdown("**Alpha**")
-            alpha_cols = st.columns(4)
+            cols = st.columns(4)
             for i, (label, value) in enumerate(portfolio_alpha.items()):
-                alpha_cols[i].markdown(
-                    f"<div style='line-line-height:1.4'>"
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha</span><br>"
-                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-        st.divider()
-
-        if selected_wave is not None:
-            wave_row = df[df["display_name"] == selected_wave].iloc[0]
-
-            wave_returns = {k: wave_row[v] for k, v in RETURN_COLS.items()}
-            wave_alpha = {k: wave_row[v] for k, v in ALPHA_COLS.items()}
-
-            wave_intraday_label = wave_row.get("intraday_label", None)
-            wave_intraday_label = (
-                wave_intraday_label
-                if isinstance(wave_intraday_label, str) and wave_intraday_label.strip()
-                else None
-            )
-
-            with st.container():
-                st.markdown(f"### 📊 Selected Wave Snapshot — {selected_wave}")
-                if wave_intraday_label:
-                    st.caption(f"Performance profile for the selected wave · {wave_intraday_label}")
-                else:
-                    st.caption("Performance profile for the selected wave.")
-                st.divider()
-
-                st.markdown("**Returns**")
-                wret_cols = st.columns(4)
-                for i, (label, value) in enumerate(wave_returns.items()):
-                    wret_cols[i].markdown(
-                        f"<div style='line-height:1.4'>"
-                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return</span><br>"
-                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-
-                st.markdown("**Alpha**")
-                walpha_cols = st.columns(4)
-                for i, (label, value) in enumerate(wave_alpha.items()):
-                    walpha_cols[i].markdown(
-                        f"<div style='line-height:1.4'>"
-                        f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha</span><br>"
-                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+                cols[i].metric(label, format_percentage(value))
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB — APPLE-STYLE (DARK)
+# ALPHA ATTRIBUTION TAB (CANONICAL HOME)
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
-    st.caption("Cinematic, governance-native view of realized alpha and its drivers.")
+    st.caption("Governance-native view of realized alpha and its drivers.")
     st.divider()
 
     if snapshot_error:
         st.error(snapshot_error)
     else:
-        # -------------------------------
-        # SECTION 1 — Alpha Quality & Confidence (Hero)
-        # -------------------------------
-        with st.container():
-            if selected_wave is not None:
-                st.caption(f"Wave focus: {selected_wave}")
-            else:
-                st.caption("Wave focus: None selected")
-
-            render_alpha_quality_and_confidence(
-                snapshot_df,
-                None,
-                selected_wave,
-                RETURN_COLS,
-                BENCHMARK_COLS,
-            )
+        # ---- Alpha Quality & Confidence (ONLY PLACE IT APPEARS)
+        render_alpha_quality_and_confidence(
+            snapshot_df,
+            None,
+            selected_wave,
+            RETURN_COLS,
+            BENCHMARK_COLS,
+        )
 
         st.divider()
 
-        # -------------------------------
-        # SECTION 2 — Alpha Attribution Drivers
-        # -------------------------------
-        with st.container():
-            st.subheader("Alpha Attribution Drivers")
-            st.caption("Explanatory decomposition of realized alpha across strategy components.")
-            st.divider()
-
-            render_alpha_attribution_drivers(
-                snapshot_df,
-                selected_wave,
-                RETURN_COLS,
-                BENCHMARK_COLS,
-            )
-
+        # ---- Alpha Attribution Drivers
+        st.subheader("Alpha Attribution Drivers")
+        st.caption("Explanatory decomposition of realized alpha across strategy components.")
         st.divider()
 
-        # -------------------------------
-        # SECTION 3 — Attribution Period Snapshot (INTRADAY / 30D / 60D / 365D)
-        # -------------------------------
-        with st.container():
-            st.subheader("Attribution Snapshot by Period")
-            st.caption("Select a horizon to inspect how realized alpha has behaved over time.")
-
-            period_label = st.selectbox(
-                "Attribution period",
-                ["INTRADAY (LIVE)", "30D", "60D", "365D"],
-                index=0,
-                key="alpha_attr_period_select",
-            )
-
-            st.divider()
-
-            if selected_wave is None:
-                st.info("Select a wave in the sidebar to view period-level attribution snapshots.")
-            else:
-                if period_label == "INTRADAY (LIVE)":
-                    st.caption(
-                        f"Intraday attribution for {selected_wave} is computed live from the current snapshot."
-                    )
-                    st.info(
-                        "Intraday attribution stream is not yet connected. "
-                        "No synthetic or fabricated attribution is displayed."
-                    )
-                else:
-                    st.caption(
-                        f"Daily attribution snapshot for {selected_wave} over the last {period_label} "
-                        "(stream will populate once the attribution history feed is wired)."
-                    )
-                    st.info(
-                        "Period-level attribution tables are intentionally withheld until the "
-                        "institutional attribution history stream is connected. "
-                        "No synthetic or fabricated attribution is displayed."
-                    )
+        render_alpha_attribution_drivers(
+            snapshot_df,
+            selected_wave,
+            RETURN_COLS,
+            BENCHMARK_COLS,
+        )
 
 # ============================================================
-# ADAPTIVE INTELLIGENCE TAB — APPLE-STYLE (DARK)
+# ADAPTIVE INTELLIGENCE TAB (NO DUPLICATES)
 # ============================================================
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.caption("Interpretive layer derived from Alpha Attribution — read-only, governance-first.")
+    st.caption("Interpretive layer — forward-looking, read-only.")
     st.divider()
 
-    if snapshot_error:
-        st.error(snapshot_error)
+    if selected_wave is None:
+        st.info("Select a wave to view adaptive intelligence.")
     else:
-        with st.container():
-            render_adaptive_intelligence_preview(
-                snapshot_df,
-                None,
-                selected_wave,
-                RETURN_COLS,
-                BENCHMARK_COLS,
-            )
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Adaptive Bias", "Neutral")
+
+        with col2:
+            st.metric("Regime Read", "Undetermined")
+
+        with col3:
+            st.metric("Signal Strength", "—")
+
+        st.info(
+            "Adaptive Intelligence is interpretive only. "
+            "No trading logic or automated actions are executed."
+        )
 
 # ============================================================
 # OPERATIONS TAB
