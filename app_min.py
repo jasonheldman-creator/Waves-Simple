@@ -123,6 +123,9 @@ with tabs[0]:
     else:
         df = snapshot_df.copy()
 
+        # ---------------------------
+        # Percentage Formatting (Option C)
+        # ---------------------------
         def format_percentage(value: float) -> str:
             if pd.isna(value):
                 return "—"
@@ -133,9 +136,9 @@ with tabs[0]:
                 return f"+{pct:.2f}%"
             return f"{pct:.2f}%"
 
-        # ---------------------------
-        # Portfolio Snapshot (Equal-Weighted)
-        # ---------------------------
+        # ============================================================
+        # PORTFOLIO SNAPSHOT CARD
+        # ============================================================
         portfolio_returns = {
             k: df[v].mean(skipna=True)
             for k, v in RETURN_COLS.items()
@@ -146,31 +149,34 @@ with tabs[0]:
             for k, v in ALPHA_COLS.items()
         }
 
-        with st.container():
-            st.subheader("🏛️ Portfolio Snapshot — Equal-Weighted")
-            st.caption("Equal-weighted view across all active waves.")
-
-            # Returns row: 1D | 30D | 60D | 365D
-            st.markdown("**Returns**")
-            return_cols = st.columns(4)
-            for i, (label, value) in enumerate(portfolio_returns.items()):
-                return_cols[i].markdown(
-                    f"**{label}:** {format_percentage(value)}"
-                )
-
-            # Alpha row: 1D | 30D | 60D | 365D
-            st.markdown("**Alpha**")
-            alpha_cols = st.columns(4)
-            for i, (label, value) in enumerate(portfolio_alpha.items()):
-                alpha_cols[i].markdown(
-                    f"**{label}:** {format_percentage(value)}"
-                )
-
+        st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
+        st.caption("Equal‑weighted performance across all active waves.")
         st.divider()
 
-        # ---------------------------
-        # Selected Wave Snapshot
-        # ---------------------------
+        # Returns Row
+        st.markdown("**Returns**")
+        ret_cols = st.columns(4)
+        for i, (label, value) in enumerate(portfolio_returns.items()):
+            ret_cols[i].markdown(
+                f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
+                unsafe_allow_html=True,
+            )
+
+        # Alpha Row
+        st.markdown("**Alpha**")
+        alpha_cols = st.columns(4)
+        for i, (label, value) in enumerate(portfolio_alpha.items()):
+            alpha_cols[i].markdown(
+                f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
+                unsafe_allow_html=True,
+            )
+
+        # Divider between cards (Option 1)
+        st.divider()
+
+        # ============================================================
+        # SELECTED WAVE SNAPSHOT CARD
+        # ============================================================
         if selected_wave is not None:
             wave_row = df[df["display_name"] == selected_wave].iloc[0]
 
@@ -184,24 +190,27 @@ with tabs[0]:
                 for k, v in ALPHA_COLS.items()
             }
 
-            with st.container():
-                st.subheader(f"📊 Selected Wave Snapshot — {selected_wave}")
+            st.markdown(f"### 📊 Selected Wave Snapshot — {selected_wave}")
+            st.caption("Performance profile for the selected wave.")
+            st.divider()
 
-                # Returns row: 1D | 30D | 60D | 365D
-                st.markdown("**Returns**")
-                wave_return_cols = st.columns(4)
-                for i, (label, value) in enumerate(wave_returns.items()):
-                    wave_return_cols[i].markdown(
-                        f"**{label}:** {format_percentage(value)}"
-                    )
+            # Returns Row
+            st.markdown("**Returns**")
+            wret_cols = st.columns(4)
+            for i, (label, value) in enumerate(wave_returns.items()):
+                wret_cols[i].markdown(
+                    f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
+                    unsafe_allow_html=True,
+                )
 
-                # Alpha row: 1D | 30D | 60D | 365D
-                st.markdown("**Alpha**")
-                wave_alpha_cols = st.columns(4)
-                for i, (label, value) in enumerate(wave_alpha.items()):
-                    wave_alpha_cols[i].markdown(
-                        f"**{label}:** {format_percentage(value)}"
-                    )
+            # Alpha Row
+            st.markdown("**Alpha**")
+            walpha_cols = st.columns(4)
+            for i, (label, value) in enumerate(wave_alpha.items()):
+                walpha_cols[i].markdown(
+                    f"<div style='font-size:1.1rem; font-weight:600;'>{label}: {format_percentage(value)}</div>",
+                    unsafe_allow_html=True,
+                )
 
 # ============================================================
 # ALPHA ATTRIBUTION TAB — DO NOT MODIFY
