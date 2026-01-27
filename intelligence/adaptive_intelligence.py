@@ -4,6 +4,7 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+import numpy as np
 
 DATA_DIR = Path("data")
 ALPHA_HISTORY_PATH = DATA_DIR / "alpha_history.csv"
@@ -109,17 +110,26 @@ def render_alpha_attribution_drivers(*args, **kwargs):
             c2.metric("Momentum", f"{row['alpha_momentum']:.2%}")
             c3.metric("Volatility", f"{row['alpha_volatility']:.2%}")
             c4.metric("Allocation", f"{row['alpha_allocation']:.2%}")
-            c5.metric("Residual", f"{row['alpha_residual']:.2%}")
+            c5.metric(
+                "Residual",
+                f"{row['alpha_residual']:.2%}" if pd.notna(row["alpha_residual"]) else "—",
+            )
 
             attribution_sum = (
                 row["alpha_beta"]
                 + row["alpha_momentum"]
                 + row["alpha_volatility"]
                 + row["alpha_allocation"]
-                + row["alpha_residual"]
+                + (row["alpha_residual"] if pd.notna(row["alpha_residual"]) else 0.0)
             )
 
-            st.progress(min(max((attribution_sum + 0.05) / 0.10, 0), 1))
+            progress_value = (
+                min(max((attribution_sum + 0.05) / 0.10, 0), 1)
+                if pd.notna(attribution_sum)
+                else 0.0
+            )
+
+            st.progress(progress_value)
 
 
 def render_adaptive_intelligence_panel(*args, **kwargs):
