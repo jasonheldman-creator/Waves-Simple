@@ -39,7 +39,7 @@ jobs:
       # Update the path below if the file is NOT at repo root.
       #
       # Examples:
-      #   python generate_live_snapshot_csv.py
+      #   python scripts/generate_live_snapshot_csv.py
       #   python scripts/generate_live_snapshot_csv.py
       #   python data/generate_live_snapshot_csv.py
       # ------------------------------------------------------------
