@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
+
 from intelligence.adaptive_intelligence import render_alpha_quality_and_confidence
 
 # ---------------------------
@@ -60,6 +61,7 @@ def load_snapshot():
 
     return df, None
 
+
 snapshot_df, snapshot_error = load_snapshot()
 
 # ---------------------------
@@ -102,8 +104,7 @@ with tabs[0]:
         df = pd.concat([pd.DataFrame([portfolio_row]), df], ignore_index=True)
 
         view = df[
-            ["display_name"] +
-            list(RETURN_COLS.values())
+            ["display_name"] + list(RETURN_COLS.values())
         ].rename(columns={
             "display_name": "Wave",
             "return_1d": "Intraday",
@@ -122,10 +123,11 @@ with tabs[1]:
     st.header("Alpha Attribution")
 
     waves = snapshot_df["display_name"].tolist()
+
     selected_wave = st.selectbox(
         "Select Wave",
         waves,
-        key="alpha_attribution_wave"
+        key="alpha_attr_wave_select"
     )
 
     source_df = pd.DataFrame({
@@ -147,7 +149,7 @@ with tabs[1]:
         source_df,
         selected_wave,
         RETURN_COLS,
-        BENCHMARK_COLS
+        BENCHMARK_COLS,
     )
 
 # ===========================
@@ -161,10 +163,11 @@ with tabs[2]:
         st.error(snapshot_error)
     else:
         waves = snapshot_df["display_name"].tolist()
+
         selected_wave = st.selectbox(
             "Select Wave",
             waves,
-            key="adaptive_intelligence_wave"
+            key="adaptive_intel_wave_select"
         )
 
         render_alpha_quality_and_confidence(
@@ -172,7 +175,7 @@ with tabs[2]:
             None,
             selected_wave,
             RETURN_COLS,
-            BENCHMARK_COLS
+            BENCHMARK_COLS,
         )
 
 # ===========================
@@ -181,4 +184,3 @@ with tabs[2]:
 with tabs[3]:
     st.header("Operations")
     st.info("Operations control center coming next.")
-    
