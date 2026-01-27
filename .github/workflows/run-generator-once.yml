@@ -1,0 +1,35 @@
+name: Run Live Snapshot Generator Once
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  run-generator:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow
+
+      - name: Run live snapshot generator
+        run: |
+          python generate_live_snapshot_csv.py
+
+      - name: Commit live snapshot output
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/live_snapshot.csv data/alpha_history.csv
+          git commit -m "Generate live snapshot via workflow" || echo "No changes to commit"
+          git push
