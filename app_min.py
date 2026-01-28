@@ -164,18 +164,21 @@ with tabs[0]:
             alpha_cols = st.columns(len(portfolio_alpha))
             for i, (label, value) in enumerate(portfolio_alpha.items()):
                 if label == "365D":
-                    mom_series = df["alpha_momentum_365d"] if "alpha_momentum_365d" in df.columns else None
-                    vol_series = df["alpha_volatility_365d"] if "alpha_volatility_365d" in df.columns else None
-
-                    if mom_series is None or vol_series is None:
+                    if (
+                        "alpha_momentum_365d" not in df.columns
+                        or "alpha_volatility_365d" not in df.columns
+                    ):
                         display_value = "—"
                     else:
+                        mom_series = df["alpha_momentum_365d"]
+                        vol_series = df["alpha_volatility_365d"]
                         overlay_series = mom_series + vol_series
+
                         if overlay_series.isna().all():
                             display_value = "—"
                         else:
-                            overlay = overlay_series.mean(skipna=True) * 100
-                            display_value = f"{overlay:.1f}%"
+                            portfolio_overlay_alpha = overlay_series.mean(skipna=True) * 100
+                            display_value = f"{portfolio_overlay_alpha:.1f}%"
 
                     label_text = "Overlay Alpha (Momentum + Volatility)"
                     alpha_cols[i].markdown(
@@ -205,7 +208,6 @@ with tabs[1]:
     if snapshot_error or snapshot_df is None:
         st.info("Attribution requires a valid live snapshot.")
     else:
-        # 🔽 HORIZON DROPDOWN (DEFAULT = 30D)
         horizon = st.selectbox(
             "Attribution Horizon",
             ["30D", "INTRADAY", "1D", "60D", "365D"],
@@ -213,7 +215,6 @@ with tabs[1]:
             key="alpha_attribution_horizon_select",
         )
 
-        # Make horizon available to renderer
         st.session_state["alpha_attribution_horizon"] = horizon
 
         st.divider()
