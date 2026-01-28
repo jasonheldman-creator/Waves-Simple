@@ -10,6 +10,43 @@ import pandas as pd
 LIVE_SNAPSHOT_PATH = "data/live_snapshot.csv"
 ATTRIBUTION_PATH = "data/alpha_attribution_snapshot.csv"
 
+# -------------------------------------------------------------------
+# Canonical driver binding (UI-facing keys → snapshot columns)
+# -------------------------------------------------------------------
+# This is the explicit, non-inferred binding layer that the Alpha Attribution
+# UI can import/use to resolve canonical driver keys:
+#
+#   "beta"        → alpha_market
+#   "momentum"    → alpha_momentum
+#   "volatility"  → alpha_volatility
+#   "allocation"  → alpha_rotation
+#   "residual"    → alpha_stock_selection
+#
+# NOTE:
+# - This does NOT rename any columns.
+# - This does NOT change attribution math.
+# - This does NOT change the CSV schema written below.
+CANONICAL_ALPHA_DRIVER_MAP = {
+    "beta": "alpha_market",
+    "momentum": "alpha_momentum",
+    "volatility": "alpha_volatility",
+    "allocation": "alpha_rotation",
+    "residual": "alpha_stock_selection",
+}
+
+
+def get_canonical_alpha_driver_map():
+    """
+    Accessor for the canonical alpha driver mapping.
+
+    This is intentionally a thin wrapper so that downstream consumers
+    (TruthFrame, UI adapters, etc.) can import a single, authoritative
+    mapping from canonical driver keys to the columns emitted in
+    alpha_attribution_snapshot.csv, without inferring or hard-coding
+    their own bindings.
+    """
+    return CANONICAL_ALPHA_DRIVER_MAP.copy()
+
 
 # -------------------------------------------------------------------
 # Core generator (SAFE to call from app.py)
