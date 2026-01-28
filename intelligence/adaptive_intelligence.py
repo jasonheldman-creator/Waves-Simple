@@ -1,7 +1,7 @@
 # intelligence/adaptive_intelligence.py
 
 import math
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 import streamlit as st
@@ -10,9 +10,9 @@ import streamlit as st
 EM_DASH = "—"
 
 
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
 # Horizon resolution
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
 def _resolve_attribution_horizon():
     """
     Resolve the alpha attribution horizon from session state.
@@ -23,36 +23,33 @@ def _resolve_attribution_horizon():
       - 30D
       - 60D
       - 365D
-
-    Returns:
-      {
-        "label": one of "INTRADAY", "30D", "60D", "365D",
-        "suffix": None for intraday/1D, or "30d"/"60d"/"365d"
-      }
     """
     raw = st.session_state.get("alpha_attribution_horizon", "30D")
-    horizon = raw.strip().upper() if isinstance(raw, str) else "30D"
+
+    if isinstance(raw, str):
+        horizon = raw.strip().upper()
+    else:
+        horizon = "30D"
 
     if horizon in ("INTRADAY", "1D"):
         return {"label": "INTRADAY", "suffix": None}
+
     if horizon == "30D":
         return {"label": "30D", "suffix": "30d"}
+
     if horizon == "60D":
         return {"label": "60D", "suffix": "60d"}
+
     if horizon == "365D":
         return {"label": "365D", "suffix": "365d"}
 
     return {"label": "30D", "suffix": "30d"}
 
 
-# ------------------------------------------------------------
-# Governance-safe helpers
-# ------------------------------------------------------------
-def _safe_get_value(row: pd.Series, col: str | None):
-    """
-    Safely extract a numeric value from a row.
-    Column names are expected to be lowercase.
-    """
+# ------------------------------------------------------------------
+# Safe value access
+# ------------------------------------------------------------------
+def _safe_get_value(row: pd.Series, col: Optional[str]) -> Optional[float]:
     if col is None or col not in row.index:
         return None
 
@@ -63,10 +60,24 @@ def _safe_get_value(row: pd.Series, col: str | None):
     return None
 
 
+def _pick_first_existing(row: pd.Series, candidates: List[str]) -> Optional[str]:
+    """
+    Governance-safe binding helper.
+    Returns the first column that exists in the row.
+    """
+    for col in candidates:
+        if col in row.index:
+            return col
+    return None
+
+
+# ------------------------------------------------------------------
+# Rendering helpers
+# ------------------------------------------------------------------
 def _render_progress_with_label(
     label: str,
-    value: float | None,
-    help_text: str | None = None,
+    value: Optional[float],
+    help_text: Optional[str] = None,
     min_val: float = -1.0,
     max_val: float = 1.0,
 ):
@@ -79,7 +90,7 @@ def _render_progress_with_label(
         st.write(EM_DASH)
         return
 
-    clamped = max(min_val, min(max_val, float(value)))
+    clamped = max(min_val, min(max_val, value))
     span = max_val - min_val if max_val != min_val else 1.0
     normalized = (clamped - min_val) / span
 
@@ -93,74 +104,93 @@ def _render_progress_with_label(
 def _render_tactical_timing_explainer():
     st.subheader("Tactical Timing")
     st.caption(
-        "Tactical Timing decomposes realized alpha into distinct drivers—"
-        "residual selection, momentum, volatility, beta, and allocation—"
-        "over the selected attribution horizon."
+        "Tactical Timing decomposes realized alpha into residual selection, "
+        "momentum, volatility, beta, and allocation over the selected horizon. "
+        "This view is governance-first and purely explanatory."
     )
 
 
-# ------------------------------------------------------------
-# Residual logic (unchanged, governance-safe)
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
+# Residual logic
+# ------------------------------------------------------------------
 def _compute_residual_component(
     row: pd.Series,
-    residual_col: str | None,
-    alpha_col: str | None,
-    other_component_cols: List[str],
+    residual_col: Optional[str],
+    alpha_col: Optional[str],
+    other_component_cols: List[Optional[str]],
 ):
-    # 1) Explicit residual
-    if residual_col:
-        residual_val = _safe_get_value(row, residual_col)
-        if residual_val is not None:
-            return residual_val
+    # 1) Explicit residual if present
+    residual_val = _safe_get_value(row, residual_col)
+    if residual_val is not None:
+        return residual_val
 
-    # 2) Derived residual
-    if not alpha_col:
-        return None
-
+    # 2) Derive from alpha − known components
     alpha_val = _safe_get_value(row, alpha_col)
     if alpha_val is None:
         return None
 
-    known_sum = 0.0
+    total_known = 0.0
     known_count = 0
 
     for col in other_component_cols:
         val = _safe_get_value(row, col)
         if val is not None:
-            known_sum += val
+            total_known += val
             known_count += 1
 
     if known_count == 0:
         return None
 
-    return alpha_val - known_sum
+    return alpha_val - total_known
 
 
-# ------------------------------------------------------------
-# Core renderer
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
+# CORE FIX: Attribution component resolution
+# ------------------------------------------------------------------
 def _render_attribution_components(row: pd.Series, horizon_info: dict):
     """
-    IMPORTANT:
-    All column names are LOWERCASE to match app_min.py normalization.
+    Correct, deterministic attribution binding.
+
+    RULE (CRITICAL):
+    If a horizon suffix exists, ALWAYS prefer suffixed columns first.
     """
 
     suffix = horizon_info.get("suffix")
 
-    # Canonical (lowercase) column bindings
-    momentum_col = "alpha_momentum"
-    volatility_col = "alpha_volatility"
-    beta_col = "alpha_market"
-    allocation_col = "alpha_rotation"
-    residual_fallback = "alpha_stock_selection"
-
     if suffix is None:
-        residual_col = residual_fallback
-        alpha_col = "alpha_intraday"
+        # Intraday / 1D
+        residual_col = _pick_first_existing(row, ["alpha_residual"])
+        momentum_col = _pick_first_existing(row, ["alpha_momentum"])
+        volatility_col = _pick_first_existing(row, ["alpha_volatility"])
+        beta_col = _pick_first_existing(row, ["alpha_beta", "alpha_market"])
+        allocation_col = _pick_first_existing(row, ["alpha_allocation", "alpha_rotation"])
+        alpha_col = _pick_first_existing(row, ["alpha_intraday", "alpha_1d", "alpha_total"])
     else:
-        residual_col = f"alpha_residual_{suffix}"
-        alpha_col = f"alpha_{suffix}"
+        # 30D / 60D / 365D — ALWAYS prefer suffixed
+        residual_col = _pick_first_existing(
+            row,
+            [f"alpha_residual_{suffix}", "alpha_stock_selection"],
+        )
+        momentum_col = _pick_first_existing(
+            row,
+            [f"alpha_momentum_{suffix}", "alpha_momentum"],
+        )
+        volatility_col = _pick_first_existing(
+            row,
+            [f"alpha_volatility_{suffix}", "alpha_volatility"],
+        )
+        beta_col = _pick_first_existing(
+            row,
+            [f"alpha_beta_{suffix}", "alpha_market"],
+        )
+        allocation_col = _pick_first_existing(
+            row,
+            [f"alpha_allocation_{suffix}", "alpha_rotation"],
+        )
+        alpha_col = _pick_first_existing(
+            row,
+            [f"alpha_{suffix}", "alpha_total"],
+        )
 
     momentum_val = _safe_get_value(row, momentum_col)
     volatility_val = _safe_get_value(row, volatility_col)
@@ -169,8 +199,8 @@ def _render_attribution_components(row: pd.Series, horizon_info: dict):
 
     residual_val = _compute_residual_component(
         row=row,
-        residual_col=residual_col if residual_col in row.index else residual_fallback,
-        alpha_col=alpha_col if alpha_col in row.index else "alpha_total",
+        residual_col=residual_col,
+        alpha_col=alpha_col,
         other_component_cols=[
             momentum_col,
             volatility_col,
@@ -192,66 +222,55 @@ def _render_attribution_components(row: pd.Series, horizon_info: dict):
         _render_progress_with_label(
             "Momentum",
             momentum_val,
-            "Timing and trend-following effects captured in the portfolio.",
+            "Trend-following and timing contribution.",
         )
         _render_progress_with_label(
             "Volatility",
             volatility_val,
-            "Convexity and volatility harvesting contributions.",
+            "Convexity and volatility harvesting contribution.",
         )
 
     with col2:
         _render_progress_with_label(
             "Beta",
             beta_val,
-            "Exposure to broad market and factor betas.",
+            "Market and factor exposure.",
         )
         _render_progress_with_label(
             "Allocation",
             allocation_val,
-            "Tactical tilts across sleeves, sectors, or themes.",
+            "Tactical allocation and rotation effects.",
         )
 
 
-# ------------------------------------------------------------
-# Header & row selection
-# ------------------------------------------------------------
-def _render_header(selected_wave, horizon_info: dict):
+# ------------------------------------------------------------------
+# Public entry point
+# ------------------------------------------------------------------
+def render_alpha_attribution_drivers(
+    snapshot_df: pd.DataFrame,
+    selected_wave,
+    RETURN_COLS,
+    BENCHMARK_COLS,
+):
+    horizon_info = _resolve_attribution_horizon()
+
     st.markdown("## Alpha Attribution")
 
-    parts = []
+    caption = []
     if selected_wave:
-        parts.append(f"Wave: **{selected_wave}**")
-    if horizon_info.get("label"):
-        parts.append(f"Horizon: **{horizon_info['label']}**")
+        caption.append(f"Wave: **{selected_wave}**")
+    caption.append(f"Horizon: **{horizon_info['label']}**")
+    st.caption(" | ".join(caption))
 
-    if parts:
-        st.caption(" | ".join(parts))
-
-
-def _select_wave_row(snapshot_df: pd.DataFrame, selected_wave):
     if snapshot_df is None or snapshot_df.empty:
-        return None
-
-    if selected_wave and "display_name" in snapshot_df.columns:
-        match = snapshot_df[snapshot_df["display_name"] == selected_wave]
-        if not match.empty:
-            return match.iloc[0]
-
-    return snapshot_df.iloc[0]
-
-
-# ------------------------------------------------------------
-# Public entry point
-# ------------------------------------------------------------
-def render_alpha_attribution_drivers(snapshot_df, selected_wave, RETURN_COLS, BENCHMARK_COLS):
-    horizon_info = _resolve_attribution_horizon()
-    _render_header(selected_wave, horizon_info)
-
-    row = _select_wave_row(snapshot_df, selected_wave)
-    if row is None:
         st.info("No data available for alpha attribution.")
         return
+
+    if selected_wave is not None and "display_name" in snapshot_df.columns:
+        subset = snapshot_df[snapshot_df["display_name"] == selected_wave]
+        row = subset.iloc[0] if not subset.empty else snapshot_df.iloc[0]
+    else:
+        row = snapshot_df.iloc[0]
 
     _render_tactical_timing_explainer()
     _render_attribution_components(row, horizon_info)
