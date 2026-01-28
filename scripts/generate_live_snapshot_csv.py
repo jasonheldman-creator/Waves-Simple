@@ -1,523 +1,70 @@
-#!/usr/bin/env python3
-"""
-generate_live_snapshot_csv.py
+# ============================================================
+# generate_live_snapshot_csv.py
+# Build data/live_snapshot.csv from engine outputs
+# ============================================================
 
-SINGLE SOURCE OF TRUTH for:
-    data/live_snapshot.csv
-    data/alpha_history.csv
-
-Responsibilities:
-    - Compute LIVE intraday returns + alpha (truth-gated)
-    - Compute 30D / 60D / 365D DAILY returns + alpha
-    - Reuse existing price cache + wave weights
-    - Never fabricate data
-    - Leave NaN when unavailable
-    - Append alpha_intraday as alpha_1d (canonical)
-
-Non-Responsibilities:
-    - No UI
-    - No Streamlit
-    - No interpretation
-"""
-
-import os
-import sys
-import csv
-import logging
-from datetime import datetime
+import numpy as np
+import pandas as pd
 from pathlib import Path
 
-import pandas as pd
-import numpy as np
-
-# ============================================================
-# CONFIG
-# ============================================================
+from attribution_engine import compute_horizon_attribution
 
 DATA_DIR = Path("data")
-CACHE_DIR = DATA_DIR / "cache"
+LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 
-PRICES_FILE = CACHE_DIR / "prices_cache.parquet"
-WAVE_WEIGHTS_FILE = DATA_DIR / "wave_weights.csv"
 
-OUTPUT_FILE = DATA_DIR / "live_snapshot.csv"
-ALPHA_HISTORY_FILE = DATA_DIR / "alpha_history.csv"
-ATTRIBUTION_FILE = DATA_DIR / "live_snapshot_attribution.csv"
-
-BENCHMARK_TICKER = "SPY"
-
-RETURN_WINDOWS = {
-    "return_30d": 30,
-    "return_60d": 60,
-    "return_365d": 252,
-}
-
-MIN_ROWS_REQUIRED = max(RETURN_WINDOWS.values()) + 1
-
-_PRICES_CACHE: pd.DataFrame | None = None
-_WAVE_WEIGHTS: pd.DataFrame | None = None
-
-# ============================================================
-# LOGGING
-# ============================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
-log = logging.getLogger("live_snapshot")
-
-# ============================================================
-# HOOK WRAPPERS
-# ============================================================
-
-def load_wave_universe() -> pd.DataFrame:
-    global _WAVE_WEIGHTS
-    if _WAVE_WEIGHTS is None:
-        _WAVE_WEIGHTS = load_wave_weights()
-    return _WAVE_WEIGHTS
-
-
-def get_wave_intraday_prices(wave_id: str) -> tuple[float, float]:
-    if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
-        return np.nan, np.nan
-
-    prices = _PRICES_CACHE
-    weights = _WAVE_WEIGHTS
-
-    session = derive_intraday_session(prices)
-    if not session:
-        return np.nan, np.nan
-
-    wdf = weights[weights["wave_id"] == wave_id]
-    if wdf.empty:
-        return np.nan, np.nan
-
-    price_map = {
-        r["ticker"]: prices[r["ticker"]]
-        for _, r in wdf.iterrows()
-        if r["ticker"] in prices.columns
-    }
-    if not price_map:
-        return np.nan, np.nan
-
-    df_prices = pd.DataFrame(price_map).dropna()
-    if len(df_prices) < MIN_ROWS_REQUIRED:
-        return np.nan, np.nan
-
-    weight_vec = (
-        wdf.set_index("ticker")["weight"]
-        .reindex(df_prices.columns)
-        .fillna(0.0)
-    )
-    if weight_vec.sum() == 0:
-        return np.nan, np.nan
-
-    weight_vec /= weight_vec.sum()
-    weighted_series = df_prices.dot(weight_vec)
-
-    try:
-        return (
-            float(weighted_series.loc[session["price_now_ts"]]),
-            float(weighted_series.loc[session["prior_close_ts"]]),
-        )
-    except Exception:
-        return np.nan, np.nan
-
-
-def get_benchmark_intraday_prices() -> tuple[float, float]:
-    if _PRICES_CACHE is None:
-        return np.nan, np.nan
-
-    prices = _PRICES_CACHE
-    if BENCHMARK_TICKER not in prices.columns:
-        return np.nan, np.nan
-
-    session = derive_intraday_session(prices)
-    if not session:
-        return np.nan, np.nan
-
-    series = prices[BENCHMARK_TICKER].dropna()
-    try:
-        return (
-            float(series.loc[session["price_now_ts"]]),
-            float(series.loc[session["prior_close_ts"]]),
-        )
-    except Exception:
-        return np.nan, np.nan
-
-
-def get_wave_horizon_return(wave_id: str, days: int) -> float:
-    if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
-        return np.nan
-
-    prices = _PRICES_CACHE
-    weights = _WAVE_WEIGHTS
-
-    wdf = weights[weights["wave_id"] == wave_id]
-    if wdf.empty:
-        return np.nan
-
-    price_map = {
-        r["ticker"]: prices[r["ticker"]]
-        for _, r in wdf.iterrows()
-        if r["ticker"] in prices.columns
-    }
-    if not price_map:
-        return np.nan
-
-    df_prices = pd.DataFrame(price_map).dropna()
-    if len(df_prices) < MIN_ROWS_REQUIRED:
-        return np.nan
-
-    weight_vec = (
-        wdf.set_index("ticker")["weight"]
-        .reindex(df_prices.columns)
-        .fillna(0.0)
-    )
-    if weight_vec.sum() == 0:
-        return np.nan
-
-    weight_vec /= weight_vec.sum()
-    weighted_series = df_prices.dot(weight_vec)
-
-    return compute_return(weighted_series, days)
-
-
-def get_benchmark_horizon_return(days: int) -> float:
-    if _PRICES_CACHE is None:
-        return np.nan
-
-    prices = _PRICES_CACHE
-    if BENCHMARK_TICKER not in prices.columns:
-        return np.nan
-
-    series = prices[BENCHMARK_TICKER].dropna()
-    return compute_return(series, days)
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def hard_fail(msg: str):
-    log.error(msg)
-    sys.exit(1)
-
-
-def load_prices() -> pd.DataFrame:
-    if not PRICES_FILE.exists():
-        hard_fail(f"Missing price cache: {PRICES_FILE}")
-
-    prices = pd.read_parquet(PRICES_FILE)
-    if prices.empty:
-        hard_fail("Price cache is empty")
-
-    prices.index = pd.to_datetime(prices.index, utc=True).tz_convert(None)
-    prices = prices.sort_index()
-
-    if len(prices) < MIN_ROWS_REQUIRED:
-        hard_fail("Insufficient price history")
-
-    if BENCHMARK_TICKER not in prices.columns:
-        hard_fail("SPY missing from price cache")
-
-    return prices
-
-
-def load_wave_weights() -> pd.DataFrame:
-    if not WAVE_WEIGHTS_FILE.exists():
-        hard_fail("Missing wave_weights.csv")
-
-    df = pd.read_csv(WAVE_WEIGHTS_FILE)
-    if not {"wave_id", "ticker", "weight"}.issubset(df.columns):
-        hard_fail("wave_weights.csv missing required columns")
-
-    return df
-
-
-def compute_return(series: pd.Series, window: int) -> float:
-    try:
-        return (series.iloc[-1] / series.iloc[-(window + 1)]) - 1
-    except Exception:
-        return np.nan
-
-
-def derive_intraday_session(prices: pd.DataFrame):
-    idx = prices.index
-    if idx.empty:
-        return None
-
-    price_now_ts = idx.max()
-    current_date = price_now_ts.normalize()
-
-    prior_days = idx.normalize()[idx.normalize() < current_date]
-    if prior_days.empty:
-        return None
-
-    prior_close_ts = idx[idx.normalize() == prior_days.max()].max()
-
-    return {
-        "price_now_ts": price_now_ts,
-        "prior_close_ts": prior_close_ts,
-        "intraday_label": "Since Prior Close",
-    }
-
-
-def get_benchmark_price_series() -> pd.Series | None:
-    if _PRICES_CACHE is None:
-        return None
-    prices = _PRICES_CACHE
-    if BENCHMARK_TICKER not in prices.columns:
-        return None
-    return prices[BENCHMARK_TICKER].dropna()
-
-
-def get_wave_series_and_equal_weight(wave_id: str) -> tuple[pd.Series | None, pd.Series | None]:
-    if _PRICES_CACHE is None or _WAVE_WEIGHTS is None:
-        return None, None
-
-    prices = _PRICES_CACHE
-    weights = _WAVE_WEIGHTS
-
-    wdf = weights[weights["wave_id"] == wave_id]
-    if wdf.empty:
-        return None, None
-
-    price_map = {
-        r["ticker"]: prices[r["ticker"]]
-        for _, r in wdf.iterrows()
-        if r["ticker"] in prices.columns
-    }
-    if not price_map:
-        return None, None
-
-    df_prices = pd.DataFrame(price_map).dropna()
-    if len(df_prices) < MIN_ROWS_REQUIRED:
-        return None, None
-
-    weight_vec = (
-        wdf.set_index("ticker")["weight"]
-        .reindex(df_prices.columns)
-        .fillna(0.0)
-    )
-    if weight_vec.sum() == 0:
-        return None, None
-
-    weight_vec /= weight_vec.sum()
-    weighted_series = df_prices.dot(weight_vec)
-
-    equal_weight_series = df_prices.mean(axis=1)
-
-    return weighted_series, equal_weight_series
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-    global _PRICES_CACHE, _WAVE_WEIGHTS
-
-    _PRICES_CACHE = load_prices()
-    _WAVE_WEIGHTS = load_wave_universe()
-
-    session = derive_intraday_session(_PRICES_CACHE)
-
-    bench_latest, bench_prior = get_benchmark_intraday_prices()
-    benchmark_intraday = (
-        (bench_latest / bench_prior) - 1
-        if pd.notna(bench_latest) and pd.notna(bench_prior)
-        else np.nan
-    )
-
-    benchmark_series = get_benchmark_price_series()
+def generate_live_snapshot_csv(
+    waves: dict,
+    benchmarks: dict,
+    engine_weights: dict,
+) -> None:
 
     rows = []
-    attribution_rows = []
 
-    for wave_id in sorted(_WAVE_WEIGHTS["wave_id"].unique()):
+    horizon_meta = {
+        "30d": 30,
+        "60d": 60,
+        "365d": 252,
+    }
+
+    for wave_id, wave_series in waves.items():
+        benchmark_series = benchmarks.get(wave_id)
+        if benchmark_series is None:
+            continue
+
         row = {"wave_id": wave_id}
 
-        # ----------------------------------------------------
-        # Horizon returns + alpha (existing logic)
-        # ----------------------------------------------------
-        for name, days in RETURN_WINDOWS.items():
-            wave_ret = get_wave_horizon_return(wave_id, days)
-            bench_ret = get_benchmark_horizon_return(days)
-            row[name] = wave_ret
-            row[name.replace("return", "alpha")] = (
-                wave_ret - bench_ret
-                if pd.notna(wave_ret) and pd.notna(bench_ret)
-                else np.nan
-            )
+        for suffix, days in horizon_meta.items():
+            wave_h = wave_series.tail(days)
+            bench_h = benchmark_series.tail(days)
 
-        # ----------------------------------------------------
-        # Intraday returns + alpha (existing logic)
-        # ----------------------------------------------------
-        if session:
-            w_latest, w_prior = get_wave_intraday_prices(wave_id)
-            intraday_ret = (
-                (w_latest / w_prior) - 1
-                if pd.notna(w_latest) and pd.notna(w_prior)
-                else np.nan
-            )
-            alpha_intraday = (
-                intraday_ret - benchmark_intraday
-                if pd.notna(intraday_ret) and pd.notna(benchmark_intraday)
-                else np.nan
-            )
+            if len(wave_h) < 2 or len(bench_h) < 2:
+                row[f"return_{suffix}"] = np.nan
+                row[f"benchmark_return_{suffix}"] = np.nan
+                row[f"alpha_{suffix}"] = np.nan
+                continue
 
-            row["return_intraday"] = intraday_ret
-            row["alpha_intraday"] = alpha_intraday
-            row["intraday_label"] = session["intraday_label"]
+            wave_ret = wave_h.iloc[-1] / wave_h.iloc[0] - 1.0
+            bench_ret = bench_h.iloc[-1] / bench_h.iloc[0] - 1.0
 
-            attribution_rows.append({
-                "wave_id": wave_id,
-                "timestamp": session["price_now_ts"],
-                "alpha_beta": 0.0,
-                "alpha_momentum": 0.0,
-                "alpha_volatility": 0.0,
-                "alpha_allocation": 0.0,
-                "alpha_residual": alpha_intraday,
-            })
-        else:
-            row["return_intraday"] = np.nan
-            row["alpha_intraday"] = np.nan
-            row["intraday_label"] = None
-
-        # ----------------------------------------------------
-        # Multi-horizon alpha attribution components (REAL)
-        # ----------------------------------------------------
-        horizon_meta = {
-            "30d": 30,
-            "60d": 60,
-            "365d": 252,
-        }
-
-        wave_series, equal_weight_series = get_wave_series_and_equal_weight(wave_id)
-
-        # FIX 1 — engine_weights added
-        engine_weights = _WAVE_WEIGHTS[_WAVE_WEIGHTS["wave_id"] == wave_id].set_index("ticker")["weight"]
+            row[f"return_{suffix}"] = float(wave_ret)
+            row[f"benchmark_return_{suffix}"] = float(bench_ret)
+            row[f"alpha_{suffix}"] = float(wave_ret - bench_ret)
 
         for suffix, days in horizon_meta.items():
-            alpha_col = f"alpha_{suffix}"
-            alpha_val = row.get(alpha_col, np.nan)
+            attribution = compute_horizon_attribution(
+                wave_series,
+                benchmark_series,
+                engine_weights,
+                days,
+            )
 
-            beta_contrib = np.nan
-            mom_contrib = np.nan
-            vol_contrib = np.nan
-            alloc_contrib = np.nan
-            residual_contrib = np.nan
-
-            if pd.isna(alpha_val):
-                row[f"alpha_beta_{suffix}"] = beta_contrib
-                row[f"alpha_momentum_{suffix}"] = mom_contrib
-                row[f"alpha_volatility_{suffix}"] = vol_contrib
-                row[f"alpha_allocation_{suffix}"] = alloc_contrib
-                row[f"alpha_residual_{suffix}"] = residual_contrib
-                continue
-
-            if wave_series is None or benchmark_series is None:
-                row[f"alpha_beta_{suffix}"] = beta_contrib
-                row[f"alpha_momentum_{suffix}"] = mom_contrib
-                row[f"alpha_volatility_{suffix}"] = vol_contrib
-                row[f"alpha_allocation_{suffix}"] = alloc_contrib
-                row[f"alpha_residual_{suffix}"] = residual_contrib
-                continue
-
-            if len(wave_series) < days + 1 or len(benchmark_series) < days + 1:
-                row[f"alpha_beta_{suffix}"] = beta_contrib
-                row[f"alpha_momentum_{suffix}"] = mom_contrib
-                row[f"alpha_volatility_{suffix}"] = vol_contrib
-                row[f"alpha_allocation_{suffix}"] = alloc_contrib
-                row[f"alpha_residual_{suffix}"] = residual_contrib
-                continue
-
-            ws = wave_series.iloc[-(days + 1):]
-            bs = benchmark_series.iloc[-(days + 1):]
-
-            aligned = pd.concat([ws, bs], axis=1, join="inner").dropna()
-            if len(aligned) < days + 1:
-                row[f"alpha_beta_{suffix}"] = beta_contrib
-                row[f"alpha_momentum_{suffix}"] = mom_contrib
-                row[f"alpha_volatility_{suffix}"] = vol_contrib
-                row[f"alpha_allocation_{suffix}"] = alloc_contrib
-                row[f"alpha_residual_{suffix}"] = residual_contrib
-                continue
-
-            wave_prices = aligned.iloc[:, 0]
-            bench_prices = aligned.iloc[:, 1]
-
-            wave_rets = wave_prices.pct_change().dropna()
-            bench_rets = bench_prices.pct_change().dropna()
-
-            if len(wave_rets) >= 2 and len(bench_rets) >= 2 and bench_rets.var() > 0:
-                cov = np.cov(wave_rets, bench_rets)[0, 1]
-                var_b = np.var(bench_rets)
-                beta = cov / var_b
-
-                bench_ret_h = (bench_prices.iloc[-1] / bench_prices.iloc[0]) - 1
-                beta_contrib = (beta - 1.0) * bench_ret_h
-            else:
-                beta_contrib = np.nan
-
-            mom_contrib = np.nan
-            vol_contrib = np.nan
-
-            if equal_weight_series is not None and len(equal_weight_series) >= days + 1:
-                es = equal_weight_series.iloc[-(days + 1):]
-                aligned_eq = pd.concat([wave_prices, es], axis=1, join="inner").dropna()
-                if len(aligned_eq) >= 2:
-                    w_p = aligned_eq.iloc[:, 0]
-                    e_p = aligned_eq.iloc[:, 1]
-                    wave_ret_h = (w_p.iloc[-1] / w_p.iloc[0]) - 1
-                    eq_ret_h = (e_p.iloc[-1] / e_p.iloc[0]) - 1
-                    alloc_contrib = wave_ret_h - eq_ret_h
-                else:
-                    alloc_contrib = np.nan
-            else:
-                alloc_contrib = np.nan
-
-            components = [beta_contrib, mom_contrib, vol_contrib, alloc_contrib]
-            finite_components = [c for c in components if pd.notna(c)]
-
-            if finite_components:
-                residual_contrib = alpha_val - sum(finite_components)
-            else:
-                residual_contrib = alpha_val
-
-            row[f"alpha_beta_{suffix}"] = beta_contrib
-            row[f"alpha_momentum_{suffix}"] = mom_contrib
-            row[f"alpha_volatility_{suffix}"] = vol_contrib
-            row[f"alpha_allocation_{suffix}"] = alloc_contrib
-            row[f"alpha_residual_{suffix}"] = residual_contrib
+            row[f"alpha_beta_{suffix}"] = attribution.get("beta", np.nan)
+            row[f"alpha_momentum_{suffix}"] = attribution.get("momentum", np.nan)
+            row[f"alpha_volatility_{suffix}"] = attribution.get("volatility", np.nan)
+            row[f"alpha_allocation_{suffix}"] = attribution.get("allocation", np.nan)
+            row[f"alpha_residual_{suffix}"] = attribution.get("residual", np.nan)
 
         rows.append(row)
 
-    if not rows:
-        hard_fail("No snapshot rows generated")
-
-    snapshot_df = pd.DataFrame(rows)
-    snapshot_df.to_csv(OUTPUT_FILE, index=False)
-    log.info(f"Wrote live snapshot → {OUTPUT_FILE}")
-
-    if attribution_rows:
-        pd.DataFrame(attribution_rows).to_csv(ATTRIBUTION_FILE, index=False)
-        log.info(f"Wrote attribution snapshot → {ATTRIBUTION_FILE}")
-
-    try:
-        if not ALPHA_HISTORY_FILE.exists():
-            with open(ALPHA_HISTORY_FILE, "w", newline="") as f:
-                csv.writer(f).writerow(["date", "wave_id", "alpha_1d"])
-
-        today = datetime.now().strftime("%Y-%m-%d")
-
-        with open(ALPHA_HISTORY_FILE, "a", newline="") as f:
-            writer = csv.writer(f)
-            for _, r in snapshot_df.iterrows():
-                writer.writerow([today, r["wave_id"], r["alpha_intraday"]])
-    except Exception:
-        pass
-
-
-if __name__ == "__main__":
-    main()
+    pd.DataFrame(rows).to_csv(LIVE_SNAPSHOT_PATH, index=False)
