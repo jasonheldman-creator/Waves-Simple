@@ -26,8 +26,12 @@ def build_alpha_attribution_snapshot():
     - Alpha must be numeric and finite
     - One row in → one row out (never all-or-nothing failure)
 
-    Returns:
-        (bool, str)
+    Alpha sources (canonical):
+    - Market / Beta
+    - Momentum
+    - Volatility (VIX / convexity)
+    - Rotation / Allocation
+    - Stock Selection (Residual)
     """
 
     # ---------------------------------------------------------------
@@ -110,17 +114,17 @@ def build_alpha_attribution_snapshot():
             alpha_market = (beta_real - 1.0) * alpha_total * 0.20
 
             # -------------------------------------------------------
-            # VIX / volatility overlay
+            # Volatility / VIX overlay (canonical VOLATILITY driver)
             # -------------------------------------------------------
-            alpha_vix = 0.0
+            alpha_volatility = 0.0
             vix_regime = str(r.get("VIX_Regime", "")).lower()
 
             if "low" in vix_regime or "risk" in vix_regime:
                 try:
                     adj = float(r.get("VIX_Adjustment_Pct", 0.0))
-                    alpha_vix = adj if adj != 0 else alpha_total * 0.25
+                    alpha_volatility = adj if adj != 0 else alpha_total * 0.25
                 except Exception:
-                    alpha_vix = alpha_total * 0.25
+                    alpha_volatility = alpha_total * 0.25
 
             # -------------------------------------------------------
             # Momentum / trend overlays
@@ -147,7 +151,7 @@ def build_alpha_attribution_snapshot():
             alpha_stock_selection = (
                 alpha_total
                 - alpha_market
-                - alpha_vix
+                - alpha_volatility
                 - alpha_momentum
                 - alpha_rotation
             )
@@ -156,11 +160,15 @@ def build_alpha_attribution_snapshot():
                 {
                     "wave_id": wave_id,
                     "wave_name": wave_name,
+
+                    # Canonical attribution drivers (UI-visible)
                     "alpha_market": alpha_market,
-                    "alpha_vix": alpha_vix,
                     "alpha_momentum": alpha_momentum,
+                    "alpha_volatility": alpha_volatility,
                     "alpha_rotation": alpha_rotation,
                     "alpha_stock_selection": alpha_stock_selection,
+
+                    # Total alpha for reconciliation
                     "alpha_total": alpha_total,
                 }
             )
