@@ -40,7 +40,10 @@ WAVE_REGISTRY_CSV = Path("data/wave_registry.csv")
 WAVE_WEIGHTS_DIR = Path("data/waves")
 OUTPUT_ROOT = Path("data/history")
 
-LOOKBACK_DAYS = 365
+# ⬇️ CRITICAL FIX:
+# Must support ≥252 trading days for 365D attribution
+# Use calendar buffer to survive holidays/weekends
+LOOKBACK_DAYS = 600
 
 
 # ---------------------------------------------------------------------
@@ -105,7 +108,12 @@ def load_wave_weights(wave_id: str) -> Optional[Dict[str, float]]:
 
     df = pd.read_csv(path)
 
-    ticker_col = "ticker" if "ticker" in df.columns else "symbol" if "symbol" in df.columns else None
+    ticker_col = (
+        "ticker" if "ticker" in df.columns
+        else "symbol" if "symbol" in df.columns
+        else None
+    )
+
     if ticker_col is None or "weight" not in df.columns:
         log(f"[SKIP] {wave_id}: invalid weights.csv schema")
         return None
@@ -164,6 +172,7 @@ def build_wave_history() -> None:
     if registry.empty:
         return
 
+    # ⬇️ CRITICAL FIX: extended lookback
     prices = prices.tail(LOOKBACK_DAYS).set_index("date")
     returns = prices.pct_change().dropna(how="all")
 
