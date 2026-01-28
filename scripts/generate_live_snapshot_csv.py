@@ -44,6 +44,9 @@ def generate_live_snapshot_csv(
             "wave_id": wave_id,
         }
 
+        # Track which horizons have sufficient history
+        horizon_ok = {}
+
         # Returns and total alpha per horizon
         for suffix, days in horizon_meta.items():
             wave_h = wave_series.tail(days)
@@ -53,6 +56,7 @@ def generate_live_snapshot_csv(
                 row[f"return_{suffix}"] = np.nan
                 row[f"benchmark_return_{suffix}"] = np.nan
                 row[f"alpha_{suffix}"] = np.nan
+                horizon_ok[suffix] = False
                 continue
 
             wave_ret = wave_h.iloc[-1] / wave_h.iloc[0] - 1.0
@@ -62,9 +66,27 @@ def generate_live_snapshot_csv(
             row[f"return_{suffix}"] = float(wave_ret)
             row[f"benchmark_return_{suffix}"] = float(bench_ret)
             row[f"alpha_{suffix}"] = float(total_alpha)
+            horizon_ok[suffix] = True
 
         # Attribution components per horizon
         for suffix, days in horizon_meta.items():
+
+            # FIX: Only compute attribution when returns were computable
+            if not horizon_ok[suffix]:
+                row[f"alpha_beta_{suffix}"] = np.nan
+                row[f"alpha_momentum_{suffix}"] = np.nan
+                row[f"alpha_volatility_{suffix}"] = np.nan
+                row[f"alpha_allocation_{suffix}"] = np.nan
+                row[f"alpha_residual_{suffix}"] = np.nan
+
+                if suffix == "365d":
+                    row["Alpha_Momentum_365D"] = np.nan
+                    row["Alpha_Volatility_365D"] = np.nan
+                    row["Alpha_Residual_365D"] = np.nan
+
+                continue
+
+            # Safe to compute attribution
             attribution = compute_horizon_attribution(
                 wave_series,
                 benchmark_series,
@@ -99,6 +121,4 @@ def generate_live_snapshot_csv(
 
 
 if __name__ == "__main__":
-    # This script is typically invoked by CI with preloaded inputs.
-    # Intentionally left minimal for safety.
     pass
