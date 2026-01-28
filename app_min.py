@@ -173,11 +173,12 @@ with tabs[0]:
                         mom_series = df["alpha_momentum_365d"]
                         vol_series = df["alpha_volatility_365d"]
                         overlay_series = mom_series + vol_series
+                        valid_overlay = overlay_series.dropna()
 
-                        if overlay_series.isna().all():
+                        if valid_overlay.empty:
                             display_value = "—"
                         else:
-                            portfolio_overlay_alpha = overlay_series.mean(skipna=True) * 100
+                            portfolio_overlay_alpha = valid_overlay.mean() * 100
                             display_value = f"{portfolio_overlay_alpha:.1f}%"
 
                     label_text = "Overlay Alpha (Momentum + Volatility)"
