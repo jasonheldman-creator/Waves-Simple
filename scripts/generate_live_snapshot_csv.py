@@ -72,11 +72,24 @@ def generate_live_snapshot_csv(
                 days,
             )
 
-            row[f"alpha_beta_{suffix}"] = attribution.get("beta", np.nan)
-            row[f"alpha_momentum_{suffix}"] = attribution.get("momentum", np.nan)
-            row[f"alpha_volatility_{suffix}"] = attribution.get("volatility", np.nan)
-            row[f"alpha_allocation_{suffix}"] = attribution.get("allocation", np.nan)
-            row[f"alpha_residual_{suffix}"] = attribution.get("residual", np.nan)
+            beta = attribution.get("beta", np.nan)
+            momentum = attribution.get("momentum", np.nan)
+            volatility = attribution.get("volatility", np.nan)
+            allocation = attribution.get("allocation", np.nan)
+            residual = attribution.get("residual", np.nan)
+
+            # Canonical lowercase (engine-native)
+            row[f"alpha_beta_{suffix}"] = beta
+            row[f"alpha_momentum_{suffix}"] = momentum
+            row[f"alpha_volatility_{suffix}"] = volatility
+            row[f"alpha_allocation_{suffix}"] = allocation
+            row[f"alpha_residual_{suffix}"] = residual
+
+            # Legacy UI contract (TitleCase snapshot schema)
+            if suffix == "365d":
+                row["Alpha_Momentum_365D"] = momentum
+                row["Alpha_Volatility_365D"] = volatility
+                row["Alpha_Residual_365D"] = residual
 
         rows.append(row)
 
