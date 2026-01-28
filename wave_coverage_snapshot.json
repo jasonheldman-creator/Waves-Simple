@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-01-25T23:03:30.325508",
-  "total_waves": 23,
-  "waves_meeting_threshold": 23,
-  "waves_below_threshold": 0,
+  "timestamp": "2026-01-28T06:50:38.985150",
+  "total_waves": 21,
+  "waves_meeting_threshold": 20,
+  "waves_below_threshold": 1,
   "min_coverage_threshold": 0.9,
   "waves": [
     {
@@ -52,12 +52,14 @@
     {
       "wave": "Crypto DeFi Growth Wave",
       "total_tickers": 8,
-      "available_tickers": 8,
-      "missing_tickers": 0,
-      "missing_ticker_list": [],
+      "available_tickers": 7,
+      "missing_tickers": 1,
+      "missing_ticker_list": [
+        "COMP-USD"
+      ],
       "total_weight": 1.0,
-      "available_weight": 1.0,
-      "coverage_pct": 1.0,
+      "available_weight": 0.9299999999999999,
+      "coverage_pct": 0.9299999999999999,
       "meets_threshold": true
     },
     {
@@ -85,13 +87,15 @@
     {
       "wave": "Crypto L2 Growth Wave",
       "total_tickers": 6,
-      "available_tickers": 6,
-      "missing_tickers": 0,
-      "missing_ticker_list": [],
+      "available_tickers": 5,
+      "missing_tickers": 1,
+      "missing_ticker_list": [
+        "IMX-USD"
+      ],
       "total_weight": 1.0,
-      "available_weight": 1.0,
-      "coverage_pct": 1.0,
-      "meets_threshold": true
+      "available_weight": 0.88,
+      "coverage_pct": 0.88,
+      "meets_threshold": false
     },
     {
       "wave": "Demas Fund Wave",
@@ -193,17 +197,6 @@
       "meets_threshold": true
     },
     {
-      "wave": "Small Cap Growth Wave",
-      "total_tickers": 4,
-      "available_tickers": 4,
-      "missing_tickers": 0,
-      "missing_ticker_list": [],
-      "total_weight": 1.0,
-      "available_weight": 1.0,
-      "coverage_pct": 1.0,
-      "meets_threshold": true
-    },
-    {
       "wave": "Small to Mid Cap Growth Wave",
       "total_tickers": 5,
       "available_tickers": 5,
@@ -233,17 +226,6 @@
       "missing_ticker_list": [],
       "total_weight": 1.0,
       "available_weight": 1.0,
-      "coverage_pct": 1.0,
-      "meets_threshold": true
-    },
-    {
-      "wave": "US Small-Cap Disruptors Wave",
-      "total_tickers": 6,
-      "available_tickers": 6,
-      "missing_tickers": 0,
-      "missing_ticker_list": [],
-      "total_weight": 0.9999999999999999,
-      "available_weight": 0.9999999999999999,
       "coverage_pct": 1.0,
       "meets_threshold": true
     },
