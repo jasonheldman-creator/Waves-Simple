@@ -163,13 +163,36 @@ with tabs[0]:
             st.markdown("**Alpha**")
             alpha_cols = st.columns(len(portfolio_alpha))
             for i, (label, value) in enumerate(portfolio_alpha.items()):
-                alpha_cols[i].markdown(
-                    f"<div style='line-height:1.4'>"
-                    f"<span style='font-size:0.85rem; color:#666;'>{label}</span><br>"
-                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+                if label == "365D":
+                    mom_series = df["alpha_momentum_365d"] if "alpha_momentum_365d" in df.columns else None
+                    vol_series = df["alpha_volatility_365d"] if "alpha_volatility_365d" in df.columns else None
+
+                    if mom_series is None or vol_series is None:
+                        display_value = "—"
+                    else:
+                        overlay_series = mom_series + vol_series
+                        if overlay_series.isna().all():
+                            display_value = "—"
+                        else:
+                            overlay = overlay_series.mean(skipna=True) * 100
+                            display_value = f"{overlay:.1f}%"
+
+                    label_text = "Overlay Alpha (Momentum + Volatility)"
+                    alpha_cols[i].markdown(
+                        f"<div style='line-height:1.4'>"
+                        f"<span style='font-size:0.85rem; color:#666;'>{label_text}</span><br>"
+                        f"<span style='font-size:1.25rem; font-weight:700;'>{display_value}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    alpha_cols[i].markdown(
+                        f"<div style='line-height:1.4'>"
+                        f"<span style='font-size:0.85rem; color:#666;'>{label}</span><br>"
+                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
 
 # ============================================================
 # ALPHA ATTRIBUTION TAB (WITH HORIZON DROPDOWN)
