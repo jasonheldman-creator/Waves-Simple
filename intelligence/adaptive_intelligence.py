@@ -10,6 +10,9 @@ import streamlit as st
 EM_DASH = "—"
 
 
+# ------------------------------------------------------------
+# Horizon resolution
+# ------------------------------------------------------------
 def _resolve_attribution_horizon():
     """
     Resolve the alpha attribution horizon from session state.
@@ -21,57 +24,41 @@ def _resolve_attribution_horizon():
       - 60D
       - 365D
 
-    Returns a dict:
+    Returns:
       {
         "label": one of "INTRADAY", "30D", "60D", "365D",
-        "suffix": None for intraday/1D, or "30d"/"60d"/"365d" for others
+        "suffix": None for intraday/1D, or "30d"/"60d"/"365d"
       }
-
-    Defaults safely to 30D if missing or invalid.
     """
     raw = st.session_state.get("alpha_attribution_horizon", "30D")
-
-    if isinstance(raw, str):
-        horizon = raw.strip().upper()
-    else:
-        horizon = "30D"
+    horizon = raw.strip().upper() if isinstance(raw, str) else "30D"
 
     if horizon in ("INTRADAY", "1D"):
         return {"label": "INTRADAY", "suffix": None}
-
     if horizon == "30D":
         return {"label": "30D", "suffix": "30d"}
-
     if horizon == "60D":
         return {"label": "60D", "suffix": "60d"}
-
     if horizon == "365D":
         return {"label": "365D", "suffix": "365d"}
 
-    # Fallback: 30D
     return {"label": "30D", "suffix": "30d"}
 
 
-def _safe_get_value(row: pd.Series, col: str):
+# ------------------------------------------------------------
+# Governance-safe helpers
+# ------------------------------------------------------------
+def _safe_get_value(row: pd.Series, col: str | None):
     """
-    Safely get a numeric value from a row; return None if missing or non-finite.
-
-    FIX:
-    - Accepts Python numerics AND numpy numerics (float64, int64).
-    - Prevents silent rejection of valid attribution values.
+    Safely extract a numeric value from a row.
+    Column names are expected to be lowercase.
     """
-    if col not in row.index:
+    if col is None or col not in row.index:
         return None
 
     value = row[col]
-
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return None
-
-    if math.isfinite(value):
-        return value
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return float(value)
 
     return None
 
@@ -83,9 +70,6 @@ def _render_progress_with_label(
     min_val: float = -1.0,
     max_val: float = 1.0,
 ):
-    """
-    Render a label + progress bar pair, or an em dash if value is missing.
-    """
     st.markdown(f"**{label}**")
 
     if help_text:
@@ -95,7 +79,7 @@ def _render_progress_with_label(
         st.write(EM_DASH)
         return
 
-    clamped = max(min_val, min(max_val, value))
+    clamped = max(min_val, min(max_val, float(value)))
     span = max_val - min_val if max_val != min_val else 1.0
     normalized = (clamped - min_val) / span
 
@@ -107,33 +91,31 @@ def _render_progress_with_label(
 
 
 def _render_tactical_timing_explainer():
-    """
-    Preserve the 'Tactical Timing' explanatory text block.
-    """
     st.subheader("Tactical Timing")
     st.caption(
         "Tactical Timing decomposes realized alpha into distinct drivers—"
         "residual selection, momentum, volatility, beta, and allocation—"
-        "over the selected attribution horizon. This view is designed to "
-        "keep the focus on governance and explainability, not prediction."
+        "over the selected attribution horizon."
     )
 
 
+# ------------------------------------------------------------
+# Residual logic (unchanged, governance-safe)
+# ------------------------------------------------------------
 def _compute_residual_component(
     row: pd.Series,
     residual_col: str | None,
     alpha_col: str | None,
     other_component_cols: List[str],
 ):
-    """
-    Governance-compliant residual logic.
-    """
-    if residual_col is not None:
+    # 1) Explicit residual
+    if residual_col:
         residual_val = _safe_get_value(row, residual_col)
         if residual_val is not None:
             return residual_val
 
-    if alpha_col is None:
+    # 2) Derived residual
+    if not alpha_col:
         return None
 
     alpha_val = _safe_get_value(row, alpha_col)
@@ -144,9 +126,9 @@ def _compute_residual_component(
     known_count = 0
 
     for col in other_component_cols:
-        comp_val = _safe_get_value(row, col)
-        if comp_val is not None:
-            known_sum += comp_val
+        val = _safe_get_value(row, col)
+        if val is not None:
+            known_sum += val
             known_count += 1
 
     if known_count == 0:
@@ -155,25 +137,29 @@ def _compute_residual_component(
     return alpha_val - known_sum
 
 
+# ------------------------------------------------------------
+# Core renderer
+# ------------------------------------------------------------
 def _render_attribution_components(row: pd.Series, horizon_info: dict):
     """
-    Render the alpha attribution components for the selected horizon.
+    IMPORTANT:
+    All column names are LOWERCASE to match app_min.py normalization.
     """
-    suffix = horizon_info.get("suffix", None)
+
+    suffix = horizon_info.get("suffix")
+
+    # Canonical (lowercase) column bindings
+    momentum_col = "alpha_momentum"
+    volatility_col = "alpha_volatility"
+    beta_col = "alpha_market"
+    allocation_col = "alpha_rotation"
+    residual_fallback = "alpha_stock_selection"
 
     if suffix is None:
-        residual_col = "alpha_residual"
-        momentum_col = "alpha_momentum"
-        volatility_col = "alpha_volatility"
-        beta_col = "alpha_market"
-        allocation_col = "alpha_rotation"
+        residual_col = residual_fallback
         alpha_col = "alpha_intraday"
     else:
         residual_col = f"alpha_residual_{suffix}"
-        momentum_col = "alpha_momentum"
-        volatility_col = "alpha_volatility"
-        beta_col = "alpha_market"
-        allocation_col = "alpha_rotation"
         alpha_col = f"alpha_{suffix}"
 
     momentum_val = _safe_get_value(row, momentum_col)
@@ -183,8 +169,8 @@ def _render_attribution_components(row: pd.Series, horizon_info: dict):
 
     residual_val = _compute_residual_component(
         row=row,
-        residual_col=residual_col,
-        alpha_col=alpha_col,
+        residual_col=residual_col if residual_col in row.index else residual_fallback,
+        alpha_col=alpha_col if alpha_col in row.index else "alpha_total",
         other_component_cols=[
             momentum_col,
             volatility_col,
@@ -227,36 +213,37 @@ def _render_attribution_components(row: pd.Series, horizon_info: dict):
         )
 
 
+# ------------------------------------------------------------
+# Header & row selection
+# ------------------------------------------------------------
 def _render_header(selected_wave, horizon_info: dict):
     st.markdown("## Alpha Attribution")
 
-    caption = []
+    parts = []
     if selected_wave:
-        caption.append(f"Wave: **{selected_wave}**")
+        parts.append(f"Wave: **{selected_wave}**")
+    if horizon_info.get("label"):
+        parts.append(f"Horizon: **{horizon_info['label']}**")
 
-    label = horizon_info.get("label")
-    if label:
-        caption.append(f"Horizon: **{label}**")
-
-    if caption:
-        st.caption(" | ".join(caption))
+    if parts:
+        st.caption(" | ".join(parts))
 
 
 def _select_wave_row(snapshot_df: pd.DataFrame, selected_wave):
     if snapshot_df is None or snapshot_df.empty:
         return None
 
-    if selected_wave is None:
-        return snapshot_df.iloc[0]
-
-    if "display_name" in snapshot_df.columns:
-        subset = snapshot_df[snapshot_df["display_name"] == selected_wave]
-        if not subset.empty:
-            return subset.iloc[0]
+    if selected_wave and "display_name" in snapshot_df.columns:
+        match = snapshot_df[snapshot_df["display_name"] == selected_wave]
+        if not match.empty:
+            return match.iloc[0]
 
     return snapshot_df.iloc[0]
 
 
+# ------------------------------------------------------------
+# Public entry point
+# ------------------------------------------------------------
 def render_alpha_attribution_drivers(snapshot_df, selected_wave, RETURN_COLS, BENCHMARK_COLS):
     horizon_info = _resolve_attribution_horizon()
     _render_header(selected_wave, horizon_info)
@@ -268,15 +255,3 @@ def render_alpha_attribution_drivers(snapshot_df, selected_wave, RETURN_COLS, BE
 
     _render_tactical_timing_explainer()
     _render_attribution_components(row, horizon_info)
-
-    if isinstance(RETURN_COLS, (list, tuple)) and isinstance(BENCHMARK_COLS, (list, tuple)):
-        with st.expander("Context: Returns vs Benchmark (snapshot)", expanded=False):
-            context = {}
-            for col in list(RETURN_COLS) + list(BENCHMARK_COLS):
-                if col in row.index:
-                    context[col] = row[col]
-
-            if not context:
-                st.write(EM_DASH)
-            else:
-                st.json(context)
