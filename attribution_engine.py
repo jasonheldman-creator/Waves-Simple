@@ -1,57 +1,82 @@
+# ============================================================
+# attribution_engine.py
+# Core alpha attribution engine
+# ============================================================
+
+import numpy as np
 import pandas as pd
 
-# ======================================================
-# ATTRIBUTION ENGINE — REALIZED, DATA-DERIVED
-# ======================================================
-
-DEFAULT_ATTRIBUTION_WEIGHTS = {
-    "Dynamic Benchmarking": 0.25,
-    "Momentum & Trend Signals": 0.25,
-    "Stock Selection": 0.15,
-    "Market Regime / VIX Overlay": 0.10,
-    "Risk Management / Beta Discipline": 0.15,
-    "Residual / Interaction Alpha": 0.10,
-}
+from .alpha_components import (
+    compute_beta_alpha,
+    compute_momentum_alpha,
+    compute_volatility_alpha,
+    compute_allocation_alpha,
+    compute_total_alpha,
+)
 
 
-def compute_alpha_attribution(scope_df: pd.DataFrame, horizon: str = "365D"):
+def compute_horizon_attribution(
+    wave_series: pd.Series,
+    benchmark_series: pd.Series,
+    engine_weights: dict,
+    days: int,
+) -> dict:
     """
-    Computes REAL realized alpha attribution.
+    Compute horizon-specific alpha attribution components.
 
-    Returns:
-        DataFrame with:
-        - Alpha Contribution (real numeric alpha)
-        - % of Total Alpha (sums to 100%)
+    Momentum and volatility are ALWAYS computed for all horizons,
+    including days=252 (365D), with full lookback = days.
     """
 
-    alpha_col = f"Alpha_{horizon}"
+    wave_h = wave_series.tail(days)
+    bench_h = benchmark_series.tail(days)
 
-    if alpha_col not in scope_df.columns:
-        raise ValueError(f"Missing column: {alpha_col}")
+    if len(wave_h) < 2 or len(bench_h) < 2:
+        return {
+            "beta": 0.0,
+            "momentum": 0.0,
+            "volatility": 0.0,
+            "allocation": 0.0,
+            "residual": 0.0,
+        }
 
-    # Total realized alpha (portfolio or wave)
-    total_alpha = scope_df[alpha_col].mean()
+    beta_alpha = compute_beta_alpha(wave_h, bench_h, engine_weights)
 
-    # Edge case: zero alpha → return empty attribution safely
-    if total_alpha == 0 or pd.isna(total_alpha):
-        rows = []
-        for k in DEFAULT_ATTRIBUTION_WEIGHTS:
-            rows.append([k, 0.0, 0.0])
-        return pd.DataFrame(
-            rows,
-            columns=["Alpha Source", "Alpha Contribution", "% of Total Alpha"]
-        )
-
-    # Compute realized contributions
-    rows = []
-    for source, weight in DEFAULT_ATTRIBUTION_WEIGHTS.items():
-        contribution = total_alpha * weight
-        pct_of_total = contribution / total_alpha
-        rows.append([source, contribution, pct_of_total])
-
-    df = pd.DataFrame(
-        rows,
-        columns=["Alpha Source", "Alpha Contribution", "% of Total Alpha"]
+    momentum_alpha = compute_momentum_alpha(
+        wave_h,
+        bench_h,
+        engine_weights,
+        lookback=days,
     )
 
-    return df
+    volatility_alpha = compute_volatility_alpha(
+        wave_h,
+        bench_h,
+        engine_weights,
+        lookback=days,
+    )
+
+    allocation_alpha = compute_allocation_alpha(
+        wave_h,
+        bench_h,
+        engine_weights,
+        lookback=days,
+    )
+
+    total_alpha = compute_total_alpha(wave_h, bench_h)
+
+    residual_alpha = (
+        total_alpha
+        - beta_alpha
+        - momentum_alpha
+        - volatility_alpha
+        - allocation_alpha
+    )
+
+    return {
+        "beta": beta_alpha,
+        "momentum": momentum_alpha,
+        "volatility": volatility_alpha,
+        "allocation": allocation_alpha,
+        "residual": residual_alpha,
+    }
