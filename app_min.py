@@ -127,8 +127,6 @@ with tabs[0]:
         def format_percentage(value: float) -> str:
             if pd.isna(value):
                 return "—"
-            if abs(value) < 1e-10:
-                return "0.00%"
             pct = value * 100
             return f"+{pct:.2f}%" if pct > 0 else f"{pct:.2f}%"
 
@@ -144,11 +142,24 @@ with tabs[0]:
             if v in df.columns
         }
 
+        # ---- Overlay Alpha (365D ONLY) ----
+        overlay_alpha_365d = None
+        if (
+            "alpha_momentum_365d" in df.columns
+            and "alpha_volatility_365d" in df.columns
+        ):
+            overlay_series = (
+                df["alpha_momentum_365d"] + df["alpha_volatility_365d"]
+            ).dropna()
+            if not overlay_series.empty:
+                overlay_alpha_365d = overlay_series.mean() * 100
+
         with st.container():
             st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
             st.caption("Equal-weighted performance across all active waves.")
             st.divider()
 
+            # ---- RETURNS ----
             st.markdown("**Returns**")
             ret_cols = st.columns(len(portfolio_returns))
             for i, (label, value) in enumerate(portfolio_returns.items()):
@@ -160,46 +171,33 @@ with tabs[0]:
                     unsafe_allow_html=True,
                 )
 
+            # ---- ALPHA ----
             st.markdown("**Alpha**")
-            alpha_cols = st.columns(len(portfolio_alpha))
+            alpha_cols = st.columns(len(portfolio_alpha) + 1)
+
+            # Standard alpha by horizon
             for i, (label, value) in enumerate(portfolio_alpha.items()):
-                if label == "365D":
-                    if (
-                        "alpha_momentum_365d" not in df.columns
-                        or "alpha_volatility_365d" not in df.columns
-                    ):
-                        display_value = "—"
-                    else:
-                        mom_series = df["alpha_momentum_365d"]
-                        vol_series = df["alpha_volatility_365d"]
-                        overlay_series = mom_series + vol_series
-                        valid_overlay = overlay_series.dropna()
+                alpha_cols[i].markdown(
+                    f"<div style='line-height:1.4'>"
+                    f"<span style='font-size:0.85rem; color:#666;'>{label}</span><br>"
+                    f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
-                        if valid_overlay.empty:
-                            display_value = "—"
-                        else:
-                            portfolio_overlay_alpha = valid_overlay.mean() * 100
-                            display_value = f"{portfolio_overlay_alpha:.1f}%"
-
-                    label_text = "Overlay Alpha (Momentum + Volatility)"
-                    alpha_cols[i].markdown(
-                        f"<div style='line-height:1.4'>"
-                        f"<span style='font-size:0.85rem; color:#666;'>{label_text}</span><br>"
-                        f"<span style='font-size:1.25rem; font-weight:700;'>{display_value}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    alpha_cols[i].markdown(
-                        f"<div style='line-height:1.4'>"
-                        f"<span style='font-size:0.85rem; color:#666;'>{label}</span><br>"
-                        f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+            # Overlay Alpha — explicitly 365D
+            alpha_cols[-1].markdown(
+                f"<div style='line-height:1.4'>"
+                f"<span style='font-size:0.85rem; color:#666;'>365D Overlay Alpha<br>(Momentum + Volatility)</span><br>"
+                f"<span style='font-size:1.25rem; font-weight:700;'>"
+                f"{'—' if overlay_alpha_365d is None else f'{overlay_alpha_365d:.1f}%'}"
+                f"</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB (WITH HORIZON DROPDOWN)
+# ALPHA ATTRIBUTION TAB
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
