@@ -26,6 +26,7 @@ st.set_page_config(
 # ===========================
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
+ALPHA_ATTRIBUTION_PATH = DATA_DIR / "alpha_attribution_snapshot.csv"
 
 RETURN_COLS = {
     "INTRADAY": "return_intraday",
@@ -58,6 +59,32 @@ def load_snapshot():
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
     df.columns = [c.strip().lower() for c in df.columns]
+
+    # -------------------------------------------------------
+    # Merge alpha attribution snapshot (data plumbing only)
+    # -------------------------------------------------------
+    # This brings in:
+    #   alpha_market
+    #   alpha_momentum
+    #   alpha_volatility
+    #   alpha_rotation
+    #   alpha_stock_selection
+    # and any suffixed variants, without changing math or schemas.
+    if ALPHA_ATTRIBUTION_PATH.exists():
+        try:
+            attrib_df = pd.read_csv(ALPHA_ATTRIBUTION_PATH)
+            attrib_df.columns = [c.strip().lower() for c in attrib_df.columns]
+
+            if "wave_id" in df.columns and "wave_id" in attrib_df.columns:
+                df = df.merge(
+                    attrib_df,
+                    on="wave_id",
+                    how="left",
+                )
+        except Exception:
+            # Governance-safe: if attribution snapshot is unreadable,
+            # continue with base snapshot only.
+            pass
 
     if "display_name" not in df.columns:
         if "wave_name" in df.columns:
