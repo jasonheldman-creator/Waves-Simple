@@ -8,9 +8,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-# UPDATED IMPORTS — match current adaptive_intelligence.py
 from intelligence.adaptive_intelligence import (
-    render_alpha_attribution_intraday,
+    render_alpha_attribution_drivers,
 )
 
 # ===========================
@@ -27,10 +26,10 @@ st.set_page_config(
 # ===========================
 DATA_DIR = Path("data")
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
-ATTRIBUTION_INTRADAY_PATH = DATA_DIR / "live_snapshot_attribution.csv"
 
 RETURN_COLS = {
     "INTRADAY": "return_intraday",
+    "1D": "return_intraday",
     "30D": "return_30d",
     "60D": "return_60d",
     "365D": "return_365d",
@@ -44,6 +43,7 @@ BENCHMARK_COLS = {
 
 ALPHA_COLS = {
     "INTRADAY": "alpha_intraday",
+    "1D": "alpha_intraday",
     "30D": "alpha_30d",
     "60D": "alpha_60d",
     "365D": "alpha_365d",
@@ -67,11 +67,7 @@ def load_snapshot():
         else:
             df["display_name"] = "Unnamed Wave"
 
-    for col in (
-        list(RETURN_COLS.values())
-        + list(BENCHMARK_COLS.values())
-        + list(ALPHA_COLS.values())
-    ):
+    for col in list(RETURN_COLS.values()) + list(ALPHA_COLS.values()):
         if col not in df.columns:
             df[col] = np.nan
 
@@ -81,17 +77,7 @@ def load_snapshot():
     return df, None
 
 
-def load_intraday_attribution():
-    if not ATTRIBUTION_INTRADAY_PATH.exists():
-        return None
-    df = pd.read_csv(ATTRIBUTION_INTRADAY_PATH)
-    if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-    return df
-
-
 snapshot_df, snapshot_error = load_snapshot()
-attribution_intraday_df = load_intraday_attribution()
 
 # ===========================
 # Sidebar
@@ -101,7 +87,7 @@ st.sidebar.title("System Status")
 st.sidebar.markdown(
     f"""
 **Live Snapshot:** {'✅ Loaded' if snapshot_error is None else '❌ Missing'}  
-**Alpha Attribution:** {'✅ Active' if attribution_intraday_df is not None else '🟡 Pending'}  
+**Alpha Attribution:** ✅ Active  
 **Adaptive Intelligence:** 🟡 Interpretive  
 """
 )
@@ -149,60 +135,72 @@ with tabs[0]:
         portfolio_returns = {
             k: df[v].mean(skipna=True)
             for k, v in RETURN_COLS.items()
+            if v in df.columns
         }
 
         portfolio_alpha = {
             k: df[v].mean(skipna=True)
             for k, v in ALPHA_COLS.items()
+            if v in df.columns
         }
-
-        intraday_labels = df["intraday_label"].dropna().unique().tolist()
-        portfolio_intraday_label = intraday_labels[0] if len(intraday_labels) == 1 else None
 
         with st.container():
             st.markdown("### 🏛️ Portfolio Snapshot — Equal-Weighted")
-            if portfolio_intraday_label:
-                st.caption(
-                    f"Equal-weighted performance across all active waves · {portfolio_intraday_label}"
-                )
-            else:
-                st.caption("Equal-weighted performance across all active waves.")
+            st.caption("Equal-weighted performance across all active waves.")
             st.divider()
 
             st.markdown("**Returns**")
-            ret_cols = st.columns(4)
+            ret_cols = st.columns(len(portfolio_returns))
             for i, (label, value) in enumerate(portfolio_returns.items()):
                 ret_cols[i].markdown(
                     f"<div style='line-height:1.4'>"
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Return</span><br>"
+                    f"<span style='font-size:0.85rem; color:#666;'>{label}</span><br>"
                     f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
 
             st.markdown("**Alpha**")
-            alpha_cols = st.columns(4)
+            alpha_cols = st.columns(len(portfolio_alpha))
             for i, (label, value) in enumerate(portfolio_alpha.items()):
                 alpha_cols[i].markdown(
                     f"<div style='line-height:1.4'>"
-                    f"<span style='font-size:0.85rem; font-weight:500; color:#666;'>{label} Alpha</span><br>"
+                    f"<span style='font-size:0.85rem; color:#666;'>{label}</span><br>"
                     f"<span style='font-size:1.25rem; font-weight:700;'>{format_percentage(value)}</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
 
 # ============================================================
-# ALPHA ATTRIBUTION TAB — GOVERNANCE-NATIVE
+# ALPHA ATTRIBUTION TAB (WITH HORIZON DROPDOWN)
 # ============================================================
 with tabs[1]:
     st.header("Alpha Attribution")
-    st.caption("Portfolio-first attribution with wave-level drill-down.")
+    st.caption("Governance-native attribution with horizon control.")
     st.divider()
 
-    if attribution_intraday_df is None:
-        st.info("Intraday attribution stream not yet available.")
+    if snapshot_error or snapshot_df is None:
+        st.info("Attribution requires a valid live snapshot.")
     else:
-        render_alpha_attribution_intraday(attribution_intraday_df)
+        # 🔽 HORIZON DROPDOWN (DEFAULT = 30D)
+        horizon = st.selectbox(
+            "Attribution Horizon",
+            ["30D", "INTRADAY", "1D", "60D", "365D"],
+            index=0,
+            key="alpha_attribution_horizon_select",
+        )
+
+        # Make horizon available to renderer
+        st.session_state["alpha_attribution_horizon"] = horizon
+
+        st.divider()
+
+        render_alpha_attribution_drivers(
+            snapshot_df,
+            selected_wave,
+            RETURN_COLS,
+            BENCHMARK_COLS,
+        )
 
 # ============================================================
 # ADAPTIVE INTELLIGENCE TAB
@@ -215,8 +213,8 @@ with tabs[2]:
     st.divider()
 
     st.info(
-        "Adaptive Intelligence signals (confidence, regime awareness, signal decay) "
-        "will activate once attribution history accumulation thresholds are met."
+        "Adaptive Intelligence signals activate once attribution history "
+        "accumulation thresholds are met."
     )
 
 # ============================================================
