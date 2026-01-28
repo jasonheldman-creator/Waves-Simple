@@ -1,124 +1,202 @@
-# scripts/generate_live_snapshot_csv.py
-# Build data/live_snapshot.csv from engine outputs
-
-import sys
-from pathlib import Path
-
-# Ensure repo root is on PYTHONPATH when run from scripts/
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(REPO_ROOT))
-
-import numpy as np
-import pandas as pd
-
-from attribution_engine import compute_horizon_attribution
-
-
-DATA_DIR = Path("data")
-LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
-
-
-def generate_live_snapshot_csv(
-    waves: dict,
-    benchmarks: dict,
-    engine_weights: dict,
-) -> None:
+def generate_live_snapshot(
+    output_path: str = "live_snapshot.csv",
+    session_state: Optional[Dict] = None
+) -> pd.DataFrame:
     """
-    Generate live_snapshot.csv with multi-horizon attribution.
+    Generate a comprehensive snapshot of all waves with returns, alpha,
+    and attribution diagnostics.
+
+    This function is an AGGREGATION LAYER ONLY.
+    It does NOT compute attribution — it only merges it if available.
+
+    Attribution source (optional):
+        data/alpha_attribution_snapshot.csv
     """
 
-    rows = []
+    from waves_engine import compute_history_nav
 
-    horizon_meta = {
-        "30d": 30,
-        "60d": 60,
-        "365d": 252,
-    }
+    # ------------------------------------------------------------------
+    # SAFE MODE / DEMO MODE GUARDS
+    # ------------------------------------------------------------------
+    if session_state is not None and session_state.get("safe_mode_no_fetch", True):
+        print("⚠️ Safe Mode active - generate_live_snapshot suppressed")
+        return pd.DataFrame()
 
-    for wave_id, wave_series in waves.items():
-        benchmark_series = benchmarks.get(wave_id)
-        if benchmark_series is None:
-            continue
+    if session_state is not None and session_state.get("safe_demo_mode", False):
+        print("⚠️ SAFE DEMO MODE active - generate_live_snapshot suppressed")
+        return pd.DataFrame()
 
-        row = {
-            "wave_id": wave_id,
-        }
+    print("=" * 70)
+    print("Generating Live Snapshot (with Attribution Merge)")
+    print("=" * 70)
 
-        # Track which horizons have sufficient history
-        horizon_ok = {}
+    # ------------------------------------------------------------------
+    # LOAD ATTRIBUTION SNAPSHOT (OPTIONAL)
+    # ------------------------------------------------------------------
+    attribution_path = "data/alpha_attribution_snapshot.csv"
+    attribution_df = None
 
-        # Returns and total alpha per horizon
-        for suffix, days in horizon_meta.items():
-            wave_h = wave_series.tail(days)
-            bench_h = benchmark_series.tail(days)
+    if os.path.exists(attribution_path):
+        try:
+            attribution_df = pd.read_csv(attribution_path)
 
-            if len(wave_h) < 2 or len(bench_h) < 2:
-                row[f"return_{suffix}"] = np.nan
-                row[f"benchmark_return_{suffix}"] = np.nan
-                row[f"alpha_{suffix}"] = np.nan
-                horizon_ok[suffix] = False
-                continue
+            if "wave_id" not in attribution_df.columns:
+                print("⚠️ attribution snapshot missing wave_id — ignoring attribution")
+                attribution_df = None
+            else:
+                attribution_df = attribution_df.set_index("wave_id")
 
-            wave_ret = wave_h.iloc[-1] / wave_h.iloc[0] - 1.0
-            bench_ret = bench_h.iloc[-1] / bench_h.iloc[0] - 1.0
-            total_alpha = wave_ret - bench_ret
+        except Exception as e:
+            print(f"⚠️ Failed to load attribution snapshot: {e}")
+            attribution_df = None
+    else:
+        print("ℹ️ No attribution snapshot found — continuing without attribution")
 
-            row[f"return_{suffix}"] = float(wave_ret)
-            row[f"benchmark_return_{suffix}"] = float(bench_ret)
-            row[f"alpha_{suffix}"] = float(total_alpha)
-            horizon_ok[suffix] = True
+    # ------------------------------------------------------------------
+    # SNAPSHOT BUILD
+    # ------------------------------------------------------------------
+    snapshot_rows = []
+    timeframes = [1, 30, 60, 365]
 
-        # Attribution components per horizon
-        for suffix, days in horizon_meta.items():
+    for wave_id in get_all_wave_ids():
+        wave_name = get_display_name_from_wave_id(wave_id)
 
-            # FIX: Only compute attribution when returns were computable
-            if not horizon_ok[suffix]:
-                row[f"alpha_beta_{suffix}"] = np.nan
-                row[f"alpha_momentum_{suffix}"] = np.nan
-                row[f"alpha_volatility_{suffix}"] = np.nan
-                row[f"alpha_allocation_{suffix}"] = np.nan
-                row[f"alpha_residual_{suffix}"] = np.nan
+        try:
+            readiness = compute_data_ready_status(wave_id)
 
-                if suffix == "365d":
-                    row["Alpha_Momentum_365D"] = np.nan
-                    row["Alpha_Volatility_365D"] = np.nan
-                    row["Alpha_Residual_365D"] = np.nan
+            row = {
+                "wave_id": wave_id,
+                "wave_name": wave_name,
+                "readiness_status": readiness.get("readiness_status", "unavailable"),
+                "coverage_pct": readiness.get("coverage_pct", 0.0),
+                "data_regime": readiness.get("readiness_status", "unavailable"),
+            }
 
-                continue
+            # ----------------------------------------------------------
+            # RETURNS + TOTAL ALPHA
+            # ----------------------------------------------------------
+            for days in timeframes:
+                try:
+                    nav_df = compute_history_nav(
+                        wave_name,
+                        mode="Standard",
+                        days=days,
+                        include_diagnostics=False,
+                        session_state=session_state
+                    )
 
-            # Safe to compute attribution
-            attribution = compute_horizon_attribution(
-                wave_series,
-                benchmark_series,
-                engine_weights,
-                days,
-            )
+                    if not nav_df.empty and len(nav_df) >= 2:
+                        wave_ret = (
+                            nav_df["wave_nav"].iloc[-1] / nav_df["wave_nav"].iloc[0] - 1
+                            if "wave_nav" in nav_df.columns else np.nan
+                        )
+                        bm_ret = (
+                            nav_df["bm_nav"].iloc[-1] / nav_df["bm_nav"].iloc[0] - 1
+                            if "bm_nav" in nav_df.columns else np.nan
+                        )
 
-            beta = attribution.get("beta", np.nan)
-            momentum = attribution.get("momentum", np.nan)
-            volatility = attribution.get("volatility", np.nan)
-            allocation = attribution.get("allocation", np.nan)
-            residual = attribution.get("residual", np.nan)
+                        row[f"wave_return_{days}d"] = wave_ret
+                        row[f"bm_return_{days}d"] = bm_ret
+                        row[f"alpha_{days}d"] = (
+                            wave_ret - bm_ret
+                            if not np.isnan(wave_ret) and not np.isnan(bm_ret)
+                            else np.nan
+                        )
+                    else:
+                        row[f"wave_return_{days}d"] = np.nan
+                        row[f"bm_return_{days}d"] = np.nan
+                        row[f"alpha_{days}d"] = np.nan
 
-            # Canonical lowercase (engine-native)
-            row[f"alpha_beta_{suffix}"] = beta
-            row[f"alpha_momentum_{suffix}"] = momentum
-            row[f"alpha_volatility_{suffix}"] = volatility
-            row[f"alpha_allocation_{suffix}"] = allocation
-            row[f"alpha_residual_{suffix}"] = residual
+                except Exception:
+                    row[f"wave_return_{days}d"] = np.nan
+                    row[f"bm_return_{days}d"] = np.nan
+                    row[f"alpha_{days}d"] = np.nan
 
-            # Legacy UI contract (TitleCase snapshot schema)
-            if suffix == "365d":
-                row["Alpha_Momentum_365D"] = momentum
-                row["Alpha_Volatility_365D"] = volatility
-                row["Alpha_Residual_365D"] = residual
+            # ----------------------------------------------------------
+            # ATTRIBUTION MERGE (NO COMPUTATION HERE)
+            # ----------------------------------------------------------
+            for days in timeframes:
+                for component in [
+                    "momentum",
+                    "volatility",
+                    "regime",
+                    "selection",
+                    "exposure",
+                    "residual",
+                ]:
+                    col = f"alpha_{component}_{days}d"
+                    row[col] = np.nan
 
-        rows.append(row)
+            if attribution_df is not None and wave_id in attribution_df.index:
+                attr_row = attribution_df.loc[wave_id]
 
-    df = pd.DataFrame(rows)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(LIVE_SNAPSHOT_PATH, index=False)
+                for days in timeframes:
+                    for component in [
+                        "momentum",
+                        "volatility",
+                        "regime",
+                        "selection",
+                        "exposure",
+                        "residual",
+                    ]:
+                        col = f"alpha_{component}_{days}d"
+                        if col in attr_row and pd.notna(attr_row[col]):
+                            row[col] = float(attr_row[col])
 
+            # ----------------------------------------------------------
+            # EXPOSURE / CASH (PLACEHOLDER — NON-BLOCKING)
+            # ----------------------------------------------------------
+            row["exposure"] = np.nan
+            row["cash_pct"] = np.nan
 
-if __name__ == "__main__":
-    pass
+            snapshot_rows.append(row)
+            print(f"  ✓ {wave_name}")
+
+        except Exception as e:
+            print(f"  ✗ Error processing {wave_name}: {e}")
+
+            snapshot_rows.append({
+                "wave_id": wave_id,
+                "wave_name": wave_name,
+                "readiness_status": "error",
+                "coverage_pct": 0.0,
+                "data_regime": "error",
+                **{f"wave_return_{d}d": np.nan for d in timeframes},
+                **{f"bm_return_{d}d": np.nan for d in timeframes},
+                **{f"alpha_{d}d": np.nan for d in timeframes},
+                **{
+                    f"alpha_{c}_{d}d": np.nan
+                    for d in timeframes
+                    for c in [
+                        "momentum",
+                        "volatility",
+                        "regime",
+                        "selection",
+                        "exposure",
+                        "residual",
+                    ]
+                },
+                "exposure": np.nan,
+                "cash_pct": np.nan,
+            })
+
+    # ------------------------------------------------------------------
+    # FINALIZE + VALIDATE
+    # ------------------------------------------------------------------
+    snapshot_df = pd.DataFrame(snapshot_rows)
+
+    expected = len(get_all_wave_ids())
+    actual = len(snapshot_df)
+
+    if actual != expected:
+        raise AssertionError(
+            f"Snapshot validation failed: expected {expected} waves, got {actual}"
+        )
+
+    snapshot_df.to_csv(output_path, index=False)
+
+    print(f"\n✓ Live snapshot saved to: {output_path}")
+    print(f"  Total waves: {actual}")
+    print(f"  Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    return snapshot_df
