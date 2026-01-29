@@ -4,123 +4,141 @@ Generate Live Snapshot CSV
 
 PURPOSE
 -------
-Builds data/live_snapshot.csv from compute_history_nav diagnostics
-and wires in alpha attribution components.
+Generate the canonical live_snapshot.csv used by the Streamlit app.
+This script:
+- Calls compute_history_nav() using its EXISTING signature
+- Extracts the latest NAV row
+- Persists diagnostics (VIX, momentum, exposure, etc.)
+- Writes a flat CSV snapshot
 
-This file is executed as a SCRIPT via GitHub Actions, so it must
-manually ensure repo-root import resolution.
-
-DO NOT CONVERT TO PACKAGE IMPORTS.
+CRITICAL GUARANTEES
+-------------------
+- DOES NOT modify strategy logic
+- DOES NOT pass unsupported keyword arguments
+- FAILS loudly if diagnostics are missing
 """
 
-# ---------------------------------------------------------
-# Ensure repo root is on PYTHONPATH (CRITICAL FIX)
-# ---------------------------------------------------------
 import sys
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-# ---------------------------------------------------------
-# Standard imports
-# ---------------------------------------------------------
-import pandas as pd
 import traceback
+from pathlib import Path
+import pandas as pd
 
-# ---------------------------------------------------------
-# Internal imports (now safe)
-# ---------------------------------------------------------
-from analytics.alpha_attribution_adapter import AlphaAttributionAdapter
-
-# NOTE:
-# compute_history_nav is assumed to already exist and return
-# diagnostics-rich history data. We do NOT reimplement it here.
-from waves_engine import compute_history_nav
-
-
-# ---------------------------------------------------------
+# -----------------------------
 # Paths
-# ---------------------------------------------------------
+# -----------------------------
+REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
+OUTPUT_PATH = DATA_DIR / "live_snapshot.csv"
 
-LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
+# -----------------------------
+# Imports (deliberately minimal)
+# -----------------------------
+try:
+    from waves_engine import compute_history_nav
+except Exception as e:
+    print("❌ Failed to import compute_history_nav")
+    raise
 
-
-# ---------------------------------------------------------
+# -----------------------------
 # Helpers
-# ---------------------------------------------------------
-def build_snapshot_from_diagnostics(diagnostics: dict) -> dict:
+# -----------------------------
+def normalize_history_result(result):
     """
-    Convert diagnostics dict into a single snapshot row,
-    including alpha attribution components.
+    Normalize output of compute_history_nav into:
+    - history_df (pd.DataFrame)
+    - diagnostics (dict)
+
+    Supports:
+    1) dict with keys
+    2) tuple/list
     """
+    diagnostics = None
+    history_df = None
 
-    adapter = AlphaAttributionAdapter(diagnostics)
-    alpha_components = adapter.convert_to_alpha_attribution()
+    if isinstance(result, dict):
+        history_df = result.get("history") or result.get("df")
+        diagnostics = result.get("diagnostics")
 
-    snapshot = {
-        # Core returns
-        "return_1d": diagnostics.get("return_1d"),
-        "return_30d": diagnostics.get("return_30d"),
-        "return_60d": diagnostics.get("return_60d"),
-        "return_365d": diagnostics.get("return_365d"),
+    elif isinstance(result, (tuple, list)):
+        if len(result) >= 2:
+            history_df = result[0]
+            diagnostics = result[-1]
 
-        # Alpha headline
-        "alpha_365d": diagnostics.get("alpha_365d"),
+    if history_df is None or diagnostics is None:
+        raise ValueError(
+            "compute_history_nav did not return history + diagnostics. "
+            "Refusing to generate snapshot."
+        )
 
-        # Risk diagnostics
-        "vix": diagnostics.get("vix"),
-        "regime": diagnostics.get("regime"),
-        "exposure": diagnostics.get("exposure"),
-        "safe_fraction": diagnostics.get("safe_fraction"),
-        "tilt_factor": diagnostics.get("tilt_factor"),
-        "aggregated_risk_state": diagnostics.get("aggregated_risk_state"),
-    }
-
-    # Merge alpha attribution components
-    snapshot.update(alpha_components)
-
-    return snapshot
+    return history_df, diagnostics
 
 
-# ---------------------------------------------------------
-# Main execution
-# ---------------------------------------------------------
+def latest_row(df: pd.DataFrame) -> pd.Series:
+    if df.empty:
+        raise ValueError("History DataFrame is empty")
+    return df.iloc[-1]
+
+
+# -----------------------------
+# Main
+# -----------------------------
 def main():
     print("▶ Generating live snapshot...")
 
     try:
-        # -------------------------------------------------
-        # Compute history + diagnostics
-        # -------------------------------------------------
-        history_result = compute_history_nav(
-            return_diagnostics=True,
-            return_latest_only=True,
-        )
+        # 🔒 Call with NO keyword arguments
+        result = compute_history_nav()
 
-        if not history_result:
-            raise RuntimeError("compute_history_nav returned no data")
+        history_df, diagnostics = normalize_history_result(result)
+        last = latest_row(history_df)
 
-        diagnostics = history_result.get("diagnostics")
-        if not diagnostics:
-            raise RuntimeError("No diagnostics found in compute_history_nav output")
+        # -----------------------------
+        # Base snapshot fields
+        # -----------------------------
+        snapshot = {
+            "date": last.name if hasattr(last, "name") else None,
+            "nav": last.get("nav") or last.get("NAV"),
+            "wave_return_1d": last.get("return_1d"),
+            "wave_return_30d": last.get("return_30d"),
+            "wave_return_60d": last.get("return_60d"),
+            "wave_return_365d": last.get("return_365d"),
+            "bm_return_1d": last.get("bm_return_1d"),
+            "bm_return_30d": last.get("bm_return_30d"),
+            "bm_return_60d": last.get("bm_return_60d"),
+            "bm_return_365d": last.get("bm_return_365d"),
+        }
 
-        # -------------------------------------------------
-        # Build snapshot row
-        # -------------------------------------------------
-        snapshot_row = build_snapshot_from_diagnostics(diagnostics)
+        # -----------------------------
+        # Diagnostics (raw, not re-engineered)
+        # -----------------------------
+        snapshot.update({
+            "vix": diagnostics.get("vix"),
+            "regime": diagnostics.get("regime"),
+            "tilt_factor": diagnostics.get("tilt_factor"),
+            "vix_exposure": diagnostics.get("vix_exposure"),
+            "vol_adjust": diagnostics.get("vol_adjust"),
+            "safe_fraction": diagnostics.get("safe_fraction"),
+            "exposure": diagnostics.get("exposure"),
+            "aggregated_risk_state": diagnostics.get("aggregated_risk_state"),
+        })
 
-        df = pd.DataFrame([snapshot_row])
+        # -----------------------------
+        # Alpha (true economic alpha)
+        # -----------------------------
+        if snapshot["wave_return_365d"] is not None and snapshot["bm_return_365d"] is not None:
+            snapshot["alpha_365d"] = (
+                snapshot["wave_return_365d"] - snapshot["bm_return_365d"]
+            )
+        else:
+            snapshot["alpha_365d"] = None
 
-        # -------------------------------------------------
+        # -----------------------------
         # Write CSV
-        # -------------------------------------------------
-        df.to_csv(LIVE_SNAPSHOT_PATH, index=False)
+        # -----------------------------
+        DATA_DIR.mkdir(exist_ok=True)
+        pd.DataFrame([snapshot]).to_csv(OUTPUT_PATH, index=False)
 
-        print(f"✅ Live snapshot written to {LIVE_SNAPSHOT_PATH}")
+        print(f"✅ live_snapshot.csv written to {OUTPUT_PATH}")
 
     except Exception as e:
         print("❌ Failed to generate live snapshot")
@@ -128,8 +146,5 @@ def main():
         sys.exit(1)
 
 
-# ---------------------------------------------------------
-# Entrypoint
-# ---------------------------------------------------------
 if __name__ == "__main__":
     main()
