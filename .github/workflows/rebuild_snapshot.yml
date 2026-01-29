@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: rebuild-live-snapshot
+  cancel-in-progress: false
+
 jobs:
   rebuild:
     runs-on: ubuntu-latest
@@ -13,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -43,3 +49,17 @@ jobs:
           test -f data/live_snapshot.csv || (echo "❌ live_snapshot.csv not created" && exit 1)
           echo "✅ live_snapshot.csv created"
           wc -l data/live_snapshot.csv
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          # Ensure branch is fully up to date before committing
+          git pull --rebase origin main
+
+          git add data/live_snapshot.csv
+          git diff --cached --quiet && echo "No snapshot changes to commit" && exit 0
+
+          git commit -m "Rebuild live snapshot"
+          git push origin main
