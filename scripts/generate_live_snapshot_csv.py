@@ -1,170 +1,143 @@
+# scripts/generate_live_snapshot_csv.py
+# WAVES Intelligence™ — Canonical Live Snapshot Generator
+# CONTRACT-ALIGNED WITH compute_history_nav (baseline API)
+
 import os
 import sys
 import pandas as pd
-from typing import List, Dict, Any
+from typing import Dict, Any
 
-# -----------------------------------------------------------------------------
-# Ensure repo root is on sys.path
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------
+# Path bootstrap (repo-root safe)
+# ------------------------------------------------------------
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-# -----------------------------------------------------------------------------
-# Imports from core engine (CANONICAL)
-# -----------------------------------------------------------------------------
-try:
-    from waves_engine import compute_history_nav, get_all_waves
-except ImportError as e:
-    raise ImportError(
-        "Failed to import compute_history_nav / get_all_waves from waves_engine. "
-        "Ensure waves_engine.py exists at repo root and is importable."
-    ) from e
+# ------------------------------------------------------------
+# Imports (ENGINE CONTRACT)
+# ------------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-# Constants
-# -----------------------------------------------------------------------------
+from waves_engine import (
+    compute_history_nav,
+    get_all_waves,
+)
+
+# ------------------------------------------------------------
+# Output
+# ------------------------------------------------------------
+
 OUTPUT_PATH = os.path.join(REPO_ROOT, "data", "live_snapshot.csv")
 HORIZONS = [1, 30, 60, 365]
 
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------
 # Helpers
-# -----------------------------------------------------------------------------
-def calc_return(nav: pd.Series, days: int):
-    """
-    Compute simple return over `days`.
-    Returns None if insufficient history.
-    """
+# ------------------------------------------------------------
+
+def _calc_return(nav: pd.Series, days: int):
     if nav is None or len(nav) <= days:
         return None
-    try:
-        return float(nav.iloc[-1] / nav.iloc[-days] - 1.0)
-    except Exception:
+    start = float(nav.iloc[-days])
+    end = float(nav.iloc[-1])
+    if start <= 0:
         return None
+    return (end / start) - 1.0
 
 
-def extract_nav_columns(nav_df: pd.DataFrame):
-    """
-    Standardize NAV column access.
-    """
-    if "wave_nav" not in nav_df.columns or "bm_nav" not in nav_df.columns:
-        raise ValueError("NAV dataframe missing required columns: wave_nav / bm_nav")
-    return nav_df["wave_nav"], nav_df["bm_nav"]
-
-
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------
 # Main generator
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------
+
 def generate_live_snapshot():
-    waves: List[str] = get_all_waves()
+    waves = get_all_waves()
+    rows = []
 
-    if not waves:
-        raise RuntimeError("get_all_waves() returned no waves")
-
-    rows: List[Dict[str, Any]] = []
-
-    for wave_name in waves:
+    for wave in waves:
         try:
-            # -----------------------------------------------------------------
-            # Canonical history call (DO NOT GUESS SIGNATURE)
-            # -----------------------------------------------------------------
-            result = compute_history_nav(
-                wave_name=wave_name,
+            df = compute_history_nav(
+                wave_name=wave,
                 mode="Standard",
                 days=365,
                 include_diagnostics=True,
             )
 
-            # -----------------------------------------------------------------
-            # Normalize return shape
-            # -----------------------------------------------------------------
-            if isinstance(result, tuple):
-                nav_df, diagnostics = result
-            elif isinstance(result, dict):
-                nav_df = result.get("nav")
-                diagnostics = result.get("diagnostics", {})
-            else:
-                raise ValueError(f"Unexpected return type: {type(result)}")
+            # Engine contract: EMPTY DF = safe skip
+            if df is None or df.empty:
+                print(f"[WARN] {wave} skipped: empty history")
+                continue
 
-            if nav_df is None or nav_df.empty:
-                raise ValueError("Empty NAV dataframe")
+            # Required columns (baseline API)
+            if not {"wave_nav", "bm_nav"}.issubset(df.columns):
+                print(f"[WARN] {wave} skipped: missing NAV columns")
+                continue
 
-            wave_nav, bm_nav = extract_nav_columns(nav_df)
+            wave_nav = df["wave_nav"]
+            bm_nav = df["bm_nav"]
 
-            # -----------------------------------------------------------------
-            # Base snapshot row
-            # -----------------------------------------------------------------
             row: Dict[str, Any] = {
-                "wave_name": wave_name,
+                "wave": wave,
             }
 
-            # -----------------------------------------------------------------
-            # Returns + alpha
-            # -----------------------------------------------------------------
-            for d in HORIZONS:
-                w_ret = calc_return(wave_nav, d)
-                b_ret = calc_return(bm_nav, d)
+            # -----------------------------
+            # Returns
+            # -----------------------------
 
-                row[f"wave_return_{d}d"] = w_ret
-                row[f"bm_return_{d}d"] = b_ret
+            for h in HORIZONS:
+                w_ret = _calc_return(wave_nav, h)
+                b_ret = _calc_return(bm_nav, h)
 
-                if w_ret is not None and b_ret is not None:
-                    row[f"alpha_{d}d"] = w_ret - b_ret
-                else:
-                    row[f"alpha_{d}d"] = None
+                row[f"wave_return_{h}d"] = w_ret
+                row[f"bm_return_{h}d"] = b_ret
 
-            # -----------------------------------------------------------------
-            # Diagnostics passthrough (NO SYNTHETIC MATH HERE)
-            # These are raw signals used later by attribution adapters
-            # -----------------------------------------------------------------
-            if isinstance(diagnostics, dict):
-                for key in [
-                    "vix",
-                    "regime",
-                    "tilt_factor",
-                    "vix_exposure",
-                    "vol_adjust",
-                    "safe_fraction",
-                    "exposure",
-                    "aggregated_risk_state",
-                ]:
-                    row[key] = diagnostics.get(key)
-            else:
-                # Diagnostics missing or malformed
-                for key in [
-                    "vix",
-                    "regime",
-                    "tilt_factor",
-                    "vix_exposure",
-                    "vol_adjust",
-                    "safe_fraction",
-                    "exposure",
-                    "aggregated_risk_state",
-                ]:
-                    row[key] = None
+                if h == 365 and w_ret is not None and b_ret is not None:
+                    row["alpha_365d"] = w_ret - b_ret
+
+            # -----------------------------
+            # Diagnostics (ATTRS CONTRACT)
+            # -----------------------------
+
+            diagnostics = df.attrs.get("diagnostics")
+
+            if isinstance(diagnostics, pd.DataFrame) and not diagnostics.empty:
+                latest = diagnostics.iloc[-1]
+
+                row.update(
+                    {
+                        "regime": latest.get("regime"),
+                        "vix": latest.get("vix"),
+                        "safe_fraction": latest.get("safe_fraction"),
+                        "exposure": latest.get("exposure"),
+                        "vol_adjust": latest.get("vol_adjust"),
+                        "vix_exposure": latest.get("vix_exposure"),
+                        "aggregated_risk_state": latest.get("aggregated_risk_state"),
+                    }
+                )
 
             rows.append(row)
 
         except Exception as e:
-            print(f"[WARN] {wave_name} skipped: {e}")
+            print(f"[WARN] {wave} skipped: {e}")
             continue
 
+    # ------------------------------------------------------------
+    # Write snapshot
+    # ------------------------------------------------------------
+
     if not rows:
-        raise RuntimeError("No valid waves produced snapshot rows")
+        raise RuntimeError("No valid waves produced snapshot")
 
-    # -------------------------------------------------------------------------
-    # Write CSV
-    # -------------------------------------------------------------------------
-    df = pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    df.to_csv(OUTPUT_PATH, index=False)
+    out.to_csv(OUTPUT_PATH, index=False)
 
-    print(f"[OK] Live snapshot written: {OUTPUT_PATH} ({len(df)} waves)")
+    print(f"✅ Live snapshot written: {OUTPUT_PATH} ({len(out)} waves)")
 
 
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------
 # Entrypoint
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------
+
 if __name__ == "__main__":
     try:
         generate_live_snapshot()
