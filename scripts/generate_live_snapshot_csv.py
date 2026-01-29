@@ -1,143 +1,114 @@
-# scripts/generate_live_snapshot_csv.py
-# WAVES Intelligence™ — Canonical Live Snapshot Generator
-# CONTRACT-ALIGNED WITH compute_history_nav (baseline API)
-
 import os
 import sys
 import pandas as pd
-from typing import Dict, Any
+from datetime import datetime
 
 # ------------------------------------------------------------
-# Path bootstrap (repo-root safe)
+# Ensure repo root is in sys.path
 # ------------------------------------------------------------
-
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 # ------------------------------------------------------------
-# Imports (ENGINE CONTRACT)
+# Imports from engine
 # ------------------------------------------------------------
-
-from waves_engine import (
-    compute_history_nav,
-    get_all_waves,
-)
+from waves_engine import compute_history_nav, get_all_waves
 
 # ------------------------------------------------------------
-# Output
+# Output path
 # ------------------------------------------------------------
+DATA_DIR = os.path.join(REPO_ROOT, "data")
+OUTPUT_PATH = os.path.join(DATA_DIR, "live_snapshot.csv")
 
-OUTPUT_PATH = os.path.join(REPO_ROOT, "data", "live_snapshot.csv")
-HORIZONS = [1, 30, 60, 365]
+# ------------------------------------------------------------
+# Horizons (UI expects these)
+# ------------------------------------------------------------
+HORIZONS = {
+    "1d": 1,
+    "30d": 30,
+    "60d": 60,
+    "365d": 365,
+}
 
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
-
-def _calc_return(nav: pd.Series, days: int):
+def compute_return(nav: pd.Series, days: int):
     if nav is None or len(nav) <= days:
         return None
-    start = float(nav.iloc[-days])
-    end = float(nav.iloc[-1])
-    if start <= 0:
+    try:
+        return float(nav.iloc[-1] / nav.iloc[-days] - 1.0)
+    except Exception:
         return None
-    return (end / start) - 1.0
 
 
 # ------------------------------------------------------------
-# Main generator
+# Main snapshot builder
 # ------------------------------------------------------------
-
 def generate_live_snapshot():
+    os.makedirs(DATA_DIR, exist_ok=True)
+
     waves = get_all_waves()
     rows = []
 
-    for wave in waves:
+    print(f"[INFO] Generating snapshot for {len(waves)} waves")
+
+    for wave_name in waves:
         try:
-            df = compute_history_nav(
-                wave_name=wave,
+            hist = compute_history_nav(
+                wave_name=wave_name,
                 mode="Standard",
                 days=365,
                 include_diagnostics=True,
             )
 
-            # Engine contract: EMPTY DF = safe skip
-            if df is None or df.empty:
-                print(f"[WARN] {wave} skipped: empty history")
+            if hist is None or hist.empty:
+                print(f"[WARN] {wave_name} skipped: empty history")
                 continue
 
-            # Required columns (baseline API)
-            if not {"wave_nav", "bm_nav"}.issubset(df.columns):
-                print(f"[WARN] {wave} skipped: missing NAV columns")
+            if "wave_nav" not in hist or "bm_nav" not in hist:
+                print(f"[WARN] {wave_name} skipped: missing NAV columns")
                 continue
 
-            wave_nav = df["wave_nav"]
-            bm_nav = df["bm_nav"]
+            wave_nav = hist["wave_nav"]
+            bm_nav = hist["bm_nav"]
 
-            row: Dict[str, Any] = {
-                "wave": wave,
+            row = {
+                "wave_name": wave_name,
+                "asof": hist.index[-1] if len(hist.index) else None,
             }
 
-            # -----------------------------
-            # Returns
-            # -----------------------------
+            # Returns + alpha per horizon
+            for label, days in HORIZONS.items():
+                w_ret = compute_return(wave_nav, days)
+                b_ret = compute_return(bm_nav, days)
 
-            for h in HORIZONS:
-                w_ret = _calc_return(wave_nav, h)
-                b_ret = _calc_return(bm_nav, h)
-
-                row[f"wave_return_{h}d"] = w_ret
-                row[f"bm_return_{h}d"] = b_ret
-
-                if h == 365 and w_ret is not None and b_ret is not None:
-                    row["alpha_365d"] = w_ret - b_ret
-
-            # -----------------------------
-            # Diagnostics (ATTRS CONTRACT)
-            # -----------------------------
-
-            diagnostics = df.attrs.get("diagnostics")
-
-            if isinstance(diagnostics, pd.DataFrame) and not diagnostics.empty:
-                latest = diagnostics.iloc[-1]
-
-                row.update(
-                    {
-                        "regime": latest.get("regime"),
-                        "vix": latest.get("vix"),
-                        "safe_fraction": latest.get("safe_fraction"),
-                        "exposure": latest.get("exposure"),
-                        "vol_adjust": latest.get("vol_adjust"),
-                        "vix_exposure": latest.get("vix_exposure"),
-                        "aggregated_risk_state": latest.get("aggregated_risk_state"),
-                    }
+                row[f"return_{label}"] = w_ret
+                row[f"alpha_{label}"] = (
+                    w_ret - b_ret if w_ret is not None and b_ret is not None else None
                 )
 
             rows.append(row)
 
         except Exception as e:
-            print(f"[WARN] {wave} skipped: {e}")
-            continue
-
-    # ------------------------------------------------------------
-    # Write snapshot
-    # ------------------------------------------------------------
+            print(f"[WARN] {wave_name} skipped: {e}")
 
     if not rows:
         raise RuntimeError("No valid waves produced snapshot")
 
-    out = pd.DataFrame(rows)
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    out.to_csv(OUTPUT_PATH, index=False)
+    df = pd.DataFrame(rows)
 
-    print(f"✅ Live snapshot written: {OUTPUT_PATH} ({len(out)} waves)")
+    df.sort_values("wave_name", inplace=True)
+    df.to_csv(OUTPUT_PATH, index=False)
+
+    print(f"[SUCCESS] Snapshot written → {OUTPUT_PATH}")
+    print(df.head(3))
 
 
 # ------------------------------------------------------------
 # Entrypoint
 # ------------------------------------------------------------
-
 if __name__ == "__main__":
     try:
         generate_live_snapshot()
