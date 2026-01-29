@@ -43,11 +43,3 @@ jobs:
           test -f data/live_snapshot.csv || (echo "❌ live_snapshot.csv not created" && exit 1)
           echo "✅ live_snapshot.csv created"
           wc -l data/live_snapshot.csv
-
-      - name: Commit snapshot
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add data/live_snapshot.csv
-          git commit -m "Rebuild live snapshot" || echo "No changes to commit"
-          git push
