@@ -1,38 +1,155 @@
+"""
+alpha_attribution_adapter.py
+
+Governance-safe alpha attribution adapter.
+
+Purpose
+-------
+Convert REAL, already-computed wave returns and diagnostics into a
+fully reconciled, six-source alpha attribution that explains overlay alpha
+WITHOUT fabricating returns or altering economics.
+
+This adapter NEVER changes returns.
+It only decomposes observed overlay alpha.
+"""
+
+from typing import Dict, List
+import pandas as pd
+import numpy as np
+
+
+ALPHA_SOURCES = [
+    "selection",
+    "momentum",
+    "volatility",
+    "beta",
+    "allocation",
+    "residual",
+]
+
+
 class AlphaAttributionAdapter:
-    def __init__(self, diagnostics):
-        self.diagnostics = diagnostics
+    def __init__(
+        self,
+        *,
+        wave_return: float,
+        raw_wave_return: float,
+        benchmark_return: float,
+        diagnostics: Dict[str, float],
+        horizon_days: int,
+    ):
+        """
+        Parameters
+        ----------
+        wave_return : float
+            Strategy-adjusted wave return (WITH overlays)
+        raw_wave_return : float
+            Raw wave return (NO overlays, pure selection)
+        benchmark_return : float
+            Composite benchmark return
+        diagnostics : dict
+            diagnostics from compute_history_nav attrs
+        horizon_days : int
+            Attribution horizon (e.g. 30, 60, 365)
+        """
 
-    def convert_to_alpha_attribution(self):
-        # Example calculations based on input columns
-        # These functions would need to be populated with the correct logic as per specifications
-        self.alpha_selection = self.diagnostics['alpha_365d'] * self.diagnostics['tilt_factor']
-        self.alpha_momentum = self.calculate_alpha_momentum()
-        self.alpha_volatility = self.calculate_alpha_volatility()
-        self.alpha_beta = self.calculate_alpha_beta()
-        self.alpha_allocation = self.calculate_alpha_allocation()
-        self.alpha_residual = self.calculate_alpha_residual()
+        self.wave_return = float(wave_return)
+        self.raw_wave_return = float(raw_wave_return)
+        self.benchmark_return = float(benchmark_return)
+        self.diagnostics = diagnostics or {}
+        self.horizon_days = horizon_days
 
-    def calculate_alpha_momentum(self):
-        # Placeholder for actual computation
-        return self.diagnostics['wave_return_{horizon}d'] - self.diagnostics['bm_return_{horizon}d']
+        # Core alphas
+        self.total_alpha = self.wave_return - self.benchmark_return
+        self.selection_alpha = self.raw_wave_return - self.benchmark_return
+        self.overlay_alpha = self.wave_return - self.raw_wave_return
 
-    def calculate_alpha_volatility(self):
-        # Placeholder for actual computation
-        return self.diagnostics['exposure'] * self.diagnostics['vix_exposure']
+    # ------------------------------------------------------------------
+    # PUBLIC API
+    # ------------------------------------------------------------------
 
-    def calculate_alpha_beta(self):
-        # Placeholder for actual computation
-        return self.diagnostics['tilt_factor'] * self.diagnostics['aggregated_risk_state']
+    def build_attribution_row(self) -> Dict[str, float]:
+        """
+        Returns a fully reconciled attribution dictionary for this horizon.
+        """
 
-    def calculate_alpha_allocation(self):
-        # Placeholder for actual computation
-        return self.diagnostics['safe_fraction']
+        overlay_components = self._decompose_overlay_alpha()
 
-    def calculate_alpha_residual(self):
-        # Placeholder for actual computation
-        return self.alpha_selection - self.alpha_allocation
+        row = {
+            f"alpha_total_{self.horizon_days}d": self.total_alpha,
+            f"alpha_selection_{self.horizon_days}d": self.selection_alpha,
+        }
 
-# Example usage with diagnostics data input
-# diagnostics_data = {...}
-# adapter = AlphaAttributionAdapter(diagnostics_data)
-# adapter.convert_to_alpha_attribution()
+        for source, value in overlay_components.items():
+            row[f"alpha_{source}_{self.horizon_days}d"] = value
+
+        # Reconciliation check (for sanity & debugging)
+        row[f"alpha_overlay_{self.horizon_days}d"] = self.overlay_alpha
+        row[f"alpha_residual_{self.horizon_days}d"] = overlay_components["residual"]
+
+        return row
+
+    # ------------------------------------------------------------------
+    # INTERNAL LOGIC
+    # ------------------------------------------------------------------
+
+    def _decompose_overlay_alpha(self) -> Dict[str, float]:
+        """
+        Allocate observed overlay alpha across causal sources
+        using diagnostics as weights (NOT returns).
+        """
+
+        if abs(self.overlay_alpha) < 1e-12:
+            return {k: 0.0 for k in ALPHA_SOURCES}
+
+        weights = self._compute_overlay_weights()
+        allocated = {}
+
+        used = 0.0
+        for source in ALPHA_SOURCES[:-1]:
+            allocated[source] = self.overlay_alpha * weights[source]
+            used += allocated[source]
+
+        # Residual guarantees reconciliation
+        allocated["residual"] = self.overlay_alpha - used
+
+        return allocated
+
+    def _compute_overlay_weights(self) -> Dict[str, float]:
+        """
+        Convert diagnostics into normalized allocation weights.
+        """
+
+        raw_weights = {
+            "momentum": abs(self._get("tilt_factor")),
+            "volatility": abs(self._get("vix_exposure")) + abs(self._get("vol_adjust")),
+            "beta": abs(self._get("exposure") - 1.0),
+            "allocation": abs(self._get("safe_fraction")),
+            "selection": 0.0,  # selection handled separately
+            "residual": 0.0,
+        }
+
+        total = sum(raw_weights.values())
+
+        # Fallback: equal allocation if diagnostics are flat
+        if total <= 0.0:
+            equal = 1.0 / (len(ALPHA_SOURCES) - 1)
+            return {
+                "momentum": equal,
+                "volatility": equal,
+                "beta": equal,
+                "allocation": equal,
+                "selection": 0.0,
+                "residual": 0.0,
+            }
+
+        return {
+            k: (v / total if k != "selection" else 0.0)
+            for k, v in raw_weights.items()
+        }
+
+    def _get(self, key: str, default: float = 0.0) -> float:
+        try:
+            return float(self.diagnostics.get(key, default))
+        except Exception:
+            return default
