@@ -1,28 +1,29 @@
 import pandas as pd
+from some_alpha_module import AlphaAttributionAdapter
 
-# Assume other necessary imports and functions are here
+# Existing function or method definition
 
-def generate_live_snapshot_csv():
-    # Call compute_history_nav with include_diagnostics=True
-    result = compute_history_nav(include_diagnostics=True)
-    
-    # Extract diagnostics
-    diagnostics = result.attrs["diagnostics"]
+def generate_live_snapshot():
+    # Other existing code...
 
-    # Prepare the data for live_snapshot.csv including new fields
-    new_row = {
-        'vix': diagnostics['vix'],
-        'regime': diagnostics['regime'],
-        'tilt_factor': diagnostics['tilt_factor'],
-        'vix_exposure': diagnostics['vix_exposure'],
-        'vol_adjust': diagnostics['vol_adjust'],
-        'safe_fraction': diagnostics['safe_fraction'],
-        'exposure': diagnostics['exposure'],
-        'aggregated_risk_state': diagnostics['aggregated_risk_state']
-    }
+    # Ensure all calls to compute_history_nav include include_diagnostics=True
+    nav_df = compute_history_nav(include_diagnostics=True)
 
-    # Assume there's existing logic to append new_row to a DataFrame and save to CSV
-    output_df = pd.DataFrame([new_row])  # Example of how to create a DataFrame
-    output_df.to_csv('live_snapshot.csv', mode='a', header=False, index=False)
+    # Extract diagnostics and compute relevant columns
+    diagnostics = nav_df['diagnostics']  # Assuming diagnostics are in this column
+    # Compute relevant columns from diagnostics
+    relevant_columns = compute_relevant_columns(diagnostics)
 
-# Assume the function may be called elsewhere
+    # Use AlphaAttributionAdapter to inject per-horizon alpha attribution data
+    snapshot_rows = []
+    for index, row in nav_df.iterrows():
+        alpha_data = AlphaAttributionAdapter(row)
+        # Inject alpha_data into row or create a new row with injected data
+        row.update(alpha_data)
+        snapshot_rows.append(row)
+
+    # Return or save the modified snapshot_data
+    return pd.DataFrame(snapshot_rows)
+
+# Call the function as needed 
+# generate_live_snapshot()
