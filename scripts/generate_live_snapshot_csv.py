@@ -1,119 +1,135 @@
 """
-generate_live_snapshot_csv.py
+WAVES Intelligence™
+Generate Live Snapshot CSV
 
-Builds live_snapshot.csv from canonical WAVES engine outputs.
+PURPOSE
+-------
+Builds data/live_snapshot.csv from compute_history_nav diagnostics
+and wires in alpha attribution components.
 
-This script:
-- Calls compute_history_nav (the ECONOMICALLY CAUSAL engine)
-- Extracts diagnostics (momentum, VIX, exposure, safe allocation, etc.)
-- Converts diagnostics into explicit alpha attribution components
-- Writes a flat snapshot CSV for Streamlit consumption
+This file is executed as a SCRIPT via GitHub Actions, so it must
+manually ensure repo-root import resolution.
 
-NO strategy math is invented here.
-NO returns are recomputed here.
+DO NOT CONVERT TO PACKAGE IMPORTS.
 """
 
-import pandas as pd
+# ---------------------------------------------------------
+# Ensure repo root is on PYTHONPATH (CRITICAL FIX)
+# ---------------------------------------------------------
+import sys
 from pathlib import Path
-from typing import Dict, Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+# ---------------------------------------------------------
+# Standard imports
+# ---------------------------------------------------------
+import pandas as pd
+import traceback
+
+# ---------------------------------------------------------
+# Internal imports (now safe)
+# ---------------------------------------------------------
 from analytics.alpha_attribution_adapter import AlphaAttributionAdapter
+
+# NOTE:
+# compute_history_nav is assumed to already exist and return
+# diagnostics-rich history data. We do NOT reimplement it here.
 from waves_engine import compute_history_nav
-from wave_registry import ALL_WAVES
-
-OUTPUT_PATH = Path("data/live_snapshot.csv")
 
 
-# -------------------------------------------------------------------
+# ---------------------------------------------------------
+# Paths
+# ---------------------------------------------------------
+DATA_DIR = REPO_ROOT / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
+
+
+# ---------------------------------------------------------
 # Helpers
-# -------------------------------------------------------------------
+# ---------------------------------------------------------
+def build_snapshot_from_diagnostics(diagnostics: dict) -> dict:
+    """
+    Convert diagnostics dict into a single snapshot row,
+    including alpha attribution components.
+    """
 
-def _safe_get(d: Dict[str, Any], key: str, default=0.0):
-    val = d.get(key, default)
-    if val is None:
-        return default
-    return val
+    adapter = AlphaAttributionAdapter(diagnostics)
+    alpha_components = adapter.convert_to_alpha_attribution()
 
+    snapshot = {
+        # Core returns
+        "return_1d": diagnostics.get("return_1d"),
+        "return_30d": diagnostics.get("return_30d"),
+        "return_60d": diagnostics.get("return_60d"),
+        "return_365d": diagnostics.get("return_365d"),
 
-# -------------------------------------------------------------------
-# Main snapshot builder
-# -------------------------------------------------------------------
+        # Alpha headline
+        "alpha_365d": diagnostics.get("alpha_365d"),
 
-def build_live_snapshot() -> pd.DataFrame:
-    rows = []
+        # Risk diagnostics
+        "vix": diagnostics.get("vix"),
+        "regime": diagnostics.get("regime"),
+        "exposure": diagnostics.get("exposure"),
+        "safe_fraction": diagnostics.get("safe_fraction"),
+        "tilt_factor": diagnostics.get("tilt_factor"),
+        "aggregated_risk_state": diagnostics.get("aggregated_risk_state"),
+    }
 
-    for wave_name in ALL_WAVES:
-        try:
-            # -------------------------------------------------------
-            # 1. Call the REAL engine (this is the causal path)
-            # -------------------------------------------------------
-            result = compute_history_nav(
-                wave_name=wave_name,
-                mode="Standard",
-                include_diagnostics=True,
-            )
+    # Merge alpha attribution components
+    snapshot.update(alpha_components)
 
-            if result is None or result.empty:
-                continue
-
-            diagnostics = result.attrs.get("diagnostics", {})
-            if not diagnostics:
-                continue
-
-            # -------------------------------------------------------
-            # 2. Convert diagnostics → attribution components
-            # -------------------------------------------------------
-            adapter = AlphaAttributionAdapter(diagnostics)
-            attribution = adapter.convert()
-
-            # -------------------------------------------------------
-            # 3. Build snapshot row
-            # -------------------------------------------------------
-            row = {
-                "Wave": wave_name,
-
-                # Core returns
-                "Return_30D": _safe_get(diagnostics, "ret_30d"),
-                "Return_60D": _safe_get(diagnostics, "ret_60d"),
-                "Return_365D": _safe_get(diagnostics, "ret_365d"),
-
-                # Total alpha
-                "Alpha_30D": _safe_get(diagnostics, "alpha_30d"),
-                "Alpha_60D": _safe_get(diagnostics, "alpha_60d"),
-                "Alpha_365D": _safe_get(diagnostics, "alpha_365d"),
-
-                # ---------------------------------------------------
-                # Strategy attribution (THE IMPORTANT PART)
-                # ---------------------------------------------------
-                "Alpha_Selection_365D": attribution["selection"],
-                "Alpha_Momentum_365D": attribution["momentum"],
-                "Alpha_Volatility_365D": attribution["volatility"],
-                "Alpha_Beta_365D": attribution["beta"],
-                "Alpha_Allocation_365D": attribution["allocation"],
-                "Alpha_Residual_365D": attribution["residual"],
-
-                # Diagnostics (optional but useful)
-                "Tilt_Factor": _safe_get(diagnostics, "tilt_factor"),
-                "VIX": _safe_get(diagnostics, "vix"),
-                "Exposure": _safe_get(diagnostics, "exposure"),
-                "Safe_Fraction": _safe_get(diagnostics, "safe_fraction"),
-                "Aggregated_Risk_State": diagnostics.get("aggregated_risk_state", "unknown"),
-            }
-
-            rows.append(row)
-
-        except Exception as e:
-            print(f"[WARN] Failed snapshot for {wave_name}: {e}")
-            continue
-
-    return pd.DataFrame(rows)
+    return snapshot
 
 
-# -------------------------------------------------------------------
-# Entry point
-# -------------------------------------------------------------------
+# ---------------------------------------------------------
+# Main execution
+# ---------------------------------------------------------
+def main():
+    print("▶ Generating live snapshot...")
 
+    try:
+        # -------------------------------------------------
+        # Compute history + diagnostics
+        # -------------------------------------------------
+        history_result = compute_history_nav(
+            return_diagnostics=True,
+            return_latest_only=True,
+        )
+
+        if not history_result:
+            raise RuntimeError("compute_history_nav returned no data")
+
+        diagnostics = history_result.get("diagnostics")
+        if not diagnostics:
+            raise RuntimeError("No diagnostics found in compute_history_nav output")
+
+        # -------------------------------------------------
+        # Build snapshot row
+        # -------------------------------------------------
+        snapshot_row = build_snapshot_from_diagnostics(diagnostics)
+
+        df = pd.DataFrame([snapshot_row])
+
+        # -------------------------------------------------
+        # Write CSV
+        # -------------------------------------------------
+        df.to_csv(LIVE_SNAPSHOT_PATH, index=False)
+
+        print(f"✅ Live snapshot written to {LIVE_SNAPSHOT_PATH}")
+
+    except Exception as e:
+        print("❌ Failed to generate live snapshot")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+# ---------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------
 if __name__ == "__main__":
-    df = build_live_snapshot()
-    df.to_csv(OUTPUT_PATH, index=False)
-    print(f"✅ Live snapshot written to {OUTPUT_PATH}")
+    main()
