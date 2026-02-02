@@ -27,3 +27,4 @@ us_mid_small_growth_semis_wave,US Mid/Small Growth & Semis Wave,Standard,"IWP:0.
 us_small_cap_disruptors_wave,US Small-Cap Disruptors Wave,Standard,"IWO:0.5000,VBK:0.5000",canonical,equity_growth,True,"IWO,VBK,ARKK,ZS,DDOG,NET","IWO,VBK,ARKK,ZS,DDOG,NET",2025-12-28T05:54:16.897692,2025-12-28T05:54:16.897692,ACTIVE,"{'IWO': 0.5, 'VBK': 0.5}","momentum,trend_confirmation,volatility_targeting"
 vector_muni_ladder_wave,Vector Muni Ladder Wave,Standard,"SUB:0.3000,SHM:0.3000,MUB:0.4000",canonical,equity_income,True,"SUB,SHM,MUB,TFI,HYD","SUB,SHM,MUB,TFI,HYD",2025-12-28T05:54:16.897692,2025-12-28T05:54:16.897692,ACTIVE,"{'SUB': 0.3, 'SHM': 0.3, 'MUB': 0.4}",
 vector_treasury_ladder_wave,Vector Treasury Ladder Wave,Standard,"BIL:0.2500,SHY:0.2500,IEF:0.2500,TLT:0.2500",canonical,equity_income,True,"BIL,SHY,IEF,TLT,LQD","BIL,SHY,IEF,TLT,LQD",2025-12-28T05:54:16.897692,2025-12-28T05:54:16.897692,ACTIVE,"{'BIL': 0.25, 'SHY': 0.25, 'IEF': 0.25, 'TLT': 0.25}",
+
