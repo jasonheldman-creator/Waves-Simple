@@ -45,9 +45,8 @@ except Exception:
 # Keep this EXACT name — other modules may reference it.
 BLOCKLIST_TICKERS: Set[str] = {
     # These have been repeatedly failing / causing yfinance noise
-    "COMP-USD",
+    # Note: COMP-USD and IMX-USD are required by active waves, so they cannot be blocklisted
     "ALT-USD",
-    "IMX-USD",
     "MNT-USD",
     "TAO-USD",
     "APT-USD",
