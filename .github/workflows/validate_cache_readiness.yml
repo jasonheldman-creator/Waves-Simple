@@ -170,7 +170,8 @@ jobs:
                       warnings.append(f"Price data is somewhat stale ({readiness['days_stale']} days old)")
                   else:
                       errors.append(f"Price data is too stale: {readiness['status']}")
-              elif readiness['status_code'] == 'DEGRADED':
+              elif readiness['status_code'] == 'DEGRADED' and not readiness['missing_tickers']:
+                  # Only warn about degraded status if it's not due to missing tickers
                   warnings.append(f"Price data is degraded: {readiness['status']}")
               
               # Check 4: Sufficient trading days
