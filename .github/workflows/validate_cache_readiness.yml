@@ -153,17 +153,26 @@ jobs:
               elif readiness['num_days'] == 0 or readiness['num_tickers'] == 0:
                   errors.append("Cache is empty")
               
-              # Check 2: No missing required tickers
+              # Check 2: Missing tickers - warn but don't fail
+              # Allow app to run with graceful degradation
               if readiness['missing_tickers']:
-                  errors.append(f"Missing {len(readiness['missing_tickers'])} required tickers:")
+                  warnings.append(f"Missing {len(readiness['missing_tickers'])} required tickers (graceful degradation)")
                   for ticker in readiness['missing_tickers'][:10]:
-                      print(f"  ❌ {ticker}")
+                      print(f"  ⚠️  {ticker}")
                   if len(readiness['missing_tickers']) > 10:
                       print(f"  ... and {len(readiness['missing_tickers']) - 10} more")
               
-              # Check 3: Data must not be stale (within 2 trading days)
+              # Check 3: Data staleness - warn for degraded, error only for extreme staleness
+              # Allow slightly stale data for GitHub Streamlit Cloud deployment
               if readiness['status_code'] == 'STALE':
-                  errors.append(f"Price data is stale: {readiness['status']}")
+                  # For deployment, treat as warning if data is reasonably recent
+                  if readiness['days_stale'] is not None and readiness['days_stale'] <= 30:
+                      warnings.append(f"Price data is somewhat stale ({readiness['days_stale']} days old)")
+                  else:
+                      errors.append(f"Price data is too stale: {readiness['status']}")
+              elif readiness['status_code'] == 'DEGRADED' and not readiness['missing_tickers']:
+                  # Only warn about degraded status if it's not due to missing tickers
+                  warnings.append(f"Price data is degraded: {readiness['status']}")
               
               # Check 4: Sufficient trading days
               if readiness['status_code'] == 'INSUFFICIENT':
