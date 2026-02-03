@@ -39,6 +39,12 @@ from datetime import datetime, timedelta
 import adaptive_learning as al
 import integrity_signals as integ
 
+# Import adaptive intelligence rendering module
+try:
+    from helpers import diagnostics_review_signals
+except ImportError:
+    diagnostics_review_signals = None
+
 
 # ===========================
 # Page Config
@@ -4423,6 +4429,26 @@ with tabs[2]:
         st.caption("No waves available for diagnostics.")
     elif selected_diag_wave == "" or selected_diag_wave is None:
         st.info("Select a Wave above to view wave-specific diagnostics.")
+    
+    st.markdown("---")
+
+    # -----------------------------------------------
+    # REVIEW & ADAPTATION SIGNALS
+    # -----------------------------------------------
+    if diagnostics_review_signals is not None:
+        try:
+            diagnostics_review_signals.render_review_and_adaptation_signals(
+                snapshot_df, attrib_df, adaptive_state
+            )
+        except Exception as e:
+            st.error(f"Error rendering Review & Adaptation Signals: {e}")
+            st.caption("Review & Adaptation Signals section could not be loaded.")
+    else:
+        st.subheader("Review & Adaptation Signals")
+        st.warning(
+            "Review & Adaptation Signals rendering module not available. "
+            "Please ensure helpers/diagnostics_review_signals.py is accessible."
+        )
     
     st.markdown("---")
 
