@@ -240,10 +240,12 @@ def categorize_error(error_message: str, ticker: str = "") -> tuple[FailureType,
             f"Try normalizing ticker symbol: replace '.' with '-' (e.g., {ticker} → {ticker.replace('.', '-')})"
         )
     
-    # Default to unknown
+    # Default to unknown with actual error message included
+    # Truncate error message to prevent spam while preserving useful info
+    truncated_error = error_message[:200] + "..." if len(error_message) > 200 else error_message
     return (
         FailureType.UNKNOWN_ERROR,
-        "Review error message and check ticker validity. Consult data provider documentation."
+        f"Error: {truncated_error}. Review error message and check ticker validity."
     )
 
 

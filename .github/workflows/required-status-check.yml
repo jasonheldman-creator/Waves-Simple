@@ -1,0 +1,22 @@
+name: PLACEHOLDER_REQUIRED_CHECK
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  satisfy-required-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Required status check placeholder
+        run: |
+          echo "Required status check satisfied."

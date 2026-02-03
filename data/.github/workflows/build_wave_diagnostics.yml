@@ -1,0 +1,45 @@
+name: Build Wave Diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas
+
+      - name: Build SP500 wave diagnostics
+        run: |
+          python build_wave_diagnostics_csv.py
+
+      - name: Commit diagnostics file (if changed)
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "github-actions@github.com"
+
+          if git status --porcelain data/diagnostics/sp500_wave_diagnostics.csv | grep .; then
+            git add data/diagnostics/sp500_wave_diagnostics.csv
+            git commit -m "Build sp500 wave diagnostics"
+            git push
+          else
+            echo "No diagnostics changes to commit."
+          fi

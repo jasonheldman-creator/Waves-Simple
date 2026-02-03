@@ -2,9 +2,11 @@
 Data Health Panel
 Provides visibility into system health, cache performance, and data availability.
 Enhanced with failed ticker diagnostics and reporting.
+
+NOTE: This module requires Streamlit to be installed. Import streamlit is lazy-loaded
+      to allow other helpers modules to be imported without Streamlit.
 """
 
-import streamlit as st
 from datetime import datetime
 from typing import Dict, Any
 import os
@@ -15,6 +17,15 @@ def render_data_health_panel():
     Render the Data Health panel showing system status and metrics.
     Enhanced with fail-safe error handling and ticker diagnostics.
     """
+    # Lazy import of streamlit - only imported when this function is called
+    try:
+        import streamlit as st
+    except ImportError:
+        raise RuntimeError(
+            "Streamlit is required for this function. "
+            "Please install it to use Streamlit-related functionality: pip install streamlit"
+        )
+    
     st.subheader("📊 Data Health Panel")
     st.caption("System health metrics and data availability status")
     
@@ -67,6 +78,111 @@ def render_data_health_panel():
         # Display note about active wave filtering
         if health.get('active_wave_ticker_count', 0) > 0:
             st.caption("ℹ️ System health monitored based on tickers from active waves only")
+        
+        # ========================================================================
+        # PRICE_BOOK PROOF Section
+        # ========================================================================
+        st.markdown("---")
+        st.markdown("### 📈 PRICE_BOOK PROOF")
+        st.caption("Verification that price cache is loaded and usable")
+        
+        try:
+            # Import price_loader functions
+            from helpers.price_loader import (
+                get_price_book_debug_summary, 
+                CACHE_PATH,
+                load_cache
+            )
+            import pandas as pd
+            
+            # Load price_book
+            try:
+                price_book = load_cache()
+            except Exception as e:
+                st.error(f"❌ Failed to load price_book: {str(e)}")
+                price_book = None
+            
+            # Get debug summary
+            debug_summary = get_price_book_debug_summary(price_book)
+            
+            # Check if file exists
+            file_exists = os.path.exists(CACHE_PATH)
+            file_size_kb = 0
+            file_size_mb = 0
+            if file_exists:
+                try:
+                    file_size_bytes = os.path.getsize(CACHE_PATH)
+                    file_size_kb = file_size_bytes / 1024
+                    file_size_mb = file_size_bytes / (1024 * 1024)
+                except Exception as e:
+                    st.warning(f"⚠️ Could not get file size: {str(e)}")
+            
+            # Display metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Rows (Days)", debug_summary['rows'])
+            
+            with col2:
+                st.metric("Cols (Tickers)", debug_summary['cols'])
+            
+            with col3:
+                st.metric("Non-null Cells", f"{debug_summary['non_null_cells']:,}")
+            
+            with col4:
+                file_status = "✅ Exists" if file_exists else "❌ Missing"
+                st.metric("Cache File", file_status)
+            
+            # Display date range
+            if debug_summary['start_date'] and debug_summary['end_date']:
+                st.caption(f"📅 Date Range: {debug_summary['start_date']} to {debug_summary['end_date']}")
+            else:
+                st.caption("📅 Date Range: N/A")
+            
+            # Display file size
+            if file_exists:
+                if file_size_mb >= 1:
+                    st.caption(f"💾 File Size: {file_size_mb:.2f} MB")
+                else:
+                    st.caption(f"💾 File Size: {file_size_kb:.2f} KB")
+                st.caption(f"📂 Path: `{CACHE_PATH}`")
+            else:
+                st.caption(f"📂 Path: `{CACHE_PATH}` (missing)")
+            
+            # Display sample tickers (first 10)
+            if debug_summary['sample_tickers']:
+                ticker_list = ', '.join(debug_summary['sample_tickers'])
+                st.caption(f"🎯 Sample Tickers (first 10): {ticker_list}")
+            
+            # Show warnings/errors
+            is_empty = debug_summary['is_empty']
+            is_stale = False
+            
+            # Check if end_date is stale (>7 days old)
+            if debug_summary['end_date']:
+                try:
+                    from datetime import datetime, timezone
+                    end_date_obj = datetime.strptime(debug_summary['end_date'], '%Y-%m-%d')
+                    # Use UTC for consistency
+                    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                    days_old = (now_utc - end_date_obj).days
+                    if days_old > 7:
+                        is_stale = True
+                except Exception:
+                    pass
+            
+            # Display error/warning banner if needed
+            if not file_exists or is_empty:
+                st.error(f"⚠️ PRICE_BOOK EMPTY – portfolio + alphas will be N/A. Check cache file: {CACHE_PATH}")
+            elif is_stale:
+                st.warning(f"⚠️ PRICE_BOOK DATA STALE – Last updated: {debug_summary['end_date']} ({days_old} days old)")
+            else:
+                st.success("✅ PRICE_BOOK loaded successfully and up-to-date")
+        
+        except ImportError as e:
+            st.warning(f"⚠️ PRICE_BOOK verification not available - import error: {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Error verifying PRICE_BOOK: {str(e)}")
         
         # Circuit Breaker Status
         if health.get('circuit_breakers'):
@@ -241,6 +357,15 @@ def render_compact_health_indicator():
     """
     Render a compact health indicator suitable for sidebar or header.
     """
+    # Lazy import of streamlit - only imported when this function is called
+    try:
+        import streamlit as st
+    except ImportError:
+        raise RuntimeError(
+            "Streamlit is required for this function. "
+            "Please install it to use Streamlit-related functionality: pip install streamlit"
+        )
+    
     try:
         from helpers.ticker_sources import get_ticker_health_status
         
@@ -270,6 +395,15 @@ def render_data_readiness_panel():
     """
     Render data readiness metrics panel showing wave operational status.
     """
+    # Lazy import of streamlit - only imported when this function is called
+    try:
+        import streamlit as st
+    except ImportError:
+        raise RuntimeError(
+            "Streamlit is required for this function. "
+            "Please install it to use Streamlit-related functionality: pip install streamlit"
+        )
+    
     st.subheader("🌊 Data Readiness")
     st.caption("Historical price data coverage and wave operational status")
     

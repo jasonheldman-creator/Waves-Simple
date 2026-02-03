@@ -1,0 +1,33 @@
+name: Build Live Snapshot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow numpy
+
+      - name: Generate live snapshot
+        run: |
+          python scripts/generate_live_snapshot_csv.py
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data/live_snapshot.csv
+          git commit -m "Generate live snapshot" || echo "No changes"
+          git push

@@ -1,0 +1,932 @@
+[
+  {
+    "timestamp": "2026-01-10T12:53:26.743692",
+    "wave_id": "sp500_wave",
+    "wave_name": "S&P 500 Wave",
+    "failures": [
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-01-10T12:53:28.120231",
+    "wave_id": "ai_cloud_megacap_wave",
+    "wave_name": "AI & Cloud MegaCap Wave",
+    "failures": [
+      {
+        "ticker_original": "ADBE",
+        "ticker_normalized": "ADBE",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AMD",
+        "ticker_normalized": "AMD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AVGO",
+        "ticker_normalized": "AVGO",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "CRM",
+        "ticker_normalized": "CRM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "GOOGL",
+        "ticker_normalized": "GOOGL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "IGV",
+        "ticker_normalized": "IGV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "INTC",
+        "ticker_normalized": "INTC",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "META",
+        "ticker_normalized": "META",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MSFT",
+        "ticker_normalized": "MSFT",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "NVDA",
+        "ticker_normalized": "NVDA",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "ORCL",
+        "ticker_normalized": "ORCL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "QQQ",
+        "ticker_normalized": "QQQ",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SMH",
+        "ticker_normalized": "SMH",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-01-10T12:54:10.796861",
+    "wave_id": "sp500_wave",
+    "wave_name": "S&P 500 Wave",
+    "failures": [
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-01-10T12:54:12.181024",
+    "wave_id": "ai_cloud_megacap_wave",
+    "wave_name": "AI & Cloud MegaCap Wave",
+    "failures": [
+      {
+        "ticker_original": "ADBE",
+        "ticker_normalized": "ADBE",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AMD",
+        "ticker_normalized": "AMD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AVGO",
+        "ticker_normalized": "AVGO",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "CRM",
+        "ticker_normalized": "CRM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "GOOGL",
+        "ticker_normalized": "GOOGL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "IGV",
+        "ticker_normalized": "IGV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "INTC",
+        "ticker_normalized": "INTC",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "META",
+        "ticker_normalized": "META",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MSFT",
+        "ticker_normalized": "MSFT",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "NVDA",
+        "ticker_normalized": "NVDA",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "ORCL",
+        "ticker_normalized": "ORCL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "QQQ",
+        "ticker_normalized": "QQQ",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SMH",
+        "ticker_normalized": "SMH",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-01-10T12:54:50.914044",
+    "wave_id": "sp500_wave",
+    "wave_name": "S&P 500 Wave",
+    "failures": [
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-01-10T12:54:52.290610",
+    "wave_id": "ai_cloud_megacap_wave",
+    "wave_name": "AI & Cloud MegaCap Wave",
+    "failures": [
+      {
+        "ticker_original": "ADBE",
+        "ticker_normalized": "ADBE",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AMD",
+        "ticker_normalized": "AMD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AVGO",
+        "ticker_normalized": "AVGO",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "CRM",
+        "ticker_normalized": "CRM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "GOOGL",
+        "ticker_normalized": "GOOGL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "IGV",
+        "ticker_normalized": "IGV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "INTC",
+        "ticker_normalized": "INTC",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "META",
+        "ticker_normalized": "META",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MSFT",
+        "ticker_normalized": "MSFT",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "NVDA",
+        "ticker_normalized": "NVDA",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "ORCL",
+        "ticker_normalized": "ORCL",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "QQQ",
+        "ticker_normalized": "QQQ",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SMH",
+        "ticker_normalized": "SMH",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "Empty data returned",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  }
+]

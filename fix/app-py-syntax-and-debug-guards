@@ -1,0 +1,17 @@
+This PR hardens app.py against Streamlit parser and runtime failures caused by
+unsafe sidebar info banners, duplicate imports, and debug-mode side effects.
+
+Key changes and intent:
+
+- Remove or avoid f-strings inside st.sidebar.info calls.
+- Ensure all sidebar info messages are single-line, literal strings.
+- Prevent multiline or dynamically formatted sidebar banners that can trigger
+  SyntaxError or unterminated string parsing issues in Streamlit Cloud.
+- Confirm only a single `import streamlit as st` exists.
+- Ensure DEBUG / diagnostics modes are disabled by default.
+
+This is a preventative stabilization and hardening pass.
+No functional logic, calculations, or strategy behavior is changed.
+
+This PR exists to improve deployment reliability and reduce Streamlit runtime
+parser failures observed during recent merges.

@@ -19,6 +19,7 @@ Key Features:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 import uuid
@@ -307,7 +308,7 @@ def create_snapshot_metadata(
     
     Args:
         snapshot_df: The snapshot DataFrame
-        generation_reason: Reason for generation ('auto', 'manual', 'fallback')
+        generation_reason: Reason for generation ('auto', 'manual', 'fallback', 'version_change')
         snapshot_id: Optional snapshot ID (will generate if not provided)
         
     Returns:
@@ -325,6 +326,14 @@ def create_snapshot_metadata(
     registry_version = get_registry_version()
     benchmark_version = get_benchmark_registry_version()
     
+    # Get engine version
+    engine_version = 'unknown'
+    try:
+        from waves_engine import get_engine_version
+        engine_version = get_engine_version()
+    except ImportError:
+        pass
+    
     # Get system status
     data_regime = detect_data_regime(snapshot_df)
     safe_mode = get_safe_mode_status()
@@ -334,18 +343,32 @@ def create_snapshot_metadata(
     # Get snapshot timestamp
     snapshot_time = datetime.now()
     
+    # Get max_price_date from cache metadata for audit trail
+    max_price_date = None
+    try:
+        cache_meta_path = "data/cache/prices_cache_meta.json"
+        if os.path.exists(cache_meta_path):
+            with open(cache_meta_path, 'r') as f:
+                cache_meta = json.load(f)
+            max_price_date = cache_meta.get("spy_max_date")
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        # Cache metadata not available or invalid - not critical for snapshot metadata
+        pass
+    
     metadata = {
         # Snapshot identification
         'snapshot_id': snapshot_id,
         'snapshot_hash': snapshot_hash,
         'generation_reason': generation_reason,
         'timestamp': snapshot_time.isoformat(),
+        'max_price_date': max_price_date,  # NEW: SPY last trading date for audit trail
         
         # Version information
         'software_version': software_version,
         'git_branch': git_branch,
         'registry_version': registry_version,
         'benchmark_version': benchmark_version,
+        'engine_version': engine_version,  # NEW: Track engine version for cache invalidation
         
         # System status
         'data_regime': data_regime,

@@ -1,9 +1,15 @@
 """
-V3 ADD-ON: Bottom Ticker (Institutional Rail) - Helpers Package
-Enhanced with resilience features: circuit breaker, persistent cache, and health monitoring.
+Helpers Package - Pure Utility Functions
+
+This package provides computational helpers and utilities that do not depend on Streamlit.
+For Streamlit-specific UI components, import explicitly:
+    - from helpers.ticker_rail import render_bottom_ticker_v3
+    - from helpers.data_health_panel import render_data_health_panel
+
+Core utilities (non-UI) are safe to import without Streamlit installed.
 """
 
-from .ticker_rail import render_bottom_ticker_v3
+# Non-UI utility functions - safe to import without Streamlit
 from .ticker_sources import (
     get_wave_holdings_tickers,
     get_ticker_price_data,
@@ -17,13 +23,12 @@ from .ticker_sources import (
 try:
     from .circuit_breaker import get_circuit_breaker, get_all_circuit_states
     from .persistent_cache import get_persistent_cache
-    from .data_health_panel import render_data_health_panel, render_compact_health_indicator
     RESILIENCE_FEATURES_AVAILABLE = True
 except ImportError:
     RESILIENCE_FEATURES_AVAILABLE = False
 
 __all__ = [
-    'render_bottom_ticker_v3',
+    # Ticker data functions (non-UI)
     'get_wave_holdings_tickers',
     'get_ticker_price_data',
     'get_earnings_date',
@@ -38,7 +43,9 @@ if RESILIENCE_FEATURES_AVAILABLE:
         'get_circuit_breaker',
         'get_all_circuit_states',
         'get_persistent_cache',
-        'render_data_health_panel',
-        'render_compact_health_indicator',
     ])
+
+# NOTE: Streamlit UI components (ticker_rail, data_health_panel) must be imported explicitly:
+#   from helpers.ticker_rail import render_bottom_ticker_v3
+#   from helpers.data_health_panel import render_data_health_panel, render_compact_health_indicator
 

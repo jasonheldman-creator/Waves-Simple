@@ -1,15 +1,17 @@
 {
-  "snapshot_id": "snap-b04f4ebb90924eb2",
-  "snapshot_hash": "baba2092b0fb9094",
-  "generation_reason": "auto",
-  "timestamp": "2026-01-05T20:19:44.800279",
-  "software_version": "caddc79",
-  "git_branch": "copilot/add-portfolio-snapshot-debug",
-  "registry_version": "v20260102_214700",
-  "benchmark_version": "v20260102_214700",
-  "data_regime": "SANDBOX",
+  "snapshot_id": "snap-c215e365972340a3",
+  "snapshot_hash": "e938ce5e4a09901f",
+  "generation_reason": "stale_by_age",
+  "timestamp": "2026-01-17T05:46:29.990063",
+  "max_price_date": null,
+  "software_version": "31e3bac",
+  "git_branch": "copilot/add-adaptive-intelligence-module",
+  "registry_version": "v20260108_040800",
+  "benchmark_version": "v20260108_040800",
+  "engine_version": "17.5",
+  "data_regime": "LIVE",
   "safe_mode": "OFF",
   "wave_count": 28,
   "degraded_wave_count": 0,
-  "broken_ticker_count": 127
+  "broken_ticker_count": 0
 }

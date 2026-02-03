@@ -1,0 +1,185 @@
+wave,ticker,weight
+AI & Cloud MegaCap Wave,NVDA,0.12
+AI & Cloud MegaCap Wave,MSFT,0.1
+AI & Cloud MegaCap Wave,GOOGL,0.08
+AI & Cloud MegaCap Wave,META,0.07
+AI & Cloud MegaCap Wave,AVGO,0.08
+AI & Cloud MegaCap Wave,ADBE,0.07
+AI & Cloud MegaCap Wave,AMD,0.08
+AI & Cloud MegaCap Wave,CRM,0.06
+AI & Cloud MegaCap Wave,ORCL,0.06
+AI & Cloud MegaCap Wave,INTC,0.06
+Clean Transit-Infrastructure Wave,TSLA,0.15
+Clean Transit-Infrastructure Wave,RIVN,0.08
+Clean Transit-Infrastructure Wave,LCID,0.07
+Clean Transit-Infrastructure Wave,GM,0.1
+Clean Transit-Infrastructure Wave,F,0.1
+Clean Transit-Infrastructure Wave,PAVE,0.15
+Clean Transit-Infrastructure Wave,XLI,0.15
+Clean Transit-Infrastructure Wave,CAT,0.08
+Clean Transit-Infrastructure Wave,UNP,0.07
+Clean Transit-Infrastructure Wave,CHPT,0.05
+Crypto AI Growth Wave,TAO-USD,0.25
+Crypto AI Growth Wave,RENDER-USD,0.2
+Crypto AI Growth Wave,FET-USD,0.18
+Crypto AI Growth Wave,ICP-USD,0.15
+Crypto AI Growth Wave,OCEAN-USD,0.12
+Crypto AI Growth Wave,AGIX-USD,0.1
+Crypto Broad Growth Wave,BTC-USD,0.3
+Crypto Broad Growth Wave,ETH-USD,0.25
+Crypto Broad Growth Wave,BNB-USD,0.1
+Crypto Broad Growth Wave,SOL-USD,0.1
+Crypto Broad Growth Wave,XRP-USD,0.08
+Crypto Broad Growth Wave,ADA-USD,0.07
+Crypto Broad Growth Wave,AVAX-USD,0.05
+Crypto Broad Growth Wave,DOT-USD,0.05
+Crypto DeFi Growth Wave,UNI-USD,0.2
+Crypto DeFi Growth Wave,AAVE-USD,0.18
+Crypto DeFi Growth Wave,LINK-USD,0.15
+Crypto DeFi Growth Wave,MKR-USD,0.12
+Crypto DeFi Growth Wave,CRV-USD,0.1
+Crypto DeFi Growth Wave,INJ-USD,0.1
+Crypto DeFi Growth Wave,SNX-USD,0.08
+Crypto DeFi Growth Wave,COMP-USD,0.07
+Crypto Income Wave,ETH-USD,0.3
+Crypto Income Wave,stETH-USD,0.15
+Crypto Income Wave,LDO-USD,0.15
+Crypto Income Wave,AAVE-USD,0.12
+Crypto Income Wave,MKR-USD,0.1
+Crypto Income Wave,UNI-USD,0.08
+Crypto Income Wave,CAKE-USD,0.05
+Crypto Income Wave,CRV-USD,0.05
+Crypto L1 Growth Wave,ETH-USD,0.3
+Crypto L1 Growth Wave,SOL-USD,0.2
+Crypto L1 Growth Wave,AVAX-USD,0.12
+Crypto L1 Growth Wave,ADA-USD,0.1
+Crypto L1 Growth Wave,DOT-USD,0.1
+Crypto L1 Growth Wave,NEAR-USD,0.08
+Crypto L1 Growth Wave,APT-USD,0.05
+Crypto L1 Growth Wave,ATOM-USD,0.05
+Crypto L2 Growth Wave,MATIC-USD,0.3
+Crypto L2 Growth Wave,ARB-USD,0.25
+Crypto L2 Growth Wave,OP-USD,0.2
+Crypto L2 Growth Wave,IMX-USD,0.12
+Crypto L2 Growth Wave,MNT-USD,0.08
+Crypto L2 Growth Wave,STX-USD,0.05
+Demas Fund Wave,BRK-B,0.12
+Demas Fund Wave,JPM,0.1
+Demas Fund Wave,XOM,0.1
+Demas Fund Wave,CVX,0.08
+Demas Fund Wave,PG,0.1
+Demas Fund Wave,KO,0.08
+Demas Fund Wave,JNJ,0.1
+Demas Fund Wave,UNH,0.1
+Demas Fund Wave,WMT,0.1
+Demas Fund Wave,VTV,0.12
+EV & Infrastructure Wave,TSLA,0.12
+EV & Infrastructure Wave,NIO,0.08
+EV & Infrastructure Wave,GM,0.08
+EV & Infrastructure Wave,F,0.08
+EV & Infrastructure Wave,CAT,0.08
+EV & Infrastructure Wave,UNP,0.08
+EV & Infrastructure Wave,VMC,0.08
+EV & Infrastructure Wave,MLM,0.08
+EV & Infrastructure Wave,XLI,0.16
+EV & Infrastructure Wave,PAVE,0.16
+Future Energy & EV Wave,XLE,0.12
+Future Energy & EV Wave,ICLN,0.1
+Future Energy & EV Wave,ENPH,0.08
+Future Energy & EV Wave,NEE,0.1
+Future Energy & EV Wave,FSLR,0.08
+Future Energy & EV Wave,TSLA,0.1
+Future Energy & EV Wave,RUN,0.07
+Future Energy & EV Wave,BP,0.08
+Future Energy & EV Wave,CVX,0.1
+Future Energy & EV Wave,PLUG,0.07
+Future Power & Energy Wave,ICLN,0.15
+Future Power & Energy Wave,TAN,0.15
+Future Power & Energy Wave,NEE,0.12
+Future Power & Energy Wave,ENPH,0.1
+Future Power & Energy Wave,FSLR,0.1
+Future Power & Energy Wave,XLE,0.1
+Future Power & Energy Wave,PLUG,0.08
+Future Power & Energy Wave,BE,0.08
+Future Power & Energy Wave,RUN,0.07
+Future Power & Energy Wave,SEDG,0.05
+Gold Wave,GLD,0.7
+Gold Wave,IAU,0.3
+Income Wave,VYM,0.25
+Income Wave,SCHD,0.25
+Income Wave,DVY,0.2
+Income Wave,HDV,0.15
+Income Wave,NOBL,0.15
+Infinity Multi-Asset Growth Wave,SPY,0.2
+Infinity Multi-Asset Growth Wave,QQQ,0.2
+Infinity Multi-Asset Growth Wave,VGT,0.1
+Infinity Multi-Asset Growth Wave,SMH,0.1
+Infinity Multi-Asset Growth Wave,ICLN,0.1
+Infinity Multi-Asset Growth Wave,PAVE,0.1
+Infinity Multi-Asset Growth Wave,IWO,0.1
+Infinity Multi-Asset Growth Wave,BTC-USD,0.05
+Infinity Multi-Asset Growth Wave,ETH-USD,0.05
+Next-Gen Compute & Semis Wave,IBM,0.1
+Next-Gen Compute & Semis Wave,MSFT,0.08
+Next-Gen Compute & Semis Wave,GOOGL,0.08
+Next-Gen Compute & Semis Wave,NVDA,0.1
+Next-Gen Compute & Semis Wave,AMZN,0.08
+Next-Gen Compute & Semis Wave,QCOM,0.08
+Next-Gen Compute & Semis Wave,INTC,0.08
+Next-Gen Compute & Semis Wave,TSM,0.1
+Next-Gen Compute & Semis Wave,ADBE,0.07
+Next-Gen Compute & Semis Wave,SNOW,0.07
+Quantum Computing Wave,IONQ,0.2
+Quantum Computing Wave,RGTI,0.15
+Quantum Computing Wave,QBTS,0.15
+Quantum Computing Wave,IBM,0.15
+Quantum Computing Wave,GOOGL,0.1
+Quantum Computing Wave,MSFT,0.1
+Quantum Computing Wave,NVDA,0.1
+Quantum Computing Wave,AMD,0.05
+Russell 3000 Wave,IWV,1.0
+S&P 500 Wave,SPY,1.0
+Small Cap Growth Wave,IWO,0.4
+Small Cap Growth Wave,VBK,0.3
+Small Cap Growth Wave,VTWO,0.15
+Small Cap Growth Wave,IJH,0.15
+Small to Mid Cap Growth Wave,IJH,0.25
+Small to Mid Cap Growth Wave,IWP,0.25
+Small to Mid Cap Growth Wave,MDY,0.2
+Small to Mid Cap Growth Wave,IWO,0.15
+Small to Mid Cap Growth Wave,VBK,0.15
+SmartSafe Tax-Free Money Market Wave,SUB,0.4
+SmartSafe Tax-Free Money Market Wave,SHM,0.4
+SmartSafe Tax-Free Money Market Wave,MUB,0.2
+SmartSafe Treasury Cash Wave,BIL,0.5
+SmartSafe Treasury Cash Wave,SGOV,0.5
+US MegaCap Core Wave,AAPL,0.07
+US MegaCap Core Wave,MSFT,0.07
+US MegaCap Core Wave,AMZN,0.05
+US MegaCap Core Wave,GOOGL,0.04
+US MegaCap Core Wave,META,0.03
+US MegaCap Core Wave,NVDA,0.06
+US MegaCap Core Wave,BRK-B,0.04
+US MegaCap Core Wave,UNH,0.03
+US MegaCap Core Wave,JPM,0.03
+US MegaCap Core Wave,XOM,0.03
+US Mid/Small Growth & Semis Wave,IWP,0.3
+US Mid/Small Growth & Semis Wave,MDY,0.3
+US Mid/Small Growth & Semis Wave,IWO,0.2
+US Mid/Small Growth & Semis Wave,SMH,0.2
+US Small-Cap Disruptors Wave,IWO,0.3
+US Small-Cap Disruptors Wave,VBK,0.3
+US Small-Cap Disruptors Wave,ARKK,0.1
+US Small-Cap Disruptors Wave,ZS,0.1
+US Small-Cap Disruptors Wave,DDOG,0.1
+US Small-Cap Disruptors Wave,NET,0.1
+Vector Muni Ladder Wave,SUB,0.25
+Vector Muni Ladder Wave,SHM,0.2
+Vector Muni Ladder Wave,MUB,0.25
+Vector Muni Ladder Wave,TFI,0.15
+Vector Muni Ladder Wave,HYD,0.15
+Vector Treasury Ladder Wave,BIL,0.25
+Vector Treasury Ladder Wave,SHY,0.2
+Vector Treasury Ladder Wave,IEF,0.2
+Vector Treasury Ladder Wave,TLT,0.2
+Vector Treasury Ladder Wave,LQD,0.15

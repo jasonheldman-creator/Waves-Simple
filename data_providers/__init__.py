@@ -16,3 +16,4 @@ __all__ = ['BaseProvider', 'YahooProvider']
 
 if POLYGON_AVAILABLE:
     __all__.append('PolygonProvider')
+

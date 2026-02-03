@@ -1,0 +1,49 @@
+name: Run Live Snapshot Generator Once
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  run-generator:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow
+
+      - name: Locate generator file
+        id: find_generator
+        run: |
+          echo "Searching for generate_live_snapshot_csv.py..."
+          FILE_PATH=$(find . -name "generate_live_snapshot_csv.py" | head -n 1)
+          if [ -z "$FILE_PATH" ]; then
+            echo "❌ generate_live_snapshot_csv.py not found"
+            exit 1
+          fi
+          echo "✅ Found generator at: $FILE_PATH"
+          echo "GENERATOR_PATH=$FILE_PATH" >> $GITHUB_ENV
+
+      - name: Run live snapshot generator
+        run: |
+          python "$GENERATOR_PATH"
+
+      - name: Commit updated live snapshot
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add data/live_snapshot.csv
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "Automated update: live_snapshot.csv"
+
+          git push

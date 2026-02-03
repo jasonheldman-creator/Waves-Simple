@@ -74,8 +74,9 @@ The snapshot includes 29 columns for each Wave:
 #### Risk & Exposure
 - `Exposure`: Current market exposure (0.0-1.5)
 - `CashPercent`: Percentage in safe assets (0.0-1.0)
-- `VIX_Level`: Current VIX level
+- `VIX_Level`: Current VIX level (from strategy_state or computed)
 - `VIX_Regime`: VIX regime (low/normal/elevated/high)
+- `VIX_Adjustment_Pct`: VIX overlay adjustment percentage (e.g., -0.05 for -5% exposure adjustment)
 - `Beta_Real`: Realized beta vs benchmark
 - `Beta_Target`: Target beta
 - `Beta_Drift`: |Beta_Real - Beta_Target|

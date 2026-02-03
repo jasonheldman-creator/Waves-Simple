@@ -1,6 +1,5 @@
 [server]
-fileWatcherType = "none"
+headless = true
 
-[client]
-toolbarMode = "minimal"
-showErrorDetails = false
+[runner]
+script = "app_min.py"

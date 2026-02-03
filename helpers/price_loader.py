@@ -57,8 +57,15 @@ except ImportError:
 
 # Constants
 CACHE_DIR = "data/cache"
-CACHE_FILE = "prices_cache.parquet"
-CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
+
+# Canonical price cache path - single source of truth
+CANONICAL_PRICE_CACHE_PATH = "data/cache/prices_cache.parquet"
+
+# Legacy paths for backward compatibility
+CACHE_FILE = "prices_cache_v2.parquet"
+CACHE_FILE_LEGACY = "prices_cache.parquet"
+CACHE_PATH = CANONICAL_PRICE_CACHE_PATH  # Use canonical path
+CACHE_PATH_LEGACY = os.path.join(CACHE_DIR, CACHE_FILE)  # Legacy v2 path
 FAILED_TICKERS_FILE = "failed_tickers.csv"
 FAILED_TICKERS_PATH = os.path.join(CACHE_DIR, FAILED_TICKERS_FILE)
 
@@ -99,6 +106,99 @@ if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
     )
     PRICE_CACHE_OK_DAYS = 14
     PRICE_CACHE_DEGRADED_DAYS = 30
+
+
+# ============================================================================
+# Ticker Classification Helpers
+# ============================================================================
+
+# Known stablecoins (pegged to USD)
+# Last updated: 2026-01-08
+# Maintenance: Add new major stablecoins (>$1B market cap) as they emerge
+STABLECOIN_TICKERS = {
+    'USDT-USD', 'USDC-USD', 'DAI-USD', 'USDP-USD', 'BUSD-USD', 'TUSD-USD',
+    'USDD-USD', 'FRAX-USD', 'GUSD-USD', 'USDJ-USD'
+}
+
+# Known macro indices (not suitable for crypto-only analysis)
+MACRO_INDEX_TICKERS = {
+    '^VIX',    # CBOE Volatility Index
+    '^TNX',    # Treasury Yield 10 Years
+    '^IRX',    # Treasury Yield 13 Week
+    '^FVX',    # Treasury Yield 5 Years
+    '^TYX',    # Treasury Yield 30 Years
+    '^DJI',    # Dow Jones Industrial Average
+    '^GSPC',   # S&P 500 Index
+    '^IXIC',   # NASDAQ Composite
+    '^RUT'     # Russell 2000
+}
+
+
+def is_stablecoin(ticker: str) -> bool:
+    """
+    Check if a ticker is a stablecoin.
+    
+    Stablecoins are cryptocurrencies pegged to fiat currencies (typically USD)
+    and should be excluded from crypto growth/volatility analysis as they have
+    minimal price movement by design.
+    
+    Args:
+        ticker: Ticker symbol (e.g., 'USDT-USD', 'BTC-USD')
+        
+    Returns:
+        True if ticker is a known stablecoin, False otherwise
+    """
+    return ticker.upper() in STABLECOIN_TICKERS
+
+
+def is_macro_index(ticker: str) -> bool:
+    """
+    Check if a ticker is a macro/market index.
+    
+    Macro indices (like ^VIX, ^TNX) should be excluded from crypto-specific
+    wave analysis as they represent traditional market metrics, not crypto assets.
+    
+    Args:
+        ticker: Ticker symbol (e.g., '^VIX', 'BTC-USD')
+        
+    Returns:
+        True if ticker is a known macro index, False otherwise
+    """
+    return ticker.upper() in MACRO_INDEX_TICKERS
+
+
+def filter_tickers_for_crypto_waves(tickers: List[str]) -> List[str]:
+    """
+    Filter out stablecoins and macro indices from a ticker list for crypto wave analysis.
+    
+    This ensures crypto waves only include actual cryptocurrencies with price volatility,
+    excluding:
+    - Stablecoins (USDT-USD, USDC-USD, etc.) - minimal price movement
+    - Macro indices (^VIX, ^TNX, etc.) - not crypto assets
+    
+    Args:
+        tickers: List of ticker symbols
+        
+    Returns:
+        Filtered list excluding stablecoins and macro indices
+    """
+    filtered = []
+    excluded_count = 0
+    
+    for ticker in tickers:
+        if is_stablecoin(ticker):
+            logger.debug(f"Excluding stablecoin from crypto wave: {ticker}")
+            excluded_count += 1
+        elif is_macro_index(ticker):
+            logger.debug(f"Excluding macro index from crypto wave: {ticker}")
+            excluded_count += 1
+        else:
+            filtered.append(ticker)
+    
+    if excluded_count > 0:
+        logger.info(f"Filtered {excluded_count} stablecoins/indices from crypto wave ticker list")
+    
+    return filtered
 
 
 def ensure_cache_directory() -> None:
@@ -312,21 +412,96 @@ def save_failed_tickers(failures: Dict[str, str]) -> None:
         logger.error(f"Error saving failed tickers: {e}")
 
 
+def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure the DataFrame index has datetime type.
+    
+    Handles both single-level DatetimeIndex and MultiIndex (date, ticker) structures.
+    For MultiIndex, only converts the date level (level 0) to DatetimeIndex while
+    preserving other levels intact.
+    
+    This is an internal helper function used by load_cache() to normalize index types
+    when loading from parquet files. It's designed to handle the common case where
+    parquet files may have either structure.
+    
+    Args:
+        df: DataFrame with either DatetimeIndex or MultiIndex
+        
+    Returns:
+        DataFrame with properly typed index (sorted by date)
+        
+    Raises:
+        May raise pandas conversion errors if the date level cannot be converted
+        to datetime. This is expected to fail for malformed data and will propagate
+        to the caller (load_cache) which handles it gracefully.
+        
+    Note:
+        While this is a private function (leading underscore), it is directly tested
+        to ensure correctness of the index conversion logic.
+    """
+    # Handle MultiIndex (date, ticker) vs single DatetimeIndex
+    if isinstance(df.index, pd.MultiIndex):
+        # MultiIndex detected - convert only the date level to DatetimeIndex
+        logger.info(f"PRICE_BOOK: MultiIndex detected with levels: {df.index.names}")
+        
+        # Get the date level (assumed to be level 0)
+        date_level = df.index.get_level_values(0)
+        
+        # Convert date level to DatetimeIndex if not already
+        if not isinstance(date_level, pd.DatetimeIndex):
+            logger.info("PRICE_BOOK: Converting date level to DatetimeIndex")
+            # Create new MultiIndex with datetime-converted date level
+            new_levels = [pd.to_datetime(date_level)] + [
+                df.index.get_level_values(i) for i in range(1, df.index.nlevels)
+            ]
+            df.index = pd.MultiIndex.from_arrays(new_levels, names=df.index.names)
+        else:
+            logger.info("PRICE_BOOK: Date level is already DatetimeIndex")
+    else:
+        # Single-level index - convert to datetime if needed
+        if not isinstance(df.index, pd.DatetimeIndex):
+            logger.info("PRICE_BOOK: Converting single-level index to DatetimeIndex")
+            df.index = pd.to_datetime(df.index)
+    
+    # Sort by date (works for both single-level and MultiIndex)
+    df = df.sort_index()
+    
+    return df
+
+
 def load_cache() -> Optional[pd.DataFrame]:
     """
     Load the price cache from disk.
     
+    Prefers canonical path (data/cache/prices_cache.parquet) first,
+    then falls back to legacy v2 path for temporary compatibility.
+    
     Returns:
         DataFrame with dates as index and tickers as columns, or None if cache doesn't exist
     """
+    # Determine which cache file to use (canonical with fallback to v2)
+    cache_file_to_use = CACHE_PATH
+    
+    # Log cache file existence check
+    logger.info(f"PRICE_BOOK Cache Check: File exists={os.path.exists(CACHE_PATH)}, Path={CACHE_PATH}")
+    
     if not os.path.exists(CACHE_PATH):
-        logger.info(f"Cache file not found: {CACHE_PATH}")
-        return None
+        # Try fallback to legacy v2 cache for temporary compatibility
+        if os.path.exists(CACHE_PATH_LEGACY):
+            logger.warning(f"Canonical cache not found: {CACHE_PATH}, falling back to v2: {CACHE_PATH_LEGACY}")
+            cache_file_to_use = CACHE_PATH_LEGACY
+        else:
+            logger.warning(f"Cache file not found: {CACHE_PATH} (v2 {CACHE_PATH_LEGACY} also not found)")
+            return None
     
     try:
         # Get file mtime for cache key uniqueness
-        cache_mtime = os.path.getmtime(CACHE_PATH)
-        cache_size = os.path.getsize(CACHE_PATH)
+        cache_mtime = os.path.getmtime(cache_file_to_use)
+        cache_size = os.path.getsize(cache_file_to_use)
+        cache_size_mb = cache_size / (1024 * 1024)
+        
+        # Log file size
+        logger.info(f"PRICE_BOOK Cache File: Size={cache_size_mb:.2f} MB ({cache_size:,} bytes)")
         
         # If using Streamlit, use cache with unique key based on mtime and size
         if STREAMLIT_AVAILABLE and st is not None:
@@ -350,31 +525,35 @@ def load_cache() -> Optional[pd.DataFrame]:
                 """
                 df = pd.read_parquet(path)
                 
-                # Ensure index is datetime
-                if not isinstance(df.index, pd.DatetimeIndex):
-                    df.index = pd.to_datetime(df.index)
-                
-                # Sort by date
-                df = df.sort_index()
+                # Ensure index is datetime (handles both single and MultiIndex)
+                df = _ensure_datetime_index(df)
                 
                 return df
             
-            cache_df = _load_cached_parquet(CACHE_PATH, cache_key)
+            cache_df = _load_cached_parquet(cache_file_to_use, cache_key)
         else:
             # Load without Streamlit caching
-            cache_df = pd.read_parquet(CACHE_PATH)
+            cache_df = pd.read_parquet(cache_file_to_use)
             
-            # Ensure index is datetime
-            if not isinstance(cache_df.index, pd.DatetimeIndex):
-                cache_df.index = pd.to_datetime(cache_df.index)
-            
-            # Sort by date
-            cache_df = cache_df.sort_index()
+            # Ensure index is datetime (handles both single and MultiIndex)
+            cache_df = _ensure_datetime_index(cache_df)
         
-        logger.info(
-            f"Loaded cache: {len(cache_df)} days, {len(cache_df.columns)} tickers, "
-            f"range: {cache_df.index[0].date()} to {cache_df.index[-1].date()}"
-        )
+        # Log detailed PRICE_BOOK shape and date range
+        # Handle MultiIndex differently than single DatetimeIndex
+        if isinstance(cache_df.index, pd.MultiIndex):
+            # For MultiIndex, get the date level (level 0)
+            date_level = cache_df.index.get_level_values(0)
+            logger.info(
+                f"PRICE_BOOK Loaded: shape=({len(cache_df)} rows, {len(cache_df.columns)} cols), "
+                f"date_range={date_level[0].date()} to {date_level[-1].date()}, "
+                f"index_type=MultiIndex{cache_df.index.names}"
+            )
+        else:
+            # Single DatetimeIndex
+            logger.info(
+                f"PRICE_BOOK Loaded: shape=({len(cache_df)} rows, {len(cache_df.columns)} cols), "
+                f"date_range={cache_df.index[0].date()} to {cache_df.index[-1].date()}"
+            )
         
         return cache_df
         
@@ -1124,6 +1303,79 @@ def clear_cache() -> bool:
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
         return False
+
+
+def get_price_book_debug_summary(price_book: pd.DataFrame) -> dict:
+    """
+    Get debug summary of price_book DataFrame for diagnostics.
+    
+    This function provides a comprehensive diagnostic view of the price_book,
+    including shape, date range, ticker counts, and sample tickers.
+    
+    Args:
+        price_book: DataFrame with dates as index and tickers as columns
+        
+    Returns:
+        Dictionary with:
+        - rows: int - Number of rows (trading days)
+        - cols: int - Number of columns (tickers)
+        - start_date: str - Earliest date (YYYY-MM-DD) or None if empty
+        - end_date: str - Latest date (YYYY-MM-DD) or None if empty
+        - num_tickers: int - Count of columns (same as cols)
+        - non_null_cells: int - Count of non-null cells
+        - sample_tickers: List[str] - First 10 column names
+        - is_empty: bool - True if DataFrame is empty or None
+    """
+    result = {
+        'rows': 0,
+        'cols': 0,
+        'start_date': None,
+        'end_date': None,
+        'num_tickers': 0,
+        'non_null_cells': 0,
+        'sample_tickers': [],
+        'is_empty': True
+    }
+    
+    # Check if price_book is None or empty
+    if price_book is None or price_book.empty:
+        return result
+    
+    # Get shape
+    result['rows'], result['cols'] = price_book.shape
+    result['num_tickers'] = result['cols']
+    result['is_empty'] = False
+    
+    # Get date range (safely handle DatetimeIndex)
+    try:
+        if isinstance(price_book.index, pd.DatetimeIndex) and len(price_book.index) > 0:
+            result['start_date'] = price_book.index[0].strftime('%Y-%m-%d')
+            result['end_date'] = price_book.index[-1].strftime('%Y-%m-%d')
+        else:
+            # Try to convert if not DatetimeIndex
+            try:
+                dt_index = pd.to_datetime(price_book.index)
+                if len(dt_index) > 0:
+                    result['start_date'] = dt_index[0].strftime('%Y-%m-%d')
+                    result['end_date'] = dt_index[-1].strftime('%Y-%m-%d')
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Error extracting date range from price_book: {e}")
+    
+    # Count non-null cells (efficient method using count())
+    try:
+        result['non_null_cells'] = int(price_book.count().sum())
+    except Exception as e:
+        logger.warning(f"Error counting non-null cells: {e}")
+    
+    # Get sample tickers (first 10 columns)
+    try:
+        result['sample_tickers'] = list(price_book.columns[:10])
+    except Exception as e:
+        logger.warning(f"Error getting sample tickers: {e}")
+    
+    return result
 
 
 def get_trading_days_ago(target_date: datetime, trading_days_back: int = 1) -> datetime:

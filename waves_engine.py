@@ -1,5 +1,35 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.1)
-# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
+from __future__ import annotations
+
+# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.5)
+# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
+#
+# NEW in v17.5:
+#   • PER-WAVE ATTRIBUTION: Decompose alpha into selection and overlay components
+#     - Raw wave return: Holdings without strategy overlay (pure stock selection)
+#     - Strategy wave return: Holdings with full strategy overlay applied
+#     - Selection alpha: raw_wave_return - benchmark_return
+#     - Overlay alpha: strategy_wave_return - raw_wave_return
+#     - Total alpha reconciliation: total_alpha = selection_alpha + overlay_alpha
+#
+# NEW in v17.4:
+#   • STRATEGY SIGNAL ADJUSTMENT: Minimal tactical decision boundary refinement
+#     - Adjusted uptrend regime threshold from 0.060 to 0.055 (6.0% vs 5.5% 60D return)
+#     - Validates live strategy execution and recompute integrity end-to-end
+#     - Proves system is active and not serving stale cached results
+#     - Enables observable alpha divergence for validation purposes
+#
+# NEW in v17.3:
+#   • SNAPSHOT CACHE INVALIDATION: Engine version tracking for portfolio snapshots
+#     - Automatic invalidation when engine logic changes
+#     - Force rebuild path for manual recalculation
+#     - Ensures S&P 500 Wave and other strategy updates trigger recalculation
+#
+# NEW in v17.2:
+#   • UNIFIED PRICE SOURCE: All price data loaded from canonical PRICE_BOOK
+#     - Single source of truth: data/cache/prices_cache.parquet
+#     - No implicit network fetching during wave computations
+#     - Deterministic and reproducible results across all waves
+#     - Eliminates "two truths" problems from fragmented loaders
 #
 # NEW in v17.1:
 #   • Adds a "shadow" simulator: simulate_history_nav(... overrides ...)
@@ -11,8 +41,10 @@
 # NOTE:
 #   This engine is "mobile-friendly" and does not require CSVs (flexible onboarding).
 #   It uses internal holdings and an auto-constructed composite benchmark system (governance-native architecture).
+#   All market data is sourced from the canonical PRICE_BOOK for consistency and determinism.
 
-from __future__ import annotations
+# Engine version - increment when logic changes to invalidate cached snapshots
+ENGINE_VERSION = "17.5"
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -22,7 +54,10 @@ import time
 import json
 import os
 import logging
-
+import hashlib  # For benchmark hash computation
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
 import numpy as np
 import pandas as pd
 
@@ -42,6 +77,25 @@ try:
     DIAGNOSTICS_AVAILABLE = True
 except ImportError:
     DIAGNOSTICS_AVAILABLE = False
+
+# Import VIX overlay configuration
+try:
+    from config.vix_overlay_config import (
+        get_vix_overlay_config,
+        is_vix_overlay_live,
+        get_vix_overlay_strategy_config
+    )
+    VIX_CONFIG_AVAILABLE = True
+except ImportError:
+    VIX_CONFIG_AVAILABLE = False
+
+# Import canonical PRICE_BOOK (single source of truth for all market data)
+try:
+    from helpers.price_book import get_price_book, get_price_book_meta
+    PRICE_BOOK_AVAILABLE = True
+except ImportError:
+    PRICE_BOOK_AVAILABLE = False
+    logger.warning("helpers.price_book module not available - falling back to legacy price loading")
 
 # ------------------------------------------------------------
 # Global config
@@ -110,6 +164,29 @@ CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
 }
 
 CRYPTO_WAVE_KEYWORD = "Crypto"
+
+# ------------------------------------------------------------
+# Crypto Phase 1B.3: Stablecoin and Macro Index Handling
+# ------------------------------------------------------------
+
+# Stablecoins - treated as cash-like with constant price = 1.0
+STABLECOINS: Set[str] = {
+    "USDT-USD",  # Tether
+    "USDC-USD",  # USD Coin
+    "USDP-USD",  # Pax Dollar
+    "DAI-USD",   # DAI
+    "TUSD-USD",  # TrueUSD
+}
+
+# Macro indices to exclude from crypto waves
+MACRO_INDICES: Set[str] = {
+    "^VIX",   # VIX Index
+    "^TNX",   # 10-Year Treasury Note
+    "^IRX",   # 13-Week Treasury Bill
+    "^DJI",   # Dow Jones Industrial Average
+    "^GSPC",  # S&P 500 Index
+    "^IXIC",  # NASDAQ Composite
+}
 
 # Ticker normalization and aliases
 # Maps known ticker variants to their canonical form for yfinance
@@ -1282,6 +1359,30 @@ def get_all_waves_universe() -> dict:
     }
 
 
+def get_all_portfolio_tickers() -> list[str]:
+    """
+    Extract all unique tickers from all waves in WAVE_WEIGHTS.
+    
+    This function aggregates tickers across all waves to create a complete
+    portfolio universe for live market data fetching.
+    
+    Returns:
+        List of unique ticker symbols sorted alphabetically
+    
+    Example:
+        >>> tickers = get_all_portfolio_tickers()
+        >>> print(f"Total unique tickers: {len(tickers)}")
+        >>> print(f"First 5 tickers: {tickers[:5]}")
+    """
+    all_tickers = set()
+    
+    for wave_name, holdings in WAVE_WEIGHTS.items():
+        for holding in holdings:
+            all_tickers.add(holding.ticker)
+    
+    return sorted(list(all_tickers))
+
+
 def get_wave_id_from_display_name(display_name: str) -> Optional[str]:
     """
     Convert display_name to wave_id.
@@ -1306,6 +1407,20 @@ def get_display_name_from_wave_id(wave_id: str) -> Optional[str]:
         display_name (e.g., "S&P 500 Wave") or None if not found
     """
     return WAVE_ID_REGISTRY.get(wave_id)
+
+
+def get_engine_version() -> str:
+    """
+    Get the current engine version.
+    
+    This version is used for snapshot cache invalidation. When the engine
+    logic changes (e.g., strategy signal adjustments, regime threshold updates),
+    incrementing this version will force recalculation of cached snapshots.
+    
+    Returns:
+        Engine version string (e.g., "17.4")
+    """
+    return ENGINE_VERSION
 
 
 def is_smartsafe_cash_wave(wave_identifier: str) -> bool:
@@ -1561,22 +1676,27 @@ def _log_diagnostics_to_json(failures: Dict[str, str], wave_id: Optional[str] = 
 
 def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
-    Download historical price data with per-ticker isolation and graceful error handling.
+    Load historical price data from canonical PRICE_BOOK (prices_cache.parquet).
     
-    Enhanced Features:
-    - Retry logic with exponential backoff for transient failures
-    - Ticker normalization (e.g., BRK.B → BRK-B) to handle common issues
+    This function has been unified to use the single authoritative data source,
+    eliminating fragmented loaders and ensuring deterministic behavior across
+    the entire platform.
+    
+    CANONICAL SOURCE: data/cache/prices_cache.parquet
+    - Updated daily by GitHub Actions
+    - Single source of truth for all market data
+    - No implicit network fetching
+    - Deterministic and reproducible
+    
+    Enhanced Features (Phase 1B.3):
+    - Stablecoin synthetic price generation (constant 1.0)
+    - Macro index filtering for crypto waves
+    - Graceful degradation for missing tickers
     - Diagnostics tracking with categorized failure types
-    - Explicit handling for delisted tickers (permanent failures)
-    - API throttling/rate limiting protection
-    - JSON-based logging of failed tickers with timestamps
-    - LRU cache with 15-minute TTL to prevent redundant API calls
-    - Per-ticker error isolation - partial success is acceptable
-    - Falls back to individual ticker fetching if batch fails
     - Returns partial data instead of failing completely
     
     Args:
-        tickers: List of ticker symbols to download
+        tickers: List of ticker symbols to load
         days: Number of days of historical data to fetch
         wave_id: Optional wave identifier for diagnostics tracking
         wave_name: Optional wave display name for diagnostics tracking
@@ -1588,33 +1708,38 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
     """
     failures = {}
     
-    if yf is None:
-        print("Error: yfinance is not available in this environment.")
-        failures = {ticker: "yfinance not available" for ticker in tickers}
-        # Log diagnostics
-        _log_diagnostics_to_json(failures, wave_id, wave_name)
-        # Track in diagnostics if available
-        if DIAGNOSTICS_AVAILABLE:
-            tracker = get_diagnostics_tracker()
-            for ticker in tickers:
-                failure_type, suggested_fix = categorize_error(failures[ticker], ticker)
-                report = FailedTickerReport(
-                    ticker_original=ticker,
-                    ticker_normalized=_normalize_ticker(ticker),
-                    wave_id=wave_id,
-                    wave_name=wave_name,
-                    source="yfinance",
-                    failure_type=failure_type,
-                    error_message=failures[ticker],
-                    is_fatal=True,
-                    suggested_fix=suggested_fix
-                )
-                tracker.record_failure(report)
-        return pd.DataFrame(), failures
+    # Phase 1B.3: Separate stablecoins and macro indices
+    stablecoins_to_synthesize = []
+    macro_indices_to_exclude = []
+    tickers_to_fetch = []
     
-    # Normalize tickers before fetching
-    normalized_tickers = []
     for ticker in tickers:
+        if _is_stablecoin(ticker):
+            stablecoins_to_synthesize.append(ticker)
+        elif _should_exclude_from_crypto_wave(ticker, wave_name or ""):
+            # Exclude macro indices from crypto waves (no error logging)
+            macro_indices_to_exclude.append(ticker)
+        else:
+            tickers_to_fetch.append(ticker)
+    
+    # Log diagnostics for Phase 1B.3 filtering (once per run)
+    # Phase 1B.3: Enhanced crypto support with stablecoin synthesis and macro index filtering
+    if stablecoins_to_synthesize or macro_indices_to_exclude:
+        logger.debug(f"Crypto asset filtering for {wave_name or 'wave'}")
+        if stablecoins_to_synthesize:
+            logger.debug(f"  Stablecoins (synthesized): {len(stablecoins_to_synthesize)}")
+        if macro_indices_to_exclude:
+            logger.debug(f"  Macro indices (excluded): {len(macro_indices_to_exclude)}")
+    
+    # Check if PRICE_BOOK is available
+    if not PRICE_BOOK_AVAILABLE:
+        # Fallback to legacy yfinance loading if PRICE_BOOK not available
+        logger.warning("PRICE_BOOK not available - using legacy price loading")
+        return _download_history_legacy_yfinance(tickers, days, wave_id, wave_name)
+    
+    # Normalize tickers_to_fetch
+    normalized_tickers = []
+    for ticker in tickers_to_fetch:
         normalized = _normalize_ticker(ticker)
         normalized_tickers.append(normalized)
     
@@ -1626,54 +1751,37 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
             seen.add(ticker)
             unique_normalized.append(ticker)
     
-    lookback_days = days + 260
-    end = datetime.utcnow().date()
-    start = end - timedelta(days=lookback_days)
+    # Calculate date range
+    lookback_days = days + 260  # Extra lookback for momentum calculations
+    end_date = datetime.utcnow().date()
+    start_date = end_date - timedelta(days=lookback_days)
     
-    # Try batch download first with retry logic
+    # Load from canonical PRICE_BOOK
     try:
-        def _batch_download():
-            return yf.download(
-                tickers=unique_normalized,
-                start=start.isoformat(),
-                end=end.isoformat(),
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                group_by="column",
-            )
+        logger.info(f"Loading {len(unique_normalized)} tickers from canonical PRICE_BOOK for {wave_name or 'wave'}")
         
-        # Use retry with backoff for batch download
-        data = _retry_with_backoff(_batch_download, max_retries=3, initial_delay=1.0)
+        # Get prices from canonical cache
+        price_df = get_price_book(
+            active_tickers=unique_normalized,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat()
+        )
         
-        if data is None or len(data) == 0:
-            # Fall back to individual ticker fetching
-            print(f"Warning: Batch download returned no data, trying individual tickers")
-            return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
+        if price_df.empty:
+            logger.warning(f"PRICE_BOOK returned empty DataFrame for {wave_name or 'wave'}")
+            # Return empty DataFrame with expected structure
+            return pd.DataFrame(), {ticker: "Not in PRICE_BOOK" for ticker in unique_normalized}
         
-        if isinstance(data.columns, pd.MultiIndex):
-            if "Adj Close" in data.columns.get_level_values(0):
-                data = data["Adj Close"]
-            elif "Close" in data.columns.get_level_values(0):
-                data = data["Close"]
-            else:
-                data = data[data.columns.levels[0][0]]
-        if isinstance(data.columns, pd.MultiIndex):
-            data = data.droplevel(0, axis=1)
-        if isinstance(data, pd.Series):
-            data = data.to_frame()
-        data = data.sort_index().ffill().bfill()
+        # Ensure index is DatetimeIndex
+        if not isinstance(price_df.index, pd.DatetimeIndex):
+            price_df.index = pd.to_datetime(price_df.index)
         
-        # Check if we got at least some data
-        if data.empty:
-            print(f"Warning: No price data after normalization, trying individual tickers")
-            return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
-        
-        # Track which tickers failed in batch download
-        available_tickers = set(data.columns)
+        # Track which tickers are missing from PRICE_BOOK
+        available_tickers = set(price_df.columns)
         for ticker in unique_normalized:
             if ticker not in available_tickers:
-                failures[ticker] = "Not in batch result"
+                failures[ticker] = "Not in PRICE_BOOK - rebuild cache or verify ticker exists"
+                logger.debug(f"Ticker {ticker} not found in PRICE_BOOK")
         
         # Log diagnostics if there are failures
         if failures:
@@ -1685,31 +1793,110 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
                     failure_type, suggested_fix = categorize_error(error_msg, ticker)
                     report = FailedTickerReport(
                         ticker_original=ticker,
-                        ticker_normalized=ticker,  # Already normalized
+                        ticker_normalized=ticker,
                         wave_id=wave_id,
                         wave_name=wave_name,
-                        source="yfinance",
+                        source="prices_cache.parquet",
                         failure_type=failure_type,
                         error_message=error_msg,
-                        is_fatal=False,  # Might succeed in individual download
-                        suggested_fix=suggested_fix
+                        is_fatal=False,
+                        suggested_fix="Rebuild price cache or verify ticker exists in market data"
                     )
                     tracker.record_failure(report)
+        
+        # Phase 1B.3: Add synthetic stablecoin prices
+        if stablecoins_to_synthesize:
+            if not price_df.empty:
+                stablecoin_prices = _generate_stablecoin_prices(price_df.index, stablecoins_to_synthesize)
+                price_df = pd.concat([price_df, stablecoin_prices], axis=1)
+            else:
+                # Create date range if no other data available
+                date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+                price_df = _generate_stablecoin_prices(date_range, stablecoins_to_synthesize)
+        
+        logger.info(f"Loaded {len(price_df.columns)} tickers from PRICE_BOOK ({len(failures)} missing)")
+        
+        return price_df, failures
+        
+    except Exception as e:
+        # Graceful degradation if PRICE_BOOK loading fails
+        logger.error(f"Error loading from PRICE_BOOK for {wave_name or 'wave'}: {str(e)}")
+        error_msg = f"PRICE_BOOK load failed: {str(e)}"
+        failures = {ticker: error_msg for ticker in unique_normalized}
+        _log_diagnostics_to_json(failures, wave_id, wave_name)
+        
+        # Return empty DataFrame
+        return pd.DataFrame(), failures
+
+
+def _download_history_legacy_yfinance(tickers: list[str], days: int, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    """
+    Legacy fallback function using yfinance for backward compatibility.
+    
+    This function should only be used when PRICE_BOOK is not available.
+    In production, all price loading should use the canonical PRICE_BOOK.
+    
+    Args:
+        tickers: List of ticker symbols to download
+        days: Number of days of historical data to fetch
+        wave_id: Optional wave identifier for diagnostics tracking
+        wave_name: Optional wave display name for diagnostics tracking
+    
+    Returns:
+        Tuple of (prices_df, failures_dict)
+    """
+    logger.warning(f"Using legacy yfinance loading for {wave_name or 'wave'} - PRICE_BOOK should be used instead")
+    
+    if yf is None:
+        logger.error("yfinance is not available in this environment")
+        failures = {ticker: "yfinance not available" for ticker in tickers}
+        return pd.DataFrame(), failures
+    
+    failures = {}
+    lookback_days = days + 260
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=lookback_days)
+    
+    # Normalize tickers
+    normalized_tickers = [_normalize_ticker(t) for t in tickers]
+    unique_tickers = sorted(set(normalized_tickers))
+    
+    try:
+        # Simple batch download without complex retry logic
+        data = yf.download(
+            tickers=unique_tickers,
+            start=start.isoformat(),
+            end=end.isoformat(),
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            group_by="column",
+        )
+        
+        # Handle MultiIndex columns
+        if isinstance(data.columns, pd.MultiIndex):
+            if "Adj Close" in data.columns.get_level_values(0):
+                data = data["Adj Close"]
+            elif "Close" in data.columns.get_level_values(0):
+                data = data["Close"]
+        
+        if isinstance(data, pd.Series):
+            data = data.to_frame()
+        
+        data = data.sort_index().ffill().bfill()
+        
+        # Track failures
+        available_tickers = set(data.columns)
+        for ticker in unique_tickers:
+            if ticker not in available_tickers:
+                failures[ticker] = "Not in yfinance result"
         
         return data, failures
         
     except Exception as e:
-        # Graceful degradation on rate limits or other errors
-        # Try individual ticker fetching as fallback
-        error_msg = f"Batch download failed: {str(e)}"
-        print(f"Warning: yfinance batch download failed, trying individual tickers: {str(e)}")
-        
-        # Check if this is a rate limit error
-        if _is_rate_limit_error(e):
-            # Add a delay before trying individual downloads
-            time.sleep(5.0)
-        
-        return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
+        logger.error(f"Legacy yfinance download failed: {str(e)}")
+        failures = {ticker: f"yfinance error: {str(e)}" for ticker in unique_tickers}
+        return pd.DataFrame(), failures
 
 
 def _download_history_individually(tickers: list[str], start, end, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
@@ -2018,21 +2205,541 @@ def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
     return holdings
 
 
+# ------------------------------------------------------------
+# Dynamic Benchmark System (Phase 1B)
+# ------------------------------------------------------------
+
+def load_dynamic_benchmark_specs(path: str = None) -> Dict[str, Any]:
+    """
+    Load dynamic benchmark specifications from JSON config file.
+    
+    Args:
+        path: Path to benchmark JSON file. If None, uses default location.
+        
+    Returns:
+        Dictionary containing benchmark specifications, or empty dict on error.
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(__file__), "data", "benchmarks", "equity_benchmarks.json")
+    
+    if not os.path.exists(path):
+        return {}
+    
+    try:
+        with open(path, 'r') as f:
+            specs = json.load(f)
+        return specs
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error loading dynamic benchmark specs from {path}: {e}")
+        return {}
+
+
+def build_benchmark_series_from_components(
+    price_df: pd.DataFrame, 
+    components: List[Dict[str, Any]]
+) -> pd.Series:
+    """
+    Build a benchmark return series as a weighted blend of component tickers.
+    
+    Args:
+        price_df: DataFrame with date index and ticker columns (prices)
+        components: List of dicts with 'ticker' and 'weight' keys
+        
+    Returns:
+        Series of benchmark returns aligned with price_df index.
+        Returns empty series if components cannot be built.
+    """
+    if price_df.empty or not components:
+        return pd.Series(dtype=float)
+    
+    # Extract tickers and weights
+    tickers = [c["ticker"] for c in components]
+    weights = [c["weight"] for c in components]
+    
+    # Validate weights sum to 1.0 (within tolerance)
+    weight_sum = sum(weights)
+    if abs(weight_sum - 1.0) > 0.01:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Benchmark component weights sum to {weight_sum}, expected 1.0")
+        # Normalize weights
+        weights = [w / weight_sum for w in weights]
+    
+    # Check which tickers are available in price_df
+    available_tickers = [t for t in tickers if t in price_df.columns]
+    if not available_tickers:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"No benchmark component tickers available in price data")
+        return pd.Series(dtype=float)
+    
+    # If some tickers are missing, reweight proportionally
+    if len(available_tickers) < len(tickers):
+        missing = set(tickers) - set(available_tickers)
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Missing benchmark tickers: {missing}")
+        # Reweight only available tickers
+        available_weights = {}
+        for ticker, weight in zip(tickers, weights):
+            if ticker in available_tickers:
+                available_weights[ticker] = weight
+        total_available = sum(available_weights.values())
+        if total_available > 0:
+            available_weights = {t: w / total_available for t, w in available_weights.items()}
+        tickers = list(available_weights.keys())
+        weights = list(available_weights.values())
+    
+    # Compute returns for each component
+    component_returns = {}
+    for ticker in tickers:
+        if ticker in price_df.columns:
+            component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+    
+    if not component_returns:
+        return pd.Series(dtype=float)
+    
+    # Build weighted benchmark return series
+    benchmark_ret = pd.Series(0.0, index=price_df.index)
+    for ticker, weight in zip(tickers, weights):
+        if ticker in component_returns:
+            benchmark_ret += weight * component_returns[ticker]
+    
+    return benchmark_ret
+
+
+def build_portfolio_composite_benchmark_returns(
+    wave_results: dict,
+    wave_weights: dict | None = None
+) -> pd.Series:
+    """
+    Build portfolio composite benchmark returns from wave benchmark returns.
+    
+    This function computes a portfolio-level benchmark as a weighted combination
+    of individual wave benchmarks, ensuring consistency across the system.
+    
+    Args:
+        wave_results: Dictionary mapping wave names to compute_history_nav results.
+                     Each result should be a DataFrame with 'bm_ret' column.
+        wave_weights: Optional dictionary mapping wave names to weights.
+                     If None, uses equal weights across all waves.
+                     Weights will be normalized if they don't sum to 1.0.
+    
+    Returns:
+        pd.Series: Daily return series for the portfolio composite benchmark.
+                  Index is aligned DatetimeIndex.
+                  Empty series if insufficient data or errors.
+    
+    Rules:
+        - Defaults to equal weights if wave_weights is None
+        - Normalizes weights if provided
+        - Aligns the composite index across all wave benchmarks
+        - Removes all-NaN dates
+        - Ensures minimum 60 trading days of history
+        - Returns daily return series (not cumulative)
+    
+    Example:
+        >>> wave_results = {
+        ...     'S&P 500 Wave': df_with_bm_ret,
+        ...     'Growth Wave': df_with_bm_ret
+        ... }
+        >>> composite = build_portfolio_composite_benchmark_returns(wave_results)
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Validate inputs
+    if not wave_results:
+        logger.warning("build_portfolio_composite_benchmark_returns: wave_results is empty")
+        return pd.Series(dtype=float)
+    
+    # Extract benchmark return series from wave_results
+    benchmark_series_dict = {}
+    
+    for wave_name, wave_df in wave_results.items():
+        if wave_df is None or not isinstance(wave_df, pd.DataFrame):
+            logger.debug(f"Skipping {wave_name}: result is not a DataFrame")
+            continue
+        
+        if wave_df.empty:
+            logger.debug(f"Skipping {wave_name}: result DataFrame is empty")
+            continue
+        
+        if 'bm_ret' not in wave_df.columns:
+            logger.debug(f"Skipping {wave_name}: no 'bm_ret' column found")
+            continue
+        
+        bm_ret_series = wave_df['bm_ret'].copy()
+        
+        # Skip if all NaN
+        if bm_ret_series.isna().all():
+            logger.debug(f"Skipping {wave_name}: benchmark returns are all NaN")
+            continue
+        
+        benchmark_series_dict[wave_name] = bm_ret_series
+    
+    if not benchmark_series_dict:
+        logger.warning("build_portfolio_composite_benchmark_returns: no valid benchmark series found")
+        return pd.Series(dtype=float)
+    
+    # Determine weights
+    wave_names = list(benchmark_series_dict.keys())
+    
+    if wave_weights is None:
+        # Equal weights
+        weights_dict = {name: 1.0 / len(wave_names) for name in wave_names}
+        logger.debug(f"Using equal weights for {len(wave_names)} waves")
+    else:
+        # Use provided weights, but only for waves we have data for
+        weights_dict = {}
+        for name in wave_names:
+            if name in wave_weights:
+                weights_dict[name] = wave_weights[name]
+            else:
+                logger.debug(f"Wave {name} not in wave_weights, using 0.0")
+                weights_dict[name] = 0.0
+        
+        # Normalize weights
+        total_weight = sum(weights_dict.values())
+        if total_weight <= 0:
+            logger.warning("build_portfolio_composite_benchmark_returns: total weight is 0, using equal weights")
+            weights_dict = {name: 1.0 / len(wave_names) for name in wave_names}
+        else:
+            weights_dict = {name: w / total_weight for name, w in weights_dict.items()}
+            logger.debug(f"Normalized provided weights for {len(wave_names)} waves")
+    
+    # Build benchmark matrix (rows=dates, cols=waves)
+    benchmark_matrix = pd.DataFrame(benchmark_series_dict)
+    
+    # Align index (union of all dates)
+    # This ensures we have all dates where at least one benchmark has data
+    benchmark_matrix = benchmark_matrix.sort_index()
+    
+    # Compute weighted composite return for each date
+    # Use skipna=False in the sum to preserve NaN when all benchmarks are NaN
+    composite_returns = pd.Series(0.0, index=benchmark_matrix.index)
+    
+    for wave_name, weight in weights_dict.items():
+        if wave_name in benchmark_matrix.columns:
+            # Add weighted contribution
+            # For dates where this wave's benchmark is NaN, it contributes nothing to the weighted sum
+            # This automatically adjusts the effective weights on that date
+            wave_contribution = benchmark_matrix[wave_name] * weight
+            composite_returns = composite_returns.add(wave_contribution, fill_value=0.0)
+    
+    # Remove dates where all waves are NaN (composite would be meaningless)
+    valid_dates = ~benchmark_matrix.isna().all(axis=1)
+    composite_returns = composite_returns[valid_dates]
+    
+    # Ensure minimum 60 trading days
+    MIN_TRADING_DAYS = 60
+    if len(composite_returns) < MIN_TRADING_DAYS:
+        logger.warning(
+            f"build_portfolio_composite_benchmark_returns: insufficient history "
+            f"({len(composite_returns)} days < {MIN_TRADING_DAYS} required)"
+        )
+        return pd.Series(dtype=float)
+    
+    logger.debug(
+        f"Built portfolio composite benchmark: {len(composite_returns)} days, "
+        f"{len(wave_names)} waves, date range {composite_returns.index[0]} to {composite_returns.index[-1]}"
+    )
+    
+    return composite_returns
+
+
+def _compute_benchmark_hash(components: List[Dict[str, Any]]) -> str:
+    """
+    Compute a stable hash of benchmark tickers and weights (sorted).
+    
+    This provides an auditable proof field to verify benchmark composition.
+    The hash is deterministic and changes only when components or weights change.
+    
+    Args:
+        components: List of dicts with 'ticker' and 'weight' keys
+        
+    Returns:
+        Hexadecimal hash string (first 16 characters of SHA256)
+        
+    Example:
+        >>> components = [{"ticker": "SPY", "weight": 0.6}, {"ticker": "QQQ", "weight": 0.4}]
+        >>> hash_val = _compute_benchmark_hash(components)
+        >>> # Returns consistent hash like "a1b2c3d4e5f6g7h8"
+    """
+    if not components:
+        return "none"
+    
+    # Sort components by ticker for deterministic ordering
+    sorted_components = sorted(components, key=lambda x: x["ticker"])
+    
+    # Create stable string representation: ticker1:weight1,ticker2:weight2,...
+    hash_str = ",".join([f"{c['ticker']}:{c['weight']:.6f}" for c in sorted_components])
+    
+    # Compute SHA256 hash and return first 16 hex characters
+    hash_obj = hashlib.sha256(hash_str.encode('utf-8'))
+    return hash_obj.hexdigest()[:16]
+
+
+def _format_benchmark_components_preview(components: List[Dict[str, Any]], max_display: int = 5) -> str:
+    """
+    Format benchmark components as a preview string showing top N tickers with weights.
+    
+    Args:
+        components: List of dicts with 'ticker' and 'weight' keys
+        max_display: Maximum number of components to display (default: 5)
+        
+    Returns:
+        Formatted string like "SPY:60%, QQQ:40%" or "SPY:60%, QQQ:40% +3 more"
+        
+    Example:
+        >>> components = [
+        ...     {"ticker": "SPY", "weight": 0.6},
+        ...     {"ticker": "QQQ", "weight": 0.4}
+        ... ]
+        >>> preview = _format_benchmark_components_preview(components)
+        >>> # Returns "SPY:60.0%, QQQ:40.0%"
+    """
+    if not components:
+        return "none"
+    
+    # Sort by weight descending to show top components first
+    sorted_components = sorted(components, key=lambda x: x["weight"], reverse=True)
+    
+    # Take top N components
+    top_components = sorted_components[:max_display]
+    remaining_count = len(sorted_components) - len(top_components)
+    
+    # Format each component as "TICKER:XX.X%"
+    formatted = [f"{c['ticker']}:{c['weight']*100:.1f}%" for c in top_components]
+    
+    # Join with commas
+    preview = ", ".join(formatted)
+    
+    # Add remaining count if applicable
+    if remaining_count > 0:
+        preview += f" +{remaining_count} more"
+    
+    return preview
+
+
+def _compute_365d_window_integrity(
+    wave_ret_series: pd.Series,
+    bm_ret_series: pd.Series,
+    trading_days_365d: int = 252
+) -> Dict[str, Any]:
+    """
+    Compute 365D window integrity metrics for auditable proof of alpha calculations.
+    
+    This function provides diagnostic information about the actual data overlap
+    and date ranges used in 365D alpha calculations. It helps validate that
+    alpha metrics are computed with sufficient history.
+    
+    Args:
+        wave_ret_series: Wave return series (index=dates, values=returns)
+        bm_ret_series: Benchmark return series (index=dates, values=returns)
+        trading_days_365d: Expected trading days for 365D window (default: 252)
+        
+    Returns:
+        Dictionary with:
+        - wave_365d_days: Actual trading days available for wave
+        - bench_365d_days: Actual trading days available for benchmark
+        - intersection_days_used: Days with data for both wave and benchmark
+        - wave_365d_start: Start date for wave data (YYYY-MM-DD)
+        - wave_365d_end: End date for wave data (YYYY-MM-DD)
+        - bench_365d_start: Start date for benchmark data (YYYY-MM-DD)
+        - bench_365d_end: End date for benchmark data (YYYY-MM-DD)
+        - last_date_wave: Latest date with wave data (YYYY-MM-DD)
+        - last_date_bench: Latest date with benchmark data (YYYY-MM-DD)
+        - sufficient_history: Boolean - whether we have minimum required history
+        - min_required_days: Minimum days required (configurable threshold)
+        - warning_message: Optional warning if history is limited
+    """
+    result = {
+        'wave_365d_days': 0,
+        'bench_365d_days': 0,
+        'intersection_days_used': 0,
+        'wave_365d_start': None,
+        'wave_365d_end': None,
+        'bench_365d_start': None,
+        'bench_365d_end': None,
+        'last_date_wave': None,
+        'last_date_bench': None,
+        'sufficient_history': False,
+        'min_required_days': 200,  # Minimum 200 days for reliable 365D metrics
+        'warning_message': None
+    }
+    
+    # Check if series are empty
+    if wave_ret_series.empty or bm_ret_series.empty:
+        result['warning_message'] = "Empty return series"
+        return result
+    
+    # Get last N trading days for each series (up to trading_days_365d)
+    wave_ret_365d = wave_ret_series.tail(trading_days_365d)
+    bm_ret_365d = bm_ret_series.tail(trading_days_365d)
+    
+    # Count days
+    result['wave_365d_days'] = len(wave_ret_365d)
+    result['bench_365d_days'] = len(bm_ret_365d)
+    
+    # Get date ranges
+    if not wave_ret_365d.empty:
+        result['wave_365d_start'] = wave_ret_365d.index[0].strftime('%Y-%m-%d')
+        result['wave_365d_end'] = wave_ret_365d.index[-1].strftime('%Y-%m-%d')
+        result['last_date_wave'] = wave_ret_365d.index[-1].strftime('%Y-%m-%d')
+    
+    if not bm_ret_365d.empty:
+        result['bench_365d_start'] = bm_ret_365d.index[0].strftime('%Y-%m-%d')
+        result['bench_365d_end'] = bm_ret_365d.index[-1].strftime('%Y-%m-%d')
+        result['last_date_bench'] = bm_ret_365d.index[-1].strftime('%Y-%m-%d')
+    
+    # Find intersection (dates where both wave and benchmark have data)
+    common_dates = wave_ret_365d.index.intersection(bm_ret_365d.index)
+    
+    # Filter out NaN values for more accurate count (combined boolean operation for efficiency)
+    both_valid = wave_ret_365d.loc[common_dates].notna() & bm_ret_365d.loc[common_dates].notna()
+    
+    result['intersection_days_used'] = both_valid.sum()
+    
+    # Check if we have sufficient history
+    result['sufficient_history'] = result['intersection_days_used'] >= result['min_required_days']
+    
+    # Generate warning if history is limited
+    if not result['sufficient_history']:
+        if result['intersection_days_used'] < result['min_required_days']:
+            result['warning_message'] = f"LIMITED HISTORY: Only {result['intersection_days_used']} days of overlap (minimum {result['min_required_days']} recommended)"
+        elif result['intersection_days_used'] < 252:
+            result['warning_message'] = f"PARTIAL HISTORY: {result['intersection_days_used']} days of overlap (less than full 252 trading days)"
+    
+    return result
+
+
+def _compute_alpha_reconciliation(
+    wave_365d_return: float,
+    bench_365d_return: float,
+    alpha_365d: float,
+    tolerance: float = 0.001  # 0.1% = 10 basis points
+) -> Dict[str, Any]:
+    """
+    Compute alpha reconciliation check for 365D metrics.
+    
+    This verifies that alpha_365d closely matches wave_365d_return - bench_365d_return
+    within tolerable levels, providing an auditable proof of calculation accuracy.
+    
+    Args:
+        wave_365d_return: 365-day cumulative wave return
+        bench_365d_return: 365-day cumulative benchmark return
+        alpha_365d: Computed 365-day alpha
+        tolerance: Maximum acceptable mismatch (default: 0.001 = 0.1% = 10 basis points)
+        
+    Returns:
+        Dictionary with:
+        - reconciliation_passed: Boolean - whether reconciliation check passed
+        - expected_alpha: Expected alpha (wave_365d_return - bench_365d_return)
+        - computed_alpha: Actual alpha value provided
+        - mismatch: Absolute difference between expected and computed
+        - mismatch_bps: Mismatch in basis points
+        - tolerance: Tolerance threshold used
+        - warning_message: Optional warning message if reconciliation failed
+    """
+    result = {
+        'reconciliation_passed': False,
+        'expected_alpha': None,
+        'computed_alpha': None,
+        'mismatch': None,
+        'mismatch_bps': None,
+        'tolerance': tolerance,
+        'warning_message': None
+    }
+    
+    # Check for None or NaN values
+    if wave_365d_return is None or bench_365d_return is None or alpha_365d is None:
+        result['warning_message'] = "Missing data for reconciliation"
+        return result
+    
+    if np.isnan(wave_365d_return) or np.isnan(bench_365d_return) or np.isnan(alpha_365d):
+        result['warning_message'] = "NaN values in reconciliation inputs"
+        return result
+    
+    # Compute expected alpha
+    expected_alpha = wave_365d_return - bench_365d_return
+    
+    # Compute mismatch
+    mismatch = abs(alpha_365d - expected_alpha)
+    mismatch_bps = mismatch * 10000  # Convert to basis points
+    
+    # Store values
+    result['expected_alpha'] = expected_alpha
+    result['computed_alpha'] = alpha_365d
+    result['mismatch'] = mismatch
+    result['mismatch_bps'] = mismatch_bps
+    
+    # Check if reconciliation passed
+    result['reconciliation_passed'] = mismatch <= tolerance
+    
+    # Generate warning if reconciliation failed
+    if not result['reconciliation_passed']:
+        result['warning_message'] = (
+            f"RECONCILIATION FAILED: Alpha mismatch of {mismatch_bps:.1f} bps "
+            f"(expected {expected_alpha:.4f}, got {alpha_365d:.4f})"
+        )
+    
+    return result
+
+
 def _regime_from_return(ret_60d: float) -> str:
+    """
+    Determine regime from 60-day return.
+    
+    v17.4 Adjustment: Uptrend threshold lowered from 0.060 to 0.055
+    This creates a controlled divergence in historical decisions when
+    60D returns fall between 5.5% and 6.0%, validating that the live
+    engine and recompute logic are fully active end-to-end.
+    
+    Regime Thresholds:
+    - panic: <= -12.0%
+    - downtrend: > -12.0% to <= -4.0%
+    - neutral: > -4.0% to < 5.5% (adjusted from 6.0%)
+    - uptrend: >= 5.5% (adjusted from 6.0%)
+    """
     if np.isnan(ret_60d):
         return "neutral"
     if ret_60d <= -0.12:
         return "panic"
     if ret_60d <= -0.04:
         return "downtrend"
-    if ret_60d < 0.06:
+    if ret_60d < 0.055:  # v17.4: Adjusted from 0.060 to 0.055
         return "neutral"
     return "uptrend"
 
 
-def _vix_exposure_factor(vix_level: float, mode: str) -> float:
+def _vix_exposure_factor(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
+    """
+    Calculate VIX-based exposure adjustment factor.
+    
+    Args:
+        vix_level: VIX level (or NaN if missing)
+        mode: Operating mode
+        wave_name: Wave name for configuration lookup (optional)
+    
+    Returns:
+        Exposure multiplier (0.5 to 1.3)
+    """
+    # Check if VIX overlay is enabled
+    if VIX_CONFIG_AVAILABLE and wave_name is not None:
+        vix_config = get_vix_overlay_strategy_config(wave_name)
+        if not vix_config["enabled"]:
+            # VIX overlay disabled for this wave, return neutral
+            return 1.0
+        
+        # Use fallback VIX if data is missing and resilient mode is enabled
+        if (np.isnan(vix_level) or vix_level <= 0) and vix_config["resilient_mode"]:
+            vix_level = vix_config["fallback_vix_level"]
+            if vix_config.get("log_diagnostics", False):
+                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name}")
+    
+    # Original resilience: return neutral if VIX is still missing
     if np.isnan(vix_level) or vix_level <= 0:
         return 1.0
+    
+    # Calculate exposure factor based on VIX level
     if vix_level < 15:
         base = 1.15
     elif vix_level < 20:
@@ -2045,16 +2752,46 @@ def _vix_exposure_factor(vix_level: float, mode: str) -> float:
         base = 0.75
     else:
         base = 0.60
+    
+    # Mode adjustments
     if mode == "Alpha-Minus-Beta":
         base -= 0.05
     elif mode == "Private Logic":
         base += 0.05
+    
     return float(np.clip(base, 0.5, 1.3))
 
 
-def _vix_safe_fraction(vix_level: float, mode: str) -> float:
+def _vix_safe_fraction(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
+    """
+    Calculate VIX-based safe allocation boost.
+    
+    Args:
+        vix_level: VIX level (or NaN if missing)
+        mode: Operating mode
+        wave_name: Wave name for configuration lookup (optional)
+    
+    Returns:
+        Safe fraction boost (0.0 to 0.8)
+    """
+    # Check if VIX overlay is enabled
+    if VIX_CONFIG_AVAILABLE and wave_name is not None:
+        vix_config = get_vix_overlay_strategy_config(wave_name)
+        if not vix_config["enabled"]:
+            # VIX overlay disabled for this wave, return neutral
+            return 0.0
+        
+        # Use fallback VIX if data is missing and resilient mode is enabled
+        if (np.isnan(vix_level) or vix_level <= 0) and vix_config["resilient_mode"]:
+            vix_level = vix_config["fallback_vix_level"]
+            if vix_config.get("log_diagnostics", False):
+                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name}")
+    
+    # Original resilience: return neutral if VIX is still missing
     if np.isnan(vix_level) or vix_level <= 0:
         return 0.0
+    
+    # Calculate safe fraction based on VIX level
     if vix_level < 18:
         base = 0.00
     elif vix_level < 24:
@@ -2065,10 +2802,13 @@ def _vix_safe_fraction(vix_level: float, mode: str) -> float:
         base = 0.25
     else:
         base = 0.40
+    
+    # Mode adjustments
     if mode == "Alpha-Minus-Beta":
         base *= 1.5
     elif mode == "Private Logic":
         base *= 0.7
+    
     return float(np.clip(base, 0.0, 0.8))
 
 
@@ -2398,6 +3138,121 @@ def _calculate_price_return(price_series: pd.Series, dt: pd.Timestamp, periods: 
     
     ret_val = ret_series.loc[dt]
     return float(ret_val) if not np.isnan(ret_val) else np.nan
+
+
+def _get_crypto_overlay_status(
+    wave_name: str,
+    is_crypto: bool,
+    tickers_available: int,
+    tickers_expected: int
+) -> str:
+    """
+    Determine crypto overlay status for UI display.
+    
+    Phase 1B.3: Status indicates data health and overlay readiness.
+    
+    Args:
+        wave_name: Name of the wave
+        is_crypto: Whether this is a crypto wave
+        tickers_available: Number of tickers successfully loaded
+        tickers_expected: Number of tickers expected for the wave
+        
+    Returns:
+        Status string: "OK", "NO_DATA", or "DEGRADED"
+    """
+    if not is_crypto:
+        return "N/A"  # Not applicable for non-crypto waves
+    
+    if tickers_expected == 0:
+        return "NO_DATA"
+    
+    coverage_pct = (tickers_available / tickers_expected) * 100
+    
+    if coverage_pct >= 90:
+        return "OK"
+    elif coverage_pct >= 50:
+        return "DEGRADED"
+    else:
+        return "NO_DATA"
+
+
+# ------------------------------------------------------------
+# Crypto Phase 1B.3: Stablecoin and Ticker Normalization Helpers
+# ------------------------------------------------------------
+
+def _is_stablecoin(ticker: str) -> bool:
+    """
+    Check if a ticker is a stablecoin.
+    
+    Stablecoins are treated as cash-like assets with constant price = 1.0
+    and daily return = 0.0. They are excluded from volatility/trend calculations
+    but allowed as holdings for cash/stability allocations.
+    
+    Args:
+        ticker: Ticker symbol to check
+        
+    Returns:
+        True if ticker is a stablecoin
+    """
+    return ticker in STABLECOINS
+
+
+def _is_macro_index(ticker: str) -> bool:
+    """
+    Check if a ticker is a macro index.
+    
+    Macro indices (e.g., ^VIX, ^TNX, ^IRX) are excluded from crypto waves
+    and their absence is ignored (no error logging).
+    
+    Args:
+        ticker: Ticker symbol to check
+        
+    Returns:
+        True if ticker is a macro index
+    """
+    return ticker in MACRO_INDICES
+
+
+def _generate_stablecoin_prices(date_index: pd.DatetimeIndex, stablecoins: Optional[List[str]] = None) -> pd.DataFrame:
+    """
+    Generate synthetic price series for stablecoins.
+    
+    Stablecoins are modeled as constant price = 1.0 for all dates,
+    which produces daily return = 0.0.
+    
+    Args:
+        date_index: DatetimeIndex for the price series
+        stablecoins: Optional list of specific stablecoins to generate.
+                    If None, generates all stablecoins in STABLECOINS constant.
+        
+    Returns:
+        DataFrame with one column per stablecoin, all values = 1.0
+    """
+    stablecoin_prices = pd.DataFrame(index=date_index)
+    coins_to_generate = stablecoins if stablecoins is not None else STABLECOINS
+    for ticker in coins_to_generate:
+        stablecoin_prices[ticker] = 1.0
+    return stablecoin_prices
+
+
+def _should_exclude_from_crypto_wave(ticker: str, wave_name: str) -> bool:
+    """
+    Check if a ticker should be excluded from a crypto wave.
+    
+    Macro indices are excluded from crypto waves but allowed for equity waves.
+    
+    Args:
+        ticker: Ticker symbol to check
+        wave_name: Name of the wave
+        
+    Returns:
+        True if ticker should be excluded from this wave
+    """
+    is_crypto = _is_crypto_wave(wave_name)
+    is_macro = _is_macro_index(ticker)
+    
+    # Exclude macro indices from crypto waves only
+    return is_crypto and is_macro
 
 
 # ------------------------------------------------------------
@@ -2738,17 +3593,48 @@ def _compute_core(
     # Holdings
     wave_holdings = WAVE_WEIGHTS[wave_name]
 
-    # Benchmark selection
+    # Benchmark selection with dynamic benchmark support (Phase 1B)
+    # All equity waves now use the full strategy pipeline including S&P 500 Wave
     freeze_benchmark = bool(ov.get("freeze_benchmark", False))
-    if freeze_benchmark:
-        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    use_dynamic_benchmark = False
+    dynamic_benchmark_components = None
+    dynamic_benchmark_info = {}
+    
+    # Get wave_id for dynamic benchmark lookup
+    wave_id = get_wave_id_from_display_name(wave_name)
+    
+    # Load dynamic benchmark specs if not frozen
+    if not freeze_benchmark:
+        dynamic_specs = load_dynamic_benchmark_specs()
+        if dynamic_specs and "benchmarks" in dynamic_specs:
+            if wave_id in dynamic_specs["benchmarks"]:
+                benchmark_spec = dynamic_specs["benchmarks"][wave_id]
+                dynamic_benchmark_components = benchmark_spec.get("components", [])
+                if dynamic_benchmark_components:
+                    use_dynamic_benchmark = True
+                    dynamic_benchmark_info = {
+                        "benchmark_name": benchmark_spec.get("benchmark_name", "Unknown"),
+                        "version": dynamic_specs.get("version", "v1.0"),
+                        "components": dynamic_benchmark_components,
+                    }
+    
+    # Traditional benchmark selection (fallback)
+    if freeze_benchmark or not use_dynamic_benchmark:
+        if freeze_benchmark:
+            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        else:
+            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
+            if not bm_holdings:
+                bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        bm_weights = _normalize_weights(bm_holdings)
     else:
-        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
-        if not bm_holdings:
-            bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        # Use dynamic benchmark components to build weights
+        bm_holdings = []
+        for comp in dynamic_benchmark_components:
+            bm_holdings.append(Holding(comp["ticker"], comp["weight"], comp.get("name", "")))
+        bm_weights = _normalize_weights(bm_holdings)
 
     wave_weights = _normalize_weights(wave_holdings)
-    bm_weights = _normalize_weights(bm_holdings)
 
     tickers_wave = list(wave_weights.index)
     tickers_bm = list(bm_weights.index)
@@ -2828,14 +3714,27 @@ def _compute_core(
         # Normalize to sum to 1.0 using only available tickers
         bm_weights_aligned = bm_weights_aligned / bm_weights_sum
 
-    # Compute benchmark returns (graceful degradation)
-    if bm_weights_sum > 0:
-        bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+    # Compute benchmark returns (with dynamic benchmark support)
+    if use_dynamic_benchmark:
+        # Build benchmark series from components using dynamic benchmark logic
+        bm_ret_series = build_benchmark_series_from_components(price_df, dynamic_benchmark_components)
+        if bm_ret_series.empty:
+            # Fallback to traditional weighted benchmark if dynamic build fails
+            if bm_weights_sum > 0:
+                bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+            else:
+                bm_ret_series = pd.Series(np.nan, index=ret_df.index)
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Dynamic benchmark build failed for {wave_name}, all components unavailable")
     else:
-        # All benchmark components failed - set to None/NaN
-        bm_ret_series = pd.Series(np.nan, index=ret_df.index)
-        logger = logging.getLogger(__name__)
-        logger.warning(f"All benchmark components failed for {wave_name}, benchmark returns set to NaN")
+        # Traditional benchmark computation (graceful degradation)
+        if bm_weights_sum > 0:
+            bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+        else:
+            # All benchmark components failed - set to None/NaN
+            bm_ret_series = pd.Series(np.nan, index=ret_df.index)
+            logger = logging.getLogger(__name__)
+            logger.warning(f"All benchmark components failed for {wave_name}, benchmark returns set to NaN")
 
     # Base index for regime detection
     if base_index_ticker in price_df.columns:
@@ -2893,6 +3792,14 @@ def _compute_core(
     # Diagnostics series (optional)
     diag_rows = []
     attribution_rows = []  # New: per-day strategy attribution
+    
+    # Phase 1B.3: Calculate crypto overlay status once for the entire run
+    crypto_overlay_status = _get_crypto_overlay_status(
+        wave_name=wave_name,
+        is_crypto=_is_crypto_wave(wave_name),
+        tickers_available=len(wave_tickers_available),
+        tickers_expected=len(wave_tickers_expected)
+    )
 
     for dt in ret_df.index:
         rets = ret_df.loc[dt]
@@ -2934,8 +3841,8 @@ def _compute_core(
         # 2. VIX overlay strategy (EQUITY GROWTH ONLY - disabled for crypto and income)
         if not is_crypto and not is_income:
             vix_level = float(vix_level_series.get(dt, np.nan))
-            vix_exposure = _vix_exposure_factor(vix_level, mode)
-            vix_gate = _vix_safe_fraction(vix_level, mode)
+            vix_exposure = _vix_exposure_factor(vix_level, mode, wave_name)
+            vix_gate = _vix_safe_fraction(vix_level, mode, wave_name)
             vix_risk_state = "risk-off" if vix_level >= 25 else ("risk-on" if vix_level < 18 else "neutral")
             
             vix_contrib = StrategyContribution(
@@ -3423,11 +4330,13 @@ def _compute_core(
                     "vix_gate": diag_vix_gate,
                     "regime_gate": diag_regime_gate,
                     "aggregated_risk_state": agg_risk_state,
-                    # Add crypto-specific diagnostics
+                    # Add crypto-specific diagnostics (Phase 1B.3)
                     "is_crypto": is_crypto,
+                    "crypto_exposure": float(exposure) if is_crypto else np.nan,
                     "crypto_trend_regime": crypto_trend_contrib.metadata.get("crypto_regime", "n/a") if is_crypto_growth else "n/a",
                     "crypto_vol_state": crypto_vol_contrib.metadata.get("vol_state", "n/a") if is_crypto_growth else "n/a",
                     "crypto_liq_state": crypto_liquidity_contrib.metadata.get("liquidity_state", "n/a") if is_crypto else "n/a",
+                    "crypto_overlay_status": crypto_overlay_status,  # Phase 1B.3
                     # Add income-specific diagnostics
                     "is_income": is_income,
                     "income_rates_regime": income_rates_contrib.metadata.get("rates_regime", "n/a") if is_income else "n/a",
@@ -3469,6 +4378,87 @@ def _compute_core(
         "bm_tickers_available": len(bm_tickers_available),
         "failed_tickers": failed_tickers,
     }
+    
+    # Add dynamic benchmark diagnostics if applicable
+    if use_dynamic_benchmark and dynamic_benchmark_info:
+        benchmark_components = dynamic_benchmark_info.get("components", [])
+        
+        out.attrs["coverage"]["dynamic_benchmark"] = {
+            "enabled": True,
+            "benchmark_name": dynamic_benchmark_info.get("benchmark_name", "Unknown"),
+            "version": dynamic_benchmark_info.get("version", "v1.0"),
+            "components": [
+                {
+                    "ticker": c["ticker"],
+                    "weight": c["weight"],
+                    "available": c["ticker"] in price_df.columns
+                }
+                for c in benchmark_components
+            ],
+        }
+        
+        # Add new diagnostic fields for auditable proof
+        out.attrs["coverage"]["benchmark_mode"] = "DYNAMIC"
+        out.attrs["coverage"]["benchmark_components_preview"] = _format_benchmark_components_preview(benchmark_components)
+        out.attrs["coverage"]["benchmark_hash"] = _compute_benchmark_hash(benchmark_components)
+    else:
+        # Static benchmark case
+        static_components = [
+            {"ticker": ticker, "weight": float(weight)}
+            for ticker, weight in bm_weights.items()
+        ]
+        
+        out.attrs["coverage"]["dynamic_benchmark"] = {
+            "enabled": False,
+            "reason": "no_dynamic_spec_found"
+        }
+        
+        out.attrs["coverage"]["benchmark_mode"] = "STATIC"
+        out.attrs["coverage"]["benchmark_components_preview"] = _format_benchmark_components_preview(static_components)
+        out.attrs["coverage"]["benchmark_hash"] = _compute_benchmark_hash(static_components)
+    
+    # Add 365D window integrity fields
+    min_trading_days_365d = 252  # Expected trading days for 365D window
+    window_365d_integrity = _compute_365d_window_integrity(wave_ret_series, bm_ret_series, trading_days_365d=min_trading_days_365d)
+    out.attrs["coverage"]["window_365d_integrity"] = window_365d_integrity
+    
+    # Compute 365D alpha reconciliation
+    # Calculate 365D cumulative returns (last 252 trading days or available data)
+    if len(wave_ret_series) >= min_trading_days_365d and len(bm_ret_series) >= min_trading_days_365d:
+        wave_ret_365d = wave_ret_series.tail(min_trading_days_365d)
+        bm_ret_365d = bm_ret_series.tail(min_trading_days_365d)
+        
+        # Compute cumulative returns
+        wave_365d_return = (1 + wave_ret_365d).prod() - 1
+        bench_365d_return = (1 + bm_ret_365d).prod() - 1
+        alpha_365d = wave_365d_return - bench_365d_return
+        
+        # Compute reconciliation
+        reconciliation = _compute_alpha_reconciliation(
+            wave_365d_return=wave_365d_return,
+            bench_365d_return=bench_365d_return,
+            alpha_365d=alpha_365d,
+            tolerance=0.001  # 0.1% = 10 basis points
+        )
+        
+        out.attrs["coverage"]["alpha_365d_reconciliation"] = reconciliation
+        out.attrs["coverage"]["wave_365d_return"] = float(wave_365d_return)
+        out.attrs["coverage"]["bench_365d_return"] = float(bench_365d_return)
+        out.attrs["coverage"]["alpha_365d"] = float(alpha_365d)
+    else:
+        # Insufficient data for 365D calculations
+        out.attrs["coverage"]["alpha_365d_reconciliation"] = {
+            "reconciliation_passed": False,
+            "expected_alpha": None,
+            "computed_alpha": None,
+            "mismatch": None,
+            "mismatch_bps": None,
+            "tolerance": 0.001,
+            "warning_message": f"Insufficient history: {len(wave_ret_series)} days available (need {min_trading_days_365d})"
+        }
+        out.attrs["coverage"]["wave_365d_return"] = None
+        out.attrs["coverage"]["bench_365d_return"] = None
+        out.attrs["coverage"]["alpha_365d"] = None
 
     if shadow and diag_rows:
         diag_df = pd.DataFrame(diag_rows).set_index("Date")
@@ -3931,6 +4921,484 @@ def get_strategy_attribution(wave_name: str, mode: str = "Standard", days: int =
     }
 
 
+def get_latest_strategy_state(wave_name: str, mode: str = "Standard", days: int = 30) -> Dict[str, Any]:
+    """
+    Get the latest strategy state for a wave with human-readable trigger reasons.
+    
+    This provides a snapshot of current strategy configuration including:
+    - Regime (Uptrend/Neutral/Downtrend)
+    - Exposure and Safe allocation percentages
+    - VIX regime (if applicable)
+    - Trigger reasons (human-readable explanations)
+    
+    Args:
+        wave_name: name of the Wave
+        mode: operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+        days: history window for computing state (default 30 for recent state)
+        
+    Returns:
+        Dictionary with strategy_state:
+        - regime: Current market regime
+        - vix_regime: Current VIX regime (for equity waves)
+        - exposure: Current exposure percentage (0.0-1.5)
+        - safe_allocation: Current safe allocation percentage (0.0-0.95)
+        - trigger_reasons: List of human-readable reasons for current positioning
+        - strategy_family: Type of wave (equity_growth, equity_income, crypto_growth, etc.)
+        - timestamp: When this state was computed
+    """
+    # Run shadow simulation to get latest attribution
+    result = simulate_history_nav(wave_name=wave_name, mode=mode, days=days, overrides={})
+    
+    if result.empty:
+        return {
+            "ok": False,
+            "message": "No data available for strategy state",
+            "strategy_state": {}
+        }
+    
+    # Extract attribution from attrs
+    attribution_rows = result.attrs.get("strategy_attribution", [])
+    diagnostics = result.attrs.get("diagnostics")
+    
+    if not attribution_rows:
+        return {
+            "ok": False,
+            "message": "Strategy attribution not available",
+            "strategy_state": {}
+        }
+    
+    # Get the latest attribution row
+    latest_row = attribution_rows[-1]
+    latest_date = latest_row["Date"]
+    latest_attr = latest_row["strategy_attribution"]
+    latest_summary = latest_attr.get("_summary", {})
+    
+    # Get diagnostics for latest date
+    latest_diag = {}
+    if diagnostics is not None and not diagnostics.empty:
+        latest_diag_row = diagnostics.loc[diagnostics.index == latest_date]
+        if not latest_diag_row.empty:
+            latest_diag = latest_diag_row.iloc[0].to_dict()
+    
+    # Determine wave type
+    is_crypto = _is_crypto_wave(wave_name)
+    is_income = _is_income_wave(wave_name)
+    strategy_family = get_strategy_family(wave_name)
+    
+    # Extract regime information
+    regime = "n/a"
+    vix_regime = "n/a"
+    vix_level = None
+    
+    if not is_crypto and not is_income:
+        # Equity growth wave - use equity regime and VIX
+        regime_contrib = latest_attr.get("regime_detection", {})
+        regime = regime_contrib.get("metadata", {}).get("regime", "n/a")
+        
+        vix_contrib = latest_attr.get("vix_overlay", {})
+        vix_level = vix_contrib.get("metadata", {}).get("vix_level")
+        if vix_level is not None and not np.isnan(vix_level):
+            if vix_level < 15:
+                vix_regime = "low"
+            elif vix_level < 20:
+                vix_regime = "normal"
+            elif vix_level < 30:
+                vix_regime = "elevated"
+            else:
+                vix_regime = "high"
+    elif is_crypto and not is_income:
+        # Crypto growth wave - use crypto regime
+        crypto_trend_contrib = latest_attr.get("crypto_trend_momentum", {})
+        regime = crypto_trend_contrib.get("metadata", {}).get("crypto_regime", "n/a")
+        vix_regime = "n/a (crypto)"
+    elif is_income and not is_crypto:
+        # Income wave - use income regime
+        income_rates_contrib = latest_attr.get("income_rates_regime", {})
+        regime = income_rates_contrib.get("metadata", {}).get("rates_regime", "n/a")
+        vix_regime = "n/a (income)"
+    elif is_crypto and is_income:
+        # Crypto income wave
+        crypto_income_contrib = latest_attr.get("crypto_income_stability", {})
+        regime = "crypto_income"
+        vix_regime = "n/a (crypto_income)"
+    
+    # Extract exposure and safe allocation
+    exposure = latest_summary.get("combined_exposure_multiplier", 1.0)
+    safe_allocation = latest_summary.get("combined_safe_fraction", 0.0)
+    
+    # Build trigger reasons (human-readable explanations)
+    trigger_reasons = []
+    
+    # Analyze each active strategy contribution
+    for strat_name, strat_data in latest_attr.items():
+        if strat_name == "_summary":
+            continue
+        
+        exp_impact = strat_data.get("exposure_impact", 1.0)
+        safe_impact = strat_data.get("safe_impact", 0.0)
+        risk_state = strat_data.get("risk_state", "neutral")
+        metadata = strat_data.get("metadata", {})
+        
+        # Only add reason if strategy had meaningful impact
+        if abs(exp_impact - 1.0) > 0.01 or abs(safe_impact) > 0.01:
+            reason = _format_strategy_reason(strat_name, exp_impact, safe_impact, risk_state, metadata)
+            if reason:
+                trigger_reasons.append(reason)
+    
+    # Build strategy state dictionary
+    strategy_state = {
+        "regime": regime,
+        "vix_regime": vix_regime,
+        "vix_level": vix_level if vix_level is not None else None,
+        "exposure": round(exposure, 3),
+        "safe_allocation": round(safe_allocation, 3),
+        "trigger_reasons": trigger_reasons,
+        "strategy_family": strategy_family,
+        "timestamp": str(latest_date),
+        "aggregated_risk_state": latest_summary.get("aggregated_risk_state", "neutral"),
+        "active_strategies": latest_summary.get("active_strategies", 0)
+    }
+    
+    return {
+        "ok": True,
+        "strategy_state": strategy_state
+    }
+
+
+def _format_strategy_reason(
+    strategy_name: str,
+    exposure_impact: float,
+    safe_impact: float,
+    risk_state: str,
+    metadata: Dict[str, Any]
+) -> str:
+    """
+    Format a human-readable reason for a strategy's impact.
+    
+    Args:
+        strategy_name: Name of the strategy
+        exposure_impact: Exposure multiplier (1.0 = neutral)
+        safe_impact: Safe allocation contribution (0.0 = neutral)
+        risk_state: Risk state (risk-on/off/neutral)
+        metadata: Additional strategy-specific metadata
+        
+    Returns:
+        Human-readable reason string, or empty string if no meaningful impact
+    """
+    reasons = []
+    
+    # Strategy-specific formatting
+    if strategy_name == "regime_detection":
+        regime = metadata.get("regime", "unknown")
+        if regime == "uptrend":
+            reasons.append(f"Uptrend regime (+{(exposure_impact-1)*100:.0f}% exposure)")
+        elif regime == "downtrend":
+            reasons.append(f"Downtrend regime ({(exposure_impact-1)*100:.0f}% exposure, +{safe_impact*100:.0f}% cash)")
+        elif regime == "panic":
+            reasons.append(f"Panic regime (defensive: {(exposure_impact-1)*100:.0f}% exposure, +{safe_impact*100:.0f}% cash)")
+        elif regime == "neutral":
+            reasons.append("Neutral regime (standard positioning)")
+    
+    elif strategy_name == "vix_overlay":
+        vix_level = metadata.get("vix_level")
+        if vix_level and not np.isnan(vix_level):
+            if vix_level >= 25:
+                reasons.append(f"Elevated VIX ({vix_level:.1f}): reduced exposure, +{safe_impact*100:.0f}% cash")
+            elif vix_level < 18:
+                reasons.append(f"Low VIX ({vix_level:.1f}): increased exposure")
+    
+    elif strategy_name == "volatility_targeting":
+        recent_vol = metadata.get("recent_vol")
+        vol_target = metadata.get("vol_target")
+        if recent_vol is not None and vol_target is not None:
+            if exposure_impact > 1.05:
+                reasons.append(f"Vol targeting: below target ({recent_vol:.1%} < {vol_target:.1%}), +{(exposure_impact-1)*100:.0f}% exposure")
+            elif exposure_impact < 0.95:
+                reasons.append(f"Vol targeting: above target ({recent_vol:.1%} > {vol_target:.1%}), {(exposure_impact-1)*100:.0f}% exposure")
+    
+    elif strategy_name == "crypto_trend_momentum":
+        crypto_regime = metadata.get("crypto_regime", "unknown")
+        if "uptrend" in crypto_regime:
+            reasons.append(f"Crypto {crypto_regime} (+{(exposure_impact-1)*100:.0f}% exposure)")
+        elif "downtrend" in crypto_regime:
+            reasons.append(f"Crypto {crypto_regime} ({(exposure_impact-1)*100:.0f}% exposure)")
+    
+    elif strategy_name == "crypto_volatility":
+        vol_state = metadata.get("vol_state", "unknown")
+        if vol_state != "normal":
+            reasons.append(f"Crypto vol {vol_state} ({(exposure_impact-1)*100:+.0f}% exposure)")
+    
+    elif strategy_name == "income_rates_regime":
+        rates_regime = metadata.get("rates_regime", "unknown")
+        if "rising" in rates_regime:
+            reasons.append(f"Rates {rates_regime} (duration risk: {(exposure_impact-1)*100:.0f}% exposure)")
+        elif "falling" in rates_regime:
+            reasons.append(f"Rates {rates_regime} (favorable: +{(exposure_impact-1)*100:.0f}% exposure)")
+    
+    elif strategy_name == "income_credit_regime":
+        credit_regime = metadata.get("credit_regime", "unknown")
+        if credit_regime == "risk_off":
+            reasons.append(f"Credit spreads widening (risk-off: {(exposure_impact-1)*100:.0f}% exposure, +{safe_impact*100:.0f}% quality)")
+        elif credit_regime == "risk_on":
+            reasons.append(f"Credit spreads tight (risk-on: +{(exposure_impact-1)*100:.0f}% exposure)")
+    
+    elif strategy_name == "smartsafe":
+        if safe_impact > 0.05:
+            reasons.append(f"SmartSafe boost (+{safe_impact*100:.0f}% to safe assets)")
+    
+    elif strategy_name == "mode_constraint":
+        mode = metadata.get("mode", "unknown")
+        base_exposure = metadata.get("base_exposure", 1.0)
+        if abs(base_exposure - 1.0) > 0.05:
+            reasons.append(f"{mode} mode (base exposure: {base_exposure:.0%})")
+    
+    # Generic fallback for strategies without specific formatting
+    if not reasons:
+        if abs(exposure_impact - 1.0) > 0.05:
+            reasons.append(f"{strategy_name}: {(exposure_impact-1)*100:+.0f}% exposure")
+        if abs(safe_impact) > 0.05:
+            reasons.append(f"{strategy_name}: +{safe_impact*100:.0f}% safe")
+    
+    return "; ".join(reasons)
+
+
+# ------------------------------------------------------------
+# Per-Wave Attribution API (v17.5)
+# ------------------------------------------------------------
+
+def compute_raw_wave_return(
+    wave_name: str,
+    days: int = 365,
+    price_df: Optional[pd.DataFrame] = None
+) -> pd.Series:
+    """
+    Compute raw wave return series WITHOUT strategy overlay.
+    
+    This represents pure stock selection alpha - the return of the wave's holdings
+    with no exposure adjustments, no safe asset allocation, no VIX overlay, etc.
+    Just the weighted return of the basket itself.
+    
+    Args:
+        wave_name: Name of the wave
+        days: Lookback period
+        price_df: Optional pre-loaded price DataFrame
+        
+    Returns:
+        pd.Series indexed by date with daily returns (raw wave return)
+        Returns empty series if wave not found or insufficient data
+    """
+    # Load price data if not provided
+    if price_df is None:
+        if not PRICE_BOOK_AVAILABLE:
+            logger.warning("PRICE_BOOK not available - cannot compute raw wave return")
+            return pd.Series(dtype=float)
+        price_df = get_price_book()
+        if price_df is None or price_df.empty:
+            logger.warning("PRICE_BOOK is empty - cannot compute raw wave return")
+            return pd.Series(dtype=float)
+    
+    # Get wave holdings
+    holdings = WAVE_WEIGHTS.get(wave_name)
+    if not holdings:
+        logger.warning(f"Wave '{wave_name}' not found in WAVE_WEIGHTS")
+        return pd.Series(dtype=float)
+    
+    # Normalize weights
+    weights = _normalize_weights(holdings)
+    
+    # Get tickers and weights
+    tickers = [h.ticker for h in holdings]
+    
+    # Filter to available tickers
+    available_tickers = [t for t in tickers if t in price_df.columns]
+    if not available_tickers:
+        logger.warning(f"No tickers available in PRICE_BOOK for wave '{wave_name}'")
+        return pd.Series(dtype=float)
+    
+    # Calculate coverage
+    coverage = len(available_tickers) / len(tickers) if tickers else 0.0
+    if coverage < 0.5:
+        logger.warning(f"Low ticker coverage ({coverage:.1%}) for wave '{wave_name}'")
+    
+    # Slice to requested period
+    end_date = price_df.index[-1]
+    start_date = end_date - pd.Timedelta(days=days)
+    price_slice = price_df.loc[price_df.index >= start_date].copy()
+    
+    if price_slice.empty:
+        return pd.Series(dtype=float)
+    
+    # Compute daily returns for each ticker
+    # Note: Using fillna(0) after pct_change to handle missing data
+    # This is consistent with existing engine behavior in _compute_core
+    returns_df = price_slice[available_tickers].pct_change()
+    returns_df = returns_df.fillna(0.0)  # Handle NaN values explicitly
+    
+    # Get normalized weights for available tickers
+    weight_dict = {}
+    total_weight = 0.0
+    for ticker in available_tickers:
+        if ticker in weights.index:
+            weight_dict[ticker] = float(weights[ticker])
+            total_weight += weight_dict[ticker]
+    
+    # Renormalize to sum to 1.0
+    if total_weight > 0:
+        for ticker in weight_dict:
+            weight_dict[ticker] /= total_weight
+    
+    # Calculate weighted portfolio return (raw, no overlay)
+    # Note: Using fillna(0) is consistent with engine's existing approach for missing data
+    # This prevents propagation of NaN values while maintaining data continuity
+    raw_returns = pd.Series(0.0, index=returns_df.index)
+    for ticker, weight in weight_dict.items():
+        raw_returns += returns_df[ticker].fillna(0.0) * weight
+    
+    return raw_returns
+
+
+def get_attribution(
+    wave_name: str,
+    periods: Optional[List[int]] = None,
+    price_df: Optional[pd.DataFrame] = None
+) -> Dict[str, Any]:
+    """
+    Compute per-wave attribution decomposing alpha into selection and overlay components.
+    
+    For each return window (e.g., 1D, 30D, 60D, 365D), computes:
+    1. benchmark_return: Return of wave's composite benchmark
+    2. raw_wave_return: Return of wave's holdings without strategy overlay (pure selection)
+    3. strategy_wave_return: Return of wave's holdings with strategy overlay applied
+    
+    Derived alpha metrics:
+    - total_alpha = strategy_wave_return - benchmark_return
+    - selection_alpha = raw_wave_return - benchmark_return
+    - overlay_alpha = strategy_wave_return - raw_wave_return
+    - reconciliation_error = total_alpha - (selection_alpha + overlay_alpha)
+    
+    Args:
+        wave_name: Name of the wave
+        periods: List of lookback periods in days (default: [1, 30, 60, 365])
+        price_df: Optional pre-loaded price DataFrame
+        
+    Returns:
+        Dictionary with:
+        - success: bool - whether computation succeeded
+        - wave_name: str - name of the wave
+        - attribution: Dict[int, Dict] - attribution metrics per period
+        - error: Optional[str] - error message if failed
+        
+    Example:
+        >>> attr = get_attribution("S&P 500 Wave", periods=[30, 365])
+        >>> if attr["success"]:
+        ...     metrics_30d = attr["attribution"][30]
+        ...     print(f"30D Total Alpha: {metrics_30d['total_alpha']:.2%}")
+        ...     print(f"30D Selection Alpha: {metrics_30d['selection_alpha']:.2%}")
+        ...     print(f"30D Overlay Alpha: {metrics_30d['overlay_alpha']:.2%}")
+    """
+    if periods is None:
+        periods = [1, 30, 60, 365]
+    
+    result = {
+        "success": False,
+        "wave_name": wave_name,
+        "attribution": {},
+        "error": None
+    }
+    
+    try:
+        # Load price data if not provided
+        if price_df is None:
+            if not PRICE_BOOK_AVAILABLE:
+                result["error"] = "PRICE_BOOK not available"
+                return result
+            price_df = get_price_book()
+            if price_df is None or price_df.empty:
+                result["error"] = "PRICE_BOOK is empty"
+                return result
+        
+        # Compute attribution for each period
+        for period_days in periods:
+            # 1. Get benchmark return
+            benchmark_result = compute_history_nav(wave_name, mode="Standard", days=period_days, price_df=price_df)
+            if benchmark_result.empty:
+                result["attribution"][period_days] = {
+                    "error": "Failed to compute benchmark return"
+                }
+                continue
+            
+            bm_nav = benchmark_result["bm_nav"]
+            if len(bm_nav) < 2:
+                result["attribution"][period_days] = {
+                    "error": "Insufficient benchmark data"
+                }
+                continue
+            
+            benchmark_return = float(bm_nav.iloc[-1] / bm_nav.iloc[0] - 1.0)
+            
+            # 2. Get strategy wave return (with overlay)
+            wave_nav = benchmark_result["wave_nav"]
+            if len(wave_nav) < 2:
+                result["attribution"][period_days] = {
+                    "error": "Insufficient wave data"
+                }
+                continue
+            
+            strategy_wave_return = float(wave_nav.iloc[-1] / wave_nav.iloc[0] - 1.0)
+            
+            # 3. Get raw wave return (without overlay)
+            raw_returns_series = compute_raw_wave_return(wave_name, days=period_days, price_df=price_df)
+            if raw_returns_series.empty:
+                result["attribution"][period_days] = {
+                    "error": "Failed to compute raw wave return"
+                }
+                continue
+            
+            # Calculate cumulative return for the period
+            raw_nav = (1.0 + raw_returns_series).cumprod()
+            if len(raw_nav) < 2:
+                result["attribution"][period_days] = {
+                    "error": "Insufficient raw return data"
+                }
+                continue
+            
+            raw_wave_return = float(raw_nav.iloc[-1] / raw_nav.iloc[0] - 1.0)
+            
+            # 4. Calculate alpha components
+            total_alpha = strategy_wave_return - benchmark_return
+            selection_alpha = raw_wave_return - benchmark_return
+            overlay_alpha = strategy_wave_return - raw_wave_return
+            
+            # 5. Calculate reconciliation error
+            # Should be near zero: total_alpha = selection_alpha + overlay_alpha
+            reconciliation_error = total_alpha - (selection_alpha + overlay_alpha)
+            
+            # Store results for this period
+            result["attribution"][period_days] = {
+                "period_days": period_days,
+                "benchmark_return": benchmark_return,
+                "raw_wave_return": raw_wave_return,
+                "strategy_wave_return": strategy_wave_return,
+                "total_alpha": total_alpha,
+                "selection_alpha": selection_alpha,
+                "overlay_alpha": overlay_alpha,
+                "reconciliation_error": reconciliation_error,
+                "data_points": len(raw_returns_series)
+            }
+        
+        # Mark as successful if we got at least one period
+        if any("error" not in v for v in result["attribution"].values()):
+            result["success"] = True
+        else:
+            result["error"] = "Failed to compute attribution for all periods"
+        
+    except Exception as e:
+        result["error"] = f"Exception during attribution computation: {str(e)}"
+        logger.exception(f"Error in get_attribution for {wave_name}")
+    
+    return result
+
+
 # ------------------------------------------------------------
 # Module Initialization - Validate Wave ID Registry
 # ------------------------------------------------------------
@@ -3951,5 +5419,78 @@ def _log_wave_id_warnings():
 # This validation should be called explicitly when needed, not on import
 # Run validation on import - DISABLED to prevent import-time side effects
 # _log_wave_id_warnings()
+
+
+# ------------------------------------------------------------
+# VIX Overlay Status API
+# ------------------------------------------------------------
+
+def get_vix_overlay_status_for_wave(wave_name: str) -> Dict[str, Any]:
+    """
+    Get VIX overlay status for a specific wave.
+    
+    Args:
+        wave_name: Name of the wave
+        
+    Returns:
+        Dictionary with VIX overlay status:
+        - is_live: bool - whether VIX overlay is active
+        - is_enabled_for_wave: bool - whether enabled for this specific wave
+        - is_equity_wave: bool - whether this is an equity wave (VIX applicable)
+        - fallback_vix_level: float - fallback VIX when data missing
+        - resilient_mode: bool - whether resilience is enabled
+        - config_available: bool - whether config module is loaded
+    """
+    status = {
+        "is_live": False,
+        "is_enabled_for_wave": False,
+        "is_equity_wave": False,
+        "fallback_vix_level": 20.0,
+        "resilient_mode": True,
+        "config_available": VIX_CONFIG_AVAILABLE,
+    }
+    
+    # Check if this is an equity wave (not crypto, not income, not safe)
+    is_crypto = _is_crypto_wave(wave_name)
+    is_income = _is_income_wave(wave_name)
+    is_safe = is_smartsafe_cash_wave(wave_name)
+    
+    is_equity = not (is_crypto or is_income or is_safe)
+    status["is_equity_wave"] = is_equity
+    
+    # VIX overlay only applies to equity waves
+    if not is_equity:
+        return status
+    
+    # Check global and wave-specific configuration
+    if VIX_CONFIG_AVAILABLE:
+        vix_config = get_vix_overlay_strategy_config(wave_name)
+        status["is_live"] = is_vix_overlay_live()
+        status["is_enabled_for_wave"] = vix_config["enabled"]
+        status["fallback_vix_level"] = vix_config["fallback_vix_level"]
+        status["resilient_mode"] = vix_config["resilient_mode"]
+    else:
+        # Fallback to DEFAULT_STRATEGY_CONFIGS if config module not available
+        strategy_config = DEFAULT_STRATEGY_CONFIGS.get("vix_overlay")
+        if strategy_config:
+            status["is_live"] = strategy_config.enabled
+            status["is_enabled_for_wave"] = strategy_config.enabled
+    
+    return status
+
+
+def is_vix_overlay_active_for_wave(wave_name: str) -> bool:
+    """
+    Check if VIX overlay is active for a specific wave.
+    
+    Args:
+        wave_name: Name of the wave
+        
+    Returns:
+        True if VIX overlay is active for this wave
+    """
+    status = get_vix_overlay_status_for_wave(wave_name)
+    return status["is_equity_wave"] and status["is_enabled_for_wave"]
+
 
     

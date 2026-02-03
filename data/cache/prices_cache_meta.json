@@ -1,10 +1,9 @@
 {
-  "generated_at_utc": "2026-01-06T03:24:22.921818Z",
-  "success_rate": 0.9919354838709677,
-  "min_success_rate": 0.9,
-  "tickers_total": 124,
-  "tickers_successful": 123,
-  "tickers_failed": 1,
-  "max_price_date": "2026-01-05",
-  "cache_file": "data/cache/prices_cache.parquet"
+  "generated_at_utc": "2026-02-03T04:20:52.211005",
+  "tickers_requested": 118,
+  "tickers_used": 118,
+  "tickers_failed": [],
+  "min_date": "2024-02-04",
+  "max_date": "2026-02-03",
+  "trading_days": 731
 }
