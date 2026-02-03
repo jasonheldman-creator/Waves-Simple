@@ -63,13 +63,14 @@ def render_review_and_adaptation_signals(snapshot_df, attrib_df, adaptive_state)
         
         # Check for alpha data
         alpha_cols = [col for col in snapshot_df.columns if 'alpha' in col.lower()]
-        if alpha_cols:
-            avg_alpha_30d = snapshot_df.get('alpha_30d', pd.Series([0])).mean()
+        if alpha_cols and 'alpha_30d' in snapshot_df.columns:
+            avg_alpha_30d = snapshot_df['alpha_30d'].mean()
             if pd.notna(avg_alpha_30d):
                 alpha_status = "Positive" if avg_alpha_30d > 0 else "Negative"
+                PERCENT_MULTIPLIER = 100
                 signal_rows.append({
                     "Category": "Portfolio Alpha (30D)",
-                    "Signal": f"Average alpha: {avg_alpha_30d*100:.2f}%",
+                    "Signal": f"Average alpha: {avg_alpha_30d * PERCENT_MULTIPLIER:.2f}%",
                     "Status": f"✓ {alpha_status}"
                 })
     
