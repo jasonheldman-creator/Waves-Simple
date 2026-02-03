@@ -46,7 +46,7 @@ def update_adaptive_state(snapshot_df, attrib_df, adaptive_state):
     
     # Save updated state
     state_file = Path("data/adaptive_state.json")
-    state_file.parent.mkdir(exist_ok=True)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(state_file, "w") as f:
             json.dump(adaptive_state, f, indent=2)
