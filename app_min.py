@@ -546,6 +546,11 @@ if snapshot_error:
     st.error(snapshot_error)
     st.stop()
 
+if snapshot_df is None or snapshot_df.empty:
+    st.sidebar.error("No snapshot data available")
+    st.error("No snapshot data available. Please ensure data/live_snapshot.csv exists and is properly formatted.")
+    st.stop()
+
 st.sidebar.divider()
 st.sidebar.title("Console Controls")
 
@@ -3694,7 +3699,7 @@ This view highlights the concentration and balance of alpha contributions. It do
             return None
         elif tier == "Medium-Term":
             # 30D and 60D average
-            if attrib_df is not None:
+            if attrib_df is not None and "horizon" in attrib_df.columns:
                 result = {}
                 components = ["selection_alpha", "momentum_alpha", "volatility_alpha", "regime_alpha", "exposure_alpha", "residual_alpha", "total_alpha"]
                 for comp in components:
@@ -3707,7 +3712,7 @@ This view highlights the concentration and balance of alpha contributions. It do
             return None
         elif tier == "Long-Term":
             # 365D only
-            if attrib_df is not None:
+            if attrib_df is not None and "horizon" in attrib_df.columns:
                 result = {}
                 components = ["selection_alpha", "momentum_alpha", "volatility_alpha", "regime_alpha", "exposure_alpha", "residual_alpha", "total_alpha"]
                 for comp in components:
@@ -4227,7 +4232,10 @@ with tabs[2]:
     st.subheader("Wave Diagnostics")
     st.caption("Wave-level diagnostic interpretation derived from attribution and stability signals · Observational only")
     
-    wave_names = sorted(snapshot_df["wave_name"].unique().tolist()) if snapshot_df is not None else []
+    wave_names = []
+    if snapshot_df is not None and "wave_name" in snapshot_df.columns:
+        wave_names = sorted(snapshot_df["wave_name"].unique().tolist())
+    
     selected_diag_wave = st.selectbox("Select Wave", [""] + wave_names, key="diag_wave_selector", format_func=lambda x: "Select a Wave to view diagnostics" if x == "" else x) if wave_names else None
     
     if selected_diag_wave and selected_diag_wave != "" and attrib_df is not None and snapshot_df is not None:
@@ -4516,7 +4524,7 @@ with tabs[2]:
 
         # --- Signal 1: Momentum Persistence ---
         # Check if momentum_alpha is consistently positive or negative across horizons
-        if attrib_df is not None:
+        if attrib_df is not None and "horizon" in attrib_df.columns and "momentum_alpha" in attrib_df.columns:
             momentum_30d = attrib_df[attrib_df["horizon"] == 30]["momentum_alpha"].dropna()
             momentum_60d = attrib_df[attrib_df["horizon"] == 60]["momentum_alpha"].dropna()
             momentum_365d = attrib_df[attrib_df["horizon"] == 365]["momentum_alpha"].dropna()
