@@ -5258,19 +5258,27 @@ with tabs[2]:
     # Use LIVE learning module for cross-horizon analysis
     cross_horizon_agreements = al.compute_cross_horizon_agreement(snapshot_df, attrib_df)
 
-    if cross_horizon_agreements:
+    # Ensure we have a valid list
+    if cross_horizon_agreements and isinstance(cross_horizon_agreements, list):
         for analysis in cross_horizon_agreements:
+            # Defensive: ensure analysis is a dict
+            if not isinstance(analysis, dict):
+                continue
+            
             # Determine icon based on agreement
-            if "Aligned" in analysis.get("agreement", "") and "Negative" not in analysis.get("agreement", ""):
+            agreement_str = analysis.get("agreement", "")
+            if "Aligned" in agreement_str and "Negative" not in agreement_str:
                 icon = "[OK]"
-            elif "Negative" in analysis.get("agreement", ""):
+            elif "Negative" in agreement_str:
                 icon = "[v]"
             elif analysis.get("suppress_action", False):
                 icon = "[!]"
             else:
                 icon = "[-]"
 
-            st.markdown(f"### {icon} {analysis['comparison']}")
+            # Safe access to comparison with default
+            comparison = analysis.get("comparison", "Cross-Horizon Analysis")
+            st.markdown(f"### {icon} {comparison}")
             cols = st.columns(3)
             with cols[0]:
                 short_val = analysis.get("short_term", 0)
@@ -5309,32 +5317,39 @@ with tabs[2]:
     tilt_proposals = al.generate_adaptive_tilt_proposals(signals, adaptive_state, cross_horizon_agreements)
 
     # Display as cards with LIVE learning information
-    for proposal in tilt_proposals:
-        with st.container():
-            card_cols = st.columns([4, 1])
+    if tilt_proposals and isinstance(tilt_proposals, list):
+        for proposal in tilt_proposals:
+            # Defensive: ensure proposal is a dict
+            if not isinstance(proposal, dict):
+                continue
+            
+            with st.container():
+                card_cols = st.columns([4, 1])
 
-            with card_cols[0]:
-                live_badge = "[LIVE]" if proposal.get('is_live', False) else ""
-                st.markdown(f"### {proposal['title']} {live_badge}")
-                st.markdown(proposal['description'])
+                with card_cols[0]:
+                    live_badge = "[LIVE]" if proposal.get('is_live', False) else ""
+                    title = proposal.get('title', 'Untitled Proposal')
+                    st.markdown(f"### {title} {live_badge}")
+                    st.markdown(proposal.get('description', ''))
 
-            with card_cols[1]:
-                confidence_score = proposal.get('confidence_score', 0)
-                if proposal['confidence'] == "High":
-                    conf_badge = f"[+] High ({confidence_score*100:.0f}%)"
-                elif proposal['confidence'] == "Medium":
-                    conf_badge = f"[-] Medium ({confidence_score*100:.0f}%)"
-                else:
-                    conf_badge = f"[?] Low ({confidence_score*100:.0f}%)"
-                st.markdown(f"**{conf_badge}**")
+                with card_cols[1]:
+                    confidence_score = proposal.get('confidence_score', 0)
+                    confidence = proposal.get('confidence', 'Low')
+                    if confidence == "High":
+                        conf_badge = f"[+] High ({confidence_score*100:.0f}%)"
+                    elif confidence == "Medium":
+                        conf_badge = f"[-] Medium ({confidence_score*100:.0f}%)"
+                    else:
+                        conf_badge = f"[?] Low ({confidence_score*100:.0f}%)"
+                    st.markdown(f"**{conf_badge}**")
 
-            with st.expander("Details"):
-                st.markdown(f"**Expected Impact:** {proposal['expected_impact']}")
-                st.markdown(f"**Supporting Evidence:** {proposal['supporting_evidence']}")
-                if 'learned_threshold' in proposal:
-                    st.markdown(f"**Learned Threshold:** {proposal['learned_threshold']}")
-                st.markdown("---")
-                st.caption("This proposal is for review only. No trades will be executed.")
+                with st.expander("Details"):
+                    st.markdown(f"**Expected Impact:** {proposal.get('expected_impact', 'N/A')}")
+                    st.markdown(f"**Supporting Evidence:** {proposal.get('supporting_evidence', 'N/A')}")
+                    if 'learned_threshold' in proposal:
+                        st.markdown(f"**Learned Threshold:** {proposal['learned_threshold']}")
+                    st.markdown("---")
+                    st.caption("This proposal is for review only. No trades will be executed.")
 
     # Save updated adaptive state
     al.save_adaptive_state(adaptive_state)
@@ -5791,7 +5806,7 @@ with tabs[3]:
                         "expected_impact": proposal.get("expected_impact", ""),
                         "supporting_evidence": proposal.get("supporting_evidence", ""),
                         "learned_threshold": proposal.get("learned_threshold", ""),
-                        "cross_horizon_status": "Aligned" if not any(a.get("suppress_action", False) for a in cross_horizon_agreements) else "Conflicting",
+                        "cross_horizon_status": "Aligned" if (isinstance(cross_horizon_agreements, list) and not any(a.get("suppress_action", False) for a in cross_horizon_agreements if isinstance(a, dict))) else "Conflicting",
                         "source": "Adaptive Intelligence"
                     })
             else:
