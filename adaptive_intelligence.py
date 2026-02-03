@@ -144,12 +144,19 @@ def render_adaptive_intelligence_tab(snapshot_df, attrib_df):
     orchestrates all sub-sections including Review & Adaptation Signals.
     
     Args:
-        snapshot_df: Portfolio snapshot DataFrame
-        attrib_df: Attribution data DataFrame
+        snapshot_df: Portfolio snapshot DataFrame (can be None)
+        attrib_df: Attribution data DataFrame (can be None)
     """
+    # ALWAYS render the header - ensures visibility in UI
     st.header("Adaptive Intelligence Center")
     st.caption("Decision support layer · System-learned insights and recommendations · LIVE learning enabled")
     st.markdown("")
+    
+    # Defensive: Handle None inputs gracefully
+    if snapshot_df is None:
+        st.warning("Portfolio snapshot data is not available. Some features may be limited.")
+    if attrib_df is None:
+        st.warning("Attribution data is not available. Some features may be limited.")
     
     # Load adaptive state if available
     adaptive_state = {}
@@ -158,7 +165,11 @@ def render_adaptive_intelligence_tab(snapshot_df, attrib_df):
     if al is not None:
         try:
             adaptive_state = al.load_adaptive_state()
-            adaptive_state, learning_messages = al.update_adaptive_state(snapshot_df, attrib_df, adaptive_state)
+            # Only update if we have data
+            if snapshot_df is not None or attrib_df is not None:
+                adaptive_state, learning_messages = al.update_adaptive_state(
+                    snapshot_df, attrib_df, adaptive_state
+                )
             
             # Show learning updates if any
             if learning_messages:
@@ -168,22 +179,29 @@ def render_adaptive_intelligence_tab(snapshot_df, attrib_df):
                     st.caption("Adaptive state persisted to data/adaptive_state.json")
         except Exception as e:
             st.warning(f"Could not load adaptive learning state: {e}")
+            # Continue rendering even if adaptive learning fails
     
-    # Review & Adaptation Signals section
+    # Review & Adaptation Signals section - ALWAYS attempt to render
+    st.divider()
+    
+    # Ensure this section is ALWAYS visible, even if there are issues
     if diagnostics_review_signals is not None:
-        st.divider()
         try:
+            # Call the helper with defensive parameters
             diagnostics_review_signals.render_review_and_adaptation_signals(
                 snapshot_df, attrib_df, adaptive_state
             )
         except Exception as e:
+            # Show error but still render section header
+            st.subheader("Review & Adaptation Signals")
             st.error(f"Error rendering Review & Adaptation Signals: {e}")
+            st.info("The system encountered an error while generating adaptive signals. Please check the logs or contact support.")
     else:
-        st.divider()
+        # Fallback if module not imported - still show section header
         st.subheader("Review & Adaptation Signals")
         st.info(
             "Review & Adaptation Signals rendering module not found. "
-            "Please ensure helpers/diagnostics_review_signals.py is available."
+            "Please ensure helpers/diagnostics_review_signals.py is available in the deployment environment."
         )
     
     # Additional sections can be added here following the same pattern
