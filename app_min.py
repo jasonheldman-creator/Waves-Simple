@@ -38,6 +38,7 @@ from datetime import datetime, timedelta
 # Import adaptive learning module for LIVE learning capabilities
 import adaptive_learning as al
 import integrity_signals as integ
+import adaptive_intelligence as ai
 
 
 # ===========================
@@ -5296,6 +5297,17 @@ with tabs[2]:
                 st.info(f"**Interpretation:** {analysis.get('interpretation', '')}")
     else:
         st.warning("Insufficient cross-horizon data for agreement analysis.")
+
+    st.divider()
+
+    # -----------------------------------------------
+    # Section: Review & Adaptation Signals
+    # -----------------------------------------------
+    ai.render_review_and_adaptation_signals(
+        snapshot_df=snapshot_df,
+        attrib_df=attrib_df,
+        adaptive_state=adaptive_state
+    )
 
     st.divider()
 
