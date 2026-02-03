@@ -396,8 +396,11 @@ def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
         return None, None, "Live snapshot file not found"
 
-    df = pd.read_csv(LIVE_SNAPSHOT_PATH)
-    df.columns = [c.strip().lower() for c in df.columns]
+    try:
+        df = pd.read_csv(LIVE_SNAPSHOT_PATH)
+        df.columns = [c.strip().lower() for c in df.columns]
+    except Exception as e:
+        return None, None, f"Error reading live snapshot: {str(e)}"
 
     # Load alpha attribution summary if it exists
     attrib_df = None
@@ -405,8 +408,17 @@ def load_snapshot():
         try:
             attrib_df = pd.read_csv(ALPHA_ATTRIBUTION_PATH)
             attrib_df.columns = [c.strip().lower() for c in attrib_df.columns]
-        except Exception:
-            pass
+            
+            # Validate required columns for attribution
+            required_attrib_cols = ["horizon"]
+            for col in required_attrib_cols:
+                if col not in attrib_df.columns:
+                    st.warning(f"Attribution file missing column: {col}. Attribution features may be limited.")
+                    attrib_df = None
+                    break
+        except Exception as e:
+            st.warning(f"Could not load attribution summary: {str(e)}. Attribution features will be limited.")
+            attrib_df = None
 
     # Set display_name
     if "display_name" not in df.columns:
@@ -424,6 +436,14 @@ def load_snapshot():
 
     if "intraday_label" not in df.columns:
         df["intraday_label"] = None
+    
+    # Ensure additional required columns exist with safe defaults
+    if "wave_name" not in df.columns:
+        df["wave_name"] = df["display_name"]
+    if "return_intraday" not in df.columns:
+        df["return_intraday"] = np.nan
+    if "alpha_intraday" not in df.columns:
+        df["alpha_intraday"] = np.nan
 
     return df, attrib_df, None
 
@@ -1090,8 +1110,15 @@ def compute_attribution_from_summary(attrib_df, horizon):
     if horizon_val is None:
         return None
 
+    # Validate horizon column exists
+    if "horizon" not in attrib_df.columns:
+        return None
+
     # Filter for the selected horizon
-    horizon_data = attrib_df[attrib_df["horizon"] == horizon_val]
+    try:
+        horizon_data = attrib_df[attrib_df["horizon"] == horizon_val]
+    except (KeyError, ValueError):
+        return None
     
     if horizon_data.empty:
         return None
@@ -1277,27 +1304,30 @@ def compute_intraday_attribution(snapshot_df):
     # Measures alignment of intraday alpha with 30D trend
     # Independent signal: correlation between wave rankings today vs 30D
     if "alpha_30d" in snapshot_df.columns:
-        alpha_30d = snapshot_df["alpha_30d"].dropna()
-        
-        # Get overlapping waves for both horizons
-        common_idx = wave_alphas.index.intersection(alpha_30d.index)
-        if len(common_idx) > 2:
-            intraday_subset = wave_alphas.loc[common_idx]
-            alpha_30d_subset = alpha_30d.loc[common_idx]
+        try:
+            alpha_30d = snapshot_df["alpha_30d"].dropna()
             
-            # Correlation measures trend persistence
-            trend_corr = intraday_subset.corr(alpha_30d_subset)
-            if pd.notna(trend_corr):
-                # Positive correlation = momentum is working
-                # Negative correlation = mean reversion
-                momentum_contribution = trend_corr * abs(intraday_subset.mean()) * 0.25
-                result["momentum_alpha"] = momentum_contribution
+            # Get overlapping waves for both horizons
+            common_idx = wave_alphas.index.intersection(alpha_30d.index)
+            if len(common_idx) > 2:
+                intraday_subset = wave_alphas.loc[common_idx]
+                alpha_30d_subset = alpha_30d.loc[common_idx]
+                
+                # Correlation measures trend persistence
+                trend_corr = intraday_subset.corr(alpha_30d_subset)
+                if pd.notna(trend_corr):
+                    # Positive correlation = momentum is working
+                    # Negative correlation = mean reversion
+                    momentum_contribution = trend_corr * abs(intraday_subset.mean()) * 0.25
+                    result["momentum_alpha"] = momentum_contribution
+                else:
+                    result["momentum_alpha"] = 0.0
             else:
-                result["momentum_alpha"] = 0.0
-        else:
-            # Fallback: use 30D alpha mean as momentum signal
-            mom_signal = alpha_30d.mean() if len(alpha_30d) > 0 else 0
-            result["momentum_alpha"] = np.sign(mom_signal) * abs(total_intraday_alpha) * 0.15
+                # Fallback: use 30D alpha mean as momentum signal
+                mom_signal = alpha_30d.mean() if len(alpha_30d) > 0 else 0
+                result["momentum_alpha"] = np.sign(mom_signal) * abs(total_intraday_alpha) * 0.15
+        except (KeyError, IndexError, ValueError):
+            result["momentum_alpha"] = 0.0
     else:
         result["momentum_alpha"] = 0.0
     
@@ -1305,20 +1335,23 @@ def compute_intraday_attribution(snapshot_df):
     # Measures impact of intraday return dispersion
     # High vol with positive alpha = risky gains; high vol with negative = drawdown
     if "return_intraday" in snapshot_df.columns:
-        returns = snapshot_df["return_intraday"].dropna()
-        if len(returns) > 1:
-            return_vol = returns.std()
-            return_mean = returns.mean()
-            
-            # Volatility drag: high vol typically hurts risk-adjusted returns
-            # But can amplify gains in trending markets
-            if return_mean > 0:
-                # Positive returns: vol is acceptable cost
-                result["volatility_alpha"] = -return_vol * 0.5
+        try:
+            returns = snapshot_df["return_intraday"].dropna()
+            if len(returns) > 1:
+                return_vol = returns.std()
+                return_mean = returns.mean()
+                
+                # Volatility drag: high vol typically hurts risk-adjusted returns
+                # But can amplify gains in trending markets
+                if return_mean > 0:
+                    # Positive returns: vol is acceptable cost
+                    result["volatility_alpha"] = -return_vol * 0.5
+                else:
+                    # Negative returns: vol compounds losses
+                    result["volatility_alpha"] = -return_vol * 0.8
             else:
-                # Negative returns: vol compounds losses
-                result["volatility_alpha"] = -return_vol * 0.8
-        else:
+                result["volatility_alpha"] = 0.0
+        except (KeyError, IndexError, ValueError):
             result["volatility_alpha"] = 0.0
     else:
         result["volatility_alpha"] = 0.0
@@ -1327,28 +1360,31 @@ def compute_intraday_attribution(snapshot_df):
     # Measures alignment with long-term (365D) structural alpha
     # Independent signal: whether today's moves align with long-term winners
     if "alpha_365d" in snapshot_df.columns:
-        alpha_365d = snapshot_df["alpha_365d"].dropna()
-        
-        common_idx = wave_alphas.index.intersection(alpha_365d.index)
-        if len(common_idx) > 2:
-            intraday_subset = wave_alphas.loc[common_idx]
-            alpha_365d_subset = alpha_365d.loc[common_idx]
+        try:
+            alpha_365d = snapshot_df["alpha_365d"].dropna()
             
-            # Check if long-term winners are also winning today
-            lt_winners = alpha_365d_subset > 0
-            today_winners = intraday_subset > 0
-            
-            # Agreement rate as regime signal
-            agreement_rate = (lt_winners == today_winners).mean()
-            
-            # Regime contribution based on alignment
-            regime_signal = (agreement_rate - 0.5) * 2  # Scale to [-1, 1]
-            result["regime_alpha"] = regime_signal * abs(total_intraday_alpha) * 0.2
-        else:
-            # Fallback: simple sign alignment
-            lt_mean = alpha_365d.mean() if len(alpha_365d) > 0 else 0
-            alignment = np.sign(lt_mean) == np.sign(total_intraday_alpha)
-            result["regime_alpha"] = abs(total_intraday_alpha) * (0.15 if alignment else 0.05)
+            common_idx = wave_alphas.index.intersection(alpha_365d.index)
+            if len(common_idx) > 2:
+                intraday_subset = wave_alphas.loc[common_idx]
+                alpha_365d_subset = alpha_365d.loc[common_idx]
+                
+                # Check if long-term winners are also winning today
+                lt_winners = alpha_365d_subset > 0
+                today_winners = intraday_subset > 0
+                
+                # Agreement rate as regime signal
+                agreement_rate = (lt_winners == today_winners).mean()
+                
+                # Regime contribution based on alignment
+                regime_signal = (agreement_rate - 0.5) * 2  # Scale to [-1, 1]
+                result["regime_alpha"] = regime_signal * abs(total_intraday_alpha) * 0.2
+            else:
+                # Fallback: simple sign alignment
+                lt_mean = alpha_365d.mean() if len(alpha_365d) > 0 else 0
+                alignment = np.sign(lt_mean) == np.sign(total_intraday_alpha)
+                result["regime_alpha"] = abs(total_intraday_alpha) * (0.15 if alignment else 0.05)
+        except (KeyError, IndexError, ValueError):
+            result["regime_alpha"] = 0.0
     else:
         result["regime_alpha"] = 0.0
     
@@ -1564,10 +1600,10 @@ with tabs[0]:
         wave_returns = {}
         wave_alphas = {}
         for label, col in returns_to_display.items():
-            val = wave_row.get(col)
+            val = wave_row.get(col) if hasattr(wave_row, 'get') else wave_row[col] if col in wave_row.index else None
             wave_returns[label] = val if pd.notna(val) else None
         for label, col in alphas_to_display.items():
-            val = wave_row.get(col)
+            val = wave_row.get(col) if hasattr(wave_row, 'get') else wave_row[col] if col in wave_row.index else None
             wave_alphas[label] = val if pd.notna(val) else None
 
         st.subheader(f"{selected_wave}")
@@ -1587,20 +1623,26 @@ with tabs[0]:
         wave_attrib_components = None
         if attrib_df is not None and not attrib_df.empty:
             wave_col = "wave" if "wave" in attrib_df.columns else "wave_name" if "wave_name" in attrib_df.columns else None
-            if wave_col:
+            if wave_col and "horizon" in attrib_df.columns:
                 # Get raw wave name from the wave row
-                wave_name_raw = wave_row.get("wave_name", selected_wave)
-                wave_attrib_365 = attrib_df[(attrib_df[wave_col] == wave_name_raw) & (attrib_df["horizon"] == 365)]
-                if not wave_attrib_365.empty:
-                    row = wave_attrib_365.iloc[0]
-                    wave_attrib_components = {
-                        "Selection": row.get("selection_alpha"),
-                        "Momentum": row.get("momentum_alpha"),
-                        "Volatility": row.get("volatility_alpha"),
-                        "Regime": row.get("regime_alpha"),
-                        "Exposure": row.get("exposure_alpha"),
-                        "Residual": row.get("residual_alpha"),
-                    }
+                wave_name_raw = wave_row.get("wave_name") if hasattr(wave_row, 'get') else wave_row.get("wave_name", selected_wave) if "wave_name" in wave_row.index else selected_wave
+                if wave_name_raw is None:
+                    wave_name_raw = selected_wave
+                
+                try:
+                    wave_attrib_365 = attrib_df[(attrib_df[wave_col] == wave_name_raw) & (attrib_df["horizon"] == 365)]
+                    if not wave_attrib_365.empty:
+                        row = wave_attrib_365.iloc[0]
+                        wave_attrib_components = {
+                            "Selection": row.get("selection_alpha") if hasattr(row, 'get') else row.get("selection_alpha", None),
+                            "Momentum": row.get("momentum_alpha") if hasattr(row, 'get') else row.get("momentum_alpha", None),
+                            "Volatility": row.get("volatility_alpha") if hasattr(row, 'get') else row.get("volatility_alpha", None),
+                            "Regime": row.get("regime_alpha") if hasattr(row, 'get') else row.get("regime_alpha", None),
+                            "Exposure": row.get("exposure_alpha") if hasattr(row, 'get') else row.get("exposure_alpha", None),
+                            "Residual": row.get("residual_alpha") if hasattr(row, 'get') else row.get("residual_alpha", None),
+                        }
+                except (KeyError, IndexError, ValueError):
+                    wave_attrib_components = None
         
         if wave_attrib_components:
             wave_attrib_row1 = {k: wave_attrib_components[k] for k in ["Selection", "Momentum", "Volatility"]}
@@ -1935,68 +1977,90 @@ Options 1 and 2 used their respective inputs exclusively with no blending. Optio
             
             # ---- PILLAR 1: Market Trend (Index Direction) ----
             if len(spy_close) >= 20:
-                lookback_idx = min(lookback_days, len(spy_close) - 1)
-                start_val = float(spy_close.iloc[-lookback_idx])
-                end_val = float(spy_close.iloc[-1])
-                recent_return = (end_val - start_val) / start_val if start_val != 0 else 0
-                trend_score = max(min(recent_return * 5, 1.0), -1.0)
-                pillar_scores.append(("trend", trend_score))
-                
-                if recent_return > 0.05:
-                    assessment["evidence"]["structural"].append(f"Market Trend: +{recent_return*100:.1f}% (Risk-On)")
-                elif recent_return < -0.03:
-                    assessment["evidence"]["structural"].append(f"Market Trend: {recent_return*100:.1f}% (Defensive)")
-                else:
-                    assessment["evidence"]["structural"].append(f"Market Trend: {recent_return*100:+.1f}% (Neutral)")
-                
-                if len(spy_close) >= 50:
-                    ma_50 = float(spy_close.rolling(50).mean().iloc[-1])
-                    current_price = float(spy_close.iloc[-1])
-                    if current_price > ma_50:
-                        assessment["evidence"]["structural"].append("Price above 50D MA (Supportive)")
+                try:
+                    lookback_idx = min(lookback_days, len(spy_close) - 1)
+                    start_val = float(spy_close.iloc[-lookback_idx])
+                    end_val = float(spy_close.iloc[-1])
+                    
+                    # Validate numeric values
+                    if pd.isna(start_val) or pd.isna(end_val) or start_val == 0:
+                        raise ValueError("Invalid price data")
+                    
+                    recent_return = (end_val - start_val) / start_val
+                    trend_score = max(min(recent_return * 5, 1.0), -1.0)
+                    pillar_scores.append(("trend", trend_score))
+                    
+                    if recent_return > 0.05:
+                        assessment["evidence"]["structural"].append(f"Market Trend: +{recent_return*100:.1f}% (Risk-On)")
+                    elif recent_return < -0.03:
+                        assessment["evidence"]["structural"].append(f"Market Trend: {recent_return*100:.1f}% (Defensive)")
                     else:
-                        assessment["evidence"]["structural"].append("Price below 50D MA (Cautionary)")
+                        assessment["evidence"]["structural"].append(f"Market Trend: {recent_return*100:+.1f}% (Neutral)")
+                    
+                    if len(spy_close) >= 50:
+                        ma_50_series = spy_close.rolling(50).mean()
+                        if len(ma_50_series.dropna()) > 0:
+                            ma_50 = float(ma_50_series.iloc[-1])
+                            current_price = float(spy_close.iloc[-1])
+                            if pd.notna(ma_50) and pd.notna(current_price):
+                                if current_price > ma_50:
+                                    assessment["evidence"]["structural"].append("Price above 50D MA (Supportive)")
+                                else:
+                                    assessment["evidence"]["structural"].append("Price below 50D MA (Cautionary)")
+                except (ValueError, IndexError, TypeError):
+                    assessment["evidence"]["conflicts"].append("SPY trend analysis limited")
             
             # ---- PILLAR 2: Volatility Regime ----
             if len(vix_close) > 0:
-                current_vix = float(vix_close.iloc[-1])
-                if current_vix < 15:
-                    vol_score = 0.5
-                    assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (Low Volatility)")
-                elif current_vix < 20:
-                    vol_score = 0.2
-                    assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (Normal)")
-                elif current_vix < 25:
-                    vol_score = -0.2
-                    assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (Elevated)")
-                else:
-                    vol_score = -0.6
-                    assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (High Stress)")
-                pillar_scores.append(("volatility", vol_score))
+                try:
+                    current_vix = float(vix_close.iloc[-1])
+                    if pd.notna(current_vix):
+                        if current_vix < 15:
+                            vol_score = 0.5
+                            assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (Low Volatility)")
+                        elif current_vix < 20:
+                            vol_score = 0.2
+                            assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (Normal)")
+                        elif current_vix < 25:
+                            vol_score = -0.2
+                            assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (Elevated)")
+                        else:
+                            vol_score = -0.6
+                            assessment["evidence"]["risk_volatility"].append(f"VIX: {current_vix:.1f} (High Stress)")
+                        pillar_scores.append(("volatility", vol_score))
+                except (ValueError, IndexError, TypeError):
+                    assessment["evidence"]["conflicts"].append("VIX analysis limited")
             
             # ---- PILLAR 3: Breadth Proxy (QQQ vs SPY) ----
             if len(qqq_close) >= 20 and len(spy_close) >= 20:
-                qqq_lookback = min(lookback_days, len(qqq_close) - 1)
-                spy_lookback = min(lookback_days, len(spy_close) - 1)
-                
-                qqq_start = float(qqq_close.iloc[-qqq_lookback])
-                qqq_end = float(qqq_close.iloc[-1])
-                spy_start = float(spy_close.iloc[-spy_lookback])
-                spy_end = float(spy_close.iloc[-1])
-                
-                qqq_return = (qqq_end - qqq_start) / qqq_start if qqq_start != 0 else 0
-                spy_return = (spy_end - spy_start) / spy_start if spy_start != 0 else 0
-                
-                relative_strength = qqq_return - spy_return
-                breadth_score = max(min(relative_strength * 10, 1.0), -1.0)
-                pillar_scores.append(("breadth", breadth_score))
-                
-                if relative_strength > 0.02:
-                    assessment["evidence"]["system_alignment"].append("Growth leadership (QQQ outperforming)")
-                elif relative_strength < -0.02:
-                    assessment["evidence"]["system_alignment"].append("Value/Defensive rotation (SPY outperforming)")
-                else:
-                    assessment["evidence"]["system_alignment"].append("Balanced participation")
+                try:
+                    qqq_lookback = min(lookback_days, len(qqq_close) - 1)
+                    spy_lookback = min(lookback_days, len(spy_close) - 1)
+                    
+                    qqq_start = float(qqq_close.iloc[-qqq_lookback])
+                    qqq_end = float(qqq_close.iloc[-1])
+                    spy_start = float(spy_close.iloc[-spy_lookback])
+                    spy_end = float(spy_close.iloc[-1])
+                    
+                    # Validate all values
+                    if any(pd.isna(v) for v in [qqq_start, qqq_end, spy_start, spy_end]):
+                        raise ValueError("Invalid breadth data")
+                    
+                    qqq_return = (qqq_end - qqq_start) / qqq_start if qqq_start != 0 else 0
+                    spy_return = (spy_end - spy_start) / spy_start if spy_start != 0 else 0
+                    
+                    relative_strength = qqq_return - spy_return
+                    breadth_score = max(min(relative_strength * 10, 1.0), -1.0)
+                    pillar_scores.append(("breadth", breadth_score))
+                    
+                    if relative_strength > 0.02:
+                        assessment["evidence"]["system_alignment"].append("Growth leadership (QQQ outperforming)")
+                    elif relative_strength < -0.02:
+                        assessment["evidence"]["system_alignment"].append("Value/Defensive rotation (SPY outperforming)")
+                    else:
+                        assessment["evidence"]["system_alignment"].append("Balanced participation")
+                except (ValueError, IndexError, TypeError):
+                    assessment["evidence"]["conflicts"].append("Breadth analysis limited")
         
         except Exception:
             assessment["evidence"]["conflicts"].append("Market data retrieval limited")
