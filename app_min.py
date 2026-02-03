@@ -5317,32 +5317,39 @@ with tabs[2]:
     tilt_proposals = al.generate_adaptive_tilt_proposals(signals, adaptive_state, cross_horizon_agreements)
 
     # Display as cards with LIVE learning information
-    for proposal in tilt_proposals:
-        with st.container():
-            card_cols = st.columns([4, 1])
+    if tilt_proposals and isinstance(tilt_proposals, list):
+        for proposal in tilt_proposals:
+            # Defensive: ensure proposal is a dict
+            if not isinstance(proposal, dict):
+                continue
+            
+            with st.container():
+                card_cols = st.columns([4, 1])
 
-            with card_cols[0]:
-                live_badge = "[LIVE]" if proposal.get('is_live', False) else ""
-                st.markdown(f"### {proposal['title']} {live_badge}")
-                st.markdown(proposal['description'])
+                with card_cols[0]:
+                    live_badge = "[LIVE]" if proposal.get('is_live', False) else ""
+                    title = proposal.get('title', 'Untitled Proposal')
+                    st.markdown(f"### {title} {live_badge}")
+                    st.markdown(proposal.get('description', ''))
 
-            with card_cols[1]:
-                confidence_score = proposal.get('confidence_score', 0)
-                if proposal['confidence'] == "High":
-                    conf_badge = f"[+] High ({confidence_score*100:.0f}%)"
-                elif proposal['confidence'] == "Medium":
-                    conf_badge = f"[-] Medium ({confidence_score*100:.0f}%)"
-                else:
-                    conf_badge = f"[?] Low ({confidence_score*100:.0f}%)"
-                st.markdown(f"**{conf_badge}**")
+                with card_cols[1]:
+                    confidence_score = proposal.get('confidence_score', 0)
+                    confidence = proposal.get('confidence', 'Low')
+                    if confidence == "High":
+                        conf_badge = f"[+] High ({confidence_score*100:.0f}%)"
+                    elif confidence == "Medium":
+                        conf_badge = f"[-] Medium ({confidence_score*100:.0f}%)"
+                    else:
+                        conf_badge = f"[?] Low ({confidence_score*100:.0f}%)"
+                    st.markdown(f"**{conf_badge}**")
 
-            with st.expander("Details"):
-                st.markdown(f"**Expected Impact:** {proposal['expected_impact']}")
-                st.markdown(f"**Supporting Evidence:** {proposal['supporting_evidence']}")
-                if 'learned_threshold' in proposal:
-                    st.markdown(f"**Learned Threshold:** {proposal['learned_threshold']}")
-                st.markdown("---")
-                st.caption("This proposal is for review only. No trades will be executed.")
+                with st.expander("Details"):
+                    st.markdown(f"**Expected Impact:** {proposal.get('expected_impact', 'N/A')}")
+                    st.markdown(f"**Supporting Evidence:** {proposal.get('supporting_evidence', 'N/A')}")
+                    if 'learned_threshold' in proposal:
+                        st.markdown(f"**Learned Threshold:** {proposal['learned_threshold']}")
+                    st.markdown("---")
+                    st.caption("This proposal is for review only. No trades will be executed.")
 
     # Save updated adaptive state
     al.save_adaptive_state(adaptive_state)

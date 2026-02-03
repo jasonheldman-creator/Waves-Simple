@@ -156,3 +156,20 @@ def generate_adaptive_tilt_proposals(signals, adaptive_state, cross_horizon_agre
     Returns list of tilt proposal dictionaries.
     """
     return []
+
+
+def save_adaptive_state(adaptive_state):
+    """
+    Save adaptive state to persistent storage.
+    """
+    if adaptive_state is None:
+        return
+    
+    state_file = Path("data/adaptive_state.json")
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(state_file, "w") as f:
+            json.dump(adaptive_state, f, indent=2)
+    except Exception as e:
+        # Silently fail - this is not critical
+        pass
