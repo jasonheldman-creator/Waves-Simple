@@ -69,7 +69,10 @@ class MockStreamlit:
     @classmethod
     def json(cls, data):
         import json
-        print(f"{cls._indent()}[JSON data: {json.dumps(data, indent=2)[:100]}...]")
+        json_str = json.dumps(data, indent=2)
+        # Safely truncate at 100 chars with ellipsis
+        preview = json_str[:100] if len(json_str) > 100 else json_str
+        print(f"{cls._indent()}[JSON data: {preview}...]")
 
 
 class MockExpander:

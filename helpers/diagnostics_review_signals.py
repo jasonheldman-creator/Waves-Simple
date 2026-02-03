@@ -50,9 +50,10 @@ def render_review_and_adaptation_signals(snapshot_df, attrib_df, adaptive_state)
     
     # If data is missing, show informative fallback
     if not data_available:
+        missing_str = ', '.join(missing_components)
         st.info(
             f"📊 Adaptive signal analysis requires complete data. "
-            f"Currently unavailable: {', '.join(missing_components)}. "
+            f"Currently unavailable: {missing_str}. "
             f"This section will populate automatically once data is available."
         )
         # Still show adaptive state if available

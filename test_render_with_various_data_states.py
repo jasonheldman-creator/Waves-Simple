@@ -43,7 +43,9 @@ def test_render_with_none_data():
             
             @staticmethod
             def markdown(text, **kwargs):
-                print(f"MARKDOWN: {text[:50]}...")
+                text_str = str(text) if text is not None else ""
+                preview = text_str[:50] if len(text_str) > 50 else text_str
+                print(f"MARKDOWN: {preview}...")
             
             @staticmethod
             def warning(text):
