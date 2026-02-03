@@ -1,6 +1,39 @@
-# Streamlit Cloud Rerun Loop and Sidebar Persistence Hotfix - Implementation Summary
+# Streamlit Cloud Hotfixes - Implementation Summary
+
+> **Latest Fix (2026-02-03):** SyntaxError resolution - see [STREAMLIT_DEPLOYMENT_VERIFICATION.md](./STREAMLIT_DEPLOYMENT_VERIFICATION.md)
 
 ## Overview
+This document covers multiple Streamlit Cloud hotfixes:
+1. **SyntaxError Fix (2026-02-03):** Resolved invalid separator line causing deployment failure
+2. **Rerun Loop Fix (Prior):** Addressed rerun loop issues and unreliable sidebar wave switching
+
+---
+
+## Hotfix 1: SyntaxError Resolution (2026-02-03)
+
+### Problem
+```
+SyntaxError: invalid syntax
+File: /mount/src/waves-simple/app_min.py
+```
+
+### Solution
+Changed line 1 of `app_min.py` from uncommented separator to proper comment:
+```python
+# ============================================================  # Added # to fix syntax
+```
+
+### Verification
+- ✓ `python -m py_compile app_min.py` passed
+- ✓ `python -m ast app_min.py` passed
+- ✓ Entry point configuration verified (`.streamlit/config.toml`)
+
+**Full details:** [STREAMLIT_DEPLOYMENT_VERIFICATION.md](./STREAMLIT_DEPLOYMENT_VERIFICATION.md)
+
+---
+
+## Hotfix 2: Rerun Loop and Sidebar Persistence (Prior)
+
 This hotfix addresses persistent rerun loop issues and unreliable sidebar wave switching when the app is deployed to Streamlit Cloud. The changes ensure stable app behavior by disabling auto-refresh and protecting session state from being reset during reruns.
 
 ## Changes Made
