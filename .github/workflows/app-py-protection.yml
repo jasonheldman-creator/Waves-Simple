@@ -67,40 +67,60 @@ jobs:
         run: |
           echo "=== Verifying key tab labels exist in app.py ==="
           
-          # Define critical tab labels that must exist
+          # Define critical tab labels that must exist (current architecture)
           REQUIRED_TABS=(
             "Overview"
-            "Console"
+            "Alpha Attribution"
+            "Adaptive Intelligence"
+            "Governance & Operations"
+            "Audit Trail"
+            "Glossary & Concepts"
+          )
+          
+          # Define deprecated tabs that should NOT exist
+          DEPRECATED_TABS=(
             "Executive"
-            "Details"
-            "Reports"
-            "Overlays"
-            "Attribution"
             "Board Pack"
             "IC Pack"
-            "Alpha Capture"
             "Wave Monitor"
             "Plan B Monitor"
-            "Governance"
-            "Diagnostics"
           )
           
           MISSING_TABS=()
+          FOUND_DEPRECATED=()
           
+          # Check for required tabs
           for tab in "${REQUIRED_TABS[@]}"; do
             if ! grep -q "$tab" app.py; then
               MISSING_TABS+=("$tab")
             fi
           done
           
-          if [ ${#MISSING_TABS[@]} -eq 0 ]; then
+          # Check for deprecated tabs
+          for tab in "${DEPRECATED_TABS[@]}"; do
+            if grep -q "\"$tab\"" app.py; then
+              FOUND_DEPRECATED+=("$tab")
+            fi
+          done
+          
+          # Report results
+          if [ ${#MISSING_TABS[@]} -eq 0 ] && [ ${#FOUND_DEPRECATED[@]} -eq 0 ]; then
             echo "✅ All critical tab labels found"
-            echo "   Verified ${#REQUIRED_TABS[@]} tab labels"
+            echo "   Verified ${#REQUIRED_TABS[@]} required tabs"
+            echo "   Confirmed ${#DEPRECATED_TABS[@]} deprecated tabs are absent"
           else
-            echo "❌ FAILURE: Missing critical tab labels:"
-            for tab in "${MISSING_TABS[@]}"; do
-              echo "   - $tab"
-            done
+            if [ ${#MISSING_TABS[@]} -gt 0 ]; then
+              echo "❌ FAILURE: Missing critical tab labels:"
+              for tab in "${MISSING_TABS[@]}"; do
+                echo "   - $tab"
+              done
+            fi
+            if [ ${#FOUND_DEPRECATED[@]} -gt 0 ]; then
+              echo "❌ FAILURE: Found deprecated tab labels (should not exist):"
+              for tab in "${FOUND_DEPRECATED[@]}"; do
+                echo "   - $tab"
+              done
+            fi
             exit 1
           fi
       
@@ -108,16 +128,10 @@ jobs:
         run: |
           echo "=== Verifying critical render functions exist ==="
           
-          # Define critical render functions that must exist
+          # Define critical render functions that must exist in current architecture
           REQUIRED_FUNCTIONS=(
-            "def render_executive_tab"
-            "def render_overview_tab"
-            "def render_details_tab"
-            "def render_reports_tab"
-            "def render_overlays_tab"
-            "def render_attribution_tab"
-            "def render_diagnostics_tab"
-            "def main"
+            "def load_snapshot"
+            "def render_metric_row"
           )
           
           MISSING_FUNCTIONS=()
