@@ -99,8 +99,8 @@ def render_review_and_adaptation_signals(
     
     # 3. Horizon Alignment Signal (do short and long term agree?)
     if len(returns) >= 3:
-        short_term = returns[0] if len(returns) > 0 else 0
-        long_term = returns[-1] if len(returns) > 0 else 0
+        short_term = returns[0]
+        long_term = returns[-1]
         
         if short_term != 0 and long_term != 0:
             alignment = 1.0 if (short_term > 0) == (long_term > 0) else 0.0
@@ -354,8 +354,10 @@ def render_volatility_stress_indicator(
     
     # 2. Drawdown Observation (largest negative return)
     if len(returns) > 0:
-        max_drawdown = min([r[1] for r in returns])
-        drawdown_horizon = [r[0] for r in returns if r[1] == max_drawdown][0]
+        return_values_only = [r[1] for r in returns]
+        max_drawdown = min(return_values_only)
+        max_drawdown_idx = return_values_only.index(max_drawdown)
+        drawdown_horizon = returns[max_drawdown_idx][0]
         
         if max_drawdown < -0.10:
             drawdown_severity = "Severe"
