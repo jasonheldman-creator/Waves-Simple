@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from observational_intelligence import render_review_and_adaptation_signals
 
 # ===========================
 # Page Config
@@ -232,7 +233,19 @@ with tabs[1]:
 
 with tabs[2]:
     st.header("Adaptive Intelligence")
-    st.info("Interpretive layer — execution logic comes next.")
+    st.caption("Observational intelligence layers — monitoring only, no execution")
+    st.divider()
+    
+    # NOTE 007: Review & Adaptation Signals
+    render_review_and_adaptation_signals(
+        snapshot_df=snapshot_df,
+        selected_wave=selected_wave,
+        return_cols=RETURN_COLS,
+        alpha_cols=ALPHA_COLS,
+    )
+    
+    st.divider()
+    st.info("Additional observational layers coming soon.")
 
 with tabs[3]:
     st.header("Operations")
