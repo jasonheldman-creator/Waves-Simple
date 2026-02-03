@@ -5258,19 +5258,27 @@ with tabs[2]:
     # Use LIVE learning module for cross-horizon analysis
     cross_horizon_agreements = al.compute_cross_horizon_agreement(snapshot_df, attrib_df)
 
-    if cross_horizon_agreements:
+    # Ensure we have a valid list
+    if cross_horizon_agreements and isinstance(cross_horizon_agreements, list):
         for analysis in cross_horizon_agreements:
+            # Defensive: ensure analysis is a dict
+            if not isinstance(analysis, dict):
+                continue
+            
             # Determine icon based on agreement
-            if "Aligned" in analysis.get("agreement", "") and "Negative" not in analysis.get("agreement", ""):
+            agreement_str = analysis.get("agreement", "")
+            if "Aligned" in agreement_str and "Negative" not in agreement_str:
                 icon = "[OK]"
-            elif "Negative" in analysis.get("agreement", ""):
+            elif "Negative" in agreement_str:
                 icon = "[v]"
             elif analysis.get("suppress_action", False):
                 icon = "[!]"
             else:
                 icon = "[-]"
 
-            st.markdown(f"### {icon} {analysis['comparison']}")
+            # Safe access to comparison with default
+            comparison = analysis.get("comparison", "Cross-Horizon Analysis")
+            st.markdown(f"### {icon} {comparison}")
             cols = st.columns(3)
             with cols[0]:
                 short_val = analysis.get("short_term", 0)
@@ -5791,7 +5799,7 @@ with tabs[3]:
                         "expected_impact": proposal.get("expected_impact", ""),
                         "supporting_evidence": proposal.get("supporting_evidence", ""),
                         "learned_threshold": proposal.get("learned_threshold", ""),
-                        "cross_horizon_status": "Aligned" if not any(a.get("suppress_action", False) for a in cross_horizon_agreements) else "Conflicting",
+                        "cross_horizon_status": "Aligned" if (isinstance(cross_horizon_agreements, list) and not any(a.get("suppress_action", False) for a in cross_horizon_agreements if isinstance(a, dict))) else "Conflicting",
                         "source": "Adaptive Intelligence"
                     })
             else:
