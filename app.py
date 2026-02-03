@@ -152,7 +152,7 @@ tabs = st.tabs([
     "Overview",
     "Alpha Attribution",
     "Adaptive Intelligence",
-    "Governance & Operations",
+    "Governance and Operations",
     "Audit Trail",
     "Glossary & Concepts",
 ])
@@ -237,7 +237,7 @@ with tabs[2]:
     st.info("Interpretive layer — execution logic comes next.")
 
 with tabs[3]:
-    st.header("Governance & Operations")
+    st.header("Governance and Operations")
     st.info("Human override & execution controls will live here.")
 
 with tabs[4]:
