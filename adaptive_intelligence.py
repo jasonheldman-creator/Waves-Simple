@@ -3,11 +3,25 @@ Adaptive Intelligence — Alpha Quality & Confidence Module
 
 Provides IC-grade Alpha Quality and Confidence diagnostics.
 Safe for Streamlit rendering. No trading logic.
+
+This module serves as the centralized rendering layer for all Adaptive Intelligence
+features, ensuring app_min.py remains clean and focused on orchestration.
 """
 
 import pandas as pd
 import numpy as np
 import streamlit as st
+
+# Import helper modules for specialized rendering
+try:
+    from helpers import diagnostics_review_signals
+except ImportError:
+    diagnostics_review_signals = None
+
+try:
+    import adaptive_learning as al
+except ImportError:
+    al = None
 
 
 def render_alpha_quality_and_confidence(
@@ -117,3 +131,61 @@ def render_alpha_quality_and_confidence(
         • Overall confidence in alpha persistence is **{aci_label}**
         """
     )
+
+
+def render_adaptive_intelligence_tab(snapshot_df, attrib_df):
+    """
+    Main rendering function for the Adaptive Intelligence tab.
+    
+    This function serves as the entry point for all Adaptive Intelligence rendering,
+    ensuring the logic lives in adaptive_intelligence.py rather than inline in app_min.py.
+    
+    Following the existing Adaptive Intelligence render flow pattern, this function
+    orchestrates all sub-sections including Review & Adaptation Signals.
+    
+    Args:
+        snapshot_df: Portfolio snapshot DataFrame
+        attrib_df: Attribution data DataFrame
+    """
+    st.header("Adaptive Intelligence Center")
+    st.caption("Decision support layer · System-learned insights and recommendations · LIVE learning enabled")
+    st.markdown("")
+    
+    # Load adaptive state if available
+    adaptive_state = {}
+    learning_messages = []
+    
+    if al is not None:
+        try:
+            adaptive_state = al.load_adaptive_state()
+            adaptive_state, learning_messages = al.update_adaptive_state(snapshot_df, attrib_df, adaptive_state)
+            
+            # Show learning updates if any
+            if learning_messages:
+                with st.expander("Live Learning Updates", expanded=False):
+                    for msg in learning_messages:
+                        st.caption(msg)
+                    st.caption("Adaptive state persisted to data/adaptive_state.json")
+        except Exception as e:
+            st.warning(f"Could not load adaptive learning state: {e}")
+    
+    # Review & Adaptation Signals section
+    if diagnostics_review_signals is not None:
+        st.divider()
+        try:
+            diagnostics_review_signals.render_review_and_adaptation_signals(
+                snapshot_df, attrib_df, adaptive_state
+            )
+        except Exception as e:
+            st.error(f"Error rendering Review & Adaptation Signals: {e}")
+    else:
+        st.divider()
+        st.subheader("Review & Adaptation Signals")
+        st.info(
+            "Review & Adaptation Signals rendering module not found. "
+            "Please ensure helpers/diagnostics_review_signals.py is available."
+        )
+    
+    # Additional sections can be added here following the same pattern
+    st.divider()
+    st.caption("End of Adaptive Intelligence sections.")
