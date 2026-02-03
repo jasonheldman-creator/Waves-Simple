@@ -6,7 +6,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from observational_intelligence import render_review_and_adaptation_signals
+from observational_intelligence import (
+    render_review_and_adaptation_signals,
+    render_decision_outcomes_summary,
+)
 
 # ===========================
 # Page Config
@@ -238,6 +241,16 @@ with tabs[2]:
     
     # NOTE 007: Review & Adaptation Signals
     render_review_and_adaptation_signals(
+        snapshot_df=snapshot_df,
+        selected_wave=selected_wave,
+        return_cols=RETURN_COLS,
+        alpha_cols=ALPHA_COLS,
+    )
+    
+    st.divider()
+    
+    # NOTE 002: Decision Outcomes & Results Summary
+    render_decision_outcomes_summary(
         snapshot_df=snapshot_df,
         selected_wave=selected_wave,
         return_cols=RETURN_COLS,
