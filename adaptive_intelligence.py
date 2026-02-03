@@ -8,6 +8,7 @@ Safe for Streamlit rendering. No trading logic.
 import pandas as pd
 import numpy as np
 import streamlit as st
+from helpers.diagnostics_review_signals import get_review_signals
 
 
 def render_alpha_quality_and_confidence(
@@ -117,3 +118,53 @@ def render_alpha_quality_and_confidence(
         • Overall confidence in alpha persistence is **{aci_label}**
         """
     )
+
+
+def render_review_and_adaptation_signals(
+    snapshot_df=None,
+    attrib_df=None,
+    adaptive_state=None
+):
+    """
+    Render Review & Adaptation Signals section.
+    
+    This is a read-only, observational section that surfaces persistent
+    diagnostic signals without changing execution, parameters, or behavior.
+    
+    Args:
+        snapshot_df: Portfolio snapshot DataFrame (optional)
+        attrib_df: Attribution DataFrame (optional)
+        adaptive_state: Adaptive learning state dictionary (optional)
+    """
+    st.subheader("Review & Adaptation Signals")
+    st.caption("Persistent diagnostic indicators · Observational only · No execution changes")
+    st.markdown("")
+    
+    # Get diagnostic signals
+    signals = get_review_signals(snapshot_df, attrib_df, adaptive_state)
+    
+    if not signals:
+        st.info("Accumulating data for review signals. Signals will appear as system data becomes available.")
+        return
+    
+    # Render each signal
+    for signal in signals:
+        with st.expander(f"**{signal['title']}** — {signal['status']}", expanded=False):
+            cols = st.columns([1, 1])
+            
+            with cols[0]:
+                st.markdown(f"**Status:** {signal['status']}")
+                st.markdown(f"**Scope:** {signal['scope']}")
+            
+            with cols[1]:
+                # Status indicator color
+                if signal['status'] == "Stable":
+                    status_color = "🟢"
+                elif signal['status'] == "Review Recommended":
+                    status_color = "🟡"
+                else:  # Monitoring
+                    status_color = "🔵"
+                
+                st.markdown(f"{status_color} **Observation:** {signal['observation']}")
+            
+            st.caption(f"ℹ️ {signal['actionability']}")
