@@ -9,6 +9,7 @@ from pathlib import Path
 from observational_intelligence import (
     render_review_and_adaptation_signals,
     render_decision_outcomes_summary,
+    render_volatility_stress_indicator,
 )
 
 # ===========================
@@ -258,7 +259,13 @@ with tabs[2]:
     )
     
     st.divider()
-    st.info("Additional observational layers coming soon.")
+    
+    # NOTE 010: Volatility Stress Probability Indicator
+    render_volatility_stress_indicator(
+        snapshot_df=snapshot_df,
+        selected_wave=selected_wave,
+        return_cols=RETURN_COLS,
+    )
 
 with tabs[3]:
     st.header("Operations")
