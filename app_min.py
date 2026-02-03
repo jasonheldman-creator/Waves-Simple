@@ -39,6 +39,12 @@ from datetime import datetime, timedelta
 import adaptive_learning as al
 import integrity_signals as integ
 
+# Import Review & Adaptation Signals helper
+try:
+    from helpers import diagnostics_review_signals
+except ImportError:
+    diagnostics_review_signals = None
+
 
 # ===========================
 # Page Config
@@ -5506,6 +5512,27 @@ with tabs[2]:
     else:
         st.info("Accumulating data for wave overlay health analysis.")
 
+    st.divider()
+    
+    # -----------------------------------------------
+    # Section: Review & Adaptation Signals
+    # -----------------------------------------------
+    if diagnostics_review_signals is not None:
+        try:
+            diagnostics_review_signals.render_review_and_adaptation_signals(
+                snapshot_df, attrib_df, adaptive_state
+            )
+        except Exception as e:
+            st.error(f"Error rendering Review & Adaptation Signals: {e}")
+            import traceback
+            st.caption(f"Details: {traceback.format_exc()}")
+    else:
+        st.subheader("Review & Adaptation Signals")
+        st.warning(
+            "⚠ Review & Adaptation Signals module not found. "
+            "Please ensure helpers/diagnostics_review_signals.py is available in the deployment environment."
+        )
+    
     st.divider()
     st.caption("End of Advanced Adaptive Intelligence sections. All data persisted to adaptive_state.json.")
 
