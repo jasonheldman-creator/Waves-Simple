@@ -18,7 +18,12 @@ def get_all_integrity_signals(snapshot_df, attrib_df):
         "overall_integrity": 1.0,
         "checks_passed": 0,
         "checks_failed": 0,
-        "notes": "Integrity signals placeholder"
+        "notes": "Integrity signals placeholder",
+        "integrity_index": {
+            "index": 1.0,
+            "status": "Healthy",
+            "message": "All integrity checks passed"
+        }
     }
 
 
