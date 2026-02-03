@@ -63,29 +63,71 @@ def render_review_and_adaptation_signals(snapshot_df, attrib_df, adaptive_state)
                 st.json(adaptive_state)
         return
     
-    # Data is available - proceed with analysis
-    st.success(
-        "✓ Data is available. Review & Adaptation Signals section is properly configured to render "
-        "from adaptive_intelligence.py helper modules."
-    )
+    # Data is available - display basic signal information
+    st.markdown("**Signal Categories**")
     
-    # Display data summary for transparency
-    with st.expander("📊 Data Summary", expanded=False):
-        st.caption(f"**Portfolio Snapshot:** {len(snapshot_df)} waves")
-        st.caption(f"**Attribution Data:** {len(attrib_df)} records")
-        if adaptive_state and len(adaptive_state) > 0:
-            st.caption(f"**Adaptive State:** {len(adaptive_state)} keys")
-        else:
-            st.caption("**Adaptive State:** Empty or not available")
+    # Compute basic signals from available data
+    signal_rows = []
+    
+    if snapshot_df is not None and not snapshot_df.empty:
+        # Count active waves
+        wave_count = len(snapshot_df)
+        signal_rows.append({
+            "Category": "Portfolio Coverage",
+            "Signal": f"{wave_count} active waves in portfolio",
+            "Status": "✓ Available" if wave_count > 0 else "⚠️ No waves"
+        })
+        
+        # Check for alpha data
+        alpha_cols = [col for col in snapshot_df.columns if 'alpha' in col.lower()]
+        if alpha_cols and 'alpha_30d' in snapshot_df.columns:
+            avg_alpha_30d = snapshot_df['alpha_30d'].mean()
+            if pd.notna(avg_alpha_30d):
+                alpha_status = "Positive" if avg_alpha_30d > 0 else "Negative"
+                PERCENT_MULTIPLIER = 100
+                signal_rows.append({
+                    "Category": "Portfolio Alpha (30D)",
+                    "Signal": f"Average alpha: {avg_alpha_30d * PERCENT_MULTIPLIER:.2f}%",
+                    "Status": f"✓ {alpha_status}"
+                })
+    
+    if attrib_df is not None and not attrib_df.empty:
+        # Count attribution records
+        attrib_count = len(attrib_df)
+        signal_rows.append({
+            "Category": "Attribution Coverage",
+            "Signal": f"{attrib_count} attribution records available",
+            "Status": "✓ Available"
+        })
+        
+        # Check for dominant drivers
+        if 'selection_alpha' in attrib_df.columns:
+            dominant_driver = attrib_df.nlargest(1, 'selection_alpha')
+            if not dominant_driver.empty:
+                wave_name = dominant_driver.iloc[0].get('wave', 'Unknown')
+                signal_rows.append({
+                    "Category": "Top Contributor",
+                    "Signal": f"Wave: {wave_name}",
+                    "Status": "✓ Identified"
+                })
+    
+    # Display signals in a table
+    if signal_rows:
+        signals_df = pd.DataFrame(signal_rows)
+        st.dataframe(signals_df, use_container_width=True, hide_index=True)
+    else:
+        st.info(
+            "✨ Adaptive signals are being computed from available data. "
+            "This section will display actionable insights as the system learns."
+        )
     
     # Display adaptive state summary if available
     if adaptive_state and len(adaptive_state) > 0:
         with st.expander("🔍 Adaptive State Details", expanded=False):
+            st.caption("Current adaptive learning state from data/adaptive_state.json")
             st.json(adaptive_state)
     
-    # Placeholder for future signal analysis implementation
-    st.info(
-        "🚀 Signal analysis engine is ready. "
-        "Future enhancements will add automated signal detection, "
-        "anomaly identification, and actionable recommendations here."
+    st.caption(
+        "ℹ️ All signals are derived from historical data and portfolio snapshots. "
+        "No automated execution occurs from this panel."
     )
