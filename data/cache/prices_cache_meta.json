@@ -1,9 +1,9 @@
 {
-  "generated_at_utc": "2026-02-05T04:20:14.253170",
+  "generated_at_utc": "2026-02-06T04:20:26.716182",
   "tickers_requested": 118,
   "tickers_used": 118,
   "tickers_failed": [],
-  "min_date": "2024-02-06",
-  "max_date": "2026-02-05",
+  "min_date": "2024-02-07",
+  "max_date": "2026-02-06",
   "trading_days": 731
 }
