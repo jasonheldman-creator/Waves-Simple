@@ -17,15 +17,19 @@ npm run dev
 ### Deployment to Vercel
 The marketing site is deployed to Vercel. **Important**: The site lives in the `/site` subdirectory.
 
-#### Fixing 404 Errors on Vercel
-If you're seeing a 404 NOT_FOUND error, see [DEPLOYMENT_FIX.md](./DEPLOYMENT_FIX.md) for configuration instructions.
+#### 🚨 Fixing 404 NOT_FOUND Errors on Vercel
+**Quick Fix:** Set **Root Directory** to `site` in Vercel Dashboard → Project Settings → General
+
+📚 **Deployment Guides:**
+- **Quick Start:** [DEPLOY_TO_VERCEL.md](./DEPLOY_TO_VERCEL.md) - Essential configuration steps
+- **Full Guide:** [VERCEL_SETUP.md](./VERCEL_SETUP.md) - Complete deployment documentation  
+- **Legacy:** [DEPLOYMENT_FIX.md](./DEPLOYMENT_FIX.md) - Original fix instructions
 
 **Key Requirements:**
-- Set **Root Directory** to `site` in Vercel Dashboard → Settings → General
-- Framework should auto-detect as Next.js
-- No custom build commands needed
-
-Full deployment guide: [VERCEL_SETUP.md](./VERCEL_SETUP.md)
+- ✅ Set **Root Directory** to `site` in Vercel Dashboard
+- ✅ Framework should auto-detect as Next.js
+- ✅ No custom build commands needed
+- ✅ Build settings in `vercel.json` are NOT needed (configured in dashboard)
 
 ## 2. Analytics Application (Streamlit)
 **Location:** Root directory (`.py` files)  
