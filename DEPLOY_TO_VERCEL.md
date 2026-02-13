@@ -95,7 +95,7 @@ For production deployment, set:
 
 1. Go to Project Settings → Domains
 2. Add your domain (e.g., `www.wavesintelligence.app`)
-3. Follow Vercel's DNS configuration instructions
+3. Follow Vercel's DNS configuration instructions (DNS propagation typically takes 24-48 hours)
 4. The `vercel.json` file handles www/non-www redirects
 
 ## Complete Documentation

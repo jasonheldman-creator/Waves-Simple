@@ -51,7 +51,7 @@ Waves-Simple/
 │   │       ├── page.tsx     ← Home page (required)
 │   │       └── ...          ← Other pages
 │   └── ...
-├── vercel.json              ← Redirects only (no build config)
+├── vercel.json              ← Redirects only (no build configuration)
 ├── app.py                   ← Python app (not deployed to Vercel)
 └── requirements.txt         ← Python deps (not used by Vercel)
 ```
