@@ -1,228 +1,93 @@
-"use client";
+import Hero from "@/components/Hero";
+import FeatureGrid from "@/components/FeatureGrid";
+import Audience from "@/components/Audience";
+import InstitutionalCare from "@/components/InstitutionalCare";
+import ProofStrip from "@/components/ProofStrip";
+import CallToAction from "@/components/CallToAction";
+import { siteContent } from "@/content/siteContent";
 
-import React, { useState, useEffect } from "react";
+export default function Home() {
+  const { home } = siteContent;
 
-interface WaveData {
-  wave_id: string;
-  wave_name: string;
-  status: string;
-  performance_1d: string;
-  performance_30d: string;
-  performance_ytd: string;
-  last_updated: string;
-}
+  // Convert operationalProof examples to ProofStrip format
+  const proofPoints = home.operationalProof.examples.map((example) => ({
+    metric: example.metric,
+    value: example.value,
+    description: example.description,
+  }));
 
-export default function SnapshotConsole() {
-  const [waves, setWaves] = useState<WaveData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<string>("—");
+  // Convert buyerPersonas to Audience format
+  const audienceColumns = home.buyerPersonas.roles.map((role) => ({
+    title: role.title,
+    description: role.description,
+    benefits: role.needs,
+    icon: role.icon,
+  }));
 
-  const fetchSnapshot = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const response = await fetch("/data/live_snapshot.csv", {
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch snapshot data");
-      }
-
-      const csvText = await response.text();
-      const lines = csvText.trim().split("\n");
-      
-      if (lines.length < 2) {
-        throw new Error("Live data unavailable");
-      }
-
-      // Parse CSV manually with proper handling of empty fields
-      const lines2 = lines.slice(1); // Skip header
-      
-      const parsedWaves: WaveData[] = lines2.map((line) => {
-        // Split by comma - this assumes no commas within quoted strings
-        // For the current CSV structure with empty fields, we need to handle consecutive commas
-        const values = line.split(",").map(v => v.trim());
-        
-        return {
-          wave_id: values[0] || "",
-          wave_name: values[1] || "",
-          status: values[2] || "",
-          performance_1d: values[3] || "",
-          performance_30d: values[4] || "",
-          performance_ytd: values[5] || "",
-          last_updated: values[6] || "",
-        };
-      });
-
-      setWaves(parsedWaves);
-      
-      // Derive last updated from the first wave's last_updated field
-      if (parsedWaves.length > 0 && parsedWaves[0].last_updated) {
-        try {
-          const date = new Date(parsedWaves[0].last_updated);
-          setLastUpdated(date.toLocaleString());
-        } catch {
-          setLastUpdated("—");
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load snapshot");
-      setWaves([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSnapshot();
-  }, []);
-
-  const formatReturn = (val: string) => {
-    if (!val || val === "") return "—";
-    const num = parseFloat(val);
-    if (isNaN(num)) return "—";
-    return `${(num * 100).toFixed(2)}%`;
-  };
+  // Convert institutionalTrust features to InstitutionalCare format
+  const institutionalPoints = home.institutionalTrust.features.map((feature) => ({
+    oppose: "Generic Tools",
+    position: feature.title,
+    description: feature.description,
+  }));
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            WAVES Intelligence™ — Snapshot Console
-          </h1>
-          <p className="text-gray-600">
-            Live market data snapshot for 28 canonical waves
-          </p>
+    <main>
+      {/* Hero Section */}
+      <Hero
+        title={home.hero.title}
+        subtitle={home.hero.subtitle}
+        ctaText={home.hero.ctaText}
+        ctaLink={home.hero.ctaLink}
+        secondaryCtaText={home.hero.secondaryCtaText}
+        secondaryCtaLink={home.hero.secondaryCtaLink}
+      />
+
+      {/* Operational Proof Strip */}
+      <ProofStrip
+        title={home.operationalProof.title}
+        subtitle={home.operationalProof.subtitle}
+        points={proofPoints}
+      />
+
+      {/* Features Grid */}
+      <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
+              Platform Capabilities
+            </h2>
+            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
+              Comprehensive infrastructure addressing institutional decision-making needs
+            </p>
+          </div>
+          <FeatureGrid features={home.features} />
         </div>
+      </section>
 
-        {/* Controls */}
-        <div className="mb-6 flex items-center justify-between bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-600">
-            <div>
-              <strong>Total Waves:</strong> {waves.length} |
-              <strong className="ml-2">Last Updated:</strong> {lastUpdated}
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={fetchSnapshot}
-              disabled={loading}
-              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? "Loading..." : "Refresh"}
-            </button>
-          </div>
-        </div>
+      {/* Buyer Personas / Audience */}
+      <Audience
+        columns={audienceColumns}
+        title={home.buyerPersonas.title}
+        subtitle={home.buyerPersonas.subtitle}
+      />
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-800">
-            {error}
-          </div>
-        )}
+      {/* Institutional Trust Signals */}
+      <InstitutionalCare
+        title={home.institutionalTrust.title}
+        subtitle={home.institutionalTrust.subtitle}
+        points={institutionalPoints}
+      />
 
-        {/* Snapshot Table */}
-        {loading && waves.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-gray-600">Loading snapshot data...</div>
-          </div>
-        ) : waves.length > 0 ? (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Wave
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      1D Return
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      30D Return
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      YTD Return
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {waves.map((wave, index) => {
-                    const ret1d = wave.performance_1d ? parseFloat(wave.performance_1d) : null;
-                    const ret30d = wave.performance_30d ? parseFloat(wave.performance_30d) : null;
-                    const retYtd = wave.performance_ytd ? parseFloat(wave.performance_ytd) : null;
-
-                    return (
-                      <tr
-                        key={wave.wave_id}
-                        className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}
-                      >
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {wave.wave_name}
-                        </td>
-                        <td
-                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                            ret1d !== null
-                              ? ret1d >= 0
-                                ? "text-green-600"
-                                : "text-red-600"
-                              : "text-gray-400"
-                          }`}
-                        >
-                          {formatReturn(wave.performance_1d)}
-                        </td>
-                        <td
-                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                            ret30d !== null
-                              ? ret30d >= 0
-                                ? "text-green-600"
-                                : "text-red-600"
-                              : "text-gray-400"
-                          }`}
-                        >
-                          {formatReturn(wave.performance_30d)}
-                        </td>
-                        <td
-                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                            retYtd !== null
-                              ? retYtd >= 0
-                                ? "text-green-600"
-                                : "text-red-600"
-                              : "text-gray-400"
-                          }`}
-                        >
-                          {formatReturn(wave.performance_ytd)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                            wave.status === "LIVE" 
-                              ? "bg-green-100 text-green-800"
-                              : wave.status === "FAILED" || wave.status === "ERROR"
-                              ? "bg-red-100 text-red-800"
-                              : "bg-gray-100 text-gray-800"
-                          }`}>
-                            {wave.status}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-12 text-gray-600">Live data unavailable</div>
-        )}
-      </div>
-    </div>
+      {/* Call to Action */}
+      <CallToAction
+        title="Ready to Experience Institutional-Grade Decision Infrastructure?"
+        description="Request a private demonstration to explore how WAVES Intelligence™ delivers transparency, governance, and explainability across your portfolio operations."
+        primaryButtonText="Request Institutional Demo"
+        primaryButtonLink="/demo"
+        secondaryButtonText="Discuss Platform Licensing"
+        secondaryButtonLink="/contact"
+      />
+    </main>
   );
 }
