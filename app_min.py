@@ -1,4 +1,4 @@
-============================================================
+# ============================================================
 # app_min.py
 # WAVES Intelligence™ Console (Minimal)
 # ============================================================
@@ -47,12 +47,12 @@ except ImportError:
     diagnostics_review_signals = None
 
 try:
-    from helpers import decision_lifecycle_matrix as dlm
+    import decision_lifecycle_matrix as dlm
 except ImportError:
     dlm = None
 
 try:
-    from helpers import wave_activity as wa
+    import wave_activity as wa
 except ImportError:
     wa = None
 
@@ -3886,8 +3886,11 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
 </div>""", unsafe_allow_html=True)
 
         # ---- PORTFOLIO DIAGNOSTICS (NOTE 009) ----
-        from helpers.portfolio_state_diagnostics import get_wave_diagnostics
-        diag_data = get_wave_diagnostics(wbp_selected)
+        try:
+            import portfolio_state_diagnostics
+            diag_data = portfolio_state_diagnostics.get_wave_diagnostics(wbp_selected)
+        except ImportError:
+            diag_data = None
 
         if diag_data:
             st.markdown("""<div style="margin: 24px 0 8px 0; border-bottom: 1px solid #2A2F3A; padding-bottom: 4px;">
