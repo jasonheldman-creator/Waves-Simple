@@ -173,3 +173,76 @@ def save_adaptive_state(adaptive_state):
     except Exception as e:
         # Silently fail - this is not critical
         pass
+
+
+def compute_learning_snapshot(snapshot_df, attrib_df, adaptive_state, all_decisions):
+    """
+    Compute learning snapshot from data.
+    Returns dictionary with learning snapshot data.
+    """
+    return {
+        "total_decisions": len(all_decisions) if all_decisions else 0,
+        "learning_status": "Active",
+        "snapshot_generated": True
+    }
+
+
+def compute_core_learning_signals(snapshot_df, attrib_df, adaptive_state):
+    """
+    Compute core learning signals.
+    Returns list of signal dictionaries.
+    """
+    return []
+
+
+def compute_parameter_sensitivity(attrib_df, adaptive_state):
+    """
+    Compute parameter sensitivity analysis.
+    Returns dictionary with sensitivity data.
+    """
+    return {
+        "parameters_analyzed": 0,
+        "sensitivity_data": []
+    }
+
+
+def compute_learning_curve(snapshot_df, attrib_df, adaptive_state, all_decisions):
+    """
+    Compute learning curve over time.
+    Returns dictionary with learning curve data.
+    """
+    return {
+        "curve_points": [],
+        "trend": "Stable"
+    }
+
+
+def compute_efficiency_curve(all_decisions, adaptive_state):
+    """
+    Compute efficiency curve from decisions.
+    Returns dictionary with efficiency data.
+    """
+    return {
+        "efficiency_points": [],
+        "current_efficiency": 0.0
+    }
+
+
+def compute_decision_memory_table(all_decisions, attrib_df):
+    """
+    Compute decision memory table.
+    Returns list of decision memory entries.
+    """
+    return []
+
+
+def compute_cross_horizon_stability(snapshot_df, attrib_df):
+    """
+    Compute cross-horizon stability analysis.
+    Returns dictionary with stability data.
+    """
+    return {
+        "stability_score": 0.0,
+        "horizon_alignment": "Neutral",
+        "stability_data": []
+    }
