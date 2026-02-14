@@ -255,9 +255,13 @@ def compute_decision_memory_table(all_decisions, attrib_df):
     STUB IMPLEMENTATION: Returns empty list.
     This function needs full implementation with actual decision memory analysis.
     
-    Returns list of decision memory entries.
+    Returns dictionary with decision memory data (not a list despite function name).
     """
-    return []
+    return {
+        "has_data": False,
+        "summary": {},
+        "memory_entries": []
+    }
 
 
 def compute_cross_horizon_stability(snapshot_df, attrib_df):
