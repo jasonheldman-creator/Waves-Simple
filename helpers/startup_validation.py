@@ -2,7 +2,7 @@
 
 # This script validates the startup logic of the application.
 
-# Ensure to replace 'app.py' references with 'app_min.py'
+# Validates the app_min.py entry point (correct Streamlit deployment entry point)
 
 def validate_startup():
     # Example validation logic
