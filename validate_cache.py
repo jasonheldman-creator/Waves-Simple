@@ -136,9 +136,13 @@ def main():
     else:
         print(f"\n✅ PASS: Cache is fresh and up-to-date")
         print(f"  Today: {freshness_result['today'].date()}")
-        print(f"  Last trading day: {freshness_result['last_trading_day'].date()}")
+        if freshness_result['last_trading_day']:
+            print(f"  Last trading day: {freshness_result['last_trading_day'].date()}")
+        else:
+            print(f"  Last trading day: N/A (fallback mode)")
         print(f"  Cache max date: {freshness_result['cache_max_date'].date()}")
-        print(f"  Market feed gap: {freshness_result['market_feed_gap_days']} days")
+        gap_text = f"{freshness_result['market_feed_gap_days']} days" if freshness_result['market_feed_gap_days'] is not None else "N/A"
+        print(f"  Market feed gap: {gap_text}")
     print()
     
     # Optional: Check git changes and no-change logic
