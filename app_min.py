@@ -23,8 +23,22 @@
 #
 # ============================================================
 
-import streamlit as st
+# ============================================================
+# IMPORT PATH RESOLVER (Production-Safe)
+# ============================================================
+# Ensures modules in the application directory are discoverable
+# in Streamlit Cloud's deployment container environment
+import sys
 import os
+from pathlib import Path
+
+# Add application directory to Python path
+app_dir = Path(__file__).parent.resolve()
+if str(app_dir) not in sys.path:
+    sys.path.insert(0, str(app_dir))
+# ============================================================
+
+import streamlit as st
 
 # Temporary cache invalidation for diagnostic purposes
 st.cache_data.clear()
@@ -33,7 +47,6 @@ st.cache_resource.clear()
 import pandas as pd
 import numpy as np
 import json
-from pathlib import Path
 from datetime import datetime, timedelta
 
 # Import adaptive learning module for LIVE learning capabilities
