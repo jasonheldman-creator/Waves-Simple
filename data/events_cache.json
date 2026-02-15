@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-01-17T03:06:43.913367",
+  "last_updated": "2026-02-15T19:02:25.792356",
   "fed_indicators": {
     "fed_funds_rate": "4.25-4.50%",
     "next_fomc_date": null,
@@ -8,7 +8,7 @@
   },
   "waves_status": {
     "system_status": "ONLINE",
-    "last_update": "03:06:43",
-    "waves_status": "ACTIVE"
+    "last_update": "19:02:25",
+    "waves_status": "LOADING"
   }
 }
