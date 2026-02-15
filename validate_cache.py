@@ -141,7 +141,8 @@ def main():
         else:
             print(f"  Last trading day: N/A (fallback mode)")
         print(f"  Cache max date: {freshness_result['cache_max_date'].date()}")
-        print(f"  Market feed gap: {freshness_result['market_feed_gap_days']} days" if freshness_result['market_feed_gap_days'] is not None else "  Market feed gap: N/A")
+        gap_text = f"{freshness_result['market_feed_gap_days']} days" if freshness_result['market_feed_gap_days'] is not None else "N/A"
+        print(f"  Market feed gap: {gap_text}")
     print()
     
     # Optional: Check git changes and no-change logic

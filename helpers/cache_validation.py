@@ -33,7 +33,7 @@ def fetch_spy_trading_days(calendar_days=10):
         last_trading_day = trading_days[-1] if trading_days else None
         
         return last_trading_day, trading_days
-    except Exception as e:
+    except Exception:
         # Fallback: return None, []
         return None, []
 
