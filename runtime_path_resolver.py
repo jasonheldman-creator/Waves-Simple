@@ -28,6 +28,11 @@ def resolve_runtime_paths():
     - Local development (various working directories)
     - OS-specific path handling
     - Prevents duplicate path entries
+    
+    Note: This function does NOT change the working directory to avoid
+    unexpected side effects in multi-threaded applications. Users should
+    ensure their relative file paths are project-root-relative, or use
+    get_project_root() to construct absolute paths.
     """
     # Get the directory containing this file (should be project root)
     current_file = Path(__file__).resolve()
@@ -39,15 +44,20 @@ def resolve_runtime_paths():
     # Add to sys.path if not already present (check at beginning for priority)
     if project_root_str not in sys.path:
         sys.path.insert(0, project_root_str)
+
+
+def get_project_root():
+    """
+    Get the project root directory as a Path object.
     
-    # Also ensure current working directory is set correctly
-    # This helps with relative file paths for data files
-    try:
-        if os.getcwd() != project_root_str:
-            os.chdir(project_root_str)
-    except Exception:
-        # If we can't change directory, at least the sys.path is correct
-        pass
+    Use this to construct absolute paths for data files:
+        from runtime_path_resolver import get_project_root
+        data_file = get_project_root() / "data" / "file.csv"
+    
+    Returns:
+        Path: The project root directory
+    """
+    return Path(__file__).resolve().parent
 
 
 # Auto-execute on import

@@ -144,13 +144,24 @@ Using `insert(0, ...)` instead of `append(...)` ensures the project root is chec
 
 ### Why change working directory?
 
-Many parts of the application use relative paths for data files (e.g., `data/adaptive_state.json`). Setting the working directory to the project root ensures these relative paths resolve correctly regardless of how Streamlit was started.
+**UPDATE:** The working directory change has been removed to avoid potential side effects in multi-threaded applications. Streamlit Cloud already sets the working directory to the project root, so this is unnecessary.
+
+For code that needs to construct absolute paths to data files, use the provided helper:
+```python
+from runtime_path_resolver import get_project_root
+
+data_file = get_project_root() / "data" / "file.csv"
+```
+
+Existing relative paths (e.g., `Path("data/file.csv")`) continue to work because Streamlit runs from the project root by default.
 
 ### Error Handling
 
 The module includes graceful error handling:
-- If changing directory fails, imports will still work (only affects relative file paths)
-- The module never crashes, ensuring imports always succeed
+- Checks for duplicate sys.path entries before adding
+- Never crashes, ensuring imports always succeed
+- Does not change the working directory to avoid side effects in multi-threaded applications
+- Provides `get_project_root()` helper for absolute path construction if needed
 
 ## Success Criteria
 
