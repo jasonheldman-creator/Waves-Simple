@@ -5,6 +5,9 @@ Stub module for WAVES adaptive learning capabilities.
 Provides minimal implementations to support app_min.py.
 """
 
+# Ensure reliable imports across Streamlit Cloud and local development
+import runtime_path_resolver
+
 import json
 from pathlib import Path
 import pandas as pd

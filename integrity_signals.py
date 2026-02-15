@@ -5,6 +5,9 @@ Stub module for WAVES integrity signal detection.
 Provides minimal implementations to support app_min.py.
 """
 
+# Ensure reliable imports across Streamlit Cloud and local development
+import runtime_path_resolver
+
 import pandas as pd
 
 

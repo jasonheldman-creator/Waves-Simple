@@ -23,6 +23,10 @@
 #
 # ============================================================
 
+# Ensure reliable imports across Streamlit Cloud and local development
+# This MUST be the first import to set up sys.path before other modules
+import runtime_path_resolver
+
 import streamlit as st
 import os
 

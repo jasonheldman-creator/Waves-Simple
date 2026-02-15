@@ -8,6 +8,9 @@ This module serves as the centralized rendering layer for all Adaptive Intellige
 features, ensuring app_min.py remains clean and focused on orchestration.
 """
 
+# Ensure reliable imports across Streamlit Cloud and local development
+import runtime_path_resolver
+
 import pandas as pd
 import numpy as np
 import streamlit as st
