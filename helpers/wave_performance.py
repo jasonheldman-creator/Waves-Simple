@@ -4,9 +4,14 @@
 
 import pandas as pd
 from datetime import datetime, timezone
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
+
+try:
+    from alpaca.data.historical import StockHistoricalDataClient
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame
+    ALPACA_AVAILABLE = True
+except ImportError:
+    ALPACA_AVAILABLE = False
 
 # NOTE: expects these env vars to already exist (they usually do in your app)
 # ALPACA_API_KEY
@@ -25,6 +30,10 @@ def inject_intraday_prices(price_book: pd.DataFrame) -> pd.DataFrame:
     """
 
     if price_book is None or price_book.empty:
+        return price_book
+    
+    if not ALPACA_AVAILABLE:
+        # Gracefully degrade if alpaca is not available
         return price_book
 
     try:
