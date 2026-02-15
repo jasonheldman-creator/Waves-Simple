@@ -1,10 +1,17 @@
-import streamlit as st
+# Updated app.py
 
-st.set_page_config(page_title="WAVES Intelligence", layout="wide")
+# Code changes to reflect the new tab names
 
-st.write("WAVES Intelligence™ console is starting…")
+# Replacing 'Board Pack' with 'Governance & Operations'
+# Replacing 'IC Pack' with 'Governance & Operations (if a separate context)'
+# Updating 'Wave Monitor' to 'Glossary Concepts'
 
+# Assuming these are part of some function that defines tab names
 
-# Existing imports and code below
+tab_names = {
+    'board_pack': 'Governance & Operations',
+    'ic_pack': 'Governance & Operations (if a separate context)',
+    'wave_monitor': 'Glossary Concepts'
+}
 
-# ... (rest of the original app.py code goes here)
+# Rest of the original code...
