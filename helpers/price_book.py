@@ -188,6 +188,7 @@ def get_price_book_meta(price_book: Optional[pd.DataFrame]) -> Dict[str, Any]:
             "is_empty": True,
             "rows": 0,
             "cols": 0,
+            "tickers_count": 0,
             "tickers": [],
             "cache_path": CANONICAL_CACHE_PATH,
         }
@@ -196,6 +197,7 @@ def get_price_book_meta(price_book: Optional[pd.DataFrame]) -> Dict[str, Any]:
         "is_empty": False,
         "rows": len(price_book),
         "cols": len(price_book.columns),
+        "tickers_count": len(price_book.columns),
         "date_min": price_book.index[0].strftime("%Y-%m-%d"),
         "date_max": price_book.index[-1].strftime("%Y-%m-%d"),
         "tickers": sorted(price_book.columns.tolist()),
@@ -298,6 +300,7 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
         "health_emoji": emoji,
         "coverage_pct": coverage_pct,
         "missing_count": len(missing),
+        "total_required": len(required),
         "days_stale": days_stale,
         "details": f"{status} — {coverage_pct:.1f}% coverage",
     }
