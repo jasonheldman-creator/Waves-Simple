@@ -36,9 +36,17 @@ from pathlib import Path
 app_dir = Path(__file__).parent.resolve()
 if str(app_dir) not in sys.path:
     sys.path.insert(0, str(app_dir))
+    print(f"[IMPORT_FIX] Added application directory to Python path: {app_dir}")
+else:
+    print(f"[IMPORT_FIX] Application directory already in Python path: {app_dir}")
+
+print(f"[IMPORT_FIX] Python version: {sys.version}")
+print(f"[IMPORT_FIX] sys.path entries: {len(sys.path)}")
+print(f"[IMPORT_FIX] Import resolver initialized successfully")
 # ============================================================
 
 import streamlit as st
+print("[IMPORT_FIX] ✓ streamlit imported successfully")
 
 # Temporary cache invalidation for diagnostic purposes
 st.cache_data.clear()
@@ -48,10 +56,13 @@ import pandas as pd
 import numpy as np
 import json
 from datetime import datetime, timedelta
+print("[IMPORT_FIX] ✓ Standard libraries imported successfully")
 
 # Import adaptive learning module for LIVE learning capabilities
 import adaptive_learning as al
+print("[IMPORT_FIX] ✓ adaptive_learning module imported successfully")
 import integrity_signals as integ
+print("[IMPORT_FIX] ✓ integrity_signals module imported successfully")
 
 # Import adaptive intelligence rendering module
 try:
@@ -68,6 +79,10 @@ try:
     import wave_activity as wa
 except ImportError:
     wa = None
+
+print("[IMPORT_FIX] All critical imports completed successfully")
+print("[IMPORT_FIX] No ModuleNotFoundError - application ready to start")
+print("=" * 60)
 
 
 # ===========================
