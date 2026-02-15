@@ -1588,6 +1588,8 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
         if _cs_ap.exists():
             with open(_cs_ap, "r") as f:
                 _cs_adaptive = json.load(f)
+            if not isinstance(_cs_adaptive, dict):
+                _cs_adaptive = {}
     except Exception:
         pass
 
@@ -4081,6 +4083,8 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
             if wbp_dl_path.exists():
                 with open(wbp_dl_path, "r") as f:
                     wbp_all_decisions = wbp_json.load(f)
+                if not isinstance(wbp_all_decisions, list):
+                    wbp_all_decisions = []
                 wbp_active_statuses = {"Awaiting Approval", "Under Review", "Approved"}
                 wbp_decisions = [d for d in wbp_all_decisions if d.get("wave") == wbp_selected and (d.get("status") in wbp_active_statuses or d.get("approval_status") in wbp_active_statuses)]
 
@@ -4140,6 +4144,8 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                 if wbp_adapt_path.exists():
                     with open(wbp_adapt_path, "r") as f:
                         wbp_adapt = wbp_json.load(f)
+                    if not isinstance(wbp_adapt, dict):
+                        wbp_adapt = {}
                     wbp_adapt_regime = wbp_adapt.get("regime_state", "")
                     wbp_adapt_alignment = wbp_adapt.get("cross_horizon_alignment", "")
                     wbp_adapt_thresholds = wbp_adapt.get("learned_thresholds", {})
@@ -4192,6 +4198,8 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                 if wbp_dl_path.exists():
                     with open(wbp_dl_path, "r") as f:
                         wbp_all_dec = wbp_json.load(f)
+                    if not isinstance(wbp_all_dec, list):
+                        wbp_all_dec = []
                     wbp_wave_events = [d for d in wbp_all_dec if d.get("wave") == wbp_selected]
                     wbp_wave_events.sort(key=lambda x: x.get("date", ""), reverse=True)
                     for ev in wbp_wave_events[:5]:
@@ -4285,6 +4293,8 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
             if wbp_dl_path.exists():
                 with open(wbp_dl_path, "r") as f:
                     wbp_all_d = wbp_json.load(f)
+                if not isinstance(wbp_all_d, list):
+                    wbp_all_d = []
                 wbp_outcome_decs = [d for d in wbp_all_d if d.get("wave") == wbp_selected]
 
             if wbp_outcome_decs:
@@ -17387,6 +17397,8 @@ Comparison is observational only. No recommendations, rankings, or relative judg
         try:
             with open(decision_log_path_export, "r") as f:
                 decisions = json.load(f)
+            if not isinstance(decisions, list):
+                decisions = []
             
             if not decisions:
                 return None
