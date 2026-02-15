@@ -23,6 +23,30 @@
 #
 # ============================================================
 
+import os
+import sys
+
+print("=== STREAMLIT DIAGNOSTIC START ===")
+print("Current working directory:", os.getcwd())
+print("Script location:", os.path.abspath(__file__))
+print("Directory listing of script folder:")
+print(os.listdir(os.path.dirname(os.path.abspath(__file__))))
+
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+print("Repo root guess:", repo_root)
+
+if os.path.exists(repo_root):
+    print("Repo root contents:")
+    print(os.listdir(repo_root))
+else:
+    print("Repo root not found")
+
+print("Python sys.path:")
+for p in sys.path:
+    print(" -", p)
+
+print("=== STREAMLIT DIAGNOSTIC END ===")
+
 # ============================================================
 # IMPORT PATH RESOLVER (Production-Safe)
 # ============================================================
