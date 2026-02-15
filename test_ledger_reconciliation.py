@@ -76,44 +76,44 @@ def test_ledger_reconciliation_basic():
                 Holding(ticker='MSFT', weight=1.0, name='Microsoft')
             ]
         }
-    
-    result = compute_portfolio_alpha_ledger(
-        price_book,
-        periods=[30],
-        wave_registry=test_wave_registry,
-        vix_exposure_enabled=True
-    )
-    
-    # Check that computation succeeded
-    assert result['success'] is True, f"Computation failed: {result.get('failure_reason')}"
-    
-    # Check that ledger exists
-    assert result['daily_ledger'] is not None, "Daily ledger not created"
-    ledger = result['daily_ledger']
-    
-    # Check required columns
-    required_columns = [
-        'risk_return', 'safe_return', 'benchmark_return', 'exposure',
-        'realized_return', 'alpha_total', 'alpha_selection', 'alpha_overlay', 'alpha_residual'
-    ]
-    for col in required_columns:
-        assert col in ledger.columns, f"Missing required column: {col}"
-    
-    # Check reconciliation passed
-    assert result['reconciliation_passed'] is True, "Reconciliation should pass with valid data"
-    
-    # Check reconciliation diffs are small
-    assert result['reconciliation_1_max_diff'] is not None
-    assert result['reconciliation_2_max_diff'] is not None
-    assert result['reconciliation_1_max_diff'] < RESIDUAL_TOLERANCE, \
-        f"Reconciliation 1 diff {result['reconciliation_1_max_diff']:.8f} exceeds tolerance {RESIDUAL_TOLERANCE:.8f}"
-    assert result['reconciliation_2_max_diff'] < RESIDUAL_TOLERANCE, \
-        f"Reconciliation 2 diff {result['reconciliation_2_max_diff']:.8f} exceeds tolerance {RESIDUAL_TOLERANCE:.8f}"
-    
-    print(f"✓ Ledger created with {len(ledger)} rows")
-    print(f"✓ Reconciliation 1 max diff: {result['reconciliation_1_max_diff']:.8f}")
-    print(f"✓ Reconciliation 2 max diff: {result['reconciliation_2_max_diff']:.8f}")
-    
+        
+        result = compute_portfolio_alpha_ledger(
+            price_book,
+            periods=[30],
+            wave_registry=test_wave_registry,
+            vix_exposure_enabled=True
+        )
+        
+        # Check that computation succeeded
+        assert result['success'] is True, f"Computation failed: {result.get('failure_reason')}"
+        
+        # Check that ledger exists
+        assert result['daily_ledger'] is not None, "Daily ledger not created"
+        ledger = result['daily_ledger']
+        
+        # Check required columns
+        required_columns = [
+            'risk_return', 'safe_return', 'benchmark_return', 'exposure',
+            'realized_return', 'alpha_total', 'alpha_selection', 'alpha_overlay', 'alpha_residual'
+        ]
+        for col in required_columns:
+            assert col in ledger.columns, f"Missing required column: {col}"
+        
+        # Check reconciliation passed
+        assert result['reconciliation_passed'] is True, "Reconciliation should pass with valid data"
+        
+        # Check reconciliation diffs are small
+        assert result['reconciliation_1_max_diff'] is not None
+        assert result['reconciliation_2_max_diff'] is not None
+        assert result['reconciliation_1_max_diff'] < RESIDUAL_TOLERANCE, \
+            f"Reconciliation 1 diff {result['reconciliation_1_max_diff']:.8f} exceeds tolerance {RESIDUAL_TOLERANCE:.8f}"
+        assert result['reconciliation_2_max_diff'] < RESIDUAL_TOLERANCE, \
+            f"Reconciliation 2 diff {result['reconciliation_2_max_diff']:.8f} exceeds tolerance {RESIDUAL_TOLERANCE:.8f}"
+        
+        print(f"✓ Ledger created with {len(ledger)} rows")
+        print(f"✓ Reconciliation 1 max diff: {result['reconciliation_1_max_diff']:.8f}")
+        print(f"✓ Reconciliation 2 max diff: {result['reconciliation_2_max_diff']:.8f}")
+        
     finally:
         # Restore original function
         wave_perf_module.get_all_waves_universe = original_func

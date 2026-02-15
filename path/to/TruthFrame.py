@@ -1,1 +1,0 @@
-# Current implementation of TruthFrame will be retrieved.
