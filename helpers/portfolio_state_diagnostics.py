@@ -120,16 +120,20 @@ def get_wave_diagnostics(wave_name, prices_df=None):
         if weights_df.empty or "ticker" not in weights_df.columns or "weight" not in weights_df.columns:
             return None
 
-        top_10 = weights_df.sort_values("weight", ascending=False).head(10).copy()
-        top_10["External Link"] = top_10["ticker"].apply(
+        # Sort by weight descending and create External Links
+        weights_sorted = weights_df.sort_values("weight", ascending=False).copy()
+        weights_sorted["External Link"] = weights_sorted["ticker"].apply(
             lambda t: f"https://www.google.com/finance/quote/{t}"
         )
+        
+        top_10 = weights_sorted.head(10).copy()
+        full_holdings = weights_sorted.copy()
 
         if prices_df is None:
             prices_df = _load_prices()
 
         if prices_df is None or prices_df.empty:
-            return {"top_10": top_10, "abnormal": "Insufficient data"}
+            return {"top_10": top_10, "full_holdings": full_holdings, "abnormal": "Insufficient data"}
 
         tickers = weights_df["ticker"].unique()
         ticker_metrics = _compute_ticker_metrics(prices_df, tickers)
@@ -141,7 +145,7 @@ def get_wave_diagnostics(wave_name, prices_df=None):
         valid_returns = weights_df.dropna(subset=["return_30d"]).copy()
 
         if valid_returns.empty:
-            return {"top_10": top_10, "abnormal": "Insufficient data"}
+            return {"top_10": top_10, "full_holdings": full_holdings, "abnormal": "Insufficient data"}
 
         wave_avg_ret = valid_returns["return_30d"].mean()
         valid_returns["deviation"] = valid_returns["return_30d"] - wave_avg_ret
@@ -163,6 +167,7 @@ def get_wave_diagnostics(wave_name, prices_df=None):
 
         return {
             "top_10": top_10,
+            "full_holdings": full_holdings,
             "pos_outliers": pos_outliers,
             "neg_outliers": neg_outliers,
             "wave_avg_ret": wave_avg_ret,
