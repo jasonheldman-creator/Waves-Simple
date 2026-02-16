@@ -23,54 +23,8 @@
 #
 # ============================================================
 
-import os
-import sys
-
-print("=== STREAMLIT DIAGNOSTIC START ===")
-print("Current working directory:", os.getcwd())
-print("Script location:", os.path.abspath(__file__))
-print("Directory listing of script folder:")
-print(os.listdir(os.path.dirname(os.path.abspath(__file__))))
-
-repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-print("Repo root guess:", repo_root)
-
-if os.path.exists(repo_root):
-    print("Repo root contents:")
-    print(os.listdir(repo_root))
-else:
-    print("Repo root not found")
-
-print("Python sys.path:")
-for p in sys.path:
-    print(" -", p)
-
-print("=== STREAMLIT DIAGNOSTIC END ===")
-
-# ============================================================
-# IMPORT PATH RESOLVER (Production-Safe)
-# ============================================================
-# Ensures modules in the application directory are discoverable
-# in Streamlit Cloud's deployment container environment
-import sys
-import os
-from pathlib import Path
-
-# Add application directory to Python path
-app_dir = Path(__file__).parent.resolve()
-if str(app_dir) not in sys.path:
-    sys.path.insert(0, str(app_dir))
-    print(f"[IMPORT_FIX] Added application directory to Python path: {app_dir}")
-else:
-    print(f"[IMPORT_FIX] Application directory already in Python path: {app_dir}")
-
-print(f"[IMPORT_FIX] Python version: {sys.version}")
-print(f"[IMPORT_FIX] sys.path entries: {len(sys.path)}")
-print(f"[IMPORT_FIX] Import resolver initialized successfully")
-# ============================================================
-
 import streamlit as st
-print("[IMPORT_FIX] ✓ streamlit imported successfully")
+import os
 
 # Temporary cache invalidation for diagnostic purposes
 st.cache_data.clear()
@@ -79,14 +33,12 @@ st.cache_resource.clear()
 import pandas as pd
 import numpy as np
 import json
+from pathlib import Path
 from datetime import datetime, timedelta
-print("[IMPORT_FIX] ✓ Standard libraries imported successfully")
 
 # Import adaptive learning module for LIVE learning capabilities
 import adaptive_learning as al
-print("[IMPORT_FIX] ✓ adaptive_learning module imported successfully")
 import integrity_signals as integ
-print("[IMPORT_FIX] ✓ integrity_signals module imported successfully")
 
 # Import adaptive intelligence rendering module
 try:
@@ -95,18 +47,14 @@ except ImportError:
     diagnostics_review_signals = None
 
 try:
-    import decision_lifecycle_matrix as dlm
+    from helpers import decision_lifecycle_matrix as dlm
 except ImportError:
     dlm = None
 
 try:
-    import wave_activity as wa
+    from helpers import wave_activity as wa
 except ImportError:
     wa = None
-
-print("[IMPORT_FIX] All critical imports completed successfully")
-print("[IMPORT_FIX] No ModuleNotFoundError - application ready to start")
-print("=" * 60)
 
 
 # ===========================
@@ -1559,8 +1507,6 @@ def compute_alpha_attribution_global(sdf, adf, wave_filter=None):
         try:
             with open(_dl_path, "r") as f:
                 _decs = json.load(f)
-                if not isinstance(_decs, list):
-                    _decs = []
             for _d in _decs:
                 if wave_filter and _d.get("wave", "") != wave_filter:
                     continue
@@ -1640,8 +1586,6 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
         if _cs_ap.exists():
             with open(_cs_ap, "r") as f:
                 _cs_adaptive = json.load(f)
-            if not isinstance(_cs_adaptive, dict):
-                _cs_adaptive = {}
     except Exception:
         pass
 
@@ -1754,8 +1698,6 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
                 _cs_vol_status = "Moderate"
         else:
             _cs_pm = _cs_adaptive.get("pattern_memory", {})
-            if not isinstance(_cs_pm, dict):
-                _cs_pm = {}
             _cs_vol_current = _cs_pm.get("volatility_regime", {}).get("current")
             if _cs_vol_current is not None:
                 if _cs_vol_current > 0.25:
@@ -1764,11 +1706,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
                     _cs_vol_status = "Low"
     else:
         _cs_pm = _cs_adaptive.get("pattern_memory", {})
-        if not isinstance(_cs_pm, dict):
-            _cs_pm = {}
         _cs_vol_regime = _cs_pm.get("volatility_regime", {})
-        if not isinstance(_cs_vol_regime, dict):
-            _cs_vol_regime = {}
         _cs_vol_current = _cs_vol_regime.get("current")
         if _cs_vol_current is not None:
             if _cs_vol_current > 0.25:
@@ -1816,11 +1754,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
                 _cs_sp_status = "Mixed"
     else:
         _cs_pm = _cs_adaptive.get("pattern_memory", {})
-        if not isinstance(_cs_pm, dict):
-            _cs_pm = {}
         _cs_vol_regime = _cs_pm.get("volatility_regime", {})
-        if not isinstance(_cs_vol_regime, dict):
-            _cs_vol_regime = {}
         _cs_vol_trend = _cs_vol_regime.get("trend", "")
         _cs_mom_trend = _cs_pm.get("momentum_regime", {}).get("trend", "")
         _cs_stable_count = 0
@@ -2252,8 +2186,6 @@ def render_ic_review_section():
         try:
             with open(ic_decision_log_path, "r") as f:
                 ic_decisions = json.load(f)
-                if not isinstance(ic_decisions, list):
-                    ic_decisions = []
         except Exception:
             ic_decisions = []
     
@@ -2881,8 +2813,6 @@ def load_intraday_state():
             
             with open(INTRADAY_STATE_PATH, "r") as f:
                 state = json.load(f)
-                if not isinstance(state, dict):
-                    state = {}
             
             # Validate required fields exist
             required_fields = ["total_alpha", "selection_alpha", "momentum_alpha", 
@@ -3427,8 +3357,6 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
             if adaptive_path.exists():
                 with open(adaptive_path, "r") as f:
                     es_adaptive = json.load(f)
-                    if not isinstance(es_adaptive, dict):
-                        es_adaptive = {}
                 es_regime_raw = es_adaptive.get("regime_state", "unknown")
                 es_regime = es_regime_raw.replace("_", " ").title()
                 es_vol_thresh = es_adaptive.get("volatility_threshold", 0.20)
@@ -3958,11 +3886,8 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
 </div>""", unsafe_allow_html=True)
 
         # ---- PORTFOLIO DIAGNOSTICS (NOTE 009) ----
-        try:
-            import portfolio_state_diagnostics
-            diag_data = portfolio_state_diagnostics.get_wave_diagnostics(wbp_selected)
-        except ImportError:
-            diag_data = None
+        from helpers.portfolio_state_diagnostics import get_wave_diagnostics
+        diag_data = get_wave_diagnostics(wbp_selected)
 
         if diag_data:
             st.markdown("""<div style="margin: 24px 0 8px 0; border-bottom: 1px solid #2A2F3A; padding-bottom: 4px;">
@@ -4135,8 +4060,6 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
             if wbp_dl_path.exists():
                 with open(wbp_dl_path, "r") as f:
                     wbp_all_decisions = wbp_json.load(f)
-                if not isinstance(wbp_all_decisions, list):
-                    wbp_all_decisions = []
                 wbp_active_statuses = {"Awaiting Approval", "Under Review", "Approved"}
                 wbp_decisions = [d for d in wbp_all_decisions if d.get("wave") == wbp_selected and (d.get("status") in wbp_active_statuses or d.get("approval_status") in wbp_active_statuses)]
 
@@ -4196,8 +4119,6 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                 if wbp_adapt_path.exists():
                     with open(wbp_adapt_path, "r") as f:
                         wbp_adapt = wbp_json.load(f)
-                    if not isinstance(wbp_adapt, dict):
-                        wbp_adapt = {}
                     wbp_adapt_regime = wbp_adapt.get("regime_state", "")
                     wbp_adapt_alignment = wbp_adapt.get("cross_horizon_alignment", "")
                     wbp_adapt_thresholds = wbp_adapt.get("learned_thresholds", {})
@@ -4250,8 +4171,6 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                 if wbp_dl_path.exists():
                     with open(wbp_dl_path, "r") as f:
                         wbp_all_dec = wbp_json.load(f)
-                    if not isinstance(wbp_all_dec, list):
-                        wbp_all_dec = []
                     wbp_wave_events = [d for d in wbp_all_dec if d.get("wave") == wbp_selected]
                     wbp_wave_events.sort(key=lambda x: x.get("date", ""), reverse=True)
                     for ev in wbp_wave_events[:5]:
@@ -4345,8 +4264,6 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
             if wbp_dl_path.exists():
                 with open(wbp_dl_path, "r") as f:
                     wbp_all_d = wbp_json.load(f)
-                if not isinstance(wbp_all_d, list):
-                    wbp_all_d = []
                 wbp_outcome_decs = [d for d in wbp_all_d if d.get("wave") == wbp_selected]
 
             if wbp_outcome_decs:
@@ -4455,8 +4372,6 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                 if decision_log_path.exists():
                     with open(decision_log_path, "r") as f:
                         decisions = json.load(f)
-                        if not isinstance(decisions, list):
-                            decisions = []
                     
                     pending = [d for d in decisions if d.get("status") in ["Pending", "Monitoring", "Recorded", "Awaiting Approval", "Under Review", "Active"]]
                     active_decisions = len(pending)
@@ -4494,8 +4409,6 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                 if decision_log_path.exists():
                     with open(decision_log_path, "r") as f:
                         decisions = json.load(f)
-                        if not isinstance(decisions, list):
-                            decisions = []
                     
                     ic_decisions = [d for d in decisions if d.get("actor") == "IC" or d.get("id", "").startswith("IC-")]
                     
@@ -4528,8 +4441,6 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                 if decision_log_path.exists():
                     with open(decision_log_path, "r") as f:
                         decisions = json.load(f)
-                        if not isinstance(decisions, list):
-                            decisions = []
                     
                     outcomes_30d = []
                     outcomes_90d = []
@@ -6057,8 +5968,6 @@ Options 1 and 2 used their respective inputs exclusively with no blending. Optio
             if os.path.exists(MARKET_CACHE_PATH):
                 with open(MARKET_CACHE_PATH, 'r') as f:
                     cache = json.load(f)
-                    if not isinstance(cache, dict):
-                        cache = {}
                 cache_date = datetime.strptime(cache.get("timestamp", "2020-01-01"), "%Y-%m-%d")
                 age_days = (datetime.now() - cache_date).days
                 if age_days <= MARKET_CACHE_MAX_AGE_DAYS:
@@ -6110,8 +6019,6 @@ Options 1 and 2 used their respective inputs exclusively with no blending. Optio
             if os.path.exists(PROVIDER_LOG_PATH):
                 with open(PROVIDER_LOG_PATH, 'r') as f:
                     logs = json.load(f)
-                    if not isinstance(logs, list):
-                        logs = []
             logs.append(log_entry)
             logs = logs[-50:]
             with open(PROVIDER_LOG_PATH, 'w') as f:
@@ -10607,8 +10514,6 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
             if _dia_path.exists():
                 with open(_dia_path, "r") as f:
                     _dia_decisions = json.load(f)
-                    if not isinstance(_dia_decisions, list):
-                        _dia_decisions = []
                 if _ai_selected_wave:
                     _dia_decisions = [d for d in _dia_decisions if d.get("wave", "") == _ai_selected_wave]
         except Exception:
@@ -13767,8 +13672,6 @@ Context, decision, outcome, and learning across the institutional decision cycle
             try:
                 with open(decision_log_path, "r") as f:
                     all_decisions = json.load(f)
-                    if not isinstance(all_decisions, list):
-                        all_decisions = []
             except Exception:
                 all_decisions = []
 
@@ -14209,8 +14112,6 @@ High-level view of current portfolio decision posture. Summarizes the volume and
         if dpo_path.exists():
             with open(dpo_path, "r") as f:
                 dpo_decisions = json.load(f)
-                if not isinstance(dpo_decisions, list):
-                    dpo_decisions = []
 
         dpo_total = len(dpo_decisions)
         dpo_approved = len([d for d in dpo_decisions if d.get("approval_status") == "Approved"])
@@ -14278,8 +14179,6 @@ Summary of all decisions that have received Investment Committee approval in the
         if ad_path.exists():
             with open(ad_path, "r") as f:
                 ad_decisions = json.load(f)
-                if not isinstance(ad_decisions, list):
-                    ad_decisions = []
 
         ad_approved_list = [d for d in ad_decisions if d.get("approval_status") == "Approved"]
 
@@ -14339,8 +14238,6 @@ Tracks the observed outcomes of past decisions across 30-day and 90-day horizons
         if kot_path.exists():
             with open(kot_path, "r") as f:
                 kot_decisions = json.load(f)
-                if not isinstance(kot_decisions, list):
-                    kot_decisions = []
 
         kot_with_outcomes = [d for d in kot_decisions if d.get("outcome_30d") and d.get("outcome_30d") != "Pending"]
 
@@ -14431,8 +14328,6 @@ Items currently awaiting Investment Committee review or action. Includes pending
         if pic_path.exists():
             with open(pic_path, "r") as f:
                 pic_decisions = json.load(f)
-                if not isinstance(pic_decisions, list):
-                    pic_decisions = []
 
         pic_pending = [d for d in pic_decisions if d.get("approval_status") in ["Pending", "Deferred"] or d.get("status") in ["Awaiting Approval", "Under Review"]]
 
@@ -14498,8 +14393,6 @@ Identifies the active decision themes across the portfolio based on recent decis
         if adt_path.exists():
             with open(adt_path, "r") as f:
                 adt_decisions = json.load(f)
-                if not isinstance(adt_decisions, list):
-                    adt_decisions = []
 
         if adt_decisions:
             adt_by_type = {}
@@ -14615,8 +14508,6 @@ with tabs[TAB_INDEX['Decision Review & Implementation']]:
             try:
                 with open(dri_decision_log_path, "r") as f:
                     dri_decisions = json.load(f)
-                    if not isinstance(dri_decisions, list):
-                        dri_decisions = []
             except Exception:
                 dri_decisions = []
 
@@ -14780,8 +14671,6 @@ with tabs[TAB_INDEX['Decision Review & Implementation']]:
             if os.path.exists("data/adaptive_state.json"):
                 with open("data/adaptive_state.json", "r") as f:
                     dri_adapt_state = json.load(f)
-                    if not isinstance(dri_adapt_state, dict):
-                        dri_adapt_state = {}
             dri_derived_sigs = al.compute_derived_signals(dri_snapshot_df if not dri_snapshot_df.empty else None, dri_attrib_df if not dri_attrib_df.empty else None)
             dri_ch_agreements = al.compute_cross_horizon_agreement(dri_snapshot_df if not dri_snapshot_df.empty else None, dri_attrib_df if not dri_attrib_df.empty else None)
             dri_tilt_proposals = al.generate_adaptive_tilt_proposals(dri_derived_sigs, dri_adapt_state, dri_ch_agreements)
@@ -15750,8 +15639,6 @@ Monitors the implementation pipeline for approved decisions. Shows which decisio
         if im_path.exists():
             with open(im_path, "r") as f:
                 im_decisions = json.load(f)
-                if not isinstance(im_decisions, list):
-                    im_decisions = []
 
         im_approved = [d for d in im_decisions if d.get("approval_status") == "Approved"]
 
@@ -16088,8 +15975,6 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 try:
                     with open("data/decision_log.json", "r") as f:
                         l3_all_decisions = json.load(f)
-                        if not isinstance(l3_all_decisions, list):
-                            l3_all_decisions = []
                     l3_decisions = [d for d in l3_all_decisions if wr_selected.lower() in d.get("wave", "").lower()]
                 except Exception:
                     l3_decisions = []
@@ -16201,8 +16086,6 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 try:
                     with open("data/decision_log.json", "r") as f:
                         l5_all_decisions = json.load(f)
-                        if not isinstance(l5_all_decisions, list):
-                            l5_all_decisions = []
                     l5_decisions = [d for d in l5_all_decisions if wr_selected.lower() in d.get("wave", "").lower()]
                     l5_decisions = sorted(l5_decisions, key=lambda d: d.get("date", ""), reverse=True)[:3]
                 except Exception:
@@ -16258,8 +16141,6 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 try:
                     with open("data/adaptive_state.json", "r") as f:
                         l6_adaptive = json.load(f)
-                        if not isinstance(l6_adaptive, dict):
-                            l6_adaptive = {}
 
                     l6_conflicts = l6_adaptive.get("cross_horizon_conflicts", [])
                     if isinstance(l6_conflicts, list):
@@ -16591,8 +16472,6 @@ Reviews strategy effectiveness by examining decision outcomes, alpha persistence
         if srs_path.exists():
             with open(srs_path, "r") as f:
                 srs_decisions = json.load(f)
-                if not isinstance(srs_decisions, list):
-                    srs_decisions = []
 
         srs_with_outcomes = [d for d in srs_decisions if d.get("outcome_30d") and d.get("outcome_30d") != "Pending"]
         srs_total = len(srs_decisions)
@@ -16722,8 +16601,6 @@ Governance compliance overview showing approval rates, decision audit coverage, 
         if gov_path.exists():
             with open(gov_path, "r") as f:
                 gov_decisions = json.load(f)
-                if not isinstance(gov_decisions, list):
-                    gov_decisions = []
 
         gov_total = len(gov_decisions)
         gov_with_approval = len([d for d in gov_decisions if d.get("approved_by")])
@@ -17395,8 +17272,6 @@ Comparison is observational only. No recommendations, rankings, or relative judg
         try:
             with open(decision_log_path_export, "r") as f:
                 decisions = json.load(f)
-                if not isinstance(decisions, list):
-                    decisions = []
             
             if not decisions:
                 return None, "No decisions recorded"
@@ -17449,8 +17324,6 @@ Comparison is observational only. No recommendations, rankings, or relative judg
         try:
             with open(decision_log_path_export, "r") as f:
                 decisions = json.load(f)
-            if not isinstance(decisions, list):
-                decisions = []
             
             if not decisions:
                 return None
@@ -17555,8 +17428,6 @@ Aggregate observational review of recorded governance decisions.
         try:
             with open(decision_log_path, "r") as f:
                 decision_records = json.load(f)
-                if not isinstance(decision_records, list):
-                    decision_records = []
         except Exception:
             decision_records = []
     
@@ -17651,8 +17522,6 @@ Observational review only — final decisions remain under human control. No aut
         try:
             with open(decision_log_path, "r") as f:
                 decision_records = json.load(f)
-                if not isinstance(decision_records, list):
-                    decision_records = []
         except Exception:
             decision_records = []
     
@@ -17764,8 +17633,6 @@ No decision narratives available. Cards will populate as governance decisions ar
         try:
             with open(ic_decision_log_path, "r") as f:
                 ic_decisions = json.load(f)
-                if not isinstance(ic_decisions, list):
-                    ic_decisions = []
         except Exception:
             ic_decisions = []
     
@@ -18089,8 +17956,6 @@ This tab defines the governance guardrails and decision authority boundaries und
         try:
             with open(ops_log_path, "r") as f:
                 ops_log = json.load(f)
-                if not isinstance(ops_log, list):
-                    ops_log = []
         except:
             ops_log = {"entries": []}
         
@@ -19193,8 +19058,6 @@ This section evaluated historical governance decisions using recorded data only.
             if os.path.exists(ops_log_path):
                 with open(ops_log_path, 'r') as f:
                     ops_data = json.load(f)
-                    if not isinstance(ops_data, dict):
-                        ops_data = {}
                     entries = ops_data.get("entries", [])
                     # Filter for governance-relevant decisions (exclude pure system recalculations)
                     for entry in entries:
@@ -19469,8 +19332,6 @@ The Decision Timeline serves as a system-wide ledger of decisions, context, and 
         try:
             with open(decision_log_path, "r") as f:
                 decision_records = json.load(f)
-                if not isinstance(decision_records, list):
-                    decision_records = []
         except Exception:
             decision_records = []
     
@@ -19670,8 +19531,6 @@ This is the decision flight recorder — every decision is logged for institutio
         try:
             with open(ops_log_path, "r") as f:
                 ops_log = json.load(f)
-                if not isinstance(ops_log, list):
-                    ops_log = []
         except:
             ops_log = {"entries": []}
         
@@ -20155,8 +20014,6 @@ This artifact is observational, backward-looking, non-executing, and information
         try:
             with open("data/operations_log.json", "r") as f:
                 log = json.load(f)
-                if not isinstance(log, list):
-                    log = []
             entries = log.get("entries", [])
             has_timestamps = all("timestamp" in e for e in entries) if entries else True
             has_actors = all("user" in e for e in entries) if entries else True
@@ -20204,8 +20061,6 @@ This artifact is observational, backward-looking, non-executing, and information
         try:
             with open("data/adaptive_state.json", "r") as f:
                 adaptive = json.load(f)
-                if not isinstance(adaptive, dict):
-                    adaptive = {}
             last_updated = adaptive.get("last_updated", "Unknown")
             threshold_count = len(adaptive.get("thresholds", {}))
             signals.append({
@@ -22053,13 +21908,9 @@ Examines model parameter configuration and how alpha component weights, learned 
         if ps_config_path.exists():
             with open(ps_config_path, "r") as f:
                 ps_config = json.load(f)
-                if not isinstance(ps_config, dict):
-                    ps_config = {}
         if ps_adaptive_path.exists():
             with open(ps_adaptive_path, "r") as f:
                 ps_adaptive = json.load(f)
-                if not isinstance(ps_adaptive, dict):
-                    ps_adaptive = {}
 
         ps_tilt = ps_config.get("tilt_settings", {})
         ps_exposure = ps_config.get("exposure_limits", {})
@@ -22177,8 +22028,6 @@ Analyzes the alignment between current regime classification and portfolio posit
         if ra_path.exists():
             with open(ra_path, "r") as f:
                 ra_decisions = json.load(f)
-                if not isinstance(ra_decisions, list):
-                    ra_decisions = []
 
         if ra_decisions:
             ra_regimes = {}
