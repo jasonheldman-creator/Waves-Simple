@@ -3909,6 +3909,24 @@ Console metrics and signals are derived from live, synchronized data pipelines. 
                     _t10_html += '</div>'
                 _t10_html += '</div>'
                 st.markdown(_t10_html, unsafe_allow_html=True)
+                
+                # Add expander for full holdings view
+                full_holdings = diag_data.get("full_holdings")
+                if full_holdings is not None and not full_holdings.empty and len(full_holdings) > 10:
+                    with st.expander(f"View All {len(full_holdings)} Holdings", expanded=False):
+                        _full_html = '<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-radius: 6px; overflow: hidden;">'
+                        _full_html += '<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; padding: 8px 16px; background: #151A22; border-bottom: 1px solid #2A2F3A;">'
+                        for hdr in ["Ticker", "Weight", "External Link"]:
+                            _full_html += f'<div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; font-weight: 600;">{hdr}</div>'
+                        _full_html += '</div>'
+                        for _, row in full_holdings.iterrows():
+                            _full_html += '<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; padding: 6px 16px; border-bottom: 1px solid #2A2F3A;">'
+                            _full_html += f'<div style="color: #E5E7EB; font-size: 11px; font-weight: 600;">{row["ticker"]}</div>'
+                            _full_html += f'<div style="color: #C0C4CC; font-size: 11px;">{row["weight"]*100:.2f}%</div>'
+                            _full_html += f'<div><a href="{row["External Link"]}" target="_blank" style="color: #3A6FF7; font-size: 11px; text-decoration: none;">Google Finance</a></div>'
+                            _full_html += '</div>'
+                        _full_html += '</div>'
+                        st.markdown(_full_html, unsafe_allow_html=True)
 
             st.markdown("""<div style="margin: 24px 0 8px 0; border-bottom: 1px solid #2A2F3A; padding-bottom: 4px;">
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Abnormal Security Behavior</span>
