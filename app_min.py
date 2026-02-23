@@ -11373,9 +11373,10 @@ Headlines are provided for informational context only. WAVES does not interpret,
                 p = mi_prices.get(tick)
                 if p is None:
                     continue
-                r30 = md_returns(p, 30)
-                r90 = md_returns(p, 90)
-                r365 = md_returns(p, 365)
+                _rets = md_returns(p)
+                r30 = _rets.get("30d")
+                r90 = _rets.get("90d")
+                r365 = _rets.get("365d")
                 v21 = md_vol(p, 21)
                 r30_s = f"{r30*100:+.1f}%" if r30 is not None else "-"
                 r90_s = f"{r90*100:+.1f}%" if r90 is not None else "-"
