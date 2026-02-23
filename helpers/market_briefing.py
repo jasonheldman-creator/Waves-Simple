@@ -20,31 +20,61 @@ def _safe_prices(prices, ticker):
 
 
 def compute_returns(prices, ticker):
-    """Return period returns dict for a ticker using the prices dict."""
+    """Return period returns dict for a ticker using the prices dict.
+
+    Also accepts (price_list, _days) for direct price-series usage;
+    when a list is passed as the first argument, the second argument is ignored
+    and all standard period returns are computed from the series.
+    """
+    if isinstance(prices, list):
+        # Called with a price series directly; second arg (days/ticker) is ignored
+        return _compute_returns_series(prices)
     series = _safe_prices(prices, ticker)
     return _compute_returns_series(series)
 
 
 def compute_direction_label(returns_dict):
-    """Return directional label based on returns dict."""
-    if not returns_dict:
-        return "Neutral"
-    r1d = returns_dict.get("1d")
-    r5d = returns_dict.get("5d")
-    if r1d is None and r5d is None:
-        return "Neutral"
-    positives = sum(1 for v in [r1d, r5d] if v is not None and v > 0)
-    negatives = sum(1 for v in [r1d, r5d] if v is not None and v < 0)
-    if positives > negatives:
-        return "Bullish"
-    if negatives > positives:
-        return "Bearish"
-    return "Mixed"
+    """Return (direction_label, pct_str) tuple based on returns dict.
+
+    direction_label is 'Up', 'Down', or 'Flat'.
+    pct_str is a formatted percentage string of the most representative return.
+    """
+    if not returns_dict or not isinstance(returns_dict, dict):
+        return ("Flat", "N/A")
+    # Prefer 30d as the most balanced medium-term view; fall back to shorter/longer periods
+    pct_val = None
+    for key in ("30d", "90d", "5d", "1d", "365d"):
+        v = returns_dict.get(key)
+        if v is not None:
+            pct_val = v
+            break
+    if pct_val is None:
+        return ("Flat", "N/A")
+    if pct_val > 0.01:
+        direction = "Up"
+    elif pct_val < -0.01:
+        direction = "Down"
+    else:
+        direction = "Flat"
+    pct_str = f"{pct_val:+.1%}"
+    return (direction, pct_str)
 
 
-def compute_strength_score(returns_dict):
-    """Return a 0-100 strength score based on recent returns."""
-    if not returns_dict:
+def compute_strength_score(prices_or_dict, days=None):
+    """Return a 0-100 strength score.
+
+    Accepts either:
+    - compute_strength_score(returns_dict): original signature
+    - compute_strength_score(prices_list, days): prices list + look-back days
+
+    When called with a prices list, the `days` parameter is used only to detect
+    the calling convention; all standard period returns are computed from the list.
+    """
+    if days is not None and isinstance(prices_or_dict, list):
+        returns_dict = _compute_returns_series(prices_or_dict)
+    else:
+        returns_dict = prices_or_dict
+    if not returns_dict or not isinstance(returns_dict, dict):
         return 50.0
     vals = [v for v in returns_dict.values() if v is not None]
     if not vals:
@@ -111,16 +141,32 @@ def compute_structural_signals(prices):
     return {"signals": signals, "summary": summary}
 
 
-def compute_horizon_explanation(period):
-    """Return description for a return horizon."""
+def compute_horizon_explanation(period_or_prices, days=None, label=None):
+    """Return description for a return horizon.
+
+    Accepts either:
+    - compute_horizon_explanation(period): original signature where period is a
+      string like '30d' or an int.
+    - compute_horizon_explanation(prices, days, label): richer context signature
+      where the first argument (prices dict) is not used in the description; only
+      `days` and `label` are used.
+    """
     explanations = {
         "1d": "1-day return (most recent session)",
         "5d": "5-day return (~1 trading week)",
         "30d": "30-day return (~1 calendar month)",
         "90d": "90-day return (~1 quarter)",
         "365d": "365-day return (~1 year)",
+        30: "30-day return (~1 calendar month)",
+        90: "90-day return (~1 quarter)",
+        365: "365-day return (~1 year)",
     }
-    return explanations.get(str(period), f"{period} return window")
+    if days is not None:
+        base = explanations.get(days, f"{days}-day return window")
+        if label:
+            return f"{label}: {base}"
+        return base
+    return explanations.get(str(period_or_prices), f"{period_or_prices} return window")
 
 
 def compute_volatility_stress_assessment(prices):

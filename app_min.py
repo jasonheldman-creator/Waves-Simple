@@ -1559,6 +1559,7 @@ with view_mode_col2:
         "View Mode",
         ["Executive Snapshot", "Executive Summary", "Portfolio Manager", "Research/Quant Desk", "Full Console"],
         index=0,
+        key="view_mode_selector",
         help="Executive Snapshot: Daily briefing surface. Executive Summary: CIO-level view. Portfolio Manager: PM-focused construction and risk views. Research/Quant Desk: Quant analysis and diagnostics."
     )
 
