@@ -11548,11 +11548,16 @@ Observational context for informing human decision-making. No prescribed actions
         "Data unavailable": "#6B7280",
         }
         mi_ss_row_count = len(mi_structural)
-        mi_ss_cols = st.columns(max(1, mi_ss_row_count))
-        for i, (ss_label, ss_state, ss_note) in enumerate(mi_structural):
-            ss_color = mi_ss_colors.get(ss_state, "#9EA3AE")
-            with mi_ss_cols[i]:
-                st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-top: 3px solid {ss_color}; padding: 16px 10px; border-radius: 6px; text-align: center; min-height: 130px;">
+        if mi_ss_row_count == 0:
+            st.markdown("""<div style="background: #151A22; padding: 14px 16px; border-radius: 6px;">
+<div style="color: #6B7280; font-size: 11px;">Structural signal data temporarily unavailable.</div>
+</div>""", unsafe_allow_html=True)
+        else:
+            mi_ss_cols = st.columns(mi_ss_row_count)
+            for i, (ss_label, ss_state, ss_note) in enumerate(mi_structural):
+                ss_color = mi_ss_colors.get(ss_state, "#9EA3AE")
+                with mi_ss_cols[i]:
+                    st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-top: 3px solid {ss_color}; padding: 16px 10px; border-radius: 6px; text-align: center; min-height: 130px;">
 <div style="color: {ss_color}; font-size: 14px; font-weight: 700;">{ss_state}</div>
 <div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; margin-top: 6px; letter-spacing: 0.03em;">{ss_label}</div>
 <div style="color: #6B7280; font-size: 10px; margin-top: 10px; line-height: 1.5;">{ss_note}</div>

@@ -15,7 +15,11 @@ _SCHEMA_STATUS_UNAVAILABLE = "unavailable"
 
 
 def _wrap(data, status=_SCHEMA_STATUS_OK, message=""):
-    """Wrap a data dict in the standard return schema."""
+    """Wrap a data dict in the standard return schema.
+
+    Non-dict data is silently coerced to an empty dict to ensure callers always
+    receive a valid schema structure even under unexpected conditions.
+    """
     return {"status": status, "data": data if isinstance(data, dict) else {}, "message": message}
 
 
