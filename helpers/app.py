@@ -11248,7 +11248,10 @@ Recent market-moving headlines from live data sources. Observational context onl
 
         try:
             from helpers.market_news import fetch_market_news as fetch_mi_news
-            mi_news_items, mi_news_ts = fetch_mi_news(max_items=mi_news_limit)
+            _mi_news_raw = fetch_mi_news(max_items=mi_news_limit)
+            _mi_news_d = _mi_news_raw.get("data", {"items": [], "timestamp": None})
+            mi_news_items = _mi_news_d.get("items", [])
+            mi_news_ts = _mi_news_d.get("timestamp", None)
 
             if mi_news_items:
                 mi_category_colors = {
