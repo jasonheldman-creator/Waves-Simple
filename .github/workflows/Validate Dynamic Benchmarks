@@ -1,4 +1,4 @@
-name: Validate Portfolio Composite Benchmark
+name: Validate Dynamic Benchmarks
 
 on:
   push:
