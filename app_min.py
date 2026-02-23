@@ -156,15 +156,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-from streamlit_autorefresh import st_autorefresh
+# SAFE AUTOREFRESH — single initialization guard
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
-# -------------------------------------------------
-# SAFE AUTOREFRESH (prevents duplicate element key)
-# -------------------------------------------------
-if "autorefresh_initialized" not in st.session_state:
-    st.session_state["autorefresh_initialized"] = True
-
+if "waves_global_autorefresh_started" not in st.session_state:
+    st.session_state["waves_global_autorefresh_started"] = True
     st_autorefresh(
         interval=90_000,
         limit=None,
@@ -18530,9 +18527,4 @@ Fundamental research links are optional integrations and reflect external instit
         ]
 
     # Calculate coverage stats
-    # Use full wave counts if available (for individual waves), otherwise use holdings_data
-    displayed_count = len([h for h in holdings_data if h["ticker"] != "-"])
-    displayed_return_coverage = sum(1 for h in holdings_data if h["return_30d"] is not None and h["ticker"] != "-")
-
-    # For individual waves, show full wave stats
-    if selected_wave_id and 'full_holdings_count' in dir():
+    # Use full wave counts if available (for individual waves), otherwise use holdi
