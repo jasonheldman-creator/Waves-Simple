@@ -40,11 +40,15 @@ def evaluate_holdings(data_prefix="data"):
             "review_cycles": 0,
             "status": "Stable",
             "observation": "No significant drift detected.",
+            "vol_30d": None,
+            "momentum_30d": None,
+            "drawdown_90d": None,
+            "trend_stability": None,
         })
     return results
 
 
-def evaluate_secondary_candidates(holdings, wave_name=None):
+def evaluate_secondary_candidates(holdings=None, wave_name=None):
     """Return list of secondary candidate evaluation dicts."""
     if not holdings:
         return []
@@ -54,33 +58,55 @@ def evaluate_secondary_candidates(holdings, wave_name=None):
     return candidates
 
 
-def generate_holding_observations(holdings):
-    """Return list of observation strings for current holdings."""
+def generate_holding_observations(holdings, secondary=None):
+    """Return list of observation dicts for current holdings."""
     if not holdings:
-        return ["No holding data available."]
+        return [{"security": "", "observation": "No holding data available."}]
     obs = []
     for h in holdings:
+        ticker = h.get("ticker", "")
         if h.get("drift", 0) > 5.0:
-            obs.append(f"{h['ticker']}: Drift of {h['drift']:.1f}% detected ({h['drift_direction']}).")
+            obs.append({
+                "security": ticker,
+                "observation": f"Drift of {h['drift']:.1f}% detected ({h['drift_direction']}).",
+            })
     if not obs:
-        obs.append("All holdings within acceptable drift thresholds.")
+        for h in holdings:
+            ticker = h.get("ticker", "")
+            obs.append({
+                "security": ticker,
+                "observation": "Within acceptable drift thresholds.",
+            })
     return obs
 
 
 def get_holdings_summary(holdings):
     """Return aggregate holdings summary dict."""
     if not holdings:
-        return {"total": 0, "at_risk": 0, "review_recommended": 0, "optimal": 0, "data_pending": 0}
+        return {
+            "total": 0,
+            "with_data": 0,
+            "coverage_pct": 0.0,
+            "stable": 0,
+            "monitoring": 0,
+            "review_candidate": 0,
+            "data_pending": 0,
+        }
     total = len(holdings)
-    at_risk = sum(1 for h in holdings if h.get("drift", 0) > 10.0)
-    review_recommended = sum(1 for h in holdings if 5.0 < h.get("drift", 0) <= 10.0)
-    optimal = sum(1 for h in holdings if h.get("drift", 0) <= 5.0)
+    with_data = sum(1 for h in holdings if h.get("ticker") or h.get("wave"))
+    stable = sum(1 for h in holdings if h.get("status") == "Stable")
+    monitoring = sum(1 for h in holdings if h.get("status") == "Monitoring")
+    review_candidate = sum(1 for h in holdings if h.get("status") == "Review Candidate")
+    data_pending = sum(1 for h in holdings if h.get("status") == "Data Pending")
+    coverage_pct = round((with_data / total) * 100.0, 1) if total > 0 else 0.0
     return {
         "total": total,
-        "at_risk": at_risk,
-        "review_recommended": review_recommended,
-        "optimal": optimal,
-        "data_pending": 0,
+        "with_data": with_data,
+        "coverage_pct": coverage_pct,
+        "stable": stable,
+        "monitoring": monitoring,
+        "review_candidate": review_candidate,
+        "data_pending": data_pending,
     }
 
 
