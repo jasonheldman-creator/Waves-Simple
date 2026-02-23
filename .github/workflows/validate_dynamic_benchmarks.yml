@@ -1,12 +1,22 @@
-# This is a configuration file for validating dynamic benchmarks. 
+name: Validate Dynamic Benchmarks
 
-# UTF-8 normalization and dependency enforcement settings should be applied here.
+on:
+  push:
+    branches:
+      - main
 
-# Example normalization and dependency configuration
-- ensure_formatting:
-    - utf-8
-  
-- dependency_management:
-    - required_dependencies:
-        - dependency1
-        - dependency2
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set PYTHONPATH
+        run: |
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
+
+      - name: Run tests
+        run: |
+          python -c "import sys; print(sys.path)"
+          pytest -q
