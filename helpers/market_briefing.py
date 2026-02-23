@@ -1,5 +1,11 @@
 """Market briefing computations - stub implementation (no live API calls)."""
 from datetime import datetime, timezone
+from helpers.market_data import (
+    compute_returns as _compute_returns_series,
+    compute_above_ma,
+    compute_realized_vol,
+    SECTOR_TICKERS,
+)
 
 
 def _safe_prices(prices, ticker):
@@ -12,9 +18,8 @@ def _safe_prices(prices, ticker):
 
 def compute_returns(prices, ticker):
     """Return period returns dict for a ticker using the prices dict."""
-    from helpers.market_data import compute_returns as _cr
     series = _safe_prices(prices, ticker)
-    return _cr(series)
+    return _compute_returns_series(series)
 
 
 def compute_direction_label(returns_dict):
@@ -53,7 +58,6 @@ def compute_regime_structure(prices):
     spy = _safe_prices(prices, "SPY")
     if not spy:
         return {"regime": "Unknown", "description": "SPY data unavailable.", "confidence": "Low"}
-    from helpers.market_data import compute_above_ma, compute_realized_vol
     above_ma = compute_above_ma(spy, 50)
     vol = compute_realized_vol(spy)
     if above_ma and vol < 0.20:
@@ -95,7 +99,6 @@ def compute_structural_signals(prices):
     """Return structural signals dict."""
     signals = []
     if prices:
-        from helpers.market_data import compute_above_ma
         for ticker, series in prices.items():
             if isinstance(series, list) and len(series) >= 50:
                 above = compute_above_ma(series)
@@ -121,7 +124,6 @@ def compute_volatility_stress_assessment(prices):
     """Return volatility stress assessment dict."""
     if not prices:
         return {"level": "Unknown", "score": 0.0, "description": "No price data available."}
-    from helpers.market_data import compute_realized_vol
     vols = []
     for series in prices.values():
         if isinstance(series, list) and len(series) >= 22:
@@ -160,14 +162,13 @@ def compute_rates_credit_assessment(prices):
 
 def compute_sector_assessment(prices):
     """Return sector rotation assessment dict."""
-    from helpers.market_data import SECTOR_TICKERS, compute_returns as _cr
     if not prices:
         return {"top_sector": "N/A", "lagging_sector": "N/A", "rotation_signal": "No data"}
     sector_rets = {}
     for t in SECTOR_TICKERS:
         series = _safe_prices(prices, t)
         if series:
-            r = _cr(series)
+            r = _compute_returns_series(series)
             if r.get("5d") is not None:
                 sector_rets[t] = r["5d"]
     if not sector_rets:
@@ -192,9 +193,8 @@ def compute_executive_chips(prices):
     if not prices:
         return chips
     spy = _safe_prices(prices, "SPY")
-    from helpers.market_data import compute_returns as _cr, compute_realized_vol
     if spy:
-        rets = _cr(spy)
+        rets = _compute_returns_series(spy)
         r1d = rets.get("1d")
         chips.append({
             "label": "SPY 1d",
@@ -228,10 +228,9 @@ def compute_what_changed(prices):
     if not prices:
         return ["No price data available to detect changes."]
     changes = []
-    from helpers.market_data import compute_returns as _cr
     for ticker, series in prices.items():
         if isinstance(series, list) and len(series) >= 2:
-            r = _cr(series)
+            r = _compute_returns_series(series)
             r1d = r.get("1d")
             if r1d is not None and abs(r1d) > 0.02:
                 direction = "gained" if r1d > 0 else "fell"

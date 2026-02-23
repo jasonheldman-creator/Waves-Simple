@@ -145,6 +145,7 @@ def propagate_action(decision_id, action, actor=None, notes=None,
                      is_instruction=False):
     """Propagate an action to a governance decision."""
     decisions = _load_decisions()
+    modified = False
     for d in decisions:
         if d.get("id") == decision_id:
             d["status"] = action
@@ -152,8 +153,10 @@ def propagate_action(decision_id, action, actor=None, notes=None,
                 d["actor"] = actor
             if notes:
                 d["context_notes"] = notes
+            modified = True
             break
-    _save_decisions(decisions)
+    if modified:
+        _save_decisions(decisions)
 
 
 def request_extension(decision_id, extension_hours=24, actor=None):
@@ -184,6 +187,7 @@ def log_deliberation_artifact(decision_id, artifact_name, content,
                                actor=None, source_surface=None):
     """Log a deliberation artifact to a decision."""
     decisions = _load_decisions()
+    modified = False
     for d in decisions:
         if d.get("id") == decision_id:
             artifacts = d.setdefault("artifacts", [])
@@ -194,8 +198,10 @@ def log_deliberation_artifact(decision_id, artifact_name, content,
                 "source_surface": source_surface,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
+            modified = True
             break
-    _save_decisions(decisions)
+    if modified:
+        _save_decisions(decisions)
 
 
 def create_governance_decision(decision_id, wave, instruction_type,
