@@ -930,6 +930,11 @@ def has_valid_intraday_data(snapshot_df):
 
 
 snapshot_df, attrib_df, snapshot_error = load_snapshot()
+if snapshot_error:
+    print(f"[SNAPSHOT] load_snapshot: error - {snapshot_error}")
+else:
+    rows = len(snapshot_df) if snapshot_df is not None else 0
+    print(f"[SNAPSHOT] load_snapshot: loaded {rows} rows, attrib={attrib_df is not None}")
 
 # ===========================
 # Daily Intelligence Cycle Engine
@@ -8514,13 +8519,17 @@ def load_market_cache():
             if age_days <= MARKET_CACHE_MAX_AGE_DAYS:
                 cache["age_days"] = age_days
                 cache["is_stale"] = False
+                print(f"[MI] load_market_cache: cache hit, age={age_days} days, provider={cache.get('source_provider')}")
                 return cache
             else:
                 cache["age_days"] = age_days
                 cache["is_stale"] = True
+                print(f"[MI] load_market_cache: cache stale (age={age_days} days > {MARKET_CACHE_MAX_AGE_DAYS}), returning stale")
                 return cache
+        print(f"[MI] load_market_cache: cache file not found at {MARKET_CACHE_PATH}")
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"[MI] load_market_cache: error reading cache: {exc}")
         return None
 
 
@@ -10044,6 +10053,7 @@ with tabs[TAB_INDEX['Market Intelligence']]:
 </div>""", unsafe_allow_html=True)
     else:
         si_ticker = si_ticker_input.strip().upper()
+        print(f"[MI] Security Intelligence: ticker search initiated for {si_ticker}")
 
         from helpers.market_data import fetch_all_prices as si_fetch_prices
 
@@ -10082,9 +10092,11 @@ with tabs[TAB_INDEX['Market Intelligence']]:
 </div>""", unsafe_allow_html=True)
 
             # --- Compute all diagnostics ---
-            si_ret_30 = compute_returns(si_prices, 30)
-            si_ret_90 = compute_returns(si_prices, 90)
-            si_ret_365 = compute_returns(si_prices, 365)
+            print(f"[MI] Security Intelligence: computing diagnostics for {si_ticker}")
+            _si_ret_dict = compute_returns(si_prices) or {}
+            si_ret_30 = _si_ret_dict.get("30d")
+            si_ret_90 = _si_ret_dict.get("90d")
+            si_ret_365 = _si_ret_dict.get("365d")
             si_slope_30 = compute_slope(si_prices, 30)
             si_slope_90 = compute_slope(si_prices, 90)
             si_vol_21 = compute_realized_vol(si_prices, 21)
@@ -10096,6 +10108,7 @@ with tabs[TAB_INDEX['Market Intelligence']]:
             si_above_50 = compute_above_ma(si_prices, 50)
             si_above_200 = compute_above_ma(si_prices, 200)
             si_rs_30 = compute_relative_strength(si_prices, si_spy, 30) if si_spy is not None else None
+            print(f"[MI] Security Intelligence: diagnostics complete (ret30={si_ret_30}, vol21={si_vol_21})")
 
             # --- PART 3: Executive Snapshot ---
             def si_compute_structural_regime():
@@ -10747,24 +10760,38 @@ Security Intelligence is observational only - no recommendations, price targets,
         compute_what_changed,
         )
 
+        print("[MI] Market Intelligence pipeline: initiated")
+
         @st.cache_data(ttl=900, show_spinner="Loading market data...")
         def load_mi_market_data():
-            return fetch_all_prices()
+            print("[MI] load_mi_market_data: fetching all prices from cache")
+            prices = fetch_all_prices()
+            populated = sum(1 for v in prices.values() if v)
+            print(f"[MI] load_mi_market_data: cache load complete, {len(prices)} tickers populated={populated}")
+            return prices
 
         mi_prices = load_mi_market_data()
+        print(f"[MI] mi_prices: {len(mi_prices)} tickers, non-empty={bool(mi_prices)}")
 
         mi_vol_assess = compute_volatility_stress_assessment(mi_prices)
+        print(f"[MI] volatility assessment: status={mi_vol_assess.get('status')}")
         mi_vol_assess = mi_vol_assess.get("data", {})
         mi_breadth_assess = compute_breadth_assessment(mi_prices)
+        print(f"[MI] breadth assessment: status={mi_breadth_assess.get('status')}")
         mi_breadth_assess = mi_breadth_assess.get("data", {})
         mi_rates_assess = compute_rates_credit_assessment(mi_prices)
+        print(f"[MI] rates/credit assessment: status={mi_rates_assess.get('status')}")
         mi_rates_assess = mi_rates_assess.get("data", {})
         mi_regime_computed = compute_regime_assessment(mi_prices)
+        print(f"[MI] regime assessment: complete")
         mi_sector_assess = compute_sector_assessment(mi_prices)
+        print(f"[MI] sector assessment: status={mi_sector_assess.get('status')}")
         mi_sector_assess = mi_sector_assess.get("data", {})
         mi_chips_result = compute_executive_chips(mi_prices, mi_vol_assess, mi_breadth_assess, mi_rates_assess, mi_regime_computed)
         mi_chips = mi_chips_result.get("data", {}).get("items", [])
+        print(f"[MI] executive chips: {len(mi_chips)} chips generated")
         mi_orientation = compute_orientation_sentence(mi_regime_computed, mi_vol_assess, mi_breadth_assess, mi_rates_assess)
+        print("[MI] Market Intelligence pipeline: all assessments complete")
 
         mi_data_sources_used = []
         if mi_prices:
@@ -10783,6 +10810,10 @@ Security Intelligence is observational only - no recommendations, price targets,
                 idx_prev = idx_prices[-2]
                 idx_change = (idx_current - idx_prev) / idx_prev if idx_prev != 0 else 0
                 mi_index_cards.append({"name": idx_name, "level": idx_current, "change": idx_change})
+
+        print(f"[MI] Market Snapshot: {len(mi_index_cards)} index cards built (of {len(mi_index_symbols)} symbols)")
+        if not mi_index_cards:
+            print("[MI] Market Snapshot: skipping render - no index price data available")
 
         if mi_index_cards:
             st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 4px 0 16px 0;"></div>', unsafe_allow_html=True)
