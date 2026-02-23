@@ -1,17 +1,14 @@
-def get_alpaca_client():
-    try:
-        from alpaca.data.historical import StockHistoricalDataClient
-        return StockHistoricalDataClient
-    except ImportError:
-        return None
+# Existing imports
 
-# Re-exporting compute_portfolio_composite_benchmark for backward compatibility
+# Lazy Alpaca import logic
+try:
+    import alpaca_trade_api as tradeapi
+except ImportError:
+    tradeapi = None
+
+
 def compute_portfolio_composite_benchmark():
-    alpaca_client = get_alpaca_client()
-    if not alpaca_client:
-        raise ImportError("Alpaca SDK is required to compute portfolio composite benchmark")
+    # Your code here for the function
+    pass
 
-    # Placeholder for original logic
-    print("Restoring compute_portfolio_composite_benchmark logic...")
-
-# Ensure no direct top-level imports from Alpaca and maintain test compatibility.
+__all__ = ['compute_portfolio_composite_benchmark']
