@@ -1,7 +1,9 @@
 """Market data utilities - stub implementation (no live API calls)."""
 import os
+from datetime import datetime, timedelta
 
 BENCHMARK_TICKERS = ["SPY", "QQQ", "IWM", "DIA", "MDY"]
+REQUIRED_BENCHMARKS = ["SPY", "QQQ", "IWM", "VIX"]
 SECTOR_TICKERS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC"]
 INDEX_TICKERS = ["SPY", "QQQ", "IWM", "DIA", "VTI", "EFA", "EEM"]
 YIELD_TICKERS = ["TLT", "IEF", "SHY", "HYG", "LQD"]
@@ -32,6 +34,27 @@ def fetch_all_prices(tickers=None, lookback_days=400):
                 result[t] = series[-lookback_days:] if len(series) > lookback_days else series
             else:
                 result[t] = None
+        if load_all:
+            for sym in REQUIRED_BENCHMARKS:
+                if not result.get(sym):
+                    try:
+                        import yfinance as yf
+                        end_dt = datetime.utcnow()
+                        start_dt = end_dt - timedelta(days=lookback_days + 30)
+                        hist = yf.download(
+                            sym,
+                            start=start_dt.strftime("%Y-%m-%d"),
+                            end=end_dt.strftime("%Y-%m-%d"),
+                            auto_adjust=True,
+                            progress=False,
+                        )
+                        if hist is not None and not hist.empty and "Close" in hist.columns:
+                            series = hist["Close"].dropna().tolist()
+                            if series:
+                                result[sym] = series[-lookback_days:] if len(series) > lookback_days else series
+                                print(f"[MI] fetch_all_prices: fallback fetched {sym} ({len(result[sym])} pts)")
+                    except Exception as sym_exc:
+                        print(f"[MI] fetch_all_prices: fallback fetch failed for {sym} ({sym_exc})")
         populated = sum(1 for v in result.values() if v)
         print(f"[MI] fetch_all_prices: returning {populated} populated / {len(result)} total")
         return result
