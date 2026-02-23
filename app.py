@@ -1,8 +1,8 @@
-# WAVES Intelligence™ Console
-# Canonical entrypoint launcher
-# Maintains CI integrity and deployment stability
+import runpy
+from pathlib import Path
 
-from app_min import main   # change to app_main if applicable
-
-if __name__ == "__main__":
-    main()
+# Canonical Streamlit entrypoint launcher
+runpy.run_path(
+    str(Path(__file__).parent / "app_min.py"),
+    run_name="__main__"
+)
