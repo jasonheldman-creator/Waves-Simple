@@ -347,7 +347,7 @@ def render_bottom_ticker_v3(
     # Lazy import of streamlit - only imported when this function is called
     try:
         import streamlit as st
-    except ImportError:
+    except (ImportError, RuntimeError):
         raise RuntimeError(
             "Streamlit is required for this function. "
             "Please install it to use Streamlit-related functionality: pip install streamlit"

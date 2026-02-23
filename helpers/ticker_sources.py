@@ -100,11 +100,25 @@ def filter_and_normalize_tickers(tickers: List[Any]) -> List[str]:
 def conditional_cache(ttl: int = 300):
     """
     Decorator that uses Streamlit caching if available, otherwise no-op.
+    Falls back gracefully when outside a Streamlit runtime context.
     """
+    import functools
+
     def decorator(func):
-        if STREAMLIT_AVAILABLE:
-            return st.cache_data(ttl=ttl)(func)  # type: ignore
-        return func
+        if not STREAMLIT_AVAILABLE:
+            return func
+        cached_func = st.cache_data(ttl=ttl)(func)  # type: ignore
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return cached_func(*args, **kwargs)
+            except Exception as _cache_err:
+                logger.debug("st.cache_data fallback for %s: %s", func.__name__, _cache_err)
+                return func(*args, **kwargs)
+
+        return wrapper
+
     return decorator
 
 
