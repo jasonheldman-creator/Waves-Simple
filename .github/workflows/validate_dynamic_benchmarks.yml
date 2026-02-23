@@ -5,15 +5,16 @@ on: [push, pull_request]
 jobs:
   validate:
     runs-on: ubuntu-latest
+
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v2
-    
+      uses: actions/checkout@v4
+
     - name: Clear Python cache
       run: |
         find . -type d -name "__pycache__" -exec rm -rf {} +
         find . -name "*.pyc" -delete
-    
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -25,7 +26,16 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    
+        pip install pytest
+
+    - name: Set PYTHONPATH
+      run: echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
+
+    - name: Verify Environment (debug)
+      run: |
+        python -c "import sys; print('Python:', sys.version)"
+        python -c "import sys; print('PATH:', sys.path)"
+
     - name: Run Tests
       run: |
-        pytest tests/
+        pytest tests/ -v
