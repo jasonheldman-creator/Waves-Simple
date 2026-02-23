@@ -1114,16 +1114,16 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                                 alpha_365d = snapshot['alphas'].get('365D')
                                 
                                 # Format return strings
-                                ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                                ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                                ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                                ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                                ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "-"
+                                ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "-"
+                                ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "-"
+                                ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "-"
                                 
                                 # Format alpha strings
-                                alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                                alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                                alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                                alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                                alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "-"
+                                alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "-"
+                                alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "-"
+                                alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "-"
                         finally:
                             st.session_state.ENGINE_RUNNING = False
                 except Exception as e:
@@ -1226,7 +1226,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     else:
                         vix_overlay_status_str = "⚪ Off"
                 else:
-                    vix_overlay_status_str = "—"  # Not applicable for non-equity waves
+                    vix_overlay_status_str = "-"  # Not applicable for non-equity waves
             except:
                 vix_overlay_status_str = "N/A"
         
@@ -6727,7 +6727,7 @@ def render_reality_panel():
                     
                     # Show warning if we have many active waves but suspiciously few required tickers
                     if active_wave_count >= 20 and ticker_analysis['required_count'] < 20:
-                        st.error("🚨 BUG: active_required too small — registry/ticker collection failed.")
+                        st.error("🚨 BUG: active_required too small - registry/ticker collection failed.")
                         st.text(f"Active waves in registry: {active_wave_count}")
             except Exception as e:
                 pass  # Don't fail if we can't load registry
@@ -10508,7 +10508,7 @@ def render_executive_brief_tab():
                             overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
                             st.metric(
                                 overlay_label, 
-                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
+                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "-",
                                 help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
                             )
                     
@@ -13306,7 +13306,7 @@ def render_overview_tab():
         # PRICE_BOOK TRUTH PANEL - Data Truth
         # ========================================================================
         st.markdown("---")
-        st.markdown("### 📦 PRICE_BOOK — Data Truth")
+        st.markdown("### 📦 PRICE_BOOK - Data Truth")
         st.caption("Canonical price cache - Single source of truth for all price data")
         
         try:
@@ -13835,8 +13835,8 @@ def render_wave_data_readiness_panel():
                     'History Days': diagnostics.get('history_days', 0),
                     'Freshness': freshness,
                     'Analytics': analytics_badge,
-                    'Missing Tickers': missing_str if missing else '—',
-                    'Stale Tickers': stale_str if stale else '—'
+                    'Missing Tickers': missing_str if missing else '-',
+                    'Stale Tickers': stale_str if stale else '-'
                 })
             
             # Create DataFrame
@@ -13960,10 +13960,10 @@ def render_wave_data_readiness_panel():
             st.divider()
             st.markdown("##### 📖 Badge Legend")
             st.markdown("""
-            - **🟢 Full**: Coverage ≥ 90%, History ≥ 365 days — All analytics available
-            - **🟡 Partial**: Coverage ≥ 70%, History ≥ 7 days — Basic analytics available
-            - **🟠 Operational**: Coverage ≥ 50%, History ≥ 1 day — Current state display only
-            - **🔴 Unavailable**: Coverage < 50% or History < 1 day — Cannot display
+            - **🟢 Full**: Coverage ≥ 90%, History ≥ 365 days - All analytics available
+            - **🟡 Partial**: Coverage ≥ 70%, History ≥ 7 days - Basic analytics available
+            - **🟠 Operational**: Coverage ≥ 50%, History ≥ 1 day - Current state display only
+            - **🔴 Unavailable**: Coverage < 50% or History < 1 day - Cannot display
             """)
             
     except Exception as e:
@@ -15224,7 +15224,7 @@ def render_individual_wave_view(selected_wave, all_metrics):
                 )
             
             # Display summary metrics
-            st.markdown(f"**{selected_wave} — {selected_timeframe_label}**")
+            st.markdown(f"**{selected_wave} - {selected_timeframe_label}**")
             
             col_ret1, col_ret2, col_ret3 = st.columns(3)
             
@@ -16156,7 +16156,7 @@ def render_overlays_tab():
             with col2:
                 method_label = capital_alpha['weighting_method']
                 if method_label == 'equal-weight':
-                    st.info("ℹ️ Equal-weight fallback — no capital inputs found")
+                    st.info("ℹ️ Equal-weight fallback - no capital inputs found")
                 else:
                     st.success(f"✅ Using {method_label} weighting")
         else:
@@ -16190,7 +16190,7 @@ def render_overlays_tab():
             
             with col2:
                 if exposure_alpha['is_fallback']:
-                    st.info("ℹ️ No exposure series found — showing unadjusted alpha")
+                    st.info("ℹ️ No exposure series found - showing unadjusted alpha")
                 else:
                     st.success("✅ Using exposure-adjusted alpha")
         else:
@@ -16216,10 +16216,10 @@ def render_attribution_tab():
     st.markdown("""
     **Precise, reconciled decomposition of Wave alpha into actionable components:**
     
-    1️⃣ **Stock Selection Alpha** — Wave return vs benchmark return differential  
-    2️⃣ **Overlay Alpha** — VIX gating, exposure scaling, and SmartSafe features  
-    3️⃣ **Beta/Exposure Drift** — Target vs realized exposure impact  
-    4️⃣ **Residual Alpha** — Unexplained deviation and other factors
+    1️⃣ **Stock Selection Alpha** - Wave return vs benchmark return differential  
+    2️⃣ **Overlay Alpha** - VIX gating, exposure scaling, and SmartSafe features  
+    3️⃣ **Beta/Exposure Drift** - Target vs realized exposure impact  
+    4️⃣ **Residual Alpha** - Unexplained deviation and other factors
     
     **Reconciliation:** All components sum to total realized Wave alpha.
     """)
@@ -21442,26 +21442,26 @@ def render_wave_overview_new_tab():
         display_df['Data Age (days)'] = df['data_age_days']
         
         # Performance Columns - Returns
-        display_df['Return 1D'] = df['return_1d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
-        display_df['Return 30D'] = df['return_30d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
-        display_df['Return 60D'] = df['return_60d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
-        display_df['Return 365D'] = df['return_365d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['Return 1D'] = df['return_1d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
+        display_df['Return 30D'] = df['return_30d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
+        display_df['Return 60D'] = df['return_60d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
+        display_df['Return 365D'] = df['return_365d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
         
         # Performance Columns - Benchmark Returns
-        display_df['BM Return 1D'] = df['benchmark_return_1d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
-        display_df['BM Return 30D'] = df['benchmark_return_30d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
-        display_df['BM Return 60D'] = df['benchmark_return_60d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
-        display_df['BM Return 365D'] = df['benchmark_return_365d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['BM Return 1D'] = df['benchmark_return_1d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
+        display_df['BM Return 30D'] = df['benchmark_return_30d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
+        display_df['BM Return 60D'] = df['benchmark_return_60d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
+        display_df['BM Return 365D'] = df['benchmark_return_365d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
         
         # Performance Columns - Alpha
-        display_df['Alpha 1D'] = df['alpha_1d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
-        display_df['Alpha 30D'] = df['alpha_30d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
-        display_df['Alpha 60D'] = df['alpha_60d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
-        display_df['Alpha 365D'] = df['alpha_365d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
+        display_df['Alpha 1D'] = df['alpha_1d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "-")
+        display_df['Alpha 30D'] = df['alpha_30d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "-")
+        display_df['Alpha 60D'] = df['alpha_60d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "-")
+        display_df['Alpha 365D'] = df['alpha_365d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "-")
         
         # Risk/Diagnostics Columns
-        display_df['Beta'] = df['beta'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "—")
-        display_df['Max Drawdown'] = df['max_drawdown'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['Beta'] = df['beta'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+        display_df['Max Drawdown'] = df['max_drawdown'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
         display_df['Failed Tickers'] = df['failed_tickers_count']
         display_df['Primary Failure Reason'] = df['primary_failure_reason']
         
@@ -22243,13 +22243,13 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                                 
                                 st.metric(name, f"{trend} {ret_1d:+.1f}%")
                             else:
-                                st.metric(name, "—")
+                                st.metric(name, "-")
                                 st.caption("Pending")
                         else:
-                            st.metric(name, "—")
+                            st.metric(name, "-")
                             st.caption("N/A")
                     except Exception as e:
-                        st.metric(name, "—")
+                        st.metric(name, "-")
                         st.caption("Error")
         except Exception as e:
             st.warning("Market context will appear here")

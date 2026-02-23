@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 
-EM_DASH = "—"
+EM_DASH = "-"
 
 
 # ------------------------------------------------------------------
@@ -166,7 +166,7 @@ def _render_attribution_components(row: pd.Series, horizon_info: dict):
         allocation_col = _pick_first_existing(row, ["alpha_allocation", "alpha_rotation"])
         alpha_col = _pick_first_existing(row, ["alpha_intraday", "alpha_1d", "alpha_total"])
     else:
-        # 30D / 60D / 365D — ALWAYS prefer suffixed
+        # 30D / 60D / 365D - ALWAYS prefer suffixed
         residual_col = _pick_first_existing(
             row,
             [f"alpha_residual_{suffix}", "alpha_stock_selection"],

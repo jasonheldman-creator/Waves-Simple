@@ -8,7 +8,7 @@ import pandas as pd
 
 
 # ============================================================
-# CORE COMPONENTS (INLINED — VERBATIM LOGIC)
+# CORE COMPONENTS (INLINED - VERBATIM LOGIC)
 # ============================================================
 
 def compute_total_alpha(

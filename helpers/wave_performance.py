@@ -1,5 +1,5 @@
 # ============================================================================
-# INTRADAY-AWARE PRICE BOOK (24/7 — INSTITUTIONAL SAFE)
+# INTRADAY-AWARE PRICE BOOK (24/7 - INSTITUTIONAL SAFE)
 # ============================================================================
 
 import pandas as pd

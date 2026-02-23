@@ -14,5 +14,5 @@ st.write("Reached top of app.py")
 # CONFIGURATION
 # ============================================================================
 
-PAGE_TITLE = "WAVES Intelligence™ — Minimal Console v1"
+PAGE_TITLE = "WAVES Intelligence™ - Minimal Console v1"
 DATA_FILE = "live_snapshot.csv"

@@ -1,6 +1,6 @@
 """
 patch_waves_ic_scores_only.py
-WAVES IC: Convert letter-grade tiles (A–F) into 0–100 score tiles WITHOUT rewriting app.py.
+WAVES IC: Convert letter-grade tiles (A-F) into 0-100 score tiles WITHOUT rewriting app.py.
 
 What it changes (display-only):
 - "Benchmark Fit" big letter -> big numeric score (e.g., 53.7/100)
@@ -54,7 +54,7 @@ def main():
     applied_any = False
 
     # ------------------------------------------------------------
-    # FIX A — Benchmark Fit tile: replace letter-grade value with numeric score
+    # FIX A - Benchmark Fit tile: replace letter-grade value with numeric score
     #
     # Targets a common pattern like:
     #   tile("Benchmark Fit", beta_fit_grade, f"BetaRel {beta_score:.1f}/100 ...")
@@ -78,7 +78,7 @@ tile\(\s*["']Benchmark\s+Fit["']\s*,\s*
     applied_any = applied_any or ok
 
     # ------------------------------------------------------------
-    # FIX B — Beta Reliability tile: replace letter-grade value with numeric score
+    # FIX B - Beta Reliability tile: replace letter-grade value with numeric score
     #
     # Targets:
     #   tile("Beta Reliability", beta_grade, f"{beta_score:.1f}/100 · β ...")
@@ -101,7 +101,7 @@ tile\(\s*["']Beta\s+Reliability["']\s*,\s*
     applied_any = applied_any or ok
 
     # ------------------------------------------------------------
-    # FIX C — Analytics Grade tile: label -> Analytics Score, value -> numeric score
+    # FIX C - Analytics Grade tile: label -> Analytics Score, value -> numeric score
     #
     # Targets:
     #   tile("Analytics Grade", grade_letter, f"{risk_score:.1f}/100 RISK")
@@ -124,7 +124,7 @@ tile\(\s*["']Analytics\s+Grade["']\s*,\s*
     applied_any = applied_any or ok
 
     # ------------------------------------------------------------
-    # FIX D — Optional: any st.metric("... Grade", "A", ".../100") -> numeric
+    # FIX D - Optional: any st.metric("... Grade", "A", ".../100") -> numeric
     # (Some builds use st.metric instead of tile)
     # ------------------------------------------------------------
     fixD_pattern = r"""
@@ -152,7 +152,7 @@ st\.metric\(\s*["']Analytics\s+Grade["']\s*,\s*
         )
 
     APP_PATH.write_text(src, encoding="utf-8")
-    print("\n✅ DONE. app.py patched to show 0–100 scores (no A–F letters) for the main tiles.\n")
+    print("\n✅ DONE. app.py patched to show 0-100 scores (no A-F letters) for the main tiles.\n")
     print("Next: redeploy / rerun Streamlit. If anything looks off, restore from the .bak_ file created above.")
 
 if __name__ == "__main__":

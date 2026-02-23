@@ -127,17 +127,17 @@ def main():
     
     if cache_is_fresh and not has_changes:
         # Fresh + unchanged → SUCCESS (no commit)
-        print('✓ PASS: Fresh but unchanged — no commit needed')
+        print('✓ PASS: Fresh but unchanged - no commit needed')
         set_workflow_output('should_commit', 'false')
         set_workflow_output('workflow_status', 'success')
-        set_workflow_output('message', 'Fresh but unchanged — no commit needed')
+        set_workflow_output('message', 'Fresh but unchanged - no commit needed')
         return 0
     elif cache_is_fresh and has_changes:
         # Fresh + changed → SUCCESS (commit)
-        print('✓ PASS: Fresh and changed — will commit updates')
+        print('✓ PASS: Fresh and changed - will commit updates')
         set_workflow_output('should_commit', 'true')
         set_workflow_output('workflow_status', 'success')
-        set_workflow_output('message', 'Fresh and changed — committing updates')
+        set_workflow_output('message', 'Fresh and changed - committing updates')
         return 0
     elif not cache_is_fresh and not has_changes:
         # Stale + unchanged → FAIL
@@ -148,10 +148,10 @@ def main():
         return 1
     else:
         # Stale + changed → SUCCESS (commit stale data that was updated)
-        print('✓ PASS: Stale but changed — will commit updates')
+        print('✓ PASS: Stale but changed - will commit updates')
         set_workflow_output('should_commit', 'true')
         set_workflow_output('workflow_status', 'success')
-        set_workflow_output('message', 'Stale but changed — committing updates')
+        set_workflow_output('message', 'Stale but changed - committing updates')
         return 0
 
 

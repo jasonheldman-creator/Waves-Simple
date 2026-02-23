@@ -1,5 +1,5 @@
 # alpha_heat_index.py
-# WAVES Intelligence™ — Alpha Heat Index (AHI)
+# WAVES Intelligence™ - Alpha Heat Index (AHI)
 # Console-layer analytic only (NO engine changes)
 
 from __future__ import annotations

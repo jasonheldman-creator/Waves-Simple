@@ -1,6 +1,6 @@
 """
 build_wave_history_csv.py
-WAVES Intelligence™ — Canonical Wave History Builder
+WAVES Intelligence™ - Canonical Wave History Builder
 
 PURPOSE
 -------

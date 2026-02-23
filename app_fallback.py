@@ -30,14 +30,14 @@ def run():
             margin-bottom: 20px;
             border: 2px solid #cc6600;
         ">
-            <h2 style="margin: 0;">⚠️ SAFE MODE (fallback) — real console did not load.</h2>
+            <h2 style="margin: 0;">⚠️ SAFE MODE (fallback) - real console did not load.</h2>
             <p style="margin: 10px 0 0 0;">You are viewing a simplified version of the Institutional Console.</p>
         </div>
         """, unsafe_allow_html=True)
         st.session_state.safe_mode_banner_shown_fallback = True
     else:
         # Show smaller banner on subsequent displays
-        st.warning("⚠️ SAFE MODE (fallback) — real console did not load.")
+        st.warning("⚠️ SAFE MODE (fallback) - real console did not load.")
     
     # Collapsible section showing root cause
     with st.expander("🔍 View Root Cause", expanded=False):

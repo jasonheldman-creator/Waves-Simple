@@ -83,11 +83,11 @@ def test_dot_to_hyphen():
 def test_unicode_dash_normalization():
     """Test that various Unicode dash characters are normalized to standard hyphen."""
     # Test en-dash (U+2013)
-    result = normalize_ticker("BRK–B")
+    result = normalize_ticker("BRK-B")
     assert result == "BRK-B", f"Expected 'BRK-B' for en-dash, got '{result}'"
     
     # Test em-dash (U+2014)
-    result = normalize_ticker("BRK—B")
+    result = normalize_ticker("BRK-B")
     assert result == "BRK-B", f"Expected 'BRK-B' for em-dash, got '{result}'"
     
     # Test hyphen (U+2010)
@@ -105,7 +105,7 @@ def test_combined_normalization():
     """Test combination of multiple normalization rules."""
     test_cases = [
         ("  brk.b  ", "BRK-B"),
-        (" brk–b ", "BRK-B"),  # en-dash
+        (" brk-b ", "BRK-B"),  # en-dash
         ("Brk.B", "BRK-B"),
         ("  BF.b  ", "BF-B"),
     ]

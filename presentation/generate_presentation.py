@@ -212,7 +212,7 @@ class WavesPresentation:
         p.font.color.rgb = self.COLORS['text_dim']
         p.font.italic = True
         
-        self.add_notes(slide, """Good afternoon. I'm Vector, your guide to WAVES Intelligence. Over the next seven to nine minutes, I'll walk you through our institutional-grade portfolio analytics platform—designed specifically for sophisticated investors who demand transparency, precision, and governance-ready insights.
+        self.add_notes(slide, """Good afternoon. I'm Vector, your guide to WAVES Intelligence. Over the next seven to nine minutes, I'll walk you through our institutional-grade portfolio analytics platform-designed specifically for sophisticated investors who demand transparency, precision, and governance-ready insights.
 
 WAVES Intelligence represents a fundamental shift in how institutions understand and explain portfolio performance. This isn't just another analytics dashboard. It's a complete decision-making ecosystem built on three core principles: no-predict constraints, deterministic outputs, and architectural transparency.""")
         
@@ -228,7 +228,7 @@ WAVES Intelligence represents a fundamental shift in how institutions understand
         )
         
         self.add_vector_branding(slide)
-        self.add_notes(slide, """Traditional portfolio analytics platforms present a challenge. They often deliver attribution reports that are opaque, difficult to validate, and unreliable under changing market regimes. Institutional investors need more than backward-looking performance metrics—they need governance-grade truth outputs that explain exactly where returns come from, under what conditions they persist, and what risks threaten their durability.
+        self.add_notes(slide, """Traditional portfolio analytics platforms present a challenge. They often deliver attribution reports that are opaque, difficult to validate, and unreliable under changing market regimes. Institutional investors need more than backward-looking performance metrics-they need governance-grade truth outputs that explain exactly where returns come from, under what conditions they persist, and what risks threaten their durability.
 
 Most platforms optimize for prediction. WAVES Intelligence takes a different approach. We embrace a no-predict constraint, focusing instead on deterministic, explainable insights that boards and oversight committees can actually use.""")
         
@@ -238,23 +238,23 @@ Most platforms optimize for prediction. WAVES Intelligence takes a different app
         self.add_title(slide, "WAVES Intelligence™ Platform Architecture")
         
         points = [
-            "Alpha Attribution — Vector Truth Layer with regime awareness",
-            "Performance Deep Dive — Comprehensive wave tracking & metrics",
-            "Decision Ledger — Governance layer with audit trail",
-            "Board-Ready Reporting — Institutional PDF board packs"
+            "Alpha Attribution - Vector Truth Layer with regime awareness",
+            "Performance Deep Dive - Comprehensive wave tracking & metrics",
+            "Decision Ledger - Governance layer with audit trail",
+            "Board-Ready Reporting - Institutional PDF board packs"
         ]
         self.add_bullet_points(slide, points)
         
         self.add_vector_branding(slide)
         self.add_notes(slide, """WAVES Intelligence provides four integrated capabilities:
 
-First, Alpha Attribution—our Vector Truth Layer decomposes returns into structural effects and residual strategy returns, with complete regime awareness.
+First, Alpha Attribution-our Vector Truth Layer decomposes returns into structural effects and residual strategy returns, with complete regime awareness.
 
-Second, Performance Deep Dive—comprehensive wave performance charts, metrics, and historical tracking with synthetic data support for seamless onboarding.
+Second, Performance Deep Dive-comprehensive wave performance charts, metrics, and historical tracking with synthetic data support for seamless onboarding.
 
-Third, Decision Ledger—a governance layer that tracks every decision, contract, and oversight action, creating an immutable audit trail.
+Third, Decision Ledger-a governance layer that tracks every decision, contract, and oversight action, creating an immutable audit trail.
 
-And fourth, Board-Ready Reporting—institutional PDF board packs that translate complex analytics into clear, actionable narratives.
+And fourth, Board-Ready Reporting-institutional PDF board packs that translate complex analytics into clear, actionable narratives.
 
 Each component is built on the Wave ID system, our canonical identifier framework that ensures data integrity across all analytics.""")
         
@@ -290,13 +290,13 @@ The Wave ID architecture ensures backward compatibility, so legacy data integrat
         )
         
         self.add_vector_branding(slide)
-        self.add_notes(slide, """Let me explain the Vector Truth Layer—our attribution engine.
+        self.add_notes(slide, """Let me explain the Vector Truth Layer-our attribution engine.
 
 Traditional attribution tells you what happened. Vector Truth tells you why it happened, with governance-ready reliability signals.
 
 We separate returns into two categories: structural effects and residual strategy returns.
 
-Structural effects include capital preservation overlays—VIX regime controls, SmartSafe gating—and benchmark construction offsets. These are non-alpha by design. They're governance controls.
+Structural effects include capital preservation overlays-VIX regime controls, SmartSafe gating-and benchmark construction offsets. These are non-alpha by design. They're governance controls.
 
 Residual strategy returns reflect timing, exposure scaling, volatility control, and regime management after those structural overlays. We don't attribute these to asset selection or static weights. We show them as integrated strategy decisions.
 
@@ -324,13 +324,13 @@ This separation is critical. It prevents alpha inflation, ensures intellectual h
 
 Imagine a Wave delivers eight percent total excess return over its benchmark. Vector Truth decomposes this into:
 
-Security selection alpha of five percent—the exposure-adjusted return from strategic positioning.
+Security selection alpha of five percent-the exposure-adjusted return from strategic positioning.
 
-Exposure management alpha of two percent—gains from timing and scaling decisions.
+Exposure management alpha of two percent-gains from timing and scaling decisions.
 
-Capital preservation effect of one and a half percent—the structural benefit from VIX overlays and regime-aware cash sweeps.
+Capital preservation effect of one and a half percent-the structural benefit from VIX overlays and regime-aware cash sweeps.
 
-And a benchmark construction offset of negative point five percent—the expected structural drag from benchmark composition choices.
+And a benchmark construction offset of negative point five percent-the expected structural drag from benchmark composition choices.
 
 Notice how the structural components largely offset. That's intentional. The residual strategy return of seven point five percent is what's truly alpha-eligible after governance controls.
 
@@ -350,7 +350,7 @@ Vector Truth provides this breakdown with full regime attribution, showing how m
         self.add_vector_branding(slide)
         self.add_notes(slide, """Regime attribution is essential for assessing durability.
 
-Vector Truth tracks every return period's market regime—risk-on or risk-off—based on VIX levels and volatility signals.
+Vector Truth tracks every return period's market regime-risk-on or risk-off-based on VIX levels and volatility signals.
 
 We then show cumulative alpha earned in each regime. If a strategy delivers four percent alpha in risk-on and three percent in risk-off, that's balanced. It suggests resilience.
 
@@ -374,7 +374,7 @@ Boards need to know this. Traditional attribution hides it. Vector Truth surface
         self.add_vector_branding(slide)
         self.add_notes(slide, """The Decision Ledger provides governance accountability.
 
-Every portfolio decision—entry, exit, rebalance—is logged with timestamp, wave identifier, and rationale. Every alpha contract—the expected return profile and risk parameters—is recorded at inception.
+Every portfolio decision-entry, exit, rebalance-is logged with timestamp, wave identifier, and rationale. Every alpha contract-the expected return profile and risk parameters-is recorded at inception.
 
 The Ledger tracks outcome reconciliation. Did the wave deliver on its contract? If not, why not? Was it regime conditions? Execution friction? Strategy drift?
 
@@ -402,7 +402,7 @@ This is governance-native design. It treats compliance, transparency, and oversi
         self.add_vector_branding(slide)
         self.add_notes(slide, """The Performance Deep Dive console provides real-time visibility into every Wave.
 
-You see historical return charts with regime overlays—shaded regions indicating risk-on versus risk-off periods.
+You see historical return charts with regime overlays-shaded regions indicating risk-on versus risk-off periods.
 
 You see rolling alpha metrics, drawdown analysis, and volatility tracking, all benchmarked against governed composite indices.
 
@@ -492,7 +492,7 @@ The system is built on Python and Streamlit, with deployment via Vercel for inst
 
 The data pipeline is idempotent and transactional. You can run data updates multiple times safely. Backups are automatic. Rollback is straightforward.
 
-For institutions with existing data warehouses, we provide schema documentation and migration scripts. The Wave ID registry is extensible—add new Waves, define custom benchmarks, configure attribution rules.
+For institutions with existing data warehouses, we provide schema documentation and migration scripts. The Wave ID registry is extensible-add new Waves, define custom benchmarks, configure attribution rules.
 
 Our implementation team works with your data governance and compliance teams to ensure WAVES Intelligence meets your specific institutional requirements.""")
         
@@ -556,7 +556,7 @@ Our implementation team works with your data governance and compliance teams to 
             Inches(3), Inches(4.8), Inches(4), Inches(0.4)
         )
         text_frame = sig_box.text_frame
-        text_frame.text = "— Vector™"
+        text_frame.text = "- Vector™"
         
         p = text_frame.paragraphs[0]
         p.alignment = PP_ALIGN.CENTER
@@ -566,7 +566,7 @@ Our implementation team works with your data governance and compliance teams to 
         
         self.add_notes(slide, """Thank you for your time today.
 
-To summarize: WAVES Intelligence delivers governance-grade portfolio attribution, real-time risk monitoring, and board-ready reporting—all built on a transparent, deterministic architecture that respects institutional oversight requirements.
+To summarize: WAVES Intelligence delivers governance-grade portfolio attribution, real-time risk monitoring, and board-ready reporting-all built on a transparent, deterministic architecture that respects institutional oversight requirements.
 
 We don't predict. We explain. We don't optimize in black boxes. We surface truth outputs with reliability signals.
 

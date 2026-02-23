@@ -24,11 +24,11 @@ def example_alpha_attribution_tab():
     st.markdown("""
     **Precise, reconciled decomposition of Wave alpha into five components:**
     
-    1️⃣ **Exposure & Timing Alpha** — Dynamic exposure scaling and entry/exit timing  
-    2️⃣ **Regime & VIX Overlay Alpha** — VIX gating and risk-off defensive positioning  
-    3️⃣ **Momentum & Trend Alpha** — Momentum-based weight tilting and trend following  
-    4️⃣ **Volatility & Risk Control Alpha** — Volatility targeting and drawdown limits  
-    5️⃣ **Asset Selection Alpha** — Security selection and portfolio construction (residual)
+    1️⃣ **Exposure & Timing Alpha** - Dynamic exposure scaling and entry/exit timing  
+    2️⃣ **Regime & VIX Overlay Alpha** - VIX gating and risk-off defensive positioning  
+    3️⃣ **Momentum & Trend Alpha** - Momentum-based weight tilting and trend following  
+    4️⃣ **Volatility & Risk Control Alpha** - Volatility targeting and drawdown limits  
+    5️⃣ **Asset Selection Alpha** - Security selection and portfolio construction (residual)
     
     **Reconciliation Enforced:** All components sum exactly to realized Wave alpha.
     """)
@@ -227,7 +227,7 @@ def main():
     """
     st.set_page_config(page_title="Alpha Attribution Demo", layout="wide")
     
-    st.title("🌊 WAVES Intelligence™ — Alpha Attribution")
+    st.title("🌊 WAVES Intelligence™ - Alpha Attribution")
     
     # In actual app.py, this would be one tab among many:
     # tabs = st.tabs(["Overview", "Performance", "Alpha Attribution", "Diagnostics"])
@@ -239,7 +239,7 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.caption("WAVES Intelligence™ Alpha Attribution Engine v1.0 — Governance-Ready Attribution")
+    st.caption("WAVES Intelligence™ Alpha Attribution Engine v1.0 - Governance-Ready Attribution")
 
 
 if __name__ == "__main__":

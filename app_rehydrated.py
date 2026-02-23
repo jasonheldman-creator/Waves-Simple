@@ -1,5 +1,5 @@
 """
-app_rehydrated.py — WAVES full application entrypoint
+app_rehydrated.py - WAVES full application entrypoint
 
 This file replaces app.py as the operational Streamlit entrypoint.
 It assumes:

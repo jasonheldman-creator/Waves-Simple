@@ -1,5 +1,5 @@
 # build_alpha_attribution_csv.py
-# WAVES Intelligence — Alpha Source Attribution Builder
+# WAVES Intelligence - Alpha Source Attribution Builder
 # PURPOSE: Generate long-format alpha source attribution (schema-tolerant)
 # OUTPUT: data/alpha_attribution_summary.csv
 # STATUS: FINAL / INSTITUTIONAL SAFE

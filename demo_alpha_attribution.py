@@ -30,7 +30,7 @@ def load_wave_history():
 def demo_attribution_table():
     """Generate a demonstration attribution table."""
     print("\n" + "="*120)
-    print("ALPHA ATTRIBUTION DEMONSTRATION — Wave-Level Decomposition")
+    print("ALPHA ATTRIBUTION DEMONSTRATION - Wave-Level Decomposition")
     print("="*120)
     
     # Load existing wave history

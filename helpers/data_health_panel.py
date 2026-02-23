@@ -173,9 +173,9 @@ def render_data_health_panel():
             
             # Display error/warning banner if needed
             if not file_exists or is_empty:
-                st.error(f"⚠️ PRICE_BOOK EMPTY – portfolio + alphas will be N/A. Check cache file: {CACHE_PATH}")
+                st.error(f"⚠️ PRICE_BOOK EMPTY - portfolio + alphas will be N/A. Check cache file: {CACHE_PATH}")
             elif is_stale:
-                st.warning(f"⚠️ PRICE_BOOK DATA STALE – Last updated: {debug_summary['end_date']} ({days_old} days old)")
+                st.warning(f"⚠️ PRICE_BOOK DATA STALE - Last updated: {debug_summary['end_date']} ({days_old} days old)")
             else:
                 st.success("✅ PRICE_BOOK loaded successfully and up-to-date")
         

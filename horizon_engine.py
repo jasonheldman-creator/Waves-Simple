@@ -1,5 +1,5 @@
 """
-horizon_engine.py — Canonical Horizon Normalization (LIVE SAFE)
+horizon_engine.py - Canonical Horizon Normalization (LIVE SAFE)
 
 Purpose:
 • Define canonical return/alpha horizons

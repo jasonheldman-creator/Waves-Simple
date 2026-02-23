@@ -1,5 +1,5 @@
 # scripts/generate_live_snapshot_csv.py
-# WAVES Intelligence™ — Canonical Live Snapshot Generator
+# WAVES Intelligence™ - Canonical Live Snapshot Generator
 # PURPOSE:
 # Produce a UI-safe, attribution-complete live_snapshot.csv every run
 
@@ -72,7 +72,7 @@ def build_snapshot_row(wave_name: str, asof: str) -> dict:
         "alpha_365d": np.nan,
     }
 
-    # Attribution drivers — MUST EXIST for UI
+    # Attribution drivers - MUST EXIST for UI
     for col in ATTRIBUTION_COLUMNS:
         row[col] = np.nan
 
