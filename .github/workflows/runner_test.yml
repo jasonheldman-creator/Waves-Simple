@@ -1,0 +1,17 @@
+name: Runner Test
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Confirm Runner Works
+        run: echo "Runner successfully started"
