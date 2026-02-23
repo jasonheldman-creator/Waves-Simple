@@ -1,10 +1,8 @@
-import streamlit as st
+# WAVES Intelligence™ Console
+# Canonical entrypoint launcher
+# Maintains CI integrity and deployment stability
 
-st.set_page_config(page_title="WAVES Intelligence", layout="wide")
+from app_min import main   # change to app_main if applicable
 
-st.write("WAVES Intelligence™ console is starting…")
-
-
-# Existing imports and code below
-
-# ... (rest of the original app.py code goes here)
+if __name__ == "__main__":
+    main()
