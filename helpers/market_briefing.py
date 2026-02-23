@@ -10,6 +10,25 @@ from helpers.market_data import (
     SECTOR_TICKERS,
 )
 
+_SCHEMA_STATUS_OK = "ok"
+_SCHEMA_STATUS_UNAVAILABLE = "unavailable"
+
+
+def _wrap(data, status=_SCHEMA_STATUS_OK, message=""):
+    """Wrap a data dict in the standard return schema.
+
+    Non-dict data is silently coerced to an empty dict to ensure callers always
+    receive a valid schema structure even under unexpected conditions.
+    """
+    return {"status": status, "data": data if isinstance(data, dict) else {}, "message": message}
+
+
+def _maybe_unwrap(d):
+    """Return the data payload from a wrapped result, or the dict itself."""
+    if isinstance(d, dict) and "status" in d and "data" in d:
+        return d.get("data", {})
+    return d if isinstance(d, dict) else {}
+
 _SECTOR_NAMES = {
     "XLK": "Technology",
     "XLF": "Financials",
@@ -98,26 +117,100 @@ def compute_strength_score(prices_or_dict, days=None):
     return round(max(0.0, min(100.0, score)), 2)
 
 
-def compute_regime_structure(prices):
-    """Return regime structure dict."""
+def compute_regime_structure(prices, regime=None, vol_assess=None, breadth_assess=None, rates_assess=None):
+    """Return detailed regime structure dict wrapped in standard schema.
+
+    Accepts optional precomputed assessments for enriched output.
+    """
+    _fallback = {
+        "regime_stability": "Transitional", "regime_stability_note": "Insufficient data.",
+        "trend_persistence": "Moderate", "trend_persistence_note": "Insufficient data.",
+        "volatility_regime": "Neutral", "volatility_regime_note": "Insufficient data.",
+        "macro_alignment": "Mixed", "macro_alignment_note": "Insufficient data.",
+        "regime": "Unknown", "description": "Insufficient data.", "confidence": "Low",
+    }
     if not prices:
-        return {"regime": "Unknown", "description": "Insufficient data.", "confidence": "Low"}
-    spy = _safe_prices(prices, "SPY")
-    if not spy:
-        return {"regime": "Unknown", "description": "SPY data unavailable.", "confidence": "Low"}
-    above_ma = compute_above_ma(spy, 50)
-    vol = compute_realized_vol(spy)
-    if above_ma and vol < 0.20:
-        return {"regime": "Bull/Low-Vol", "description": "Trending above 50-day MA with low volatility.", "confidence": "Medium"}
-    if not above_ma and vol > 0.25:
-        return {"regime": "Bear/High-Vol", "description": "Below 50-day MA with elevated volatility.", "confidence": "Medium"}
-    return {"regime": "Transitional", "description": "Mixed signals across trend and volatility.", "confidence": "Low"}
+        return _wrap(_fallback, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
+
+    # Unwrap assessment inputs if schema-wrapped
+    vol = _maybe_unwrap(vol_assess) if vol_assess is not None else {}
+    breadth = _maybe_unwrap(breadth_assess) if breadth_assess is not None else {}
+    rates = _maybe_unwrap(rates_assess) if rates_assess is not None else {}
+
+    # Regime stability: based on vol stress + breadth participation
+    stress = vol.get("stress_level", "Moderate")
+    breadth_class = breadth.get("classification", "Mixed")
+    if stress == "Low" and breadth_class == "Broad":
+        regime_stability = "Stable"
+        rs_note = "Low volatility with broad participation."
+    elif stress == "Elevated" or breadth_class == "Narrow":
+        regime_stability = "Unstable"
+        rs_note = "Elevated stress or narrow breadth detected."
+    else:
+        regime_stability = "Transitional"
+        rs_note = "Mixed signals across volatility and participation."
+
+    # Trend persistence: based on vol trend
+    vol_trend = vol.get("trend", "Stable")
+    if vol_trend == "Subsiding":
+        trend_persistence = "Strong"
+        tp_note = "Subsiding volatility supports trend continuation."
+    elif vol_trend == "Rising":
+        trend_persistence = "Weak"
+        tp_note = "Rising volatility may disrupt trend structure."
+    else:
+        trend_persistence = "Moderate"
+        tp_note = "Stable volatility; trend conditions neutral."
+
+    # Volatility regime label
+    vol_regime = vol.get("regime", "Neutral")
+    if vol_regime == "Compression":
+        vr_state = "Compression"
+        vr_note = "Volatility compressed below historical norms."
+    elif vol_regime in ("Expansion", "Exhaustion"):
+        vr_state = "Expansion"
+        vr_note = "Volatility expanding; exercise caution."
+    else:
+        vr_state = "Neutral"
+        vr_note = "Volatility within normal range."
+
+    # Macro alignment: regime vs breadth + rates
+    regime_str = regime if isinstance(regime, str) else "Transitional"
+    rates_trend = rates.get("rates_trend", "Unknown")
+    if regime_str == "Risk-On" and breadth_class in ("Broad", "Mixed"):
+        macro_alignment = "Aligned"
+        ma_note = "Regime and participation signals in sync."
+    elif regime_str == "Risk-Off" or breadth_class == "Narrow":
+        macro_alignment = "Diverging"
+        ma_note = "Risk-off or narrow breadth signals divergence."
+    else:
+        macro_alignment = "Mixed"
+        ma_note = "Partial macro signal alignment."
+
+    return _wrap({
+        "regime_stability": regime_stability,
+        "regime_stability_note": rs_note,
+        "trend_persistence": trend_persistence,
+        "trend_persistence_note": tp_note,
+        "volatility_regime": vr_state,
+        "volatility_regime_note": vr_note,
+        "macro_alignment": macro_alignment,
+        "macro_alignment_note": ma_note,
+        "regime": regime_str,
+        "description": f"Regime: {regime_str}. Stability: {regime_stability}.",
+        "confidence": "Medium" if regime_stability != "Transitional" else "Low",
+    })
 
 
 def compute_directional_agreement(prices):
-    """Return agreement score across tickers."""
+    """Return agreement score across tickers wrapped in standard schema."""
+    _fallback = {
+        "agreement_score": 0.0, "agreement": "Conflicted", "direction": "Neutral",
+        "orientation": "Insufficient data to assess directional agreement.",
+        "tickers_up": 0, "tickers_down": 0,
+    }
     if not prices:
-        return {"agreement_score": 0.0, "direction": "Neutral", "tickers_up": 0, "tickers_down": 0}
+        return _wrap(_fallback, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
     up = down = 0
     for series in prices.values():
         if isinstance(series, list) and len(series) >= 2:
@@ -128,31 +221,148 @@ def compute_directional_agreement(prices):
     total = up + down or 1
     agreement_score = round(max(up, down) / total, 3)
     direction = "Bullish" if up > down else ("Bearish" if down > up else "Neutral")
-    return {"agreement_score": agreement_score, "direction": direction,
-            "tickers_up": up, "tickers_down": down}
+
+    if agreement_score >= 0.7:
+        agreement = "Strong"
+    elif agreement_score >= 0.5:
+        agreement = "Moderate"
+    else:
+        agreement = "Conflicted"
+
+    orientation = (
+        f"{direction} bias with {agreement.lower()} cross-asset agreement "
+        f"({agreement_score:.0%} of tickers aligned)."
+    )
+    return _wrap({
+        "agreement_score": agreement_score,
+        "agreement": agreement,
+        "direction": direction,
+        "orientation": orientation,
+        "tickers_up": up,
+        "tickers_down": down,
+    })
 
 
-def compute_decision_implications(regime_dict):
-    """Return decision implication dict based on regime."""
-    regime = (regime_dict or {}).get("regime", "Unknown")
-    if "Bull" in regime:
-        return {"implication": "Favour risk-on positioning.", "action_bias": "Accumulate", "risk_level": "Low"}
-    if "Bear" in regime:
-        return {"implication": "Reduce exposure; favour defensive assets.", "action_bias": "Reduce", "risk_level": "High"}
-    return {"implication": "Hold current allocations pending clarity.", "action_bias": "Hold", "risk_level": "Medium"}
+def compute_decision_implications(regime_or_dict, vol_assess=None, breadth_assess=None, rates_assess=None):
+    """Return decision implication dict based on regime and market context wrapped in standard schema.
+
+    Accepts either a regime string or a legacy regime dict as the first argument.
+    """
+    _fallback = {
+        "portfolio": ["Hold current allocations pending clarity."],
+        "strategy": ["Monitor conditions."],
+        "decision": ["All observations are informational only. No execution is implied."],
+        "implication": "Hold current allocations pending clarity.",
+        "action_bias": "Hold", "risk_level": "Medium",
+    }
+    # Handle both old (regime_dict) and new (regime_str + kwargs) calling conventions
+    if isinstance(regime_or_dict, str):
+        regime = regime_or_dict
+    elif isinstance(regime_or_dict, dict):
+        regime = regime_or_dict.get("regime", "Unknown")
+    else:
+        return _wrap(_fallback, _SCHEMA_STATUS_UNAVAILABLE, "Invalid regime input.")
+
+    vol = _maybe_unwrap(vol_assess) if vol_assess is not None else {}
+    breadth = _maybe_unwrap(breadth_assess) if breadth_assess is not None else {}
+    rates = _maybe_unwrap(rates_assess) if rates_assess is not None else {}
+
+    stress = vol.get("stress_level", "Moderate")
+    breadth_class = breadth.get("classification", "Mixed")
+    rates_trend = rates.get("rates_trend", "Unknown")
+    credit = rates.get("credit_condition", "—")
+
+    # Portfolio implications
+    portfolio = []
+    if regime == "Risk-On":
+        portfolio.append("Current conditions are consistent with sustained risk-on positioning.")
+    elif regime == "Risk-Off":
+        portfolio.append("Risk-off conditions may warrant defensive posture.")
+    else:
+        portfolio.append("Transitional conditions suggest monitoring positions closely.")
+    if stress == "Elevated":
+        portfolio.append("Elevated volatility environment observed.")
+    elif stress == "Low":
+        portfolio.append("Low volatility environment observed.")
+
+    # Strategy environment
+    strategy = []
+    if breadth_class == "Broad":
+        strategy.append("Broad participation supports trend-following approaches.")
+    elif breadth_class == "Narrow":
+        strategy.append("Narrow breadth may challenge momentum strategies.")
+    else:
+        strategy.append("Mixed breadth — regime-aware positioning recommended.")
+    if rates_trend == "Falling":
+        strategy.append("Rate tailwinds may benefit duration-sensitive positions.")
+    elif rates_trend == "Rising":
+        strategy.append("Rate headwinds may impact duration-sensitive positions.")
+
+    # Decision environment
+    decision = []
+    if credit == "Tightening":
+        decision.append("Credit conditions are constructive.")
+    elif credit == "Widening":
+        decision.append("Credit spread widening observed.")
+    else:
+        decision.append("Credit conditions are stable.")
+    decision.append("All observations are informational only. No execution is implied.")
+
+    return _wrap({
+        "portfolio": portfolio,
+        "strategy": strategy,
+        "decision": decision,
+        "implication": portfolio[0] if portfolio else "Hold current allocations.",
+        "action_bias": "Accumulate" if regime == "Risk-On" else ("Reduce" if regime == "Risk-Off" else "Hold"),
+        "risk_level": "Low" if stress == "Low" else ("High" if stress == "Elevated" else "Medium"),
+    })
 
 
-def compute_structural_signals(prices):
-    """Return structural signals dict."""
-    signals = []
-    if prices:
-        for ticker, series in prices.items():
-            if isinstance(series, list) and len(series) >= 50:
-                above = compute_above_ma(series)
-                signals.append({"ticker": ticker, "above_ma50": above,
-                                 "signal": "Trend +" if above else "Trend -"})
-    summary = f"{sum(1 for s in signals if s.get('above_ma50'))} of {len(signals)} tickers above 50-day MA."
-    return {"signals": signals, "summary": summary}
+def compute_structural_signals(prices, vol_assess=None, rates_assess=None):
+    """Return structural market signals as a list of (label, state, note) tuples wrapped in standard schema."""
+    vol = _maybe_unwrap(vol_assess) if vol_assess is not None else {}
+    rates = _maybe_unwrap(rates_assess) if rates_assess is not None else {}
+
+    items = []
+
+    # Credit spread signal
+    credit_cond = rates.get("credit_condition", "Stable")
+    if credit_cond == "Widening":
+        items.append(("Credit Spreads", "Widening", "Potential stress in credit markets."))
+    elif credit_cond == "Tightening":
+        items.append(("Credit Spreads", "Tightening", "Constructive credit conditions."))
+    else:
+        items.append(("Credit Spreads", "Stable", "Credit conditions within normal range."))
+
+    # Volatility structure signal
+    vol_regime = vol.get("regime", "Neutral")
+    vol_trend = vol.get("trend", "Stable")
+    if vol_regime == "Compression":
+        items.append(("Volatility Structure", "Low", "Vol compressed; tailwind for trend strategies."))
+    elif vol_regime in ("Expansion", "Exhaustion"):
+        items.append(("Volatility Structure", "Elevated", "Vol expanding; monitor risk levels."))
+    else:
+        items.append(("Volatility Structure", "Neutral", f"Vol trend: {vol_trend}."))
+
+    # Yield curve signal
+    curve = rates.get("curve_proxy", "—")
+    if curve == "Steepening":
+        items.append(("Yield Curve", "Steepening", "Potential reflation or growth re-pricing."))
+    elif curve == "Flattening":
+        items.append(("Yield Curve", "Flattening", "Caution: potential growth deceleration signal."))
+    elif curve == "Stable":
+        items.append(("Yield Curve", "Stable", "Curve shape stable; no structural shift detected."))
+    else:
+        items.append(("Yield Curve", "Data unavailable", "Yield curve data not loaded."))
+
+    # Cross-asset agreement signal
+    cross_agree = vol.get("cross_asset_agreement", "Unknown")
+    if cross_agree == "Aligned":
+        items.append(("Cross-Asset Signals", "Stable", "Volatility alignment across asset classes."))
+    else:
+        items.append(("Cross-Asset Signals", "Neutral", "Divergent or unknown cross-asset signals."))
+
+    return _wrap({"items": items})
 
 
 def compute_horizon_explanation(period_or_prices, days=None, label=None):
@@ -184,11 +394,12 @@ def compute_horizon_explanation(period_or_prices, days=None, label=None):
 
 
 def compute_volatility_stress_assessment(prices):
-    """Return volatility stress assessment dict."""
+    """Return volatility stress assessment dict wrapped in standard schema."""
+    _fallback = {"level": "Unknown", "score": 0.0, "description": "No price data available.",
+                 "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
+                 "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": "Unknown"}
     if not prices:
-        return {"level": "Unknown", "score": 0.0, "description": "No price data available.",
-                "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
-                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": "Unknown"}
+        return _wrap(_fallback, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
     vols = []
     vov_readings = []
     dd_readings = []
@@ -199,9 +410,10 @@ def compute_volatility_stress_assessment(prices):
             vov_readings.append(compute_vol_of_vol(series, 63))
             dd_readings.append(compute_drawdown(series))
     if not vols:
-        return {"level": "Unknown", "score": 0.0, "description": "Insufficient data.",
-                "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
-                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": "Unknown"}
+        return _wrap({"level": "Unknown", "score": 0.0, "description": "Insufficient data.",
+                      "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
+                      "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": "Unknown"},
+                     _SCHEMA_STATUS_UNAVAILABLE, "Insufficient data.")
     avg_vol = (sum(vols) / len(vols)) if vols else 0.15
     avg_vov = (sum(vov_readings) / len(vov_readings)) if vov_readings else 0.03
     worst_dd = min(dd_readings) if dd_readings else -0.03
@@ -240,7 +452,7 @@ def compute_volatility_stress_assessment(prices):
     cross_asset_agreement = "Aligned" if len(vols) >= 3 else "Divergent"
     score = round(min(100.0, avg_vol * 300.0), 2)
     level = "High" if avg_vol > 0.30 else ("Medium" if avg_vol > 0.15 else "Low")
-    return {
+    return _wrap({
         "level": level, "score": score,
         "description": f"Average realised vol: {avg_vol:.1%}",
         "stress_level": stress_level,
@@ -251,16 +463,17 @@ def compute_volatility_stress_assessment(prices):
         "avg_vov": avg_vov,
         "worst_dd": worst_dd,
         "cross_asset_agreement": cross_asset_agreement,
-    }
+    })
 
 
 def compute_breadth_assessment(prices):
-    """Return market breadth assessment dict."""
+    """Return market breadth assessment dict wrapped in standard schema."""
+    _fallback = {"breadth_pct": 0.0, "level": "Unknown", "description": "No data.",
+                 "classification": "Mixed", "pct_above_50dma": 0.0, "pct_above_200dma": 0.0,
+                 "above_20": 0, "above_50": 0, "above_200": 0, "total_tracked": 0,
+                 "cross_asset": {}}
     if not prices:
-        return {"breadth_pct": 0.0, "level": "Unknown", "description": "No data.",
-                "classification": "Mixed", "pct_above_50dma": 0.0, "pct_above_200dma": 0.0,
-                "above_20": 0, "above_50": 0, "above_200": 0, "total_tracked": 0,
-                "status": "insufficient_data"}
+        return _wrap(_fallback, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
     equity_tickers = ["SPY", "QQQ", "IWM", "EFA"]
     above_20 = 0
     above_50 = 0
@@ -278,10 +491,11 @@ def compute_breadth_assessment(prices):
                 above_200 += 1
 
     if total == 0:
-        return {"breadth_pct": 0.0, "level": "Unknown", "description": "Insufficient data.",
-                "classification": "Mixed", "pct_above_50dma": 0.0, "pct_above_200dma": 0.0,
-                "above_20": 0, "above_50": 0, "above_200": 0, "total_tracked": 0,
-                "status": "insufficient_data"}
+        return _wrap({"breadth_pct": 0.0, "level": "Unknown", "description": "Insufficient data.",
+                      "classification": "Mixed", "pct_above_50dma": 0.0, "pct_above_200dma": 0.0,
+                      "above_20": 0, "above_50": 0, "above_200": 0, "total_tracked": 0,
+                      "cross_asset": {}},
+                     _SCHEMA_STATUS_UNAVAILABLE, "Insufficient data.")
 
     pct_above_50 = (above_50 / total * 100) if total > 0 else 0.0
     pct_above_200 = (above_200 / total * 100) if total > 0 else 0.0
@@ -294,7 +508,7 @@ def compute_breadth_assessment(prices):
 
     breadth = above_50 / max(1, total)
     level = "Strong" if classification == "Broad" else ("Weak" if classification == "Narrow" else "Moderate")
-    return {
+    return _wrap({
         "breadth_pct": round(breadth, 3),
         "level": level,
         "description": f"{above_50} of {total} equity tickers above 50-day MA.",
@@ -305,14 +519,16 @@ def compute_breadth_assessment(prices):
         "above_50": above_50,
         "above_200": above_200,
         "total_tracked": total,
-    }
+        "cross_asset": {},
+    })
 
 
 def compute_rates_credit_assessment(prices):
     """Return rates and credit assessment dict."""
     if not prices:
-        return {"rates_trend": "Unknown", "credit_stress": "Unknown", "description": "No data.",
-                "credit_condition": "—", "curve_proxy": "—", "liquidity_proxy": "—", "dollar_trend": "—"}
+        return _wrap({"rates_trend": "Unknown", "credit_stress": "Unknown", "description": "No data.",
+                      "credit_condition": "—", "curve_proxy": "—", "liquidity_proxy": "—", "dollar_trend": "—"},
+                     _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
     tlt = _safe_prices(prices, "TLT")
     hyg = _safe_prices(prices, "HYG")
     lqd = _safe_prices(prices, "LQD")
@@ -365,7 +581,7 @@ def compute_rates_credit_assessment(prices):
             else:
                 curve_proxy = "Stable"
 
-    return {
+    return _wrap({
         "rates_trend": rates_trend,
         "credit_stress": credit_stress,
         "description": f"Rates {rates_trend.lower()}, credit {credit_condition.lower()}.",
@@ -373,17 +589,17 @@ def compute_rates_credit_assessment(prices):
         "curve_proxy": curve_proxy,
         "liquidity_proxy": "—",
         "dollar_trend": "—",
-    }
+    })
 
 
 def compute_sector_assessment(prices):
-    """Return sector rotation assessment dict."""
+    """Return sector rotation assessment dict wrapped in standard schema."""
     _empty = {
         "top_sector": "N/A", "lagging_sector": "N/A", "rotation_signal": "No data",
         "sectors": [], "top2": [], "bottom2": [],
     }
     if not prices:
-        return _empty
+        return _wrap(_empty, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
     spy = _safe_prices(prices, "SPY")
     spy_rets = _compute_returns_series(spy) if spy else {}
     spy_30d = spy_rets.get("30d")
@@ -412,10 +628,10 @@ def compute_sector_assessment(prices):
             sector_rets_5d[t] = ret_5d
 
     if not sector_rets_5d:
-        return {
+        return _wrap({
             "top_sector": "N/A", "lagging_sector": "N/A", "rotation_signal": "Insufficient data",
             "sectors": sector_data, "top2": [], "bottom2": [],
-        }
+        }, _SCHEMA_STATUS_UNAVAILABLE, "Insufficient data.")
 
     top = max(sector_rets_5d, key=sector_rets_5d.get)
     lag = min(sector_rets_5d, key=sector_rets_5d.get)
@@ -428,14 +644,14 @@ def compute_sector_assessment(prices):
     top2 = sorted_by_30d[:2]
     bottom2 = sorted_by_30d[-2:] if len(sorted_by_30d) >= 2 else sorted_by_30d
 
-    return {
+    return _wrap({
         "top_sector": top,
         "lagging_sector": lag,
         "rotation_signal": f"Rotation towards {top}, away from {lag}.",
         "sectors": sector_data,
         "top2": top2,
         "bottom2": bottom2,
-    }
+    })
 
 
 def compute_regime_assessment(prices):
@@ -481,7 +697,7 @@ def compute_regime_assessment(prices):
             elif hyg_ret30 < -0.01:
                 risk_off_signals += 1
 
-    breadth = compute_breadth_assessment(prices)
+    breadth = _maybe_unwrap(compute_breadth_assessment(prices))
     total_signals += 1
     if breadth.get("classification") == "Broad":
         risk_on_signals += 1
@@ -503,10 +719,15 @@ def compute_regime_assessment(prices):
 
 
 def compute_executive_chips(prices_dict, vol_assessment=None, breadth_assessment=None, rates_assessment=None, regime=None):
-    """Return list of executive chip dicts for dashboard display."""
+    """Return executive chip dicts for dashboard display wrapped in standard schema."""
     chips = []
     if not prices_dict:
-        return chips
+        return _wrap({"items": chips}, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
+
+    # Unwrap assessment inputs if they are schema-wrapped
+    vol = _maybe_unwrap(vol_assessment) if vol_assessment is not None else {}
+    breadth = _maybe_unwrap(breadth_assessment) if breadth_assessment is not None else {}
+    rates = _maybe_unwrap(rates_assessment) if rates_assessment is not None else {}
 
     # Regime chip
     if regime is not None:
@@ -527,31 +748,31 @@ def compute_executive_chips(prices_dict, vol_assessment=None, breadth_assessment
                                "color": color, "trend": "up" if dir_label == "Up" else ("down" if dir_label == "Down" else "neutral")})
 
     # Volatility stress chip
-    if vol_assessment and isinstance(vol_assessment, dict):
-        sl = vol_assessment.get("stress_level", vol_assessment.get("level", "Unknown"))
-        tr = vol_assessment.get("trend", "Stable")
+    if vol:
+        sl = vol.get("stress_level", vol.get("level", "Unknown"))
+        tr = vol.get("trend", "Stable")
         sc = "green" if sl == "Low" else ("orange" if sl == "Moderate" else "red")
         chips.append({"label": "Vol Stress", "value": f"{sl} · {tr}", "color": sc, "trend": "neutral"})
 
     # Breadth chip
-    if breadth_assessment and isinstance(breadth_assessment, dict):
-        bc = breadth_assessment.get("classification", breadth_assessment.get("level", "Unknown"))
+    if breadth:
+        bc = breadth.get("classification", breadth.get("level", "Unknown"))
         bcolor = "green" if bc == "Broad" else ("orange" if bc == "Mixed" else "red")
         chips.append({"label": "Breadth", "value": bc, "color": bcolor,
                       "trend": "up" if bc == "Broad" else ("down" if bc == "Narrow" else "neutral")})
 
     # Rates chip
-    if rates_assessment and isinstance(rates_assessment, dict):
-        rt = rates_assessment.get("rates_trend", "Unknown")
+    if rates:
+        rt = rates.get("rates_trend", "Unknown")
         chips.append({"label": "Rates Regime", "value": rt, "color": "#60A5FA", "trend": "neutral"})
 
     # Credit conditions chip
-    if rates_assessment and isinstance(rates_assessment, dict):
-        cc = rates_assessment.get("credit_condition", "—")
+    if rates:
+        cc = rates.get("credit_condition", "—")
         ccolor = "green" if cc in ["Stable", "Tightening"] else ("orange" if cc == "—" else "red")
         chips.append({"label": "Credit Conditions", "value": cc, "color": ccolor, "trend": "neutral"})
 
-    return chips
+    return _wrap({"items": chips})
 
 
 def compute_orientation_sentence(regime_or_prices, vol_assessment=None, breadth_assessment=None, rates_assessment=None):
@@ -567,15 +788,18 @@ def compute_orientation_sentence(regime_or_prices, vol_assessment=None, breadth_
         breadth_word = "mixed"
         credit_word = "undetermined"
         rates_word = "neutral"
-        if vol_assessment and isinstance(vol_assessment, dict):
-            vol_word = vol_assessment.get("stress_level", vol_assessment.get("level", "unknown")).lower()
-            vol_trend = vol_assessment.get("trend", "Stable").lower()
-        if breadth_assessment and isinstance(breadth_assessment, dict):
-            breadth_word = breadth_assessment.get("classification", breadth_assessment.get("level", "mixed")).lower()
-        if rates_assessment and isinstance(rates_assessment, dict):
-            cc = rates_assessment.get("credit_condition", "—")
+        vol = _maybe_unwrap(vol_assessment) if vol_assessment is not None else {}
+        breadth = _maybe_unwrap(breadth_assessment) if breadth_assessment is not None else {}
+        rates = _maybe_unwrap(rates_assessment) if rates_assessment is not None else {}
+        if vol:
+            vol_word = vol.get("stress_level", vol.get("level", "unknown")).lower()
+            vol_trend = vol.get("trend", "Stable").lower()
+        if breadth:
+            breadth_word = breadth.get("classification", breadth.get("level", "mixed")).lower()
+        if rates:
+            cc = rates.get("credit_condition", "—")
             credit_word = cc.lower() if cc != "—" else "undetermined"
-            rates_word = rates_assessment.get("rates_trend", "Neutral").lower()
+            rates_word = rates.get("rates_trend", "Neutral").lower()
         return (
             f"Market conditions are currently {regime_word}, with {breadth_word} cross-asset participation, "
             f"{vol_word} volatility stress ({vol_trend}), {rates_word} rate trajectory, "
@@ -586,27 +810,26 @@ def compute_orientation_sentence(regime_or_prices, vol_assessment=None, breadth_
     prices = regime_or_prices
     if not prices:
         return "Market data is not available."
-    agreement = compute_directional_agreement(prices)
-    regime = compute_regime_structure(prices)
-    direction = agreement["direction"]
-    reg = regime["regime"]
+    agreement = _maybe_unwrap(compute_directional_agreement(prices))
+    direction = agreement.get("direction", "Neutral")
+    regime_struct = _maybe_unwrap(compute_regime_structure(prices))
+    reg = regime_struct.get("regime", "Unknown")
     return f"Markets are broadly {direction.lower()} within a {reg} regime."
 
 
 def compute_what_changed(prices):
-    """Return dict describing notable changes since yesterday.
+    """Return dict describing notable changes since yesterday wrapped in standard schema.
 
-    Always returns a dict with schema:
-        {"summary": str, "changes": list, "drivers": list, "status": str}
+    Data payload schema: {"summary": str, "changes": list, "drivers": list, "status": str}
     """
-    _unavailable = {
+    _unavailable_data = {
         "summary": "No material changes detected.",
         "changes": [],
         "drivers": [],  # reserved for future use
         "status": "unavailable",
     }
     if not prices:
-        return _unavailable
+        return _wrap(_unavailable_data, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
     changes = []
     for ticker, series in prices.items():
         if isinstance(series, list) and len(series) >= 2:
@@ -616,15 +839,15 @@ def compute_what_changed(prices):
                 direction = "gained" if r1d > 0 else "fell"
                 changes.append(f"{ticker} {direction} {abs(r1d):.1%} yesterday.")
     if not changes:
-        return {
+        return _wrap({
             "summary": "No significant moves detected.",
             "changes": [],
             "drivers": [],  # reserved for future use
             "status": "ok",
-        }
-    return {
+        })
+    return _wrap({
         "summary": f"{len(changes)} notable move(s) detected.",
         "changes": changes,
         "drivers": [],  # reserved for future use
         "status": "ok",
-    }
+    })

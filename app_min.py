@@ -10754,11 +10754,16 @@ Security Intelligence is observational only - no recommendations, price targets,
         mi_prices = load_mi_market_data()
 
         mi_vol_assess = compute_volatility_stress_assessment(mi_prices)
+        mi_vol_assess = mi_vol_assess.get("data", {})
         mi_breadth_assess = compute_breadth_assessment(mi_prices)
+        mi_breadth_assess = mi_breadth_assess.get("data", {})
         mi_rates_assess = compute_rates_credit_assessment(mi_prices)
+        mi_rates_assess = mi_rates_assess.get("data", {})
         mi_regime_computed = compute_regime_assessment(mi_prices)
         mi_sector_assess = compute_sector_assessment(mi_prices)
-        mi_chips = compute_executive_chips(mi_prices, mi_vol_assess, mi_breadth_assess, mi_rates_assess, mi_regime_computed)
+        mi_sector_assess = mi_sector_assess.get("data", {})
+        mi_chips_result = compute_executive_chips(mi_prices, mi_vol_assess, mi_breadth_assess, mi_rates_assess, mi_regime_computed)
+        mi_chips = mi_chips_result.get("data", {}).get("items", [])
         mi_orientation = compute_orientation_sentence(mi_regime_computed, mi_vol_assess, mi_breadth_assess, mi_rates_assess)
 
         mi_data_sources_used = []
@@ -10971,7 +10976,10 @@ Security Intelligence is observational only - no recommendations, price targets,
         mi_chip_rows = [mi_chips[i:i+4] for i in range(0, len(mi_chips), 4)]
         for chip_row in mi_chip_rows:
             mi_chip_cols = st.columns(len(chip_row))
-            for i, (label, value, color) in enumerate(chip_row):
+            for i, chip in enumerate(chip_row):
+                label = chip.get("label", "")
+                value = chip.get("value", "")
+                color = chip.get("color", "#9EA3AE")
                 with mi_chip_cols[i]:
                     st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-top: 3px solid {color}; padding: 14px 12px; border-radius: 6px; text-align: center;">
 <div style="color: {color}; font-size: 15px; font-weight: 700;">{value}</div>
@@ -11217,7 +11225,8 @@ Security Intelligence is observational only - no recommendations, price targets,
                 "credit": mi_rates_assess.get("credit_condition", "—"),
                 "rates": mi_rates_assess.get("rates_trend", "Unknown"),
         }
-        mi_changes = compute_what_changed(mi_change_snapshot)
+        mi_changes_result = compute_what_changed(mi_change_snapshot)
+        mi_changes = mi_changes_result.get("data", {})
 
         st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 24px 0 16px 0;"></div>', unsafe_allow_html=True)
         st.markdown("""<div style="margin-bottom: 10px;">
@@ -11227,7 +11236,7 @@ Security Intelligence is observational only - no recommendations, price targets,
         if mi_changes.get("status", "unavailable") != "unavailable":
             changes_html = '<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 14px 16px; border-radius: 6px;">'
             if mi_changes.get("saved_date"):
-                changes_html += f'<div style="color: #6B7280; font-size: 10px; margin-bottom: 8px;">Compared to snapshot from: {mi_changes["saved_date"]}</div>'
+                changes_html += f'<div style="color: #6B7280; font-size: 10px; margin-bottom: 8px;">Compared to snapshot from: {mi_changes.get("saved_date", "")}</div>'
             for ch in mi_changes.get("changes", []):
                 is_change = "No material" not in ch
                 icon = "⚡" if is_change else "-"
@@ -11324,7 +11333,8 @@ Headlines are provided for informational context only. WAVES does not interpret,
             bench_table_html += '</div>'
 
             from helpers.market_data import compute_returns as md_returns, compute_realized_vol as md_vol
-            all_bench = {**BENCHMARK_TICKERS, "BTC-USD": "Bitcoin"}
+            all_bench = {t: t for t in BENCHMARK_TICKERS}
+            all_bench["BTC-USD"] = "Bitcoin"
             for tick, name in all_bench.items():
                 p = mi_prices.get(tick)
                 if p is None:
@@ -11382,7 +11392,8 @@ Headlines are provided for informational context only. WAVES does not interpret,
         # ==============================================
         from helpers.market_briefing import compute_regime_structure, compute_directional_agreement, compute_decision_implications, compute_structural_signals
 
-        mi_regime_struct = compute_regime_structure(mi_prices, mi_regime_computed, mi_vol_assess, mi_breadth_assess, mi_rates_assess)
+        mi_regime_struct_result = compute_regime_structure(mi_prices, mi_regime_computed, mi_vol_assess, mi_breadth_assess, mi_rates_assess)
+        mi_regime_struct = mi_regime_struct_result.get("data", {})
 
         st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 24px 0 16px 0;"></div>', unsafe_allow_html=True)
         st.markdown("""<div style="margin-bottom: 10px;">
@@ -11390,10 +11401,10 @@ Headlines are provided for informational context only. WAVES does not interpret,
 </div>""", unsafe_allow_html=True)
 
         mi_rs_items = [
-        ("Regime Stability", mi_regime_struct["regime_stability"], mi_regime_struct["regime_stability_note"]),
-        ("Trend Persistence", mi_regime_struct["trend_persistence"], mi_regime_struct["trend_persistence_note"]),
-        ("Volatility Regime", mi_regime_struct["volatility_regime"], mi_regime_struct["volatility_regime_note"]),
-        ("Macro Alignment", mi_regime_struct["macro_alignment"], mi_regime_struct["macro_alignment_note"]),
+        ("Regime Stability", mi_regime_struct.get("regime_stability", "N/A"), mi_regime_struct.get("regime_stability_note", "")),
+        ("Trend Persistence", mi_regime_struct.get("trend_persistence", "N/A"), mi_regime_struct.get("trend_persistence_note", "")),
+        ("Volatility Regime", mi_regime_struct.get("volatility_regime", "N/A"), mi_regime_struct.get("volatility_regime_note", "")),
+        ("Macro Alignment", mi_regime_struct.get("macro_alignment", "N/A"), mi_regime_struct.get("macro_alignment_note", "")),
         ]
         mi_rs_cols = st.columns(4)
         mi_rs_colors = {
@@ -11440,23 +11451,24 @@ Headlines are provided for informational context only. WAVES does not interpret,
         # ==============================================
         # LAYER 3 - DIRECTIONAL AGREEMENT & HORIZON CONTEXT
         # ==============================================
-        mi_dir_agreement = compute_directional_agreement(mi_prices)
+        mi_dir_agreement_result = compute_directional_agreement(mi_prices)
+        mi_dir_agreement = mi_dir_agreement_result.get("data", {})
 
         st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 24px 0 16px 0;"></div>', unsafe_allow_html=True)
         st.markdown("""<div style="margin-bottom: 10px;">
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Layer 3 · Directional Agreement Across Horizons</span>
 </div>""", unsafe_allow_html=True)
 
-        mi_da_color = {"Strong": "#48BB78", "Moderate": "#F59E0B", "Conflicted": "#EF4444"}.get(mi_dir_agreement["agreement"], "#9EA3AE")
+        mi_da_color = {"Strong": "#48BB78", "Moderate": "#F59E0B", "Conflicted": "#EF4444"}.get(mi_dir_agreement.get("agreement", ""), "#9EA3AE")
         mi_da_cols = st.columns([1, 2])
         with mi_da_cols[0]:
             st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-top: 3px solid {mi_da_color}; padding: 20px 16px; border-radius: 6px; text-align: center;">
-<div style="color: {mi_da_color}; font-size: 22px; font-weight: 700;">{mi_dir_agreement["agreement"]}</div>
+<div style="color: {mi_da_color}; font-size: 22px; font-weight: 700;">{mi_dir_agreement.get("agreement", "N/A")}</div>
 <div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; margin-top: 8px; letter-spacing: 0.03em;">Cross-Horizon Agreement</div>
 </div>""", unsafe_allow_html=True)
         with mi_da_cols[1]:
             st.markdown(f"""<div style="background: #151A22; border-left: 3px solid {mi_da_color}; padding: 16px 18px; border-radius: 6px; min-height: 80px; display: flex; align-items: center;">
-<span style="color: #C0C4CC; font-size: 12px; line-height: 1.6;">{mi_dir_agreement["orientation"]}</span>
+<span style="color: #C0C4CC; font-size: 12px; line-height: 1.6;">{mi_dir_agreement.get("orientation", "")}</span>
 </div>""", unsafe_allow_html=True)
 
         # --- Expandable Diagnostic: Directional Agreement ---
@@ -11489,7 +11501,8 @@ Headlines are provided for informational context only. WAVES does not interpret,
         # ==============================================
         # LAYER 4 - MARKET IMPLICATIONS FOR DECISION CONTEXT
         # ==============================================
-        mi_implications = compute_decision_implications(mi_regime_computed, mi_vol_assess, mi_breadth_assess, mi_rates_assess)
+        mi_implications_result = compute_decision_implications(mi_regime_computed, mi_vol_assess, mi_breadth_assess, mi_rates_assess)
+        mi_implications = mi_implications_result.get("data", {})
 
         st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 24px 0 16px 0;"></div>', unsafe_allow_html=True)
         st.markdown("""<div style="margin-bottom: 10px;">
@@ -11501,9 +11514,9 @@ Observational context for informing human decision-making. No prescribed actions
 
         mi_impl_cols = st.columns(3)
         mi_impl_sections = [
-        ("Portfolio Implications", mi_implications["portfolio"], "#3A6FF7"),
-        ("Strategy Environment", mi_implications["strategy"], "#A78BFA"),
-        ("Decision Environment", mi_implications["decision"], "#60A5FA"),
+        ("Portfolio Implications", mi_implications.get("portfolio", []), "#3A6FF7"),
+        ("Strategy Environment", mi_implications.get("strategy", []), "#A78BFA"),
+        ("Decision Environment", mi_implications.get("decision", []), "#60A5FA"),
         ]
         for i, (impl_title, impl_items, impl_color) in enumerate(mi_impl_sections):
             with mi_impl_cols[i]:
@@ -11517,7 +11530,8 @@ Observational context for informing human decision-making. No prescribed actions
         # ==============================================
         # LAYER 5 - STRUCTURAL MARKET SIGNALS
         # ==============================================
-        mi_structural = compute_structural_signals(mi_prices, mi_vol_assess, mi_rates_assess)
+        mi_structural_result = compute_structural_signals(mi_prices, mi_vol_assess, mi_rates_assess)
+        mi_structural = mi_structural_result.get("data", {}).get("items", [])
 
         st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 24px 0 16px 0;"></div>', unsafe_allow_html=True)
         st.markdown("""<div style="margin-bottom: 10px;">
@@ -11534,11 +11548,16 @@ Observational context for informing human decision-making. No prescribed actions
         "Data unavailable": "#6B7280",
         }
         mi_ss_row_count = len(mi_structural)
-        mi_ss_cols = st.columns(mi_ss_row_count)
-        for i, (ss_label, ss_state, ss_note) in enumerate(mi_structural):
-            ss_color = mi_ss_colors.get(ss_state, "#9EA3AE")
-            with mi_ss_cols[i]:
-                st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-top: 3px solid {ss_color}; padding: 16px 10px; border-radius: 6px; text-align: center; min-height: 130px;">
+        if mi_ss_row_count == 0:
+            st.markdown("""<div style="background: #151A22; padding: 14px 16px; border-radius: 6px;">
+<div style="color: #6B7280; font-size: 11px;">Structural signal data temporarily unavailable.</div>
+</div>""", unsafe_allow_html=True)
+        else:
+            mi_ss_cols = st.columns(mi_ss_row_count)
+            for i, (ss_label, ss_state, ss_note) in enumerate(mi_structural):
+                ss_color = mi_ss_colors.get(ss_state, "#9EA3AE")
+                with mi_ss_cols[i]:
+                    st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-top: 3px solid {ss_color}; padding: 16px 10px; border-radius: 6px; text-align: center; min-height: 130px;">
 <div style="color: {ss_color}; font-size: 14px; font-weight: 700;">{ss_state}</div>
 <div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; margin-top: 6px; letter-spacing: 0.03em;">{ss_label}</div>
 <div style="color: #6B7280; font-size: 10px; margin-top: 10px; line-height: 1.5;">{ss_note}</div>
