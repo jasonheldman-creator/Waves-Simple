@@ -1,19 +1,42 @@
 """
-Temporary compatibility stub for sandbox guard.
+Compatibility sandbox guard stub.
+Allows app_min.py to boot safely on Streamlit Cloud.
 
-Provides required symbols so app_min.py can import safely.
-No execution or governance logic enabled.
+This file intentionally provides all expected exports as no-ops.
 """
 
-# ---- MODE FLAGS ----
+# --------------------------------------------------
+# MODE FLAGS
+# --------------------------------------------------
+
 SANDBOX_MODE = True
 REPLAY_MODE = False
 
 
-# ---- SAFE NO-OP FUNCTIONS ----
-def sandbox_guard(*args, **kwargs):
-    return True
+# --------------------------------------------------
+# CORE GUARD OBJECT
+# --------------------------------------------------
 
+class SandboxGuard:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def allow(self, *args, **kwargs):
+        return True
+
+    def validate(self, *args, **kwargs):
+        return True
+
+    def check(self, *args, **kwargs):
+        return True
+
+
+sandbox_guard = SandboxGuard()
+
+
+# --------------------------------------------------
+# FUNCTION EXPORTS (NO-OP SAFE)
+# --------------------------------------------------
 
 def guard_action(*args, **kwargs):
     return True
@@ -25,3 +48,11 @@ def is_action_allowed(*args, **kwargs):
 
 def validate_governance_action(*args, **kwargs):
     return True
+
+
+def get_sandbox_guard(*args, **kwargs):
+    return sandbox_guard
+
+
+def initialize_sandbox(*args, **kwargs):
+    return sandbox_guard
