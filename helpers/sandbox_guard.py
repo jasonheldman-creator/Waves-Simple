@@ -1,47 +1,128 @@
+"""
+helpers.sandbox_guard
+--------------------------------------------------
+
+Governance-safe sandbox utilities used by WAVES Intelligence™.
+
+Design goals:
+• NEVER break app startup
+• NEVER raise runtime exceptions
+• Accept ANY legacy or future call signatures
+• Work both inside and outside Streamlit runtime
+• Remain observational / non-executing
+
+This module intentionally behaves as a safe compatibility layer.
+"""
+
+from __future__ import annotations
+
 import os
-from datetime import datetime
+from typing import Any
 
 
-TRUTHY = {"1", "true", "yes", "on", "sandbox"}
+# -------------------------------------------------------------------
+# Environment Detection
+# -------------------------------------------------------------------
+
+_TRUTHY = {"1", "true", "yes", "on", "sandbox"}
+
+
+def _env_flag(name: str) -> bool:
+    """Read environment flag safely."""
+    try:
+        value = os.getenv(name, "")
+        return str(value).lower() in _TRUTHY
+    except Exception:
+        return False
 
 
 def is_sandbox() -> bool:
     """
-    Detect whether app is running in sandbox/replay mode.
-    Never raises.
+    Returns True if running in sandbox/replay/demo mode.
+
+    NEVER raises.
     """
     try:
         return (
-            str(os.getenv("STREAMLIT_SANDBOX", "")).lower() in TRUTHY
-            or str(os.getenv("REPLAY_MODE", "")).lower() in TRUTHY
+            _env_flag("STREAMLIT_SANDBOX")
+            or _env_flag("REPLAY_MODE")
+            or _env_flag("SANDBOX_MODE")
         )
     except Exception:
         return False
 
 
-def assert_not_sandbox():
+# -------------------------------------------------------------------
+# Governance Safety Guards
+# -------------------------------------------------------------------
+
+def assert_not_sandbox(*args: Any, **kwargs: Any) -> None:
     """
-    Compatibility guard — intentionally non-blocking.
+    Compatibility stub.
+
+    Original system prevented execution in sandbox mode.
+    In Community Cloud deployment we keep this as a no-op
+    to preserve import contracts.
+    """
+    return None
+
+
+def guard_file_write(*args: Any, **kwargs: Any) -> bool:
+    """
+    File-write guard.
+
+    Always returns True so legacy calls succeed
+    without blocking Streamlit execution.
     """
     return True
 
 
-def guard_file_write(path: str, **kwargs) -> bool:
-    """
-    Allow writes but keep interface stable.
-    """
-    return True
+# -------------------------------------------------------------------
+# Event Logging (CRITICAL FIX)
+# -------------------------------------------------------------------
 
-
-def log_event(event: str, **kwargs) -> None:
+def log_event(*args: Any, **kwargs: Any) -> None:
     """
-    Lightweight event logger (no-op safe).
+    Flexible governance event logger.
+
+    Accepts ANY argument signature used across:
+        - app_min.py
+        - governance lifecycle
+        - daily cycle engine
+        - sandbox logging hooks
+
+    This prevents runtime crashes caused by
+    signature mismatches between environments.
+
+    Intentionally a no-op.
     """
     try:
-        _ = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "event": event,
-            **kwargs,
-        }
+        # Optional debug toggle
+        if os.getenv("WAVES_DEBUG_SANDBOX", "").lower() in _TRUTHY:
+            print("[sandbox_guard.log_event]", args, kwargs)
     except Exception:
         pass
+
+    return None
+
+
+# Alias used throughout app_min.py
+sandbox_log_event = log_event
+
+
+# -------------------------------------------------------------------
+# Module health check
+# -------------------------------------------------------------------
+
+def _healthcheck() -> bool:
+    """
+    Lightweight internal validation.
+    """
+    try:
+        is_sandbox()
+        log_event("healthcheck")
+        guard_file_write("test")
+        assert_not_sandbox()
+        return True
+    except Exception:
+        return False
