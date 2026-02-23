@@ -11,16 +11,18 @@ def evaluate_strategy_fit(holdings):
         wave = h.get("wave", "")
         drift = h.get("drift", 0.0)
         if drift <= 3.0:
-            fit_score, fit_label, reason = 90.0, "Optimal", "Within target allocation band."
+            fit_score, classification, reason = 90.0, "Optimal Fit", "Within target allocation band."
         elif drift <= 7.0:
-            fit_score, fit_label, reason = 65.0, "Acceptable", "Minor drift; monitor next cycle."
+            fit_score, classification, reason = 65.0, "Acceptable Fit", "Minor drift; monitor next cycle."
+        elif drift <= 12.0:
+            fit_score, classification, reason = 45.0, "Weak Fit", "Moderate drift; review recommended."
         else:
-            fit_score, fit_label, reason = 40.0, "Review Recommended", "Drift exceeds tolerance threshold."
+            fit_score, classification, reason = 25.0, "Review Candidate", "Drift exceeds tolerance threshold."
         results.append({
             "ticker": ticker,
             "wave": wave,
             "fit_score": fit_score,
-            "fit_label": fit_label,
+            "classification": classification,
             "reason": reason,
             "alternatives": [],
         })
@@ -33,40 +35,62 @@ def evaluate_replacement_candidates(fit_results):
     for r in fit_results:
         if r.get("fit_score", 100) < 50:
             candidates.append({
-                "incumbent": r.get("ticker"),
-                "replacement": None,
-                "improvement_score": 0.0,
-                "rationale": "No replacement candidate identified in stub mode.",
+                "current_security": r.get("ticker"),
+                "candidate_security": None,
+                "wave": r.get("wave", ""),
+                "current_score": r.get("fit_score", 0.0),
+                "candidate_score": 0.0,
+                "relative_fit_improvement": 0.0,
             })
     return candidates
 
 
 def generate_strategy_observations(fit_results, upgrade_candidates):
-    """Return list of observation strings."""
+    """Return list of observation dicts with 'security' and 'observation' keys."""
     obs = []
     low_fit = [r for r in fit_results if r.get("fit_score", 100) < 50]
-    if low_fit:
-        obs.append(f"{len(low_fit)} holding(s) have fit scores below 50 and warrant review.")
+    for r in low_fit:
+        obs.append({
+            "security": r.get("ticker", ""),
+            "observation": f"Fit score {r.get('fit_score', 0):.0f} — {r.get('reason', 'Review recommended.')}",
+        })
     if upgrade_candidates:
-        obs.append(f"{len(upgrade_candidates)} potential replacement candidate(s) identified.")
+        for uc in upgrade_candidates:
+            obs.append({
+                "security": uc.get("current_security", ""),
+                "observation": "Potential replacement candidate identified.",
+            })
     if not obs:
-        obs.append("All holdings are within acceptable strategy fit parameters.")
+        for r in fit_results:
+            obs.append({
+                "security": r.get("ticker", ""),
+                "observation": "Within acceptable strategy fit parameters.",
+            })
     return obs
 
 
 def get_strategy_fit_summary(fit_results):
     """Return aggregate strategy fit summary dict."""
     if not fit_results:
-        return {"optimal": 0, "acceptable": 0, "review_recommended": 0,
-                "data_pending": 0, "total": 0}
-    optimal = sum(1 for r in fit_results if r.get("fit_label") == "Optimal")
-    acceptable = sum(1 for r in fit_results if r.get("fit_label") == "Acceptable")
-    review = sum(1 for r in fit_results if r.get("fit_label") == "Review Recommended")
+        return {
+            "optimal": 0,
+            "acceptable": 0,
+            "weak_fit": 0,
+            "review_candidate": 0,
+            "data_pending": 0,
+            "total": 0,
+        }
+    optimal = sum(1 for r in fit_results if r.get("classification") == "Optimal Fit")
+    acceptable = sum(1 for r in fit_results if r.get("classification") == "Acceptable Fit")
+    weak_fit = sum(1 for r in fit_results if r.get("classification") == "Weak Fit")
+    review_candidate = sum(1 for r in fit_results if r.get("classification") == "Review Candidate")
+    data_pending = sum(1 for r in fit_results if r.get("classification") == "Data Pending")
     return {
         "optimal": optimal,
         "acceptable": acceptable,
-        "review_recommended": review,
-        "data_pending": 0,
+        "weak_fit": weak_fit,
+        "review_candidate": review_candidate,
+        "data_pending": data_pending,
         "total": len(fit_results),
     }
 
