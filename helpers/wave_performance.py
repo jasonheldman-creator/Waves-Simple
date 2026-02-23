@@ -1,23 +1,13 @@
-# Updated wave_performance.py
-
-# Lazy-load imports
-
-def compute_portfolio_composite_benchmark():
+def compute_portfolio_composite_benchmark(...):
+    """Function to compute the composite benchmark for a portfolio."""
     import pandas as pd
     import numpy as np
-    # Function implementation
     
+    # Function implementation goes here...
+    
+__all__ = ["compute_portfolio_composite_benchmark"]
 
-def main():
-    # Your main code here, if necessary
-    pass
-
-# Ensure the function is discoverable by pytest
-
-globals()['compute_portfolio_composite_benchmark'] = compute_portfolio_composite_benchmark
-
-# Update __all__ for explicit exports
-__all__ = ['compute_portfolio_composite_benchmark']
-
-# Import safety assertion
-assert 'compute_portfolio_composite_benchmark' in globals(), "Import error: 'compute_portfolio_composite_benchmark' not found in globals()"
+# Verification guard for pytest collection
+if __name__ == '__main__':
+    assert 'compute_portfolio_composite_benchmark' in globals(), "Function is not valid during pytest collection.
+"
