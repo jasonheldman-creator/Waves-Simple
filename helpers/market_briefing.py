@@ -79,11 +79,17 @@ def compute_returns(prices, ticker):
 
 
 def compute_direction_label(returns_dict):
-    """Return (direction_label, pct_str) tuple based on returns dict.
+    """Return (direction_label, pct_str) tuple based on returns dict or scalar return.
 
     direction_label is 'Up', 'Down', or 'Flat'.
     pct_str is a formatted percentage string of the most representative return.
+    Accepts either a returns dict ({"30d": float, ...}) or a plain float/int.
     """
+    # Accept plain scalar returns (e.g. a single period return float)
+    if isinstance(returns_dict, (int, float)):
+        pct_val = float(returns_dict)
+        direction = "Up" if pct_val > 0.01 else ("Down" if pct_val < -0.01 else "Flat")
+        return (direction, f"{pct_val:+.1%}")
     if not returns_dict or not isinstance(returns_dict, dict):
         return ("Flat", "N/A")
     # Prefer 30d as the most balanced medium-term view; fall back to shorter/longer periods
