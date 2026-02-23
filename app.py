@@ -1,9 +1,6 @@
-# Canonical Streamlit entrypoint — UTF-8 safe launcher
+# WAVES Intelligence Streamlit entrypoint
 
-import runpy
-from pathlib import Path
+with open("app_min.py", encoding="utf-8") as f:
+    code = f.read()
 
-runpy.run_path(
-    str(Path(__file__).parent / "app_min.py"),
-    run_name="__main__"
-)
+exec(code)
