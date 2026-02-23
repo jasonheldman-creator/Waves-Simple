@@ -1,6 +1,3 @@
-# WAVES Intelligence Streamlit entrypoint
+from pathlib import Path
 
-with open("app_min.py", encoding="utf-8") as f:
-    code = f.read()
-
-exec(code)
+exec(open(Path(__file__).parent / "app_min.py", encoding="utf-8").read(), globals())
