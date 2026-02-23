@@ -1,3 +1,0 @@
-ticker_original,ticker_normalized,wave_id,wave_name,source,failure_type,error_message,first_seen,last_seen,is_fatal,suggested_fix
-BRK.B,BRK-B,sp500_wave,S&P 500 Wave,yfinance,SYMBOL_NEEDS_NORMALIZATION,Empty data returned,2026-02-23T15:56:38.947395,2026-02-23T15:56:38.947398,True,Normalize ticker: BRK.B -> BRK-B
-INVALID,INVALID,growth_wave,Growth Wave,yfinance,PROVIDER_EMPTY,No data returned - ticker may be delisted,2026-02-23T15:56:38.947403,2026-02-23T15:56:38.947404,True,Verify ticker validity

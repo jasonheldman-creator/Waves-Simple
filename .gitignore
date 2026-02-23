@@ -8,4 +8,5 @@
 # Python cache files
 __pycache__/
 *.pyc
-*.pyoreports/
+*.pyo
+reports/
