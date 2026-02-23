@@ -1,5 +1,2 @@
 [server]
 headless = true
-
-[runner]
-script = "app_min.py"
