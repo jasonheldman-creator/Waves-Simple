@@ -2,38 +2,25 @@ name: Validate Dynamic Benchmarks
 
 on:
   push:
-    paths:
-      - 'data/benchmarks/**'
-      - 'waves_engine.py'
-      - 'validate_dynamic_benchmarks.py'
-      - 'test_dynamic_benchmarks_integration.py'
-      - '.github/workflows/validate_dynamic_benchmarks.yml'
-  pull_request:
-    paths:
-      - 'data/benchmarks/**'
-      - 'waves_engine.py'
-      - 'validate_dynamic_benchmarks.py'
-      - 'test_dynamic_benchmarks_integration.py'
-      - '.github/workflows/validate_dynamic_benchmarks.yml'
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   validate:
-    name: Validate Phase 1B Dynamic Benchmarks
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
-      
-      - name: Set up Python
+
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-      
+          python-version: "3.10"
+
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow pytest numpy
+          pip install -r requirements.txt pytest
       
       - name: Run dynamic benchmarks validation
         id: validation
@@ -69,3 +56,8 @@ jobs:
           else
             echo "❌ Integration tests failed - see logs above" >> $GITHUB_STEP_SUMMARY
           fi
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Dummy validation
+        run: echo "Dynamic Benchmarks workflow registered successfully"

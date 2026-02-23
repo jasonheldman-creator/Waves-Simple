@@ -88,6 +88,11 @@ def test_unicode_dash_normalization():
     
     # Test em-dash (U+2014)
     result = normalize_ticker("BRK-B")
+    result = normalize_ticker("BRK\u2013B")
+    assert result == "BRK-B", f"Expected 'BRK-B' for en-dash, got '{result}'"
+    
+    # Test em-dash (U+2014)
+    result = normalize_ticker("BRK\u2014B")
     assert result == "BRK-B", f"Expected 'BRK-B' for em-dash, got '{result}'"
     
     # Test hyphen (U+2010)

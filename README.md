@@ -65,6 +65,6 @@ Waves-Simple/
 ## Documentation
 - **Marketing Site Deployment**: [VERCEL_SETUP.md](./VERCEL_SETUP.md)
 - **Fixing Vercel 404 Errors**: [DEPLOYMENT_FIX.md](./DEPLOYMENT_FIX.md)
-- **Marketing Site Details**: [site/README.md](./site/README.md)
+- **Marketing Site Details**: [site/README.md](./site/README.md) 
 
 

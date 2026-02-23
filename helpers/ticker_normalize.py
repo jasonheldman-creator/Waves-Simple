@@ -44,6 +44,8 @@ def normalize_ticker(t: str) -> str:
         .upper()
         .replace("-", "-")  # en-dash (U+2013)
         .replace("-", "-")  # em-dash (U+2014)
+        .replace("\u2013", "-")  # en-dash (U+2013)
+        .replace("\u2014", "-")  # em-dash (U+2014)
         .replace("‐", "-")  # hyphen (U+2010)
         .replace("−", "-")  # minus sign (U+2212)
         .replace(".", "-")  # dot to hyphen
