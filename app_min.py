@@ -16231,6 +16231,7 @@ This timeline records governance decision context and outcome existence for inst
         data=gov_csv,
         file_name=f"governance_snapshot_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
         mime="text/csv",
+        key="gov_snapshot_csv_export",
         help="Download Governance Snapshot as CSV"
     )
     
