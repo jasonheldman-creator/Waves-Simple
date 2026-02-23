@@ -244,8 +244,11 @@ def compute_breadth_assessment(prices):
     """Return market breadth assessment dict."""
     if not prices:
         return {"breadth_pct": 0.0, "level": "Unknown", "description": "No data.",
-                "classification": "Mixed", "pct_above_50dma": 0.0, "pct_above_200dma": 0.0}
+                "classification": "Mixed", "pct_above_50dma": 0.0, "pct_above_200dma": 0.0,
+                "above_20": 0, "above_50": 0, "above_200": 0, "total_tracked": 0,
+                "status": "insufficient_data"}
     equity_tickers = ["SPY", "QQQ", "IWM", "EFA"]
+    above_20 = 0
     above_50 = 0
     above_200 = 0
     total = 0
@@ -253,10 +256,18 @@ def compute_breadth_assessment(prices):
         series = _safe_prices(prices, t)
         if series and len(series) > 50:
             total += 1
+            if len(series) > 20 and compute_above_ma(series, 20):
+                above_20 += 1
             if compute_above_ma(series, 50):
                 above_50 += 1
             if len(series) > 200 and compute_above_ma(series, 200):
                 above_200 += 1
+
+    if total == 0:
+        return {"breadth_pct": 0.0, "level": "Unknown", "description": "Insufficient data.",
+                "classification": "Mixed", "pct_above_50dma": 0.0, "pct_above_200dma": 0.0,
+                "above_20": 0, "above_50": 0, "above_200": 0, "total_tracked": 0,
+                "status": "insufficient_data"}
 
     pct_above_50 = (above_50 / total * 100) if total > 0 else 0.0
     pct_above_200 = (above_200 / total * 100) if total > 0 else 0.0
@@ -269,7 +280,6 @@ def compute_breadth_assessment(prices):
 
     breadth = above_50 / max(1, total)
     level = "Strong" if classification == "Broad" else ("Weak" if classification == "Narrow" else "Moderate")
-    agreement = compute_directional_agreement(prices)
     return {
         "breadth_pct": round(breadth, 3),
         "level": level,
@@ -277,6 +287,10 @@ def compute_breadth_assessment(prices):
         "classification": classification,
         "pct_above_50dma": pct_above_50,
         "pct_above_200dma": pct_above_200,
+        "above_20": above_20,
+        "above_50": above_50,
+        "above_200": above_200,
+        "total_tracked": total,
     }
 
 

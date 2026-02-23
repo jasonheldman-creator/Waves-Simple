@@ -11068,12 +11068,12 @@ Security Intelligence is observational only - no recommendations, price targets,
         mi_br_cols = st.columns(3)
         with mi_br_cols[0]:
             st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 14px 16px; border-radius: 6px; text-align: center;">
-<div style="color: #E5E5E5; font-size: 18px; font-weight: 700;">{mi_breadth_assess['above_50']}/{mi_breadth_assess['total_tracked']}</div>
+<div style="color: #E5E5E5; font-size: 18px; font-weight: 700;">{mi_breadth_assess.get('above_50', 0)}/{mi_breadth_assess.get('total_tracked', 0)}</div>
 <div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; margin-top: 6px;">Above 50-Day MA</div>
 </div>""", unsafe_allow_html=True)
         with mi_br_cols[1]:
             st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 14px 16px; border-radius: 6px; text-align: center;">
-<div style="color: #E5E5E5; font-size: 18px; font-weight: 700;">{mi_breadth_assess['above_200']}/{mi_breadth_assess['total_tracked']}</div>
+<div style="color: #E5E5E5; font-size: 18px; font-weight: 700;">{mi_breadth_assess.get('above_200', 0)}/{mi_breadth_assess.get('total_tracked', 0)}</div>
 <div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; margin-top: 6px;">Above 200-Day MA</div>
 </div>""", unsafe_allow_html=True)
         br_class_color = "#48BB78" if mi_breadth_assess["classification"] == "Broad" else ("#F59E0B" if mi_breadth_assess["classification"] == "Mixed" else "#EF4444")
@@ -11096,7 +11096,7 @@ Security Intelligence is observational only - no recommendations, price targets,
         ca_table_html += '<div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; font-weight: 600;">Interpretation</div>'
         ca_table_html += '</div>'
 
-        for group_name, group_data in mi_breadth_assess["cross_asset"].items():
+        for group_name, group_data in mi_breadth_assess.get("cross_asset", {}).items():
             trend_color = "#48BB78" if group_data["trend"] == "Up" else ("#EF4444" if group_data["trend"] == "Down" else "#9EA3AE")
             vol_color = "#EF4444" if group_data["volatility"] == "Stress" else ("#F59E0B" if group_data["volatility"] == "Choppy" else "#48BB78")
             ca_table_html += f'<div style="display: grid; grid-template-columns: 1fr 80px 80px 2fr; padding: 10px 16px; border-bottom: 1px solid #2A2F3A;">'
@@ -11363,8 +11363,8 @@ Headlines are provided for informational context only. WAVES does not interpret,
                 ("Vol-of-Vol", f"{mi_vol_assess.get('avg_vov', 0.0):.4f}"),
                 ("Max Drawdown (30D)", f"{mi_vol_assess.get('worst_dd', 0.0)*100:.1f}%"),
                 ("Breadth Class", mi_breadth_assess["classification"]),
-                ("Above 50DMA", f"{mi_breadth_assess['above_50']}/{mi_breadth_assess['total_tracked']}"),
-                ("Above 200DMA", f"{mi_breadth_assess['above_200']}/{mi_breadth_assess['total_tracked']}"),
+                ("Above 50DMA", f"{mi_breadth_assess.get('above_50', 0)}/{mi_breadth_assess.get('total_tracked', 0)}"),
+                ("Above 200DMA", f"{mi_breadth_assess.get('above_200', 0)}/{mi_breadth_assess.get('total_tracked', 0)}"),
                 ("Rates Regime", mi_rates_assess["rates_trend"]),
                 ("Credit Condition", mi_rates_assess["credit_condition"]),
                 ("Curve Proxy", mi_rates_assess["curve_proxy"]),
