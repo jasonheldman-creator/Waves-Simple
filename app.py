@@ -1,6 +1,8 @@
 # WAVES Intelligence Streamlit entrypoint
+import os
 
-with open("app_min.py", encoding="utf-8") as f:
+_here = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(_here, "app_min.py"), encoding="utf-8") as f:
     code = f.read()
 
-exec(code)
+exec(compile(code, os.path.join(_here, "app_min.py"), "exec"))

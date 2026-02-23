@@ -1,5 +1,5 @@
 """
-Adaptive Intelligence — Alpha Quality & Confidence Module
+Adaptive Intelligence - Alpha Quality & Confidence Module
 
 Provides IC-grade Alpha Quality and Confidence diagnostics.
 Safe for Streamlit rendering. No trading logic.

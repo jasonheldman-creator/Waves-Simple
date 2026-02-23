@@ -719,13 +719,13 @@ def load_ticker_metrics():
 WAVE_SLEEVE_STRUCTURES = {
     "Core Income Wave": {
         "description": "Stable, diversified income with controlled volatility. Institutional sleeve-based construction.",
-        "strategy_type": "Fixed Income — Core",
+        "strategy_type": "Fixed Income - Core",
         "sleeves": [
-            {"name": "U.S. Treasuries", "role": "Stability, liquidity, duration anchor", "target_range": "30–40%", "etfs": ["IEF", "VGIT"]},
-            {"name": "Investment Grade Corporates", "role": "Core yield foundation", "target_range": "25–35%", "etfs": ["LQD", "VCIT"]},
-            {"name": "High Yield", "role": "Income enhancement", "target_range": "10–20%", "etfs": ["HYG", "JNK"]},
-            {"name": "Floating Rate / Bank Loans", "role": "Rising-rate protection", "target_range": "5–15%", "etfs": ["BKLN"]},
-            {"name": "Preferreds", "role": "Hybrid income layer", "target_range": "5–10%", "etfs": ["PFF"]},
+            {"name": "U.S. Treasuries", "role": "Stability, liquidity, duration anchor", "target_range": "30-40%", "etfs": ["IEF", "VGIT"]},
+            {"name": "Investment Grade Corporates", "role": "Core yield foundation", "target_range": "25-35%", "etfs": ["LQD", "VCIT"]},
+            {"name": "High Yield", "role": "Income enhancement", "target_range": "10-20%", "etfs": ["HYG", "JNK"]},
+            {"name": "Floating Rate / Bank Loans", "role": "Rising-rate protection", "target_range": "5-15%", "etfs": ["BKLN"]},
+            {"name": "Preferreds", "role": "Hybrid income layer", "target_range": "5-10%", "etfs": ["PFF"]},
         ],
         "constraints": ["No leverage", "No derivatives"],
         "regime_rules": [
@@ -735,14 +735,14 @@ WAVE_SLEEVE_STRUCTURES = {
     },
     "Strategic Income Wave": {
         "description": "Higher income with global and multi-sector exposure. Institutional multi-sleeve construction.",
-        "strategy_type": "Fixed Income — Strategic Multi-Sector",
+        "strategy_type": "Fixed Income - Strategic Multi-Sector",
         "sleeves": [
-            {"name": "Core Treasuries", "role": "Duration anchor, flight-to-quality buffer", "target_range": "15–25%", "etfs": ["IEF", "VGIT"]},
-            {"name": "Investment Grade Corporates", "role": "Core yield foundation", "target_range": "20–30%", "etfs": ["LQD", "VCIT"]},
-            {"name": "High Yield", "role": "Primary income engine", "target_range": "20–30%", "etfs": ["HYG", "JNK"]},
-            {"name": "Emerging Market Debt", "role": "Diversified global yield", "target_range": "10–20%", "etfs": ["EMB", "PCY"]},
-            {"name": "Convertibles", "role": "Equity-linked upside with income", "target_range": "5–10%", "etfs": ["CWB"]},
-            {"name": "Preferreds", "role": "Hybrid income layer", "target_range": "5–10%", "etfs": ["PFF"]},
+            {"name": "Core Treasuries", "role": "Duration anchor, flight-to-quality buffer", "target_range": "15-25%", "etfs": ["IEF", "VGIT"]},
+            {"name": "Investment Grade Corporates", "role": "Core yield foundation", "target_range": "20-30%", "etfs": ["LQD", "VCIT"]},
+            {"name": "High Yield", "role": "Primary income engine", "target_range": "20-30%", "etfs": ["HYG", "JNK"]},
+            {"name": "Emerging Market Debt", "role": "Diversified global yield", "target_range": "10-20%", "etfs": ["EMB", "PCY"]},
+            {"name": "Convertibles", "role": "Equity-linked upside with income", "target_range": "5-10%", "etfs": ["CWB"]},
+            {"name": "Preferreds", "role": "Hybrid income layer", "target_range": "5-10%", "etfs": ["PFF"]},
         ],
         "constraints": ["No leverage", "No derivatives"],
         "regime_rules": [
@@ -752,26 +752,26 @@ WAVE_SLEEVE_STRUCTURES = {
     },
     "Income Plus Wave": {
         "description": "Higher-yield, multi-sector income portfolio.",
-        "strategy_type": "Fixed Income — Income Plus",
+        "strategy_type": "Fixed Income - Income Plus",
         "sleeves": [
-            {"name": "Investment Grade Corporates", "role": "Core yield foundation", "target_range": "25–35%", "etfs": ["LQD", "VCIT"]},
-            {"name": "High Yield", "role": "Primary income engine", "target_range": "20–30%", "etfs": ["HYG", "JNK"]},
-            {"name": "Preferreds", "role": "Hybrid income", "target_range": "10–20%", "etfs": ["PFF"]},
-            {"name": "Floating-Rate / Bank Loans", "role": "Rising-rate protection", "target_range": "10–15%", "etfs": ["BKLN"]},
-            {"name": "Emerging Market Debt", "role": "Diversified yield", "target_range": "5–10%", "etfs": ["EMB"]},
-            {"name": "Short Treasuries / Cash", "role": "Liquidity reserve", "target_range": "5–10%", "etfs": ["VGIT"]},
+            {"name": "Investment Grade Corporates", "role": "Core yield foundation", "target_range": "25-35%", "etfs": ["LQD", "VCIT"]},
+            {"name": "High Yield", "role": "Primary income engine", "target_range": "20-30%", "etfs": ["HYG", "JNK"]},
+            {"name": "Preferreds", "role": "Hybrid income", "target_range": "10-20%", "etfs": ["PFF"]},
+            {"name": "Floating-Rate / Bank Loans", "role": "Rising-rate protection", "target_range": "10-15%", "etfs": ["BKLN"]},
+            {"name": "Emerging Market Debt", "role": "Diversified yield", "target_range": "5-10%", "etfs": ["EMB"]},
+            {"name": "Short Treasuries / Cash", "role": "Liquidity reserve", "target_range": "5-10%", "etfs": ["VGIT"]},
         ],
         "constraints": ["No leverage", "No derivatives"],
     },
     "Strategic Income & Credit Wave": {
         "description": "Opportunistic, multi-sleeve credit and income strategy.",
-        "strategy_type": "Fixed Income — Strategic Credit",
+        "strategy_type": "Fixed Income - Strategic Credit",
         "sleeves": [
-            {"name": "High Yield Bonds", "role": "Primary income engine", "target_range": "25–45%", "etfs": ["HYG", "JNK"]},
-            {"name": "Bank Loans / Floating Rate", "role": "Rising-rate protection", "target_range": "15–30%", "etfs": ["BKLN"]},
-            {"name": "Preferred Securities", "role": "Hybrid income", "target_range": "10–25%", "etfs": ["PFF"]},
-            {"name": "Emerging Market Debt", "role": "Diversified yield", "target_range": "5–20%", "etfs": ["EMB", "PCY"]},
-            {"name": "Short Duration / Cash", "role": "Risk buffer", "target_range": "0–15%", "etfs": ["VGIT"]},
+            {"name": "High Yield Bonds", "role": "Primary income engine", "target_range": "25-45%", "etfs": ["HYG", "JNK"]},
+            {"name": "Bank Loans / Floating Rate", "role": "Rising-rate protection", "target_range": "15-30%", "etfs": ["BKLN"]},
+            {"name": "Preferred Securities", "role": "Hybrid income", "target_range": "10-25%", "etfs": ["PFF"]},
+            {"name": "Emerging Market Debt", "role": "Diversified yield", "target_range": "5-20%", "etfs": ["EMB", "PCY"]},
+            {"name": "Short Duration / Cash", "role": "Risk buffer", "target_range": "0-15%", "etfs": ["VGIT"]},
         ],
         "constraints": ["No leverage", "No derivatives"],
     },
@@ -900,7 +900,7 @@ def has_valid_intraday_data(snapshot_df):
     - has_nonzero_data: True if any wave has non-zero intraday return or alpha
     
     This distinction allows us to differentiate between:
-    - No data available (show "—")
+    - No data available (show "-")
     - True zero movement (show "0.00%" as valid data)
     """
     if snapshot_df is None or snapshot_df.empty:
@@ -955,7 +955,7 @@ def _compute_review_signals_for_cycle(snap_df, attr_df, adpt_state):
                 neg_horizons.append(h)
         if len(neg_horizons) >= 2:
             signals.append({
-                "title": f"{comp_name} — Review Signal",
+                "title": f"{comp_name} - Review Signal",
                 "status": "Review Eligible",
                 "scope": "Portfolio-level",
             })
@@ -975,7 +975,7 @@ def _compute_review_signals_for_cycle(snap_df, attr_df, adpt_state):
                     neg_comps.append(cn)
             if len(neg_comps) >= 2:
                 signals.append({
-                    "title": f"{w} — Multi-Component Drag",
+                    "title": f"{w} - Multi-Component Drag",
                     "status": "Review Eligible",
                     "scope": "Wave-level",
                     "wave": w,
@@ -1099,7 +1099,7 @@ st.sidebar.divider()
 st.sidebar.caption("Equal-weighted diagnostics · Read-only")
 
 # ===========================
-# Canonical System Declaration (Phase 1 — Documentation Only)
+# Canonical System Declaration (Phase 1 - Documentation Only)
 # ===========================
 st.sidebar.divider()
 with st.sidebar.expander("About This Console", expanded=False):
@@ -1122,7 +1122,7 @@ This system is advisory-only. It never executes trades, portfolio changes, or au
 Governance actions and audit trails are immutable. Once recorded, they cannot be modified or deleted.
 
 **Read-Only Translation Layers**  
-WaveScore™ and other summaries are interpretive translation layers. They do not alter, rank, or trigger actions — they only translate canonical data for human comprehension.
+WaveScore™ and other summaries are interpretive translation layers. They do not alter, rank, or trigger actions - they only translate canonical data for human comprehension.
 
 ---
 
@@ -1137,7 +1137,7 @@ WaveScore™ and other summaries are interpretive translation layers. They do no
 with st.sidebar.expander("Network Policy Engine", expanded=False):
     st.markdown("""
 **Network Policy Engine**  
-*Descriptive Only — No Functional Changes*
+*Descriptive Only - No Functional Changes*
 
 ---
 
@@ -1145,7 +1145,7 @@ with st.sidebar.expander("Network Policy Engine", expanded=False):
 Policies conceptually define what data may be stored, surfaced, derived, or linked to attribution/audit context. Policies never modify canonical records.
 
 **Jurisdiction-Aware Constraints**  
-Regional considerations (US, EU, APAC) may influence data retention, visibility of sensitive fields, and interpretation boundaries — descriptive only.
+Regional considerations (US, EU, APAC) may influence data retention, visibility of sensitive fields, and interpretation boundaries - descriptive only.
 
 **Tenant-Level Governance**  
 Each institution operates within its own governed environment. No cross-tenant data sharing unless explicitly opted-in.
@@ -1159,7 +1159,7 @@ The console performs no trading, automation, or execution. All actions require e
 ---
 
 🌐 *Part of the WAVES Global Intelligence Network documentation.*  
-*This describes architectural intent only — no functional changes.*
+*This describes architectural intent only - no functional changes.*
     """)
 
 # ===========================
@@ -1168,7 +1168,7 @@ The console performs no trading, automation, or execution. All actions require e
 with st.sidebar.expander("Federated Ingestion Model", expanded=False):
     st.markdown("""
 **Federated Ingestion Model**  
-*Descriptive Only — No Functional Changes*
+*Descriptive Only - No Functional Changes*
 
 ---
 
@@ -1182,7 +1182,7 @@ Incoming data is conceptually aligned against unit-based accounting, attribution
 Each institution operates within its own governed environment. No cross-tenant data sharing unless explicitly opted-in.
 
 **Policy-Guided Interpretation**  
-Institutional policies may constrain what data is retained, surfaced, or how interpretive layers present information — descriptive only.
+Institutional policies may constrain what data is retained, surfaced, or how interpretive layers present information - descriptive only.
 
 **Event-Oriented Perspective**  
 Data introduction is framed as events supporting auditability, traceability, and historical analysis.
@@ -1190,7 +1190,7 @@ Data introduction is framed as events supporting auditability, traceability, and
 ---
 
 🌐 *Part of the WAVES Global Intelligence Network documentation.*  
-*This describes architectural intent only — no functional changes.*
+*This describes architectural intent only - no functional changes.*
     """)
 
 # ===========================
@@ -1199,7 +1199,7 @@ Data introduction is framed as events supporting auditability, traceability, and
 with st.sidebar.expander("Network-Level Intelligence", expanded=False):
     st.markdown("""
 **Network-Level Intelligence Surfaces**  
-*Descriptive Only — No Functional Changes*
+*Descriptive Only - No Functional Changes*
 
 ---
 
@@ -1207,7 +1207,7 @@ with st.sidebar.expander("Network-Level Intelligence", expanded=False):
 Any network-level intelligence is framed as abstracted signals. No raw positions, trades, or proprietary data are shared.
 
 **Regime-Level Perspective**  
-Abstracted indicators may reference market regime characteristics and systemic risk context — interpretive only.
+Abstracted indicators may reference market regime characteristics and systemic risk context - interpretive only.
 
 **Shared Semantic Framework**  
 Common constructs (e.g., WaveScore™) provide shared language without exposing tenant data.
@@ -1221,7 +1221,7 @@ All perspectives are constrained by tenant isolation, jurisdictional considerati
 ---
 
 🌐 *Part of the WAVES Global Intelligence Network documentation.*  
-*This describes architectural intent only — no functional changes.*
+*This describes architectural intent only - no functional changes.*
     """)
 
 # ===========================
@@ -1230,7 +1230,7 @@ All perspectives are constrained by tenant isolation, jurisdictional considerati
 with st.sidebar.expander("Architecture Readiness", expanded=False):
     st.markdown("""
 **Architecture Readiness Narrative**  
-*Descriptive Only — No Functional Changes*
+*Descriptive Only - No Functional Changes*
 
 ---
 
@@ -1241,7 +1241,7 @@ Single canonical accounting and attribution model. All views derive from the sam
 Immutable audit trails, strict separation of truth and interpretation, no execution, human-in-the-loop control.
 
 **Interpretive Translation Layers**  
-Read-only layers (e.g., WaveScore™) — non-executing, fully traceable, decomposable to canonical sources.
+Read-only layers (e.g., WaveScore™) - non-executing, fully traceable, decomposable to canonical sources.
 
 **Tenant-Isolated Global Architecture**  
 Strict tenant isolation, jurisdiction-aware boundaries, federated data concepts, shared semantics without shared data.
@@ -1255,7 +1255,7 @@ Supports regulatory alignment, institutional onboarding, enterprise integration,
 ---
 
 🌐 *Part of the WAVES Intelligence™ architecture documentation.*  
-*This describes architectural intent only — no functional changes.*
+*This describes architectural intent only - no functional changes.*
     """)
 
 # ===========================
@@ -1264,7 +1264,7 @@ Supports regulatory alignment, institutional onboarding, enterprise integration,
 with st.sidebar.expander("Institutional Onboarding", expanded=False):
     st.markdown("""
 **Institutional Onboarding Narrative**  
-*Descriptive Only — No Functional Changes*
+*Descriptive Only - No Functional Changes*
 
 ---
 
@@ -1272,7 +1272,7 @@ with st.sidebar.expander("Institutional Onboarding", expanded=False):
 Read-only, advisory intelligence layer. Does not replace OMS, PMS, execution, or custody systems.
 
 **Stakeholder-Aligned Adoption**  
-Serves Investment Committees, Portfolio Managers, Risk & Compliance, and Executives — each interacting with the same canonical truth.
+Serves Investment Committees, Portfolio Managers, Risk & Compliance, and Executives - each interacting with the same canonical truth.
 
 **Pilot-First Evaluation Model**  
 Limited coverage, observational use, non-binding governance items, historical and live comparison views.
@@ -1289,7 +1289,7 @@ Canonical truth, governance-native design, audit-first transparency, regulatory 
 ---
 
 🌐 *Part of the WAVES Global Intelligence Network documentation.*  
-*This describes architectural intent only — no functional changes.*
+*This describes architectural intent only - no functional changes.*
     """)
 
 # ===========================
@@ -1298,7 +1298,7 @@ Canonical truth, governance-native design, audit-first transparency, regulatory 
 with st.sidebar.expander("Regulatory Alignment", expanded=False):
     st.markdown("""
 **Regulatory Alignment Overview**  
-*Descriptive Only — No Functional Changes*
+*Descriptive Only - No Functional Changes*
 
 ---
 
@@ -1323,7 +1323,7 @@ Aligns with fiduciary duty, model risk management, audit-first design, decision 
 ---
 
 🌐 *Part of the WAVES Global Intelligence Network documentation.*  
-*This describes architectural intent only — no functional changes.*
+*This describes architectural intent only - no functional changes.*
     """)
 
 # ===========================
@@ -1350,7 +1350,7 @@ except:
 with st.sidebar.expander("Understanding This System", expanded=False):
     st.markdown("""
 **What is governance in this system?**  
-Governance means every action, governance instruction, and decision is logged, traceable, and subject to human approval. No automated execution occurs — humans remain in control at all times.
+Governance means every action, governance instruction, and decision is logged, traceable, and subject to human approval. No automated execution occurs - humans remain in control at all times.
 
 **What is an audit trail?**  
 An audit trail is a permanent, timestamped record of who did what and when. It ensures accountability and allows any decision to be reviewed or investigated later.
@@ -1362,10 +1362,10 @@ The system provides governance instructions and analysis, but never acts on your
 WaveScore™ is a read-only summary that translates complex portfolio data into a simple interpretive view. It does not make decisions, trigger actions, or influence rankings. It is purely informational.
 
 **What do system states (e.g., degraded) mean?**  
-System states indicate the health and reliability of the data and analysis. A "degraded" state means some data may be incomplete or delayed — not that the system has failed.
+System states indicate the health and reliability of the data and analysis. A "degraded" state means some data may be incomplete or delayed - not that the system has failed.
 
 **What is alpha attribution?**  
-Alpha attribution breaks down portfolio performance into independent components (selection, momentum, volatility, etc.) so you can understand what drove returns — not just what the total return was.
+Alpha attribution breaks down portfolio performance into independent components (selection, momentum, volatility, etc.) so you can understand what drove returns - not just what the total return was.
 
 **What is adaptive intelligence?**  
 Adaptive intelligence learns from historical patterns to refine thresholds and governance parameters over time. It adapts to market conditions while remaining advisory-only.
@@ -1462,7 +1462,7 @@ with st.sidebar.expander("Integration Readiness Map", expanded=False):
 **Purpose**  
 This document outlines how WAVES integrates into an institutional investment environment.
 
-WAVES is designed to complement — not replace — existing governance, risk, and execution systems.
+WAVES is designed to complement - not replace - existing governance, risk, and execution systems.
 
 **System Boundaries**  
 WAVES provides:
@@ -1498,25 +1498,25 @@ This document outlines a typical, non-binding sequence for activating IC authori
 
 *This is illustrative only. Final timelines and procedures are institution-defined.*
 
-**Phase 1 — Governance Alignment (Weeks 1–4)**
+**Phase 1 - Governance Alignment (Weeks 1-4)**
 - Confirm IC membership
 - Define authority scope
 - Align compliance requirements
 - Review audit procedures
 
-**Phase 2 — Control Enablement (Weeks 5–8)**
+**Phase 2 - Control Enablement (Weeks 5-8)**
 - Activate IC Authority layer
 - Enable approved control categories
 - Validate logging and reversibility
 - Dry-run approval workflows
 
-**Phase 3 — Operational Readiness (Weeks 9–12)**
+**Phase 3 - Operational Readiness (Weeks 9-12)**
 - Formalize execution handoffs
 - Confirm escalation procedures
 - Establish review cadence
 
 **Principle**  
-Execution authority is activated only when governance is ready — not before.
+Execution authority is activated only when governance is ready - not before.
     """)
 
 with st.sidebar.expander("Diligence Packet Summary", expanded=False):
@@ -1774,10 +1774,10 @@ def _gov_strategy_health():
                             
                             comparison_rows.append({
                                 "Wave": wave_name[:25] + "..." if len(wave_name) > 25 else wave_name,
-                                "30D Return": f"{float(return_30d)*100:.2f}%" if pd.notna(return_30d) else "—",
-                                "60D Return": f"{float(return_60d)*100:.2f}%" if pd.notna(return_60d) else "—",
-                                "365D Return": f"{float(return_365d)*100:.2f}%" if pd.notna(return_365d) else "—",
-                                "Alpha (60D)": f"{float(alpha_60d)*100:.2f}%" if pd.notna(alpha_60d) else "—"
+                                "30D Return": f"{float(return_30d)*100:.2f}%" if pd.notna(return_30d) else "-",
+                                "60D Return": f"{float(return_60d)*100:.2f}%" if pd.notna(return_60d) else "-",
+                                "365D Return": f"{float(return_365d)*100:.2f}%" if pd.notna(return_365d) else "-",
+                                "Alpha (60D)": f"{float(alpha_60d)*100:.2f}%" if pd.notna(alpha_60d) else "-"
                             })
                     
                     if comparison_rows:
@@ -1820,7 +1820,7 @@ def _gov_review_signals():
 <div style="color: {status_color}; font-size: 11px; font-weight: 500;">{status}</div>
 </div>
 <div style="color: #9AA0AC; font-size: 12px; margin-bottom: 6px;">{observation}</div>
-<div style="color: #6B7280; font-size: 10px;">Scope: {scope} · Observational only — human evaluation may be warranted based on institutional judgment.</div>
+<div style="color: #6B7280; font-size: 10px;">Scope: {scope} · Observational only - human evaluation may be warranted based on institutional judgment.</div>
 </div>"""
         st.markdown(signal_html, unsafe_allow_html=True)
     
@@ -1927,18 +1927,18 @@ def _gov_decision_outcomes():
             rows = []
             for d in decisions:
                 rows.append({
-                    "Decision ID": d.get("id", "—"),
-                    "Decision Type": d.get("decision_type", "—"),
+                    "Decision ID": d.get("id", "-"),
+                    "Decision Type": d.get("decision_type", "-"),
                     "Actor": d.get("actor", "PM"),
-                    "Decision Date": d.get("date", "—"),
-                    "Status": d.get("status", "—"),
+                    "Decision Date": d.get("date", "-"),
+                    "Status": d.get("status", "-"),
                     "Scope": "Portfolio" if not d.get("wave") else d.get("wave"),
                     "30D Outcome": d.get("outcome_30d", "Pending"),
                     "90D Outcome": d.get("outcome_90d", "Pending"),
                     "365D Outcome": d.get("outcome_365d", "Pending"),
                     "Learning Signal": classify_decision_learning(d),
-                    "Regime Context": d.get("regime_context", d.get("context", "—")),
-                    "Notes": d.get("rationale", "—")
+                    "Regime Context": d.get("regime_context", d.get("context", "-")),
+                    "Notes": d.get("rationale", "-")
                 })
             
             df_export = pd.DataFrame(rows)
@@ -1951,7 +1951,7 @@ def _gov_decision_outcomes():
         o30 = str(decision.get("outcome_30d", "")).lower()
         o90 = str(decision.get("outcome_90d", "")).lower()
         
-        if "pending" in o30 or "pending" in o90 or o30 in ["", "—", "n/a"]:
+        if "pending" in o30 or "pending" in o90 or o30 in ["", "-", "n/a"]:
             return "Insufficient History"
         if "+" in o30 and "+" in o90:
             return "Aligned"
@@ -2010,7 +2010,7 @@ MULTI-HORIZON OUTCOME TABLE
 {"-"*115}
 """
             for d in decisions:
-                content += f"""{str(d.get('id', '—')):<20} {str(d.get('decision_type', '—')):<15} {str(d.get('actor', 'PM')):<8} {str(d.get('date', '—')):<12} {str(d.get('outcome_30d', 'Pending')):<10} {str(d.get('outcome_90d', 'Pending')):<10} {str(d.get('outcome_365d', 'Pending')):<10} {classify_decision_learning(d):<20}
+                content += f"""{str(d.get('id', '-')):<20} {str(d.get('decision_type', '-')):<15} {str(d.get('actor', 'PM')):<8} {str(d.get('date', '-')):<12} {str(d.get('outcome_30d', 'Pending')):<10} {str(d.get('outcome_90d', 'Pending')):<10} {str(d.get('outcome_365d', 'Pending')):<10} {classify_decision_learning(d):<20}
 """
             
             content += f"""
@@ -2102,7 +2102,7 @@ Aggregate observational review of recorded governance decisions.
         o90 = str(d.get('outcome_90d', '')).lower()
         combined = o30 + ' ' + o90
         
-        if 'pending' in combined or o30 in ['', '—', 'n/a'] or o90 in ['', '—', 'n/a']:
+        if 'pending' in combined or o30 in ['', '-', 'n/a'] or o90 in ['', '-', 'n/a']:
             insufficient_count += 1
         elif 'external' in combined or 'regime' in combined:
             external_count += 1
@@ -2156,7 +2156,7 @@ Aggregate observational review of recorded governance decisions.
 </div>""", unsafe_allow_html=True)
         
         st.markdown("""<div style="color: #6B7280; font-size: 9px; margin: 4px 0 16px 0; text-align: center;">
-Observational review only — final decisions remain under human control. No automated scoring or execution is performed.
+Observational review only - final decisions remain under human control. No automated scoring or execution is performed.
 </div>""", unsafe_allow_html=True)
     else:
         st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 16px; text-align: center; color: #6B7280; font-size: 11px;">
@@ -2194,8 +2194,8 @@ Observational review only — final decisions remain under human control. No aut
 <td style="padding: 8px; color: #E5E5E5;">{record.get('decision', 'N/A')}</td>
 <td style="padding: 8px; color: #9AA0AC;">{record.get('date', 'N/A')}</td>
 <td style="padding: 8px; color: #9AA0AC;">{record.get('context', 'N/A')}</td>
-<td style="text-align: right; padding: 8px; color: #9AA0AC;">{record.get('outcome_30d', '—')}</td>
-<td style="text-align: right; padding: 8px; color: #9AA0AC;">{record.get('outcome_90d', '—')}</td>
+<td style="text-align: right; padding: 8px; color: #9AA0AC;">{record.get('outcome_30d', '-')}</td>
+<td style="text-align: right; padding: 8px; color: #9AA0AC;">{record.get('outcome_90d', '-')}</td>
 </tr>"""
         
         decision_html += """</tbody></table></div>"""
@@ -2228,7 +2228,7 @@ def _gov_ic_review():
             ic_decisions = []
     
     # -----------------------------------------------
-    # SUBSECTION 1 — Decision Outcome Summary
+    # SUBSECTION 1 - Decision Outcome Summary
     # -----------------------------------------------
     st.markdown("**Decision Outcome Summary**")
     st.markdown("""<div class="waves-caption" style="margin: 4px 0 12px 0;">
@@ -2244,12 +2244,12 @@ Aggregated outcomes by decision type · Read-only
             decision_types[dtype]["count"] += 1
             o30 = d.get("outcome_30d", "")
             o90 = d.get("outcome_90d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     decision_types[dtype]["outcome_30d"].append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
                     pass
-            if o90 and o90 != "Pending" and o90 != "—":
+            if o90 and o90 != "Pending" and o90 != "-":
                 try:
                     decision_types[dtype]["outcome_90d"].append(float(str(o90).replace("%", "").replace("+", "")))
                 except:
@@ -2292,7 +2292,7 @@ Aggregated outcomes by decision type · Read-only
     st.markdown("")
     
     # -----------------------------------------------
-    # SUBSECTION 2 — Context vs Outcome Matrix
+    # SUBSECTION 2 - Context vs Outcome Matrix
     # -----------------------------------------------
     st.markdown("**Context vs Outcome Matrix**")
     st.markdown("""<div class="waves-caption" style="margin: 4px 0 12px 0;">
@@ -2303,19 +2303,19 @@ Outcomes by regime context at time of decision · Read-only
         regime_contexts = {}
         for d in ic_decisions:
             context = d.get("context", d.get("regime_context", "Unknown"))
-            if not context or context == "—":
+            if not context or context == "-":
                 context = "Unknown"
             if context not in regime_contexts:
                 regime_contexts[context] = {"count": 0, "outcome_30d": [], "outcome_90d": []}
             regime_contexts[context]["count"] += 1
             o30 = d.get("outcome_30d", "")
             o90 = d.get("outcome_90d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     regime_contexts[context]["outcome_30d"].append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
                     pass
-            if o90 and o90 != "Pending" and o90 != "—":
+            if o90 and o90 != "Pending" and o90 != "-":
                 try:
                     regime_contexts[context]["outcome_90d"].append(float(str(o90).replace("%", "").replace("+", "")))
                 except:
@@ -2358,7 +2358,7 @@ Regime-conditioned outcomes will appear as contextual data accumulates.
     st.markdown("")
     
     # -----------------------------------------------
-    # SUBSECTION 3 — Decision Stability Indicator
+    # SUBSECTION 3 - Decision Stability Indicator
     # -----------------------------------------------
     st.markdown("**Decision Stability Indicator**")
     
@@ -2366,7 +2366,7 @@ Regime-conditioned outcomes will appear as contextual data accumulates.
         all_outcomes = []
         for d in ic_decisions:
             o30 = d.get("outcome_30d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     all_outcomes.append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
@@ -2389,7 +2389,7 @@ Regime-conditioned outcomes will appear as contextual data accumulates.
             
             st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 14px; margin: 8px 0; border-left: 3px solid {stability_color};">
 <div style="color: #E5E5E5; font-size: 13px;">
-<strong>Decision Outcome Stability:</strong> <span style="color: {stability_color};">{stability_status}</span> — {stability_desc}
+<strong>Decision Outcome Stability:</strong> <span style="color: {stability_color};">{stability_status}</span> - {stability_desc}
 </div>
 </div>""", unsafe_allow_html=True)
         else:
@@ -2404,7 +2404,7 @@ No governance decisions recorded during the current observation window.
     st.markdown("")
     
     # -----------------------------------------------
-    # SUBSECTION 4 — Governance Review Flags
+    # SUBSECTION 4 - Governance Review Flags
     # -----------------------------------------------
     st.markdown("**Governance Review Flags**")
     st.markdown("""<div class="waves-caption" style="margin: 4px 0 12px 0;">
@@ -2674,11 +2674,11 @@ def _gov_ic_authority():
 <div style="position: absolute; top: 16px; right: 20px; font-size: 11px; color: #888888;">Observational Only · Non-Executing</div>
 <div style="display: flex; align-items: center; margin-bottom: 20px;">
 <span style="color: #A0A0A0; font-size: 16px; margin-right: 10px;">[L]</span>
-<span style="color: #D0D0D0; font-size: 18px; font-weight: 600; letter-spacing: 0.5px;">IC Authority — Inactive</span>
+<span style="color: #D0D0D0; font-size: 18px; font-weight: 600; letter-spacing: 0.5px;">IC Authority - Inactive</span>
 </div>
 <div style="background: rgba(255,193,7,0.08); border-left: 3px solid #FFC107; border-radius: 4px; padding: 14px 18px; margin-bottom: 20px;">
 <div style="color: #D0D0D0; font-size: 13px; line-height: 1.5;">
-<strong>This section defines where Investment Committee–authorized strategy controls are managed.</strong><br>
+<strong>This section defines where Investment Committee-authorized strategy controls are managed.</strong><br>
 Current state: <strong>Observational-only</strong>. Execution is intentionally disabled until formal IC delegation.
 </div>
 </div>
@@ -2713,22 +2713,22 @@ Current state: <strong>Observational-only</strong>. Execution is intentionally d
 <div style="color: #D0D0D0; font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
 <div style="color: #A0A0A0; font-weight: 600; margin-bottom: 10px;">Upon formal delegation, the Investment Committee will have authority to:</div>
 <div style="padding-left: 12px; color: #A0A0A0;">
-— Approve or suspend defensive overlays (e.g., VIX-based risk mitigation)<br>
-— Authorize drift response actions within predefined bounds<br>
-— Set or modify exposure constraint ranges<br>
-— Approve temporary or structural changes to rebalancing cadence<br>
-— Acknowledge and log IC-approved overrides<br>
-— Record human rationale and timestamps for all IC actions<br>
-— Revert IC-authorized changes under defined governance procedures
+- Approve or suspend defensive overlays (e.g., VIX-based risk mitigation)<br>
+- Authorize drift response actions within predefined bounds<br>
+- Set or modify exposure constraint ranges<br>
+- Approve temporary or structural changes to rebalancing cadence<br>
+- Acknowledge and log IC-approved overrides<br>
+- Record human rationale and timestamps for all IC actions<br>
+- Revert IC-authorized changes under defined governance procedures
 </div>
 </div>
 <div style="color: #D0D0D0; font-size: 13px; line-height: 1.6;">
 <div style="color: #A0A0A0; font-weight: 600; margin-bottom: 10px;">Governance Constraints:</div>
 <div style="padding-left: 12px; color: #A0A0A0;">
-— All actions require explicit human IC approval<br>
-— No automatic execution occurs under any circumstance<br>
-— All actions are auditable and reversible<br>
-— Activation occurs only after formal delegation under acquiring institution's framework
+- All actions require explicit human IC approval<br>
+- No automatic execution occurs under any circumstance<br>
+- All actions are auditable and reversible<br>
+- Activation occurs only after formal delegation under acquiring institution's framework
 </div>
 </div>
 <div style="border-top: 1px solid #2A2A2A; margin-top: 16px; padding-top: 12px; font-size: 11px; color: #666666;">This scope documentation is informational only · No execution capability</div>
@@ -2770,7 +2770,7 @@ def _gov_rec_intake():
                     st.caption(f"Score: {rec['confidence_score']*100:.0f}%")
                     horizon_icon = "[+]" if rec["cross_horizon_status"] == "Aligned" else "[!]"
                     st.caption(f"{horizon_icon} {rec['cross_horizon_status']}")
-                st.caption(f"Preview — Not Executed | Source: {rec['source']}")
+                st.caption(f"Preview - Not Executed | Source: {rec['source']}")
                 st.divider()
     
     # -----------------------------------------------
@@ -2808,7 +2808,7 @@ This section evaluated historical governance decisions using recorded data only.
         
         # Section 1: Decision Record
         section1_html = """<div style="background: #151A22; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 16px; margin-bottom: 14px;">
-<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 1 — DECISION RECORD (STATIC FACTS)</div>"""
+<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 1 - DECISION RECORD (STATIC FACTS)</div>"""
         
         if len(governance_decisions) == 0:
             section1_html += """<div style="color: #6B7280; font-size: 11px; line-height: 1.6; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 4px; text-align: center;">
@@ -2832,7 +2832,7 @@ No historical governance decisions have been recorded. This section will populat
         
         # Section 2: Contemporaneous Context
         section2_html = """<div style="background: #1A1F2A; border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 16px; margin-bottom: 14px;">
-<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 2 — CONTEMPORANEOUS CONTEXT (AT TIME OF DECISION)</div>
+<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 2 - CONTEMPORANEOUS CONTEXT (AT TIME OF DECISION)</div>
 <div style="color: #6B7280; font-size: 11px; line-height: 1.6;">"""
         
         if len(governance_decisions) == 0:
@@ -2850,7 +2850,7 @@ Context snapshots for recorded decisions would include: Market Direction Assessm
         
         # Section 3: Subsequent Observations
         section3_html = """<div style="background: #1A1F2A; border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 16px; margin-bottom: 14px;">
-<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 3 — SUBSEQUENT OBSERVATIONS (POST-DECISION)</div>
+<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 3 - SUBSEQUENT OBSERVATIONS (POST-DECISION)</div>
 <div style="color: #6B7280; font-size: 11px; line-height: 1.6;">"""
         
         if len(governance_decisions) == 0:
@@ -2868,7 +2868,7 @@ Subsequent observations for recorded decisions would include: performance over f
         
         # Section 4: Evaluation Framing
         section4_html = """<div style="background: #1A1F2A; border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 16px; margin-bottom: 14px;">
-<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 4 — EVALUATION FRAMING (NON-JUDGMENTAL)</div>
+<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 4 - EVALUATION FRAMING (NON-JUDGMENTAL)</div>
 <div style="color: #6B7280; font-size: 11px; line-height: 1.6;">
 <div style="color: #7A8090; font-size: 10px; margin-bottom: 8px;">Neutral evaluative language derived from real outcomes only</div>
 <ul style="margin: 8px 0; padding-left: 18px; color: #6B7280;">
@@ -2885,7 +2885,7 @@ No scores assigned · No prescribed actions · No reviews triggered · No calibr
         
         # Section 5: Governance Position
         section5_html = """<div style="background: #151A22; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 16px;">
-<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 5 — GOVERNANCE POSITION (EXPLICIT)</div>
+<div style="color: #9AA0AC; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px;">SECTION 5 - GOVERNANCE POSITION (EXPLICIT)</div>
 <div style="color: #6B7280; font-size: 11px; line-height: 1.7;">
 <ul style="margin: 0; padding-left: 18px;">
 <li>This section evaluated historical decisions only</li>
@@ -2928,14 +2928,14 @@ Signal Context → Decision Recorded → Status Tracked → Outcome Observed
 </div>""", unsafe_allow_html=True)
         
         for dec in trace_decisions[:10]:
-            dec_id = dec.get("decision_id", "—")
-            wave_scope = dec.get("wave_scope", dec.get("wave", "—"))
-            dec_type = dec.get("decision_type", dec.get("type", "—"))
-            actor = dec.get("actor", "—")
-            status = dec.get("status", "—")
-            date_str = dec.get("date", "—")
+            dec_id = dec.get("decision_id", "-")
+            wave_scope = dec.get("wave_scope", dec.get("wave", "-"))
+            dec_type = dec.get("decision_type", dec.get("type", "-"))
+            actor = dec.get("actor", "-")
+            status = dec.get("status", "-")
+            date_str = dec.get("date", "-")
             rationale = dec.get("rationale", "")
-            regime = dec.get("regime_context", "—")
+            regime = dec.get("regime_context", "-")
             o30 = dec.get("outcome_30d", "Pending")
             o90 = dec.get("outcome_90d", "Pending")
             
@@ -2971,12 +2971,12 @@ Signal Context → Decision Recorded → Status Tracked → Outcome Observed
             trace_table = []
             for dec in trace_decisions:
                 trace_table.append({
-                    "Decision ID": dec.get("decision_id", "—"),
-                    "Date": dec.get("date", "—"),
-                    "Wave/Scope": dec.get("wave_scope", dec.get("wave", "—")),
-                    "Type": dec.get("decision_type", dec.get("type", "—")),
-                    "Actor": dec.get("actor", "—"),
-                    "Status": dec.get("status", "—"),
+                    "Decision ID": dec.get("decision_id", "-"),
+                    "Date": dec.get("date", "-"),
+                    "Wave/Scope": dec.get("wave_scope", dec.get("wave", "-")),
+                    "Type": dec.get("decision_type", dec.get("type", "-")),
+                    "Actor": dec.get("actor", "-"),
+                    "Status": dec.get("status", "-"),
                     "30D Outcome": dec.get("outcome_30d", "Pending"),
                     "90D Outcome": dec.get("outcome_90d", "Pending"),
                 })
@@ -3007,7 +3007,7 @@ No execution, recommendations, or capital impact is represented. All entries are
     st.caption("**Governance Guardrails:** No auto-execution | No live trading | No broker APIs | Human approval required | All actions auditable | All changes reversible")
     
     # -----------------------------------------------
-    # TAB SUMMARY — GOVERNANCE AND OPERATIONS
+    # TAB SUMMARY - GOVERNANCE AND OPERATIONS
     # -----------------------------------------------
     st.divider()
     st.markdown('<span class="waves-micro-label">Tab Summary</span>', unsafe_allow_html=True)
@@ -3043,7 +3043,7 @@ These are the rules and guardrails that ensure the system operates within instit
 This tab documents how the system is designed to protect institutional interests and ensure proper oversight.
 </div>
 <div style="color: #6B7280; font-size: 11px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
-<strong>Actionability:</strong> Observational only — final decisions remain under human control.
+<strong>Actionability:</strong> Observational only - final decisions remain under human control.
 </div>
 </div>""", unsafe_allow_html=True)
 
@@ -3106,7 +3106,7 @@ def _gov_holdings():
                     }
                 )
                 
-                st.caption("Selection integrity diagnostics only — no fundamentals, narratives, or forecasts")
+                st.caption("Selection integrity diagnostics only - no fundamentals, narratives, or forecasts")
     else:
         st.info("Institutional data sources will populate as canonical feeds are connected.")
 
@@ -3155,7 +3155,7 @@ def render_signal_route_button(wave_name, signal_source, button_key, signal_labe
     Sets council_nav_wave and council_nav_source in session state, then triggers tab switch via JS injection.
     signal_source: one of 'executive_snapshot', 'decision_intelligence', 'adaptive_intelligence', 'wave_diagnostics', 'portfolio_state'
     """
-    _tooltip = "Route to Decision Review & Implementation tab. Waves operate autonomously — this routes the governance signal for IC review, not execution. Observational only."
+    _tooltip = "Route to Decision Review & Implementation tab. Waves operate autonomously - this routes the governance signal for IC review, not execution. Observational only."
     _label = signal_label if signal_label else f"Review in Decision Tab"
     if compact:
         if st.button(f"{_label} →", key=button_key, help=_tooltip):
@@ -3178,8 +3178,8 @@ def render_signal_route_button(wave_name, signal_source, button_key, signal_labe
 
 # ===========================
 # GLOBAL DUAL-LAYER ALPHA ATTRIBUTION MODEL (NOTE 039)
-# LAYER 1 — Sources: Structural Alpha + Signal-Driven Alpha + Human Decision Alpha + External Effects (sum to 100%)
-# LAYER 2 — Drivers: Selection Alpha + Momentum Alpha + Volatility Alpha + Regime Alpha + Exposure Alpha (sum to 100%)
+# LAYER 1 - Sources: Structural Alpha + Signal-Driven Alpha + Human Decision Alpha + External Effects (sum to 100%)
+# LAYER 2 - Drivers: Selection Alpha + Momentum Alpha + Volatility Alpha + Regime Alpha + Exposure Alpha (sum to 100%)
 # ===========================
 def compute_alpha_attribution_global(sdf, adf, wave_filter=None):
     _gaa = {"structural_alpha": 0.0, "signal_alpha": 0.0, "human_decision_alpha": 0.0, "external_effects": 0.0, "total": 0.0}
@@ -3307,7 +3307,7 @@ alpha_attribution_global = compute_alpha_attribution_global(snapshot_df, attrib_
 
 # ===========================
 # CONFIRMATION STACK (NOTE 033)
-# Unified confirmation panel — observational only
+# Unified confirmation panel - observational only
 # Uses real system diagnostics, no synthetic signals
 # ===========================
 def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_state.json", wave_filter=None):
@@ -3339,7 +3339,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
 
     _cs_is_single = wave_filter is not None and _cs_wdf is not None and len(_cs_wdf) == 1
 
-    # 1) Cross-Horizon Alignment — from wave alpha signs across horizons
+    # 1) Cross-Horizon Alignment - from wave alpha signs across horizons
     _cs_ch_status = "Mixed"
     if _cs_is_single:
         _cs_row = _cs_wdf.iloc[0]
@@ -3388,7 +3388,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
                 _cs_ch_status = "Conflicted"
     stack["Cross-Horizon Alignment"] = _cs_ch_status
 
-    # 2) Market Participation / Breadth — single wave: return magnitude; portfolio: breadth ratio
+    # 2) Market Participation / Breadth - single wave: return magnitude; portfolio: breadth ratio
     _cs_bp_status = "Neutral"
     if _cs_is_single:
         _cs_row = _cs_wdf.iloc[0]
@@ -3418,7 +3418,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
                     _cs_bp_status = "Deteriorating"
     stack["Market Participation"] = _cs_bp_status
 
-    # 3) Volatility Regime Context — from adaptive volatility regime + wave benchmark vol
+    # 3) Volatility Regime Context - from adaptive volatility regime + wave benchmark vol
     _cs_vol_status = "Moderate"
     if _cs_is_single and "benchmark_volatility_30d" in _cs_wdf.columns:
         _cs_bv_val = pd.to_numeric(_cs_wdf.iloc[0].get("benchmark_volatility_30d"), errors="coerce")
@@ -3456,7 +3456,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
                     _cs_vol_status = "Low"
     stack["Volatility Context"] = _cs_vol_status
 
-    # 4) Signal Persistence — single wave: multi-horizon alpha consistency; portfolio: regime trends
+    # 4) Signal Persistence - single wave: multi-horizon alpha consistency; portfolio: regime trends
     _cs_sp_status = "Mixed"
     if _cs_is_single:
         _cs_row = _cs_wdf.iloc[0]
@@ -3518,7 +3518,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
             _cs_sp_status = "Unstable"
     stack["Signal Persistence"] = _cs_sp_status
 
-    # 5) Relative Strength Leadership — single wave: wave alpha vs portfolio median; portfolio: breadth
+    # 5) Relative Strength Leadership - single wave: wave alpha vs portfolio median; portfolio: breadth
     _cs_rs_status = "Concentrated"
     if _cs_is_single:
         _cs_row = _cs_wdf.iloc[0]
@@ -3553,7 +3553,7 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
                     _cs_rs_status = "Weak"
     stack["Relative Strength"] = _cs_rs_status
 
-    # 6) Liquidity & Volume Support — from wave drawdown + benchmark vol
+    # 6) Liquidity & Volume Support - from wave drawdown + benchmark vol
     _cs_lq_status = "Neutral"
     if _cs_is_single:
         _cs_row = _cs_wdf.iloc[0]
@@ -3590,9 +3590,9 @@ def compute_confirmation_stack(sdf, adf, adaptive_state_path="data/adaptive_stat
 
 
 def render_decision_outcome_chart(decision, snap_df):
-    """NOTE 031 — Decision Outcome Chart (Institutional, Observational).
+    """NOTE 031 - Decision Outcome Chart (Institutional, Observational).
     Shows portfolio vs benchmark performance normalized to 0% at decision date.
-    Uses canonical data only — discrete horizon returns from live_snapshot.csv.
+    Uses canonical data only - discrete horizon returns from live_snapshot.csv.
     No synthetic data, no simulation, no execution logic."""
     import altair as alt
     from datetime import datetime, timedelta
@@ -3776,13 +3776,13 @@ def render_pending_decisions(decision_data, panel_key="default"):
         for di, dec in enumerate(pending):
             dec_id = dec.get("id", f"DEC-{di}")
             dec_wave = dec.get("wave", "Portfolio")
-            dec_type_raw = dec.get("decision_type", dec.get("event_type", "—"))
-            dec_type = "Override Decision" if dec_type_raw and "override" in str(dec_type_raw).lower() else "Governance Decision" if dec_type_raw and dec_type_raw != "—" else dec_type_raw
-            dec_actor = dec.get("actor", "—")
+            dec_type_raw = dec.get("decision_type", dec.get("event_type", "-"))
+            dec_type = "Override Decision" if dec_type_raw and "override" in str(dec_type_raw).lower() else "Governance Decision" if dec_type_raw and dec_type_raw != "-" else dec_type_raw
+            dec_actor = dec.get("actor", "-")
             dec_status = dec.get("status", "Unknown")
             dec_approval = dec.get("approval_status", "")
             dec_impl = dec.get("implementation_state", "")
-            dec_date = dec.get("date", "—")
+            dec_date = dec.get("date", "-")
             dec_rationale = dec.get("rationale", dec.get("context_notes", ""))
             dec_outcome = dec.get("outcome_30d", "")
 
@@ -3814,7 +3814,7 @@ def render_pending_decisions(decision_data, panel_key="default"):
                     if days_to_30 > 0:
                         upcoming_note = f"30D outcome window completes in {days_to_30} days"
                     elif days_to_30 <= 0:
-                        upcoming_note = "30D outcome window has elapsed — review eligible"
+                        upcoming_note = "30D outcome window has elapsed - review eligible"
                 if dec_approval == "Pending" and not upcoming_note:
                     upcoming_note = "Awaiting IC approval"
                 if dec_status == "Monitoring" and not upcoming_note:
@@ -3897,7 +3897,7 @@ def render_confirmation_stack(sdf, adf, wave_filter=None):
 
     _cs_title = "Confirmation Stack"
     if wave_filter:
-        _cs_title = f"Confirmation Stack — {wave_filter}"
+        _cs_title = f"Confirmation Stack - {wave_filter}"
 
     _cs_html = '<div style="background:#151A22;border:1px solid #2A2F3A;border-radius:8px;padding:16px 18px;margin:8px 0 16px 0;">'
     _cs_html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:4px;">'
@@ -3914,7 +3914,7 @@ def render_confirmation_stack(sdf, adf, wave_filter=None):
     _cs_html += '</tr>'
 
     for _cs_lbl in _cs_labels:
-        _cs_val = _cs_stack.get(_cs_lbl, "—")
+        _cs_val = _cs_stack.get(_cs_lbl, "-")
         _cs_c = _cs_color(_cs_val)
         _cs_dot = f'<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:{_cs_c};margin-right:8px;vertical-align:middle;"></span>'
         _cs_html += f'<tr style="border-bottom:1px solid #1C2029;">'
@@ -3990,19 +3990,19 @@ Outcomes by regime context at time of decision · Read-only
         regime_contexts = {}
         for d in ic_decisions:
             context = d.get("context", d.get("regime_context", "Unknown"))
-            if not context or context == "—":
+            if not context or context == "-":
                 context = "Unknown"
             if context not in regime_contexts:
                 regime_contexts[context] = {"count": 0, "outcome_30d": [], "outcome_90d": []}
             regime_contexts[context]["count"] += 1
             o30 = d.get("outcome_30d", "")
             o90 = d.get("outcome_90d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     regime_contexts[context]["outcome_30d"].append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
                     pass
-            if o90 and o90 != "Pending" and o90 != "—":
+            if o90 and o90 != "Pending" and o90 != "-":
                 try:
                     regime_contexts[context]["outcome_90d"].append(float(str(o90).replace("%", "").replace("+", "")))
                 except:
@@ -4052,7 +4052,7 @@ Outcomes observed across standard decision horizons · Read-only · Observationa
             o90 = d.get("outcome_90d", "")
             o365 = d.get("outcome_365d", "")
             for key, val in [("30D", o30), ("60D", o60), ("90D", o90), ("365D", o365)]:
-                if val and val not in ["Pending", "—", ""]:
+                if val and val not in ["Pending", "-", ""]:
                     try:
                         horizon_data[key].append(float(str(val).replace("%", "").replace("+", "")))
                     except:
@@ -4142,7 +4142,7 @@ def render_ic_decision_stability():
         all_outcomes = []
         for d in ic_decisions:
             o30 = d.get("outcome_30d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     all_outcomes.append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
@@ -4163,7 +4163,7 @@ def render_ic_decision_stability():
                 stability_color = "#EF4444"
             st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 14px; margin: 8px 0; border-left: 3px solid {stability_color};">
 <div style="color: #E5E5E5; font-size: 13px;">
-<strong>Decision Outcome Stability:</strong> <span style="color: {stability_color};">{stability_status}</span> — {stability_desc}
+<strong>Decision Outcome Stability:</strong> <span style="color: {stability_color};">{stability_status}</span> - {stability_desc}
 </div>
 </div>""", unsafe_allow_html=True)
         else:
@@ -4192,7 +4192,7 @@ def render_ic_primary_attention():
             context = d.get("context", d.get("regime_context", "")).lower()
             o30 = d.get("outcome_30d", "")
             if context and "high" in context or "compressed" in context:
-                if o30 and o30 not in ["Pending", "—"]:
+                if o30 and o30 not in ["Pending", "-"]:
                     try:
                         val = float(str(o30).replace("%", "").replace("+", ""))
                         if val < 0:
@@ -4267,7 +4267,7 @@ def render_ic_learning_signal():
         historical_outcomes = []
         for i, d in enumerate(ic_decisions):
             o30 = d.get("outcome_30d", "")
-            if o30 and o30 not in ["Pending", "—", ""]:
+            if o30 and o30 not in ["Pending", "-", ""]:
                 try:
                     val = float(str(o30).replace("%", "").replace("+", ""))
                     if i < len(ic_decisions) // 2:
@@ -4363,12 +4363,12 @@ Aggregated outcomes by decision type · Read-only
             decision_types[dtype]["count"] += 1
             o30 = d.get("outcome_30d", "")
             o90 = d.get("outcome_90d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     decision_types[dtype]["outcome_30d"].append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
                     pass
-            if o90 and o90 != "Pending" and o90 != "—":
+            if o90 and o90 != "Pending" and o90 != "-":
                 try:
                     decision_types[dtype]["outcome_90d"].append(float(str(o90).replace("%", "").replace("+", "")))
                 except:
@@ -4426,7 +4426,7 @@ Outcomes observed across standard decision horizons · Read-only · Observationa
             o365 = d.get("outcome_365d", "")
             
             for key, val in [("30D", o30), ("60D", o60), ("90D", o90), ("365D", o365)]:
-                if val and val not in ["Pending", "—", ""]:
+                if val and val not in ["Pending", "-", ""]:
                     try:
                         horizon_data[key].append(float(str(val).replace("%", "").replace("+", "")))
                     except:
@@ -4541,7 +4541,7 @@ This multi-horizon view is observational and intended for governance context onl
             context = d.get("context", d.get("regime_context", "")).lower()
             o30 = d.get("outcome_30d", "")
             if context and "high" in context or "compressed" in context:
-                if o30 and o30 not in ["Pending", "—"]:
+                if o30 and o30 not in ["Pending", "-"]:
                     try:
                         val = float(str(o30).replace("%", "").replace("+", ""))
                         if val < 0:
@@ -4580,19 +4580,19 @@ Outcomes by regime context at time of decision · Read-only
         regime_contexts = {}
         for d in ic_decisions:
             context = d.get("context", d.get("regime_context", "Unknown"))
-            if not context or context == "—":
+            if not context or context == "-":
                 context = "Unknown"
             if context not in regime_contexts:
                 regime_contexts[context] = {"count": 0, "outcome_30d": [], "outcome_90d": []}
             regime_contexts[context]["count"] += 1
             o30 = d.get("outcome_30d", "")
             o90 = d.get("outcome_90d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     regime_contexts[context]["outcome_30d"].append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
                     pass
-            if o90 and o90 != "Pending" and o90 != "—":
+            if o90 and o90 != "Pending" and o90 != "-":
                 try:
                     regime_contexts[context]["outcome_90d"].append(float(str(o90).replace("%", "").replace("+", "")))
                 except:
@@ -4641,7 +4641,7 @@ Regime-conditioned outcomes will appear as contextual data accumulates.
         all_outcomes = []
         for d in ic_decisions:
             o30 = d.get("outcome_30d", "")
-            if o30 and o30 != "Pending" and o30 != "—":
+            if o30 and o30 != "Pending" and o30 != "-":
                 try:
                     all_outcomes.append(float(str(o30).replace("%", "").replace("+", "")))
                 except:
@@ -4664,7 +4664,7 @@ Regime-conditioned outcomes will appear as contextual data accumulates.
             
             st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 14px; margin: 8px 0; border-left: 3px solid {stability_color};">
 <div style="color: #E5E5E5; font-size: 13px;">
-<strong>Decision Outcome Stability:</strong> <span style="color: {stability_color};">{stability_status}</span> — {stability_desc}
+<strong>Decision Outcome Stability:</strong> <span style="color: {stability_color};">{stability_status}</span> - {stability_desc}
 </div>
 </div>""", unsafe_allow_html=True)
         else:
@@ -4737,7 +4737,7 @@ This IC Decision Review is intended for institutional learning and governance co
         
         for i, d in enumerate(ic_decisions):
             o30 = d.get("outcome_30d", "")
-            if o30 and o30 not in ["Pending", "—", ""]:
+            if o30 and o30 not in ["Pending", "-", ""]:
                 try:
                     val = float(str(o30).replace("%", "").replace("+", ""))
                     if i < len(ic_decisions) // 2:
@@ -4819,14 +4819,14 @@ def render_metric_row(metrics_dict, label_prefix="", intraday_label=None, has_in
     Render a row of metrics using Streamlit columns.
     
     For intraday metrics:
-    - If has_intraday_data is False (no data exists at all), show "—"
+    - If has_intraday_data is False (no data exists at all), show "-"
     - If has_intraday_data is True, show the value even if it's zero (true zero movement)
     
     For 365D metrics:
     - If no data exists, show "Insufficient history" instead of dash
     
     This ensures:
-    - After market close with no session data: show "—"  
+    - After market close with no session data: show "-"  
     - True zero movement during/after session: show "0.00%"
     """
     cols = st.columns(len(metrics_dict))
@@ -4840,10 +4840,10 @@ def render_metric_row(metrics_dict, label_prefix="", intraday_label=None, has_in
                 if is_365d:
                     display = "Insufficient history"
                 else:
-                    display = "—"
+                    display = "-"
             elif is_intraday and not has_intraday_data:
-                # No intraday data exists at all - show "—"
-                display = "—"
+                # No intraday data exists at all - show "-"
+                display = "-"
             else:
                 # Show value (including true zero movement)
                 display = f"{val*100:.2f}%"
@@ -5249,13 +5249,13 @@ def check_attribution_integrity(components):
 
 
 # ===========================
-# NOTE 047 — Enterprise Decision Integration Layer (Phase 1)
-# System-of-Record Foundation — Read-Only, Observational, Non-Executing
+# NOTE 047 - Enterprise Decision Integration Layer (Phase 1)
+# System-of-Record Foundation - Read-Only, Observational, Non-Executing
 # ===========================
 
 def build_standardized_decision(raw_decision, snapshot_df=None, attrib_df=None, adaptive_state=None):
     """
-    NOTE 047 — Build a standardized decision object from raw decision_log entry.
+    NOTE 047 - Build a standardized decision object from raw decision_log entry.
     Enriches with attribution, regime, and cross-horizon context from real data.
     Returns None if raw_decision is invalid.
     """
@@ -5350,7 +5350,7 @@ def build_standardized_decision(raw_decision, snapshot_df=None, attrib_df=None, 
 
 def decision_api_get_all(snapshot_df=None, attrib_df=None, adaptive_state=None):
     """
-    NOTE 047 — Internal Decision API: GET /decisions
+    NOTE 047 - Internal Decision API: GET /decisions
     Returns list of all standardized decision objects from decision_log.json.
     Read-only. No execution logic.
     """
@@ -5370,7 +5370,7 @@ def decision_api_get_all(snapshot_df=None, attrib_df=None, adaptive_state=None):
 
 def decision_api_get_by_id(decision_id, snapshot_df=None, attrib_df=None, adaptive_state=None):
     """
-    NOTE 047 — Internal Decision API: GET /decisions/{decision_id}
+    NOTE 047 - Internal Decision API: GET /decisions/{decision_id}
     Returns single standardized decision object. Read-only.
     """
     try:
@@ -5388,7 +5388,7 @@ def decision_api_get_by_id(decision_id, snapshot_df=None, attrib_df=None, adapti
 
 def decision_api_wave_context(wave_name, snapshot_df=None, attrib_df=None, adaptive_state=None):
     """
-    NOTE 047 — Internal Decision API: GET /waves/{wave_name}/decision_context
+    NOTE 047 - Internal Decision API: GET /waves/{wave_name}/decision_context
     Returns decision context for a specific wave. Read-only.
     """
     context = {
@@ -5423,7 +5423,7 @@ def decision_api_wave_context(wave_name, snapshot_df=None, attrib_df=None, adapt
 
 def decision_api_portfolio_state(snapshot_df=None, attrib_df=None, adaptive_state=None):
     """
-    NOTE 047 — Internal Decision API: GET /portfolio/decision_state
+    NOTE 047 - Internal Decision API: GET /portfolio/decision_state
     Returns portfolio-wide decision state summary. Read-only.
     """
     all_decisions = decision_api_get_all(snapshot_df, attrib_df, adaptive_state)
@@ -5465,9 +5465,9 @@ def decision_api_portfolio_state(snapshot_df=None, attrib_df=None, adaptive_stat
 
 def decision_api_ingest_external(decision_obj):
     """
-    NOTE 047 — Internal Decision API: POST /decision (stub)
+    NOTE 047 - Internal Decision API: POST /decision (stub)
     Validates and appends an externally-sourced decision object.
-    Phase 1 stub — structural placeholder for Phase 2 integration.
+    Phase 1 stub - structural placeholder for Phase 2 integration.
     Returns (success: bool, message: str).
     """
     required_fields = ["decision_id", "wave_name", "decision_type", "timestamp", "status"]
@@ -5522,7 +5522,7 @@ decision_event_log = []
 
 def build_decision_memory_index(snapshot_df=None, attrib_df=None, adaptive_state=None):
     """
-    NOTE 048 — Decision Memory Index Builder
+    NOTE 048 - Decision Memory Index Builder
     Constructs a structured memory index from existing decisions.
     All data from real system sources. Observational only, non-executing.
     """
@@ -5656,7 +5656,7 @@ def build_decision_memory_index(snapshot_df=None, attrib_df=None, adaptive_state
 
 def compute_memory_patterns(memory_index):
     """
-    NOTE 048 — Decision Memory Pattern Summary
+    NOTE 048 - Decision Memory Pattern Summary
     Groups decisions by type/driver and computes alignment statistics.
     Only includes decisions with real outcome data.
     Observational only, non-executing.
@@ -5753,7 +5753,7 @@ def compute_memory_patterns(memory_index):
 
 def render_decision_memory_context_html(decision_type, primary_driver, memory_patterns):
     """
-    NOTE 048 — Renders Decision Memory Context block HTML for a decision card.
+    NOTE 048 - Renders Decision Memory Context block HTML for a decision card.
     Returns HTML string. Observational only.
     """
     pattern = None
@@ -5781,8 +5781,8 @@ def render_decision_memory_context_html(decision_type, primary_driver, memory_pa
         a90 = pattern.get("avg_alpha_90d")
         a365 = pattern.get("avg_alpha_365d")
 
-        a90_str = f"{a90*100:+.2f}%" if a90 is not None else "—"
-        a365_str = f"{a365*100:+.2f}%" if a365 is not None else "—"
+        a90_str = f"{a90*100:+.2f}%" if a90 is not None else "-"
+        a365_str = f"{a365*100:+.2f}%" if a365 is not None else "-"
 
         align_color = "#48BB78" if alignment_pct >= 60 else "#ECC94B" if alignment_pct >= 40 else "#EF4444"
         a90_color = "#48BB78" if a90 is not None and a90 >= 0 else "#EF4444" if a90 is not None else "#6B7280"
@@ -5802,7 +5802,7 @@ def render_decision_memory_context_html(decision_type, primary_driver, memory_pa
 
 def compute_review_explanation(wave_name, attribution_df, snapshot_df):
     """
-    NOTE 049 — Review Driver Explanation for wave-level review cards.
+    NOTE 049 - Review Driver Explanation for wave-level review cards.
     Returns (primary_detractor, review_focus) from real attribution data.
     Observational only, non-executing.
     """
@@ -5871,7 +5871,7 @@ def compute_review_explanation(wave_name, attribution_df, snapshot_df):
 @st.cache_data(ttl=90, show_spinner=False)
 def _fetch_global_futures_data():
     """
-    NOTE 046 + Finnhub upgrade — Fetch Global Futures/Market Context data.
+    NOTE 046 + Finnhub upgrade - Fetch Global Futures/Market Context data.
     Primary: Finnhub API (real-time quotes via ETF proxies).
     Fallback: yfinance (delayed quotes) if Finnhub unavailable.
     Returns list of dicts with asset, last, change, direction, source.
@@ -5959,7 +5959,7 @@ def _fetch_global_futures_data():
 
 def render_global_futures_context(compact=False):
     """
-    NOTE 046 — Global Futures Context Layer (24-Hour Market Orientation)
+    NOTE 046 - Global Futures Context Layer (24-Hour Market Orientation)
     Renders institutional futures context table with overnight summary.
     Observational only, non-executing.
     """
@@ -6049,7 +6049,7 @@ Data via {source_label} &middot; Last refresh: {_now_et}
 
 def render_decision_system_of_record_panel(decisions_data, adaptive_state=None):
     """
-    NOTE 047 — Decision System-of-Record Status Panel
+    NOTE 047 - Decision System-of-Record Status Panel
     Renders institutional summary of decision system state.
     Read-only, observational, non-executing.
     """
@@ -6118,7 +6118,7 @@ Observational decision context only. Final action requires human approval.
 
 def render_directional_drivers(snapshot_df, attrib_df, horizon_assessments=None):
     """
-    NOTE 045 / 045A — Directional Drivers Layer (System-Derived)
+    NOTE 045 / 045A - Directional Drivers Layer (System-Derived)
     Renders 5 directional driver cards beneath Market Direction Assessment,
     plus Directional Confidence panel and Decision Implication line.
     All values computed from real system data. Observational only.
@@ -6459,8 +6459,8 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
             with _rp_c5:
                 _rp_li = _rp_learn.get("learning_index") if _rp_total > 0 else None
                 _rp_ei = _rp_learn.get("efficiency_index") if _rp_total > 0 else None
-                _rp_li_display = f"{_rp_li:.0f}" if _rp_li is not None else "—"
-                _rp_ei_display = f"{_rp_ei:.0f}" if _rp_ei is not None else "—"
+                _rp_li_display = f"{_rp_li:.0f}" if _rp_li is not None else "-"
+                _rp_ei_display = f"{_rp_ei:.0f}" if _rp_ei is not None else "-"
                 st.markdown(f'''<div style="background:#151A22;border:1px solid #2A2F3A;border-radius:6px;padding:10px 14px;text-align:center;">
 <div style="color:#6B7280;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Learning / Efficiency</div>
 <div style="color:#E5E5E5;font-size:14px;font-weight:700;">{_rp_li_display} / {_rp_ei_display}</div>
@@ -7008,7 +7008,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
     except Exception:
         pass
 
-    # --- Executive Service — Pending Decisions (NOTE 013) ---
+    # --- Executive Service - Pending Decisions (NOTE 013) ---
     try:
         _esp_dl_path = Path("data/decision_log.json")
         _esp_decs = []
@@ -7126,7 +7126,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
 
         st.markdown(f"""<div style="background:#0D1117;border:1px solid #1E2530;border-radius:8px;padding:20px 24px;margin-bottom:16px;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.04);">
-<div style="color:#9EA3AE;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">EXECUTIVE SERVICE — GOVERNANCE QUEUE</div>
+<div style="color:#9EA3AE;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">EXECUTIVE SERVICE - GOVERNANCE QUEUE</div>
 <div style="color:#555A65;font-size:9px;font-style:italic;">Institutional overview of decisions awaiting review or monitoring · Observational · Read-only</div>
 </div>
 
@@ -7522,7 +7522,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
             _fl_is_overnight = _fl_item["status"] == "Overnight Queue"
             _fl_is_delib = _fl_item["status"] == "Under Deliberation"
 
-            _fl_expander_label = f"{_fl_item['wave']} — {_fl_item['type']} · {_fl_item['status']}"
+            _fl_expander_label = f"{_fl_item['wave']} - {_fl_item['type']} · {_fl_item['status']}"
             if _fl_item.get("time_remaining") and _fl_item["time_remaining"] not in ("Overnight", "No expiry", "Ongoing review \u2014 awaiting human decision", "Unknown", "\u2014", ""):
                 _fl_expander_label += f" · {_fl_item['time_remaining']}"
 
@@ -7850,7 +7850,7 @@ Time-governed governance surface. If no human action occurs before expiration, t
 
         def _es_fmt_pct(val):
             if val is None:
-                return "—"
+                return "-"
             return f"{val*100:+.2f}%"
 
         def _es_pct_color(val):
@@ -7876,7 +7876,7 @@ Time-governed governance surface. If no human action occurs before expiration, t
         with _es_row2[0]:
             st.markdown(_es_metric_card("Volatility Posture", es_vol_stress, _es_state_color(es_vol_stress)), unsafe_allow_html=True)
         with _es_row2[1]:
-            _dd_display = f"{_es_dd_val*100:.1f}%" if _es_dd_val is not None else "—"
+            _dd_display = f"{_es_dd_val*100:.1f}%" if _es_dd_val is not None else "-"
             _dd_label = f"{_es_dd_state} ({_dd_display})" if _es_dd_state != "N/A" else "N/A"
             st.markdown(_es_metric_card("Drawdown State", _dd_label, _es_state_color(_es_dd_state)), unsafe_allow_html=True)
         with _es_row2[2]:
@@ -8005,7 +8005,7 @@ Time-governed governance surface. If no human action occurs before expiration, t
                     if pd.isna(_w_dd): _w_dd = 0
                     if pd.isna(_w_ret): _w_ret = 0
 
-                    _w_name = str(_w_row.get(_name_col, _w_row.get(_wave_id_col, "—"))) if _name_col or _wave_id_col else "—"
+                    _w_name = str(_w_row.get(_name_col, _w_row.get(_wave_id_col, "-"))) if _name_col or _wave_id_col else "-"
 
                     _w_signals = [
                         {"flag": "alpha_neg", "triggered": _w_alpha < -0.005},
@@ -8073,9 +8073,9 @@ Time-governed governance surface. If no human action occurs before expiration, t
             _es_time_str = "N/A"
 
         _es_phases = [
-            {"name": "Morning Global Briefing", "hours": (6, 10), "desc": "Pre-market orientation — futures, overnight regime, risk tone assessment."},
-            {"name": "Midday Update", "hours": (10, 14), "desc": "Intraday review — participation confirmation, volatility evolution, signal persistence check."},
-            {"name": "After-Market Governance Report", "hours": (14, 20), "desc": "End-of-day governance — decision lifecycle review, outcome assessment, overnight positioning context."},
+            {"name": "Morning Global Briefing", "hours": (6, 10), "desc": "Pre-market orientation - futures, overnight regime, risk tone assessment."},
+            {"name": "Midday Update", "hours": (10, 14), "desc": "Intraday review - participation confirmation, volatility evolution, signal persistence check."},
+            {"name": "After-Market Governance Report", "hours": (14, 20), "desc": "End-of-day governance - decision lifecycle review, outcome assessment, overnight positioning context."},
         ]
 
         _es_current_phase = None
@@ -8163,8 +8163,8 @@ Time-governed governance surface. If no human action occurs before expiration, t
 <div style="color: #D1D5DB; font-size: 11px; line-height: 1.8;">
 Navigate to the <strong>Reference</strong> tab for:
 <ul style="margin: 4px 0 0 16px; padding: 0;">
-<li>Decision Timeline — Full governance audit trail</li>
-<li>Governance Archive — Historical decision records</li>
+<li>Decision Timeline - Full governance audit trail</li>
+<li>Governance Archive - Historical decision records</li>
 </ul>
 </div>
 </div>""", unsafe_allow_html=True)
@@ -8229,7 +8229,7 @@ System Mode: Advisory (Non-Executing)<br/>
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── EXECUTIVE SERVICE — PENDING DECISIONS ──
+    # ── EXECUTIVE SERVICE - PENDING DECISIONS ──
     import json as _es_json
     _es_decisions = []
     _es_instructions = []
@@ -8332,7 +8332,7 @@ System Mode: Advisory (Non-Executing)<br/>
         pass
 
     st.markdown('<div style="border-bottom:1px solid #1E2530;margin:20px 0 24px 0;"></div>', unsafe_allow_html=True)
-    st.markdown('<div style="color:#6B7280;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:16px;">Executive Service — Pending Decisions</div>', unsafe_allow_html=True)
+    st.markdown('<div style="color:#6B7280;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:16px;">Executive Service - Pending Decisions</div>', unsafe_allow_html=True)
 
     _es_m_cols = st.columns(4)
     _es_metric_style = 'background:#0D1117;border:1px solid #1E2530;border-radius:6px;padding:14px;text-align:center;'
@@ -9625,7 +9625,7 @@ Metrics derived from canonical data pipelines. No placeholder or simulated value
 </div>""", unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 1: PORTFOLIO OVERVIEW — Metrics Row
+    # SECTION 1: PORTFOLIO OVERVIEW - Metrics Row
     # -----------------------------------------------
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 8px 0 16px 0;"></div>', unsafe_allow_html=True)
     st.markdown("""<div style="margin-bottom: 4px;">
@@ -9665,7 +9665,7 @@ Metrics derived from canonical data pipelines. No placeholder or simulated value
             _ps_dd_vals = pd.to_numeric(snapshot_df["drawdown_30d"], errors="coerce").dropna()
             if len(_ps_dd_vals) > 0:
                 _ps_avg_dd = _ps_dd_vals.mean()
-        _ps_dd_display = f"{_ps_avg_dd*100:.2f}%" if _ps_avg_dd is not None else "—"
+        _ps_dd_display = f"{_ps_avg_dd*100:.2f}%" if _ps_avg_dd is not None else "-"
         _ps_dd_color = "#C45B5B" if _ps_avg_dd is not None and _ps_avg_dd > 0.05 else ("#F59E0B" if _ps_avg_dd is not None and _ps_avg_dd > 0.02 else "#4A9F6E")
         st.metric(label="Avg Max Drawdown", value=_ps_dd_display)
 
@@ -9675,7 +9675,7 @@ Metrics derived from canonical data pipelines. No placeholder or simulated value
             _ps_bvol_vals = pd.to_numeric(snapshot_df["benchmark_volatility_30d"], errors="coerce").dropna()
             if len(_ps_bvol_vals) > 0:
                 _ps_avg_bvol = _ps_bvol_vals.mean()
-        _ps_bvol_display = f"{_ps_avg_bvol*100:.2f}%" if _ps_avg_bvol is not None else "—"
+        _ps_bvol_display = f"{_ps_avg_bvol*100:.2f}%" if _ps_avg_bvol is not None else "-"
         st.metric(label="Benchmark Vol (30D)", value=_ps_bvol_display)
 
     with _ps_risk_cols[2]:
@@ -9750,10 +9750,10 @@ Metrics derived from canonical data pipelines. No placeholder or simulated value
             _ps_grid_rows.append({
                 "Wave": _ps_wname,
                 "Status": _ps_status,
-                "Alpha 30D": f"{_ps_a30*100:.2f}%" if pd.notna(_ps_a30) else "—",
-                "Alpha 60D": f"{_ps_a60*100:.2f}%" if pd.notna(_ps_a60) else "—",
-                "Alpha 365D": f"{_ps_a365*100:.2f}%" if pd.notna(_ps_a365) else "—",
-                "Drawdown 30D": f"{_ps_dd*100:.2f}%" if pd.notna(_ps_dd) else "—",
+                "Alpha 30D": f"{_ps_a30*100:.2f}%" if pd.notna(_ps_a30) else "-",
+                "Alpha 60D": f"{_ps_a60*100:.2f}%" if pd.notna(_ps_a60) else "-",
+                "Alpha 365D": f"{_ps_a365*100:.2f}%" if pd.notna(_ps_a365) else "-",
+                "Drawdown 30D": f"{_ps_dd*100:.2f}%" if pd.notna(_ps_dd) else "-",
                 "Regime Alignment": _ps_regime_align,
             })
 
@@ -9776,7 +9776,7 @@ Metrics derived from canonical data pipelines. No placeholder or simulated value
             for _ps_acol in ["Alpha 30D", "Alpha 60D", "Alpha 365D", "Drawdown 30D"]:
                 _ps_val_str = _ps_gr[_ps_acol]
                 _ps_val_color = "#C0C4CC"
-                if _ps_val_str != "—":
+                if _ps_val_str != "-":
                     try:
                         _ps_nval = float(_ps_val_str.replace("%", ""))
                         if _ps_acol.startswith("Alpha"):
@@ -10014,7 +10014,7 @@ with tabs[TAB_INDEX['Market Intelligence']]:
 
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 8px 0 16px 0;"></div>', unsafe_allow_html=True)
 
-    # CONFIRMATION STACK (NOTE 033) — Market Intelligence
+    # CONFIRMATION STACK (NOTE 033) - Market Intelligence
     render_confirmation_stack(snapshot_df, attrib_df)
 
     # ==============================================
@@ -10263,7 +10263,7 @@ Short-term positioning reflects {si_momentum.lower()} momentum conditions. Struc
                     _si_conf = "High" if si_alignment == "Aligned" and si_momentum == "Positive" else "Low" if si_alignment == "Diverging" and si_momentum == "Negative" else "Moderate"
                     st.markdown(f"""<div style="color: #9EA3AE; font-size: 11px; font-weight: 600; text-transform: uppercase; margin: 12px 0 6px 0;">Confidence / Persistence</div>
 <div style="color: #C8CCD4; font-size: 12px; line-height: 1.7; padding: 8px 12px; background: #151A22; border-radius: 6px;">
-Snapshot confidence: <span style="color: #E5E5E5; font-weight: 600;">{_si_conf}</span>. {"Regime and momentum are aligned — higher confidence in current state assessment." if _si_conf == "High" else "Mixed signals across regime indicators — moderate confidence in current state." if _si_conf == "Moderate" else "Regime divergence with negative momentum — lower confidence in near-term outlook."}
+Snapshot confidence: <span style="color: #E5E5E5; font-weight: 600;">{_si_conf}</span>. {"Regime and momentum are aligned - higher confidence in current state assessment." if _si_conf == "High" else "Mixed signals across regime indicators - moderate confidence in current state." if _si_conf == "Moderate" else "Regime divergence with negative momentum - lower confidence in near-term outlook."}
 </div>""", unsafe_allow_html=True)
                     st.markdown(f"""<div style="color: #9EA3AE; font-size: 11px; font-weight: 600; text-transform: uppercase; margin: 12px 0 6px 0;">Regime or Volatility Context</div>
 <div style="color: #C8CCD4; font-size: 12px; line-height: 1.7; padding: 8px 12px; background: #151A22; border-radius: 6px;">
@@ -10275,7 +10275,7 @@ Volatility posture is {si_vol_posture.lower()}. Regime alignment with broader ma
 </div>""", unsafe_allow_html=True)
 
                 expandable_diagnostic_card(
-                    "Market Brief Snapshot — Diagnostic Detail",
+                    "Market Brief Snapshot - Diagnostic Detail",
                     f'<div style="color: #9EA3AE; font-size: 12px;">Regime: <span style="color: #E5E5E5; font-weight: 600;">{si_regime}</span> &nbsp;|&nbsp; Momentum: <span style="color: #E5E5E5; font-weight: 600;">{si_momentum}</span> &nbsp;|&nbsp; Alignment: <span style="color: #E5E5E5; font-weight: 600;">{si_alignment}</span></div>',
                     _si_exec_detail,
                 )
@@ -10504,7 +10504,7 @@ Volatility posture is {si_vol_posture.lower()}. Regime alignment with broader ma
 
             # --- PART 6B: Volume & Participation Intelligence (NOTE 032) ---
             def compute_volume_intelligence(vol_series, price_series):
-                """NOTE 032 — Compute volume participation, confirmation, and anomaly diagnostics."""
+                """NOTE 032 - Compute volume participation, confirmation, and anomaly diagnostics."""
                 unavailable = {"participation": "Unavailable", "confirmation": "Unavailable", "anomaly": "Unavailable", "volume_vs_50d": None}
                 if vol_series is None or price_series is None:
                     return unavailable
@@ -10578,7 +10578,7 @@ Volatility posture is {si_vol_posture.lower()}. Regime alignment with broader ma
             st.markdown("""<div style="margin: 8px 0 4px 0;">
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Volume & Participation Intelligence</span>
 </div>""", unsafe_allow_html=True)
-            st.markdown('<div style="color: #555A65; font-size: 9px; margin: -2px 0 6px 0;">Participation and liquidity diagnostics — observational only</div>', unsafe_allow_html=True)
+            st.markdown('<div style="color: #555A65; font-size: 9px; margin: -2px 0 6px 0;">Participation and liquidity diagnostics - observational only</div>', unsafe_allow_html=True)
 
             vi_color_map = {
                 "Expanding": "#48BB78", "Positive": "#48BB78",
@@ -10614,7 +10614,7 @@ Volatility posture is {si_vol_posture.lower()}. Regime alignment with broader ma
 </div>""", unsafe_allow_html=True)
 
             st.markdown("""<div style="color: #555A65; font-size: 9px; text-align: center; margin: 4px 0 6px 0; font-style: italic;">
-Volume diagnostics reflect participation and liquidity conditions. Observational only — no execution signals.</div>""", unsafe_allow_html=True)
+Volume diagnostics reflect participation and liquidity conditions. Observational only - no execution signals.</div>""", unsafe_allow_html=True)
             st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
             try:
@@ -10634,7 +10634,7 @@ Participation: <span style="color: #E5E5E5; font-weight: 600;">{_vi_part}</span>
 </div>""", unsafe_allow_html=True)
                     st.markdown(f"""<div style="color: #9EA3AE; font-size: 11px; font-weight: 600; text-transform: uppercase; margin: 12px 0 6px 0;">Confidence / Persistence</div>
 <div style="color: #C8CCD4; font-size: 12px; line-height: 1.7; padding: 8px 12px; background: #151A22; border-radius: 6px;">
-{"Volume confirmation is positive — price movement supported by participation." if _vi_conf == "Positive" else "Volume confirmation is unconfirmed — price movement lacks supporting participation." if _vi_conf == "Unconfirmed" else "Distribution pattern detected — volume expanding into declining prices." if _vi_conf == "Distribution" else "Volume confirmation is neutral or unavailable."}
+{"Volume confirmation is positive - price movement supported by participation." if _vi_conf == "Positive" else "Volume confirmation is unconfirmed - price movement lacks supporting participation." if _vi_conf == "Unconfirmed" else "Distribution pattern detected - volume expanding into declining prices." if _vi_conf == "Distribution" else "Volume confirmation is neutral or unavailable."}
 </div>""", unsafe_allow_html=True)
                     st.markdown(f"""<div style="color: #9EA3AE; font-size: 11px; font-weight: 600; text-transform: uppercase; margin: 12px 0 6px 0;">Regime or Volatility Context</div>
 <div style="color: #C8CCD4; font-size: 12px; line-height: 1.7; padding: 8px 12px; background: #151A22; border-radius: 6px;">
@@ -10646,7 +10646,7 @@ Volume participation is {_vi_part.lower()} with {_vi_conf.lower()} confirmation.
 </div>""", unsafe_allow_html=True)
 
                 expandable_diagnostic_card(
-                    "Volume & Participation — Diagnostic Detail",
+                    "Volume & Participation - Diagnostic Detail",
                     f'<div style="color: #9EA3AE; font-size: 12px;">Participation: <span style="color: #E5E5E5; font-weight: 600;">{_vi_part}</span> &nbsp;|&nbsp; Confirmation: <span style="color: #E5E5E5; font-weight: 600;">{_vi_conf}</span> &nbsp;|&nbsp; Anomaly: <span style="color: #E5E5E5; font-weight: 600;">{_vi_anom}</span></div>',
                     _vi_detail,
                 )
@@ -10717,7 +10717,7 @@ Volume participation is {_vi_part.lower()} with {_vi_conf.lower()} confirmation.
 
             st.markdown(f"""<div style="background: #151A22; padding: 8px 16px; border-radius: 6px; margin: 16px 0 0 0; border: 1px solid #2A2F3A;">
 <div style="color: #4B5563; font-size: 9px; text-align: center; line-height: 1.6;">
-Security Intelligence is observational only — no recommendations, price targets, or execution. All diagnostics derived from market data. Read-only · Non-executing · Governance-aligned.
+Security Intelligence is observational only - no recommendations, price targets, or execution. All diagnostics derived from market data. Read-only · Non-executing · Governance-aligned.
 </div>
 </div>""", unsafe_allow_html=True)
 
@@ -10757,7 +10757,7 @@ Security Intelligence is observational only — no recommendations, price target
         mi_data_sources_used.append("RSS feeds (news)")
 
         # ==============================================
-        # MARKET SNAPSHOT — MAJOR INDICES
+        # MARKET SNAPSHOT - MAJOR INDICES
         # ==============================================
         mi_index_cards = []
         mi_index_symbols = [("^GSPC", "S&P 500"), ("^IXIC", "Nasdaq Composite"), ("^DJI", "Dow Jones Industrial Average"), ("^RUT", "Russell 2000")]
@@ -10772,7 +10772,7 @@ Security Intelligence is observational only — no recommendations, price target
         if mi_index_cards:
             st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 4px 0 16px 0;"></div>', unsafe_allow_html=True)
             st.markdown("""<div style="margin-bottom: 4px;">
-<span style="color: #E5E5E5; font-size: 13px; font-weight: 700;">Market Snapshot — Major Indices</span>
+<span style="color: #E5E5E5; font-size: 13px; font-weight: 700;">Market Snapshot - Major Indices</span>
 </div>""", unsafe_allow_html=True)
             st.markdown('<div style="color: #6B7280; font-size: 10px; margin: -4px 0 12px 0;">Live market reference indicators · Observational only</div>', unsafe_allow_html=True)
             idx_cols = st.columns(len(mi_index_cards))
@@ -10944,7 +10944,7 @@ Security Intelligence is observational only — no recommendations, price target
             mi_combined_orientation = f"{mi_orientation} {mi_snap_orientation}"
 
         # ==============================================
-        # GOVERNANCE FOOTER — MARKET SNAPSHOT
+        # GOVERNANCE FOOTER - MARKET SNAPSHOT
         # ==============================================
         st.markdown("""<div style="background: #151A22; padding: 8px 16px; border-radius: 6px; margin: 8px 0 20px 0;">
 <div style="color: #4B5563; font-size: 9px; line-height: 1.6; text-align: center;">Market data is provided for observational context only. This section does not generate recommendations, forecasts, or execution instructions.</div>
@@ -11165,9 +11165,9 @@ Security Intelligence is observational only — no recommendations, price target
             sect_table_html += '<div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; font-weight: 600; text-align: center;">90D RS vs SPY</div>'
             sect_table_html += '</div>'
             for s in mi_sector_assess["sectors"]:
-                ret_val = f"{s['return_30d']*100:+.1f}%" if s["return_30d"] is not None else "—"
-                rs30_val = f"{s['rs_30d']*100:+.1f}%" if s["rs_30d"] is not None else "—"
-                rs90_val = f"{s['rs_90d']*100:+.1f}%" if s["rs_90d"] is not None else "—"
+                ret_val = f"{s['return_30d']*100:+.1f}%" if s["return_30d"] is not None else "-"
+                rs30_val = f"{s['rs_30d']*100:+.1f}%" if s["rs_30d"] is not None else "-"
+                rs90_val = f"{s['rs_90d']*100:+.1f}%" if s["rs_90d"] is not None else "-"
                 ret_color = "#48BB78" if s["return_30d"] is not None and s["return_30d"] > 0 else "#EF4444" if s["return_30d"] is not None and s["return_30d"] < 0 else "#9EA3AE"
                 rs_color = "#48BB78" if s["rs_30d"] is not None and s["rs_30d"] > 0 else "#EF4444" if s["rs_30d"] is not None and s["rs_30d"] < 0 else "#9EA3AE"
                 sect_table_html += f'<div style="display: grid; grid-template-columns: 50px 1fr 100px 100px 100px; padding: 8px 16px; border-bottom: 1px solid #2A2F3A;">'
@@ -11194,7 +11194,7 @@ Security Intelligence is observational only — no recommendations, price target
 </div>""", unsafe_allow_html=True)
         else:
             st.markdown("""<div style="background: #151A22; padding: 16px; border-radius: 6px;">
-<div style="color: #6B7280; font-size: 11px;">Sector data temporarily unavailable — will populate on next refresh.</div>
+<div style="color: #6B7280; font-size: 11px;">Sector data temporarily unavailable - will populate on next refresh.</div>
 </div>""", unsafe_allow_html=True)
 
         # ==============================================
@@ -11220,7 +11220,7 @@ Security Intelligence is observational only — no recommendations, price target
                 changes_html += f'<div style="color: #6B7280; font-size: 10px; margin-bottom: 8px;">Compared to snapshot from: {mi_changes["saved_date"]}</div>'
             for ch in mi_changes["changes"]:
                 is_change = "No material" not in ch
-                icon = "⚡" if is_change else "—"
+                icon = "⚡" if is_change else "-"
                 ch_color = "#F59E0B" if is_change else "#6B7280"
                 changes_html += f'<div style="color: {ch_color}; font-size: 12px; line-height: 1.8; padding: 2px 0 2px 12px; border-left: 2px solid {ch_color};">{icon} {ch}</div>'
             changes_html += '</div>'
@@ -11283,11 +11283,11 @@ Recent market-moving headlines from live data sources. Observational context onl
 Last successful update: {ts_str}</div>""", unsafe_allow_html=True)
                 else:
                     st.markdown("""<div style="background: #151A22; padding: 16px; border-radius: 6px; text-align: center;">
-<div style="color: #6B7280; font-size: 11px;">News feed temporarily unavailable — will refresh automatically.</div>
+<div style="color: #6B7280; font-size: 11px;">News feed temporarily unavailable - will refresh automatically.</div>
 </div>""", unsafe_allow_html=True)
         except Exception as news_err:
             st.markdown(f"""<div style="background: #151A22; padding: 16px; border-radius: 6px; text-align: center;">
-<div style="color: #6B7280; font-size: 11px;">News feed temporarily unavailable — last successful update: unknown</div>
+<div style="color: #6B7280; font-size: 11px;">News feed temporarily unavailable - last successful update: unknown</div>
 </div>""", unsafe_allow_html=True)
 
         st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 8px 0 0 0; font-style: italic;">
@@ -11323,10 +11323,10 @@ Headlines are provided for informational context only. WAVES does not interpret,
                 r90 = md_returns(p, 90)
                 r365 = md_returns(p, 365)
                 v21 = md_vol(p, 21)
-                r30_s = f"{r30*100:+.1f}%" if r30 is not None else "—"
-                r90_s = f"{r90*100:+.1f}%" if r90 is not None else "—"
-                r365_s = f"{r365*100:+.1f}%" if r365 is not None else "—"
-                v21_s = f"{v21*100:.1f}%" if v21 is not None else "—"
+                r30_s = f"{r30*100:+.1f}%" if r30 is not None else "-"
+                r90_s = f"{r90*100:+.1f}%" if r90 is not None else "-"
+                r365_s = f"{r365*100:+.1f}%" if r365 is not None else "-"
+                v21_s = f"{v21*100:.1f}%" if v21 is not None else "-"
                 r30_c = "#48BB78" if r30 is not None and r30 > 0 else "#EF4444" if r30 is not None else "#9EA3AE"
                 bench_table_html += f'<div style="display: grid; grid-template-columns: 60px 1fr 80px 80px 80px 80px; padding: 6px 12px; border-bottom: 1px solid #2A2F3A;">'
                 bench_table_html += f'<div style="color: #E5E5E5; font-size: 11px; font-weight: 600;">{tick}</div>'
@@ -11368,7 +11368,7 @@ Headlines are provided for informational context only. WAVES does not interpret,
             st.markdown(metrics_html, unsafe_allow_html=True)
 
         # ==============================================
-        # LAYER 2 — REGIME STRUCTURE & STABILITY
+        # LAYER 2 - REGIME STRUCTURE & STABILITY
         # ==============================================
         from helpers.market_briefing import compute_regime_structure, compute_directional_agreement, compute_decision_implications, compute_structural_signals
 
@@ -11428,7 +11428,7 @@ Headlines are provided for informational context only. WAVES does not interpret,
         expandable_diagnostic_card("Regime Structure Diagnostics", _rs_summary, _regime_struct_detail)
 
         # ==============================================
-        # LAYER 3 — DIRECTIONAL AGREEMENT & HORIZON CONTEXT
+        # LAYER 3 - DIRECTIONAL AGREEMENT & HORIZON CONTEXT
         # ==============================================
         mi_dir_agreement = compute_directional_agreement(mi_prices)
 
@@ -11477,7 +11477,7 @@ Headlines are provided for informational context only. WAVES does not interpret,
         expandable_diagnostic_card("Directional Agreement Diagnostics", _da_summary, _dir_agreement_detail)
 
         # ==============================================
-        # LAYER 4 — MARKET IMPLICATIONS FOR DECISION CONTEXT
+        # LAYER 4 - MARKET IMPLICATIONS FOR DECISION CONTEXT
         # ==============================================
         mi_implications = compute_decision_implications(mi_regime_computed, mi_vol_assess, mi_breadth_assess, mi_rates_assess)
 
@@ -11505,7 +11505,7 @@ Observational context for informing human decision-making. No prescribed actions
                 st.markdown(impl_html, unsafe_allow_html=True)
 
         # ==============================================
-        # LAYER 5 — STRUCTURAL MARKET SIGNALS
+        # LAYER 5 - STRUCTURAL MARKET SIGNALS
         # ==============================================
         mi_structural = compute_structural_signals(mi_prices, mi_vol_assess, mi_rates_assess)
 
@@ -11547,7 +11547,7 @@ Observational context for informing human decision-making. No prescribed actions
 
         st.markdown(f"""<div style="background: #151A22; padding: 12px 16px; border-radius: 6px; margin: 24px 0 0 0; border: 1px solid #2A2F3A;">
 <div style="color: #4B5563; font-size: 10px; line-height: 1.8; text-align: center;">
-Observational only — no prescribed actions or execution. Data sources: {mi_sources_str}. Tickers loaded: {mi_tickers_loaded}. Last refresh: {mi_refresh_ts}.{mi_missing_str}<br>
+Observational only - no prescribed actions or execution. Data sources: {mi_sources_str}. Tickers loaded: {mi_tickers_loaded}. Last refresh: {mi_refresh_ts}.{mi_missing_str}<br>
 This tab provides an institutional market briefing for informational purposes. It does not predict outcomes, prescribe actions, or trigger execution.
 </div>
 </div>""", unsafe_allow_html=True)
@@ -11647,7 +11647,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         def _ai_alignment_state():
             vals = [v for v in [_ai_a30, _ai_a90, _ai_a365] if v is not None]
             if len(vals) < 2:
-                return "—"
+                return "-"
             signs = [v > 0 for v in vals]
             if all(s == signs[0] for s in signs):
                 return "Aligned"
@@ -11657,7 +11657,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         def _ai_stability_state():
             if not _ai_driver_sums:
-                return "—"
+                return "-"
             stable_count = 0
             total_count = 0
             for drv, hvals in _ai_driver_sums.items():
@@ -11684,7 +11684,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         _aag_drv_365 = _aag["drivers"]["365"]
         _aag_drv_pct = _aag["drivers_pct"]["365"]
 
-        # SECTION 1 — Alpha State Overview
+        # SECTION 1 - Alpha State Overview
         if _ai_a30 is None:
             _narr = "Alpha diagnostics are currently initializing for the selected scope."
         elif _ai_is_wave:
@@ -11748,8 +11748,8 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:8px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 2 — Layer 1: Alpha Sources
-        st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Layer 1 — Alpha Sources</div>', unsafe_allow_html=True)
+        # SECTION 2 - Layer 1: Alpha Sources
+        st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Layer 1 - Alpha Sources</div>', unsafe_allow_html=True)
 
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Alpha Source Decomposition</div>', unsafe_allow_html=True)
 
@@ -11795,8 +11795,8 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:8px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 3 — Layer 2: Alpha Drivers
-        st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Layer 2 — Alpha Drivers</div>', unsafe_allow_html=True)
+        # SECTION 3 - Layer 2: Alpha Drivers
+        st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Layer 2 - Alpha Drivers</div>', unsafe_allow_html=True)
 
         _ad_items = [
             ("Selection", _aag["drivers"]["30"]["selection"], _aag_drv_365["selection"], _aag_drv_pct["selection"], "#3B82F6"),
@@ -11833,15 +11833,15 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:8px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 4 — Alpha Efficiency & Consistency
+        # SECTION 4 - Alpha Efficiency & Consistency
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Alpha Efficiency & Consistency</div>', unsafe_allow_html=True)
 
         _ep_c1, _ep_c2, _ep_c3 = st.columns(3)
 
         with _ep_c1:
             _aes_alpha_per_vol = None
-            _aes_stability = "—"
-            _aes_efficiency = "—"
+            _aes_stability = "-"
+            _aes_efficiency = "-"
 
             if _ai_sdf is not None and not _ai_sdf.empty:
                 _a30_vals = pd.to_numeric(_ai_sdf.get("alpha_30d", pd.Series(dtype=float)), errors="coerce").dropna()
@@ -11871,7 +11871,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
                     else:
                         _aes_efficiency = "Weak"
 
-            _apv_display = f"{_aes_alpha_per_vol:.3f}" if _aes_alpha_per_vol is not None else "—"
+            _apv_display = f"{_aes_alpha_per_vol:.3f}" if _aes_alpha_per_vol is not None else "-"
             _stab_c = "#2BFF88" if _aes_stability == "High" else "#F5C451" if _aes_stability == "Moderate" else "#E06C75" if _aes_stability == "Low" else "#9EA3AE"
             _eff_c = "#2BFF88" if _aes_efficiency == "Strong" else "#F5C451" if _aes_efficiency == "Moderate" else "#E06C75" if _aes_efficiency == "Weak" else "#9EA3AE"
 
@@ -11889,22 +11889,22 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 <span style="color:#6B7280;font-size:11px;">Efficiency</span>
 <span style="color:{_eff_c};font-size:11px;font-weight:600;">{_aes_efficiency}</span>
 </div>
-<div style="color:#6B7280;font-size:10px;font-style:italic;border-top:1px solid #2A2F3A;padding-top:8px;">Alpha generation remains {_aes_efficiency.lower() if _aes_efficiency != '—' else 'stable'} relative to observed risk levels.</div>
+<div style="color:#6B7280;font-size:10px;font-style:italic;border-top:1px solid #2A2F3A;padding-top:8px;">Alpha generation remains {_aes_efficiency.lower() if _aes_efficiency != '-' else 'stable'} relative to observed risk levels.</div>
 </div>""", unsafe_allow_html=True)
 
         with _ep_c2:
-            _ac_30 = "Positive" if _ai_a30 is not None and _ai_a30 > 0 else "Negative" if _ai_a30 is not None else "—"
-            _ac_90 = "Positive" if _ai_a90 is not None and _ai_a90 > 0 else "Negative" if _ai_a90 is not None else "—"
-            _ac_365 = "Positive" if _ai_a365 is not None and _ai_a365 > 0 else "Negative" if _ai_a365 is not None else "—"
+            _ac_30 = "Positive" if _ai_a30 is not None and _ai_a30 > 0 else "Negative" if _ai_a30 is not None else "-"
+            _ac_90 = "Positive" if _ai_a90 is not None and _ai_a90 > 0 else "Negative" if _ai_a90 is not None else "-"
+            _ac_365 = "Positive" if _ai_a365 is not None and _ai_a365 > 0 else "Negative" if _ai_a365 is not None else "-"
             _ac_vals = [_ac_30, _ac_90, _ac_365]
-            _ac_real = [v for v in _ac_vals if v != "—"]
+            _ac_real = [v for v in _ac_vals if v != "-"]
             if len(_ac_real) >= 2 and all(v == _ac_real[0] for v in _ac_real):
                 _ac_consistency = "High"
             elif len(_ac_real) >= 2:
                 _pos_count = sum(1 for v in _ac_real if v == "Positive")
                 _ac_consistency = "Moderate" if _pos_count >= 1 else "Low"
             else:
-                _ac_consistency = "—"
+                _ac_consistency = "-"
             _ac_con_c = "#2BFF88" if _ac_consistency == "High" else "#F5C451" if _ac_consistency == "Moderate" else "#E06C75" if _ac_consistency == "Low" else "#9EA3AE"
 
             def _ac_dir_c(v):
@@ -11975,19 +11975,19 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:8px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 5 — Multi-Horizon Alpha Structure
+        # SECTION 5 - Multi-Horizon Alpha Structure
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Multi-Horizon Alpha Structure</div>', unsafe_allow_html=True)
 
         _mh_rows = []
         for _hz, _hz_val, _hz_label in [(30, _ai_a30, "30D"), (90, _ai_a90, "90D"), (365, _ai_a365, "365D")]:
-            _pri_drv = "—"
+            _pri_drv = "-"
             _max_abs = 0
             for drv, hvals in _ai_driver_sums.items():
                 v = abs(hvals.get(_hz, 0))
                 if v > _max_abs:
                     _max_abs = v
                     _pri_drv = drv
-            _hz_align = "—"
+            _hz_align = "-"
             if _hz_val is not None:
                 other_vals = [v for h, v in [(30, _ai_a30), (90, _ai_a90), (365, _ai_a365)] if h != _hz and v is not None]
                 if other_vals:
@@ -12001,7 +12001,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
             _mh_html += f'<th style="color:#6B7280;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:8px 12px;text-align:left;">{h}</th>'
         _mh_html += '</tr>'
         for _r in _mh_rows:
-            _a_display = f"{_r[1]*100:.2f}%" if _r[1] is not None else "—"
+            _a_display = f"{_r[1]*100:.2f}%" if _r[1] is not None else "-"
             _a_color = "#2BFF88" if _r[1] is not None and _r[1] > 0 else "#E06C75" if _r[1] is not None and _r[1] < 0 else "#9EA3AE"
             _al_color = "#2BFF88" if _r[3] == "Aligned" else "#E06C75" if _r[3] == "Divergent" else "#F5C451" if _r[3] == "Mixed" else "#9EA3AE"
             _mh_html += f'<tr style="border-bottom:1px solid #1C1F26;">'
@@ -12015,7 +12015,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 6 — Alpha Stability & Persistence
+        # SECTION 6 - Alpha Stability & Persistence
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Alpha Stability & Persistence</div>', unsafe_allow_html=True)
 
         def _build_stability_table(rows, layer_label):
@@ -12062,13 +12062,13 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
             ("Regime Alpha", _aag["drivers"]["30"]["regime"], _aag["drivers"]["90"]["regime"], _aag_drv_365["regime"], "#8B5CF6"),
             ("Allocation Alpha", _aag["drivers"]["30"]["exposure"], _aag["drivers"]["90"]["exposure"], _aag_drv_365["exposure"], "#EC4899"),
         ]
-        st.markdown(f'<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:12px;border-radius:8px;">{_build_stability_table(_stab_src_rows, "Layer 1 — Alpha Sources")}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:12px;border-radius:8px;margin-top:12px;">{_build_stability_table(_stab_drv_rows, "Layer 2 — Alpha Drivers")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:12px;border-radius:8px;">{_build_stability_table(_stab_src_rows, "Layer 1 - Alpha Sources")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:12px;border-radius:8px;margin-top:12px;">{_build_stability_table(_stab_drv_rows, "Layer 2 - Alpha Drivers")}</div>', unsafe_allow_html=True)
         st.markdown('<div style="color:#4B5563;font-size:9px;margin:4px 0 0 0;font-style:italic;text-align:center;">Human Decision Alpha reflects outcomes following logged governance decisions. Observational only; no execution logic is applied.</div>', unsafe_allow_html=True)
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 7 — Cross-Wave Alpha Map
+        # SECTION 7 - Cross-Wave Alpha Map
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Cross-Wave Alpha Map</div>', unsafe_allow_html=True)
 
         _cwm_html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
@@ -12099,7 +12099,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
                 def _cwm_fmt(v):
                     if v is None:
-                        return '<span style="color:#9EA3AE;">—</span>'
+                        return '<span style="color:#9EA3AE;">-</span>'
                     c = "#2BFF88" if v > 0 else "#E06C75"
                     return f'<span style="color:{c};font-family:\'SF Mono\',monospace;">{v*100:.2f}%</span>'
 
@@ -12116,7 +12116,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 8 — Structural vs Signal-Driven Summary
+        # SECTION 8 - Structural vs Signal-Driven Summary
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Structural vs Signal-Driven Alpha</div>', unsafe_allow_html=True)
 
         _sr_struct_val = _aag["30"]["structural_alpha"]
@@ -12164,7 +12164,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:8px 0 20px 0;"></div>', unsafe_allow_html=True)
 
-        # SECTION 9 — Alpha Structural Observations (Diagnostic Only)
+        # SECTION 9 - Alpha Structural Observations (Diagnostic Only)
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:16px 0 8px 0;">Alpha Structural Observations</div>', unsafe_allow_html=True)
 
         if _ai_driver_sums:
@@ -12180,14 +12180,14 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
                         "component": _comp,
                         "status": "Persistent Detraction",
                         "status_color": "#E06C75",
-                        "observation": f"{_comp} alpha is negative across {_neg_count} horizons — multi-horizon detraction observed.",
+                        "observation": f"{_comp} alpha is negative across {_neg_count} horizons - multi-horizon detraction observed.",
                     })
                 elif _p_unstable:
                     _struct_obs.append({
                         "component": _comp,
                         "status": "Directional Divergence",
                         "status_color": "#F5C451",
-                        "observation": f"{_comp} shows mixed directional behavior across horizons — driver instability observed.",
+                        "observation": f"{_comp} shows mixed directional behavior across horizons - driver instability observed.",
                     })
 
             if _align == "Divergent":
@@ -12195,16 +12195,16 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
                     "component": "Multi-Horizon",
                     "status": "Horizon Divergence",
                     "status_color": "#F5C451",
-                    "observation": "Multi-horizon alpha divergence detected — short and long horizons show opposing direction.",
+                    "observation": "Multi-horizon alpha divergence detected - short and long horizons show opposing direction.",
                 })
 
-            _aes_stab_check = locals().get("_aes_stability", "—")
+            _aes_stab_check = locals().get("_aes_stability", "-")
             if _aes_stab_check == "Low":
                 _struct_obs.append({
                     "component": "Attribution",
                     "status": "Elevated Dispersion",
                     "status_color": "#F5C451",
-                    "observation": "Attribution dispersion elevated — source stability is low across horizons.",
+                    "observation": "Attribution dispersion elevated - source stability is low across horizons.",
                 })
 
             if _struct_obs:
@@ -12245,7 +12245,7 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
                   for col in wla_df.columns:
                       if col != "Wave":
                           wla_df[col] = pd.to_numeric(wla_df[col], errors="coerce")
-                          wla_df[col] = wla_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "—")
+                          wla_df[col] = wla_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "-")
 
                   st.dataframe(wla_df, width="stretch", hide_index=True)
               else:
@@ -12343,7 +12343,7 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
 
 
     # -----------------------------------------------
-    # SECTION 0 — ORIENTATION LINE
+    # SECTION 0 - ORIENTATION LINE
     # -----------------------------------------------
     _ori_regime = adaptive_state.get("regime_state", "unknown").title()
     _ori_alignment = snapshot_data.get("cross_horizon_alignment", "Moderate")
@@ -12373,10 +12373,10 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 16px 0 24px 0;"></div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 1 — SYSTEM LEARNING & EFFICIENCY PANEL (NOTE 036/037)
+    # SECTION 1 - SYSTEM LEARNING & EFFICIENCY PANEL (NOTE 036/037)
     # -----------------------------------------------
-    st.subheader("Section 1 — System Learning & Efficiency Panel")
-    st.caption("Outcome-driven learning curve and decision efficiency — unified institutional view · Observational only")
+    st.subheader("Section 1 - System Learning & Efficiency Panel")
+    st.caption("Outcome-driven learning curve and decision efficiency - unified institutional view · Observational only")
 
     _s1_cols = st.columns(2)
 
@@ -12451,10 +12451,10 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 20px 0 24px 0;"></div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 2 — REVIEW & ADAPTATION SIGNALS (PRIMARY OWNER)
+    # SECTION 2 - REVIEW & ADAPTATION SIGNALS (PRIMARY OWNER)
     # -----------------------------------------------
-    st.subheader("Section 2 — Review & Adaptation Signals")
-    st.caption("Governance eligibility layer — surfaces structural observations for institutional review consideration.")
+    st.subheader("Section 2 - Review & Adaptation Signals")
+    st.caption("Governance eligibility layer - surfaces structural observations for institutional review consideration.")
 
     _s2_signals = []
     _s2_regime_state = adaptive_state.get("regime_state", "unknown").lower()
@@ -12490,20 +12490,20 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
             if len(_s2_neg_h) >= 2:
                 _s2_h_strs = [f"{h}D: {_s2_h_vals[h]*100:+.2f}%" for h in _s2_neg_h]
                 _s2_signals.append({
-                    "title": f"{_s2_name} — Persistent Detraction",
+                    "title": f"{_s2_name} - Persistent Detraction",
                     "status": "Review Eligible",
                     "observation": f"{_s2_name} has detracted across {len(_s2_neg_h)} horizons ({', '.join(_s2_h_strs)}), indicating persistent structural drag.",
                     "scope": "Portfolio",
-                    "evidence": "Alpha Intelligence — Component Attribution",
+                    "evidence": "Alpha Intelligence - Component Attribution",
                 })
             elif len(_s2_neg_h) == 1:
                 _s2_h_str = f"{_s2_neg_h[0]}D: {_s2_h_vals[_s2_neg_h[0]]*100:+.2f}%"
                 _s2_signals.append({
-                    "title": f"{_s2_name} — Single-Horizon Observation",
+                    "title": f"{_s2_name} - Single-Horizon Observation",
                     "status": "Monitoring",
                     "observation": f"{_s2_name} shows negative contribution at {_s2_h_str}. Single-horizon detraction observed.",
                     "scope": "Portfolio",
-                    "evidence": "Alpha Intelligence — Component Attribution",
+                    "evidence": "Alpha Intelligence - Component Attribution",
                 })
 
         if "wave" in attrib_df.columns:
@@ -12522,11 +12522,11 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                 if len(_s2_w_neg) >= 2:
                     _s2_c_strs = [f"{c}: {v*100:+.2f}%" for c, v in _s2_w_neg]
                     _s2_signals.append({
-                        "title": f"{_s2_w} — Multi-Component Drag",
+                        "title": f"{_s2_w} - Multi-Component Drag",
                         "status": "Review Eligible",
                         "observation": f"{_s2_w} exhibits negative attribution across {len(_s2_w_neg)} components ({', '.join(_s2_c_strs)}), indicating broad structural headwinds.",
                         "scope": "Wave",
-                        "evidence": f"Wave Command Center — {_s2_w}",
+                        "evidence": f"Wave Command Center - {_s2_w}",
                     })
 
     if _s2_regime_state in ["normal", "expansionary"] and _s2_vol_current < _s2_vol_low:
@@ -12535,11 +12535,11 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
             _s2_vol_d = pd.to_numeric(attrib_df["volatility_alpha"], errors="coerce").mean()
         if _s2_vol_d < -0.001:
             _s2_signals.append({
-                "title": "Volatility Management — Regime Mismatch",
+                "title": "Volatility Management - Regime Mismatch",
                 "status": "Review Eligible",
                 "observation": f"Volatility overlay is detracting ({_s2_vol_d*100:+.2f}% avg) in a {_s2_regime_state} regime with compressed realized volatility ({_s2_vol_current:.1%}).",
                 "scope": "Portfolio",
-                "evidence": "Adaptive Intelligence — Threshold Calibration",
+                "evidence": "Adaptive Intelligence - Threshold Calibration",
             })
 
     if _s2_regime_state in ["stressed", "crisis"] and _s2_vol_current > _s2_vol_high:
@@ -12549,11 +12549,11 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
             _s2_vol_c = pd.to_numeric(_s2_h30["volatility_alpha"], errors="coerce").mean() if not _s2_h30.empty else 0
         if _s2_vol_c < 0.001:
             _s2_signals.append({
-                "title": "Defensive Overlay — Underperformance During Stress",
+                "title": "Defensive Overlay - Underperformance During Stress",
                 "status": "Review Eligible",
                 "observation": f"Despite elevated volatility ({_s2_vol_current:.1%}) and {_s2_regime_state} conditions, volatility overlay contribution is minimal ({_s2_vol_c*100:+.2f}%).",
                 "scope": "Portfolio",
-                "evidence": "Adaptive Intelligence — Threshold Calibration",
+                "evidence": "Adaptive Intelligence - Threshold Calibration",
             })
 
     _s2_regime_history = adaptive_state.get("regime_history", [])
@@ -12562,24 +12562,24 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
         _s2_unique = len(set(t.get("to", "") for t in _s2_recent))
         if _s2_unique >= 2:
             _s2_signals.append({
-                "title": "Regime Detection — Elevated Transition Frequency",
+                "title": "Regime Detection - Elevated Transition Frequency",
                 "status": "Monitoring",
                 "observation": f"Regime detection has shifted {len(_s2_recent)} times in recent history across {_s2_unique} distinct states. Transition frequency is elevated.",
                 "scope": "Portfolio",
-                "evidence": "Adaptive Intelligence — Orientation",
+                "evidence": "Adaptive Intelligence - Orientation",
             })
 
     for _s2_cs in core_signals:
         if _s2_cs.get("status") != "Stable":
             _s2_existing = {s["title"] for s in _s2_signals}
             _s2_cs_title = _s2_cs.get("name", "")
-            if _s2_cs_title and _s2_cs_title not in _s2_existing and f"{_s2_cs_title} — Persistent Detraction" not in _s2_existing:
+            if _s2_cs_title and _s2_cs_title not in _s2_existing and f"{_s2_cs_title} - Persistent Detraction" not in _s2_existing:
                 _s2_signals.append({
                     "title": _s2_cs_title,
                     "status": "Monitoring",
                     "observation": _s2_cs.get("explanation", ""),
                     "scope": "Portfolio",
-                    "evidence": "Adaptive Intelligence — Learning Signals",
+                    "evidence": "Adaptive Intelligence - Learning Signals",
                 })
 
     for _s2_ps in param_sensitivity:
@@ -12592,7 +12592,7 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                     "status": "Monitoring",
                     "observation": _s2_ps.get("observation", ""),
                     "scope": "Portfolio",
-                    "evidence": "Adaptive Intelligence — Threshold Calibration",
+                    "evidence": "Adaptive Intelligence - Threshold Calibration",
                 })
 
     _ch_drivers = cross_horizon_data.get("drivers", [])
@@ -12603,7 +12603,7 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
             "status": "Monitoring" if _s2_chu["Stability"] == "Mixed" else "Review Eligible",
             "observation": f"{_s2_chu['Driver']} shows {_s2_chu['Stability'].lower()} cross-horizon behavior (30D: {_s2_chu['30D State']}, 90D: {_s2_chu['90D State']}, 365D: {_s2_chu['365D State']}).",
             "scope": "Portfolio",
-            "evidence": "Adaptive Intelligence — Cross-Horizon Stability",
+            "evidence": "Adaptive Intelligence - Cross-Horizon Stability",
         })
 
     _s2_review_count = sum(1 for s in _s2_signals if s["status"] == "Review Eligible")
@@ -12652,14 +12652,14 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
 <div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
 <span style="color:#6B7280;font-size:10px;">Scope: {_s2_s['scope']}</span>
 {_s2_ev_html}
-<span style="color:#6B7280;font-size:10px;font-style:italic;">Observational only — human evaluation occurs in Decision Intelligence.</span>
+<span style="color:#6B7280;font-size:10px;font-style:italic;">Observational only - human evaluation occurs in Decision Intelligence.</span>
 </div>
 </div>""", unsafe_allow_html=True)
             if _s2_s_status == "Review Eligible":
                 _s2_nav_wave = _s2_s.get("scope", "Portfolio")
                 if _s2_s.get("scope") == "Wave":
-                    _s2_nav_wave = _s2_s["title"].split(" — ")[0] if " — " in _s2_s["title"] else _s2_s.get("scope", "Portfolio")
-                _s2_nav_key = f"s2_gov_ctx_{_s2_s['title'][:20].replace(' ', '_').replace('—','').replace('.','')}"
+                    _s2_nav_wave = _s2_s["title"].split(" - ")[0] if " - " in _s2_s["title"] else _s2_s.get("scope", "Portfolio")
+                _s2_nav_key = f"s2_gov_ctx_{_s2_s['title'][:20].replace(' ', '_').replace('-','').replace('.','')}"
                 if st.button("View Governance Context \u2192", key=_s2_nav_key, help="Navigate to Decision Intelligence for governance context on this signal"):
                     st.session_state["signal_route_source_tab"] = "adaptive_intelligence"
                     st.session_state["council_nav_wave"] = _s2_nav_wave
@@ -12668,15 +12668,15 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                     st.rerun()
     else:
         st.markdown("""<div style="background:#1C1F26;border:1px solid #2A2F3A;border-left:3px solid #48BB78;border-radius:0 8px 8px 0;padding:14px 16px;">
-<span style="color:#48BB78;font-size:13px;">All signals are stable — no review items detected across any diagnostic layer.</span>
+<span style="color:#48BB78;font-size:13px;">All signals are stable - no review items detected across any diagnostic layer.</span>
 </div>""", unsafe_allow_html=True)
 
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 20px 0 24px 0;"></div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 3 — CROSS-HORIZON & ATTRIBUTION STABILITY
+    # SECTION 3 - CROSS-HORIZON & ATTRIBUTION STABILITY
     # -----------------------------------------------
-    st.subheader("Section 3 — Cross-Horizon & Attribution Stability")
+    st.subheader("Section 3 - Cross-Horizon & Attribution Stability")
     st.caption("Structural stability diagnostics across horizons and attribution drivers.")
 
     if _ch_drivers:
@@ -12751,9 +12751,9 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 20px 0 24px 0;"></div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 4 — DECISION MEMORY & OUTCOME ALIGNMENT
+    # SECTION 4 - DECISION MEMORY & OUTCOME ALIGNMENT
     # -----------------------------------------------
-    st.subheader("Section 4 — Decision Memory & Outcome Alignment")
+    st.subheader("Section 4 - Decision Memory & Outcome Alignment")
     st.caption("Aggregate learning reflection from observed decision outcomes")
 
     if isinstance(decision_memory_data, dict) and decision_memory_data.get("has_data"):
@@ -12802,9 +12802,9 @@ Learning observations inform system adaptation but do not create governance acti
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 20px 0 24px 0;"></div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 5 — ADAPTIVE THRESHOLD & CONFIDENCE CALIBRATION
+    # SECTION 5 - ADAPTIVE THRESHOLD & CONFIDENCE CALIBRATION
     # -----------------------------------------------
-    st.subheader("Section 5 — Adaptive Threshold & Confidence Calibration")
+    st.subheader("Section 5 - Adaptive Threshold & Confidence Calibration")
     st.caption("Observed calibration behavior of adaptive system thresholds.")
 
     _s5_regime = adaptive_state.get("regime_state", "unknown").title()
@@ -12840,8 +12840,8 @@ Learning observations inform system adaptation but do not create governance acti
     _s5_threshold_data = [
         {"Parameter": "Volatility Threshold (High)", "Value": f"{_s5_vol_high:.2%}", "Current Observed": f"{_s5_vol_current:.2%}", "Trend": _s5_vol_trend.title()},
         {"Parameter": "Volatility Threshold (Low)", "Value": f"{_s5_vol_low:.2%}", "Current Observed": f"{_s5_vol_current:.2%}", "Trend": _s5_vol_trend.title()},
-        {"Parameter": "Momentum Weight", "Value": f"{_s5_mom_weight:.4f}", "Current Observed": "—", "Trend": "—"},
-        {"Parameter": "Volatility Weight", "Value": f"{_s5_vol_weight:.4f}", "Current Observed": "—", "Trend": "—"},
+        {"Parameter": "Momentum Weight", "Value": f"{_s5_mom_weight:.4f}", "Current Observed": "-", "Trend": "-"},
+        {"Parameter": "Volatility Weight", "Value": f"{_s5_vol_weight:.4f}", "Current Observed": "-", "Trend": "-"},
     ]
     st.dataframe(pd.DataFrame(_s5_threshold_data), width="stretch", hide_index=True)
 
@@ -12947,7 +12947,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         canonical_waves_dlm = list(CANONICAL_WAVES) if CANONICAL_WAVES else (list(waves) if waves else dlm.get_canonical_wave_names(snapshot_df))
 
         # =====================================================
-        # GOVERNANCE HEALTH — EXPANDABLE PANEL (SNAP-POINT)
+        # GOVERNANCE HEALTH - EXPANDABLE PANEL (SNAP-POINT)
         # =====================================================
         try:
             with st.expander("Governance Health Dashboard · System Integrity", expanded=False):
@@ -13242,7 +13242,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 16px 0 20px 0;"></div>', unsafe_allow_html=True)
 
         # =====================================================
-        # SECTION 1 — DECISION POSTURE OVERVIEW
+        # SECTION 1 - DECISION POSTURE OVERVIEW
         # =====================================================
         st.markdown('<div style="margin-bottom:6px;"><span style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Section 1 · Decision Posture Overview</span></div>', unsafe_allow_html=True)
 
@@ -13270,13 +13270,13 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
                     _s1_posture = "Neutral"
                     _s1_posture_color = "#F5C451"
 
-            _s1_pressure = "—"
+            _s1_pressure = "-"
             if _s1_active:
                 _s1_type_counts = {}
                 for d in _s1_active:
                     dt = d.get("decision_type", d.get("event_type", "Unknown"))
                     _s1_type_counts[dt] = _s1_type_counts.get(dt, 0) + 1
-                _s1_pressure = max(_s1_type_counts, key=_s1_type_counts.get) if _s1_type_counts else "—"
+                _s1_pressure = max(_s1_type_counts, key=_s1_type_counts.get) if _s1_type_counts else "-"
 
             _s1_governance_load = "Light"
             _s1_gov_color = "#9EA3AE"
@@ -13307,7 +13307,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
         # =====================================================
-        # SECTION 2 — CROSS-HORIZON DECISION ALIGNMENT
+        # SECTION 2 - CROSS-HORIZON DECISION ALIGNMENT
         # =====================================================
         st.markdown('<div style="margin-bottom:6px;"><span style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Section 2 · Cross-Horizon Decision Alignment</span></div>', unsafe_allow_html=True)
 
@@ -13335,14 +13335,14 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
                 _s2_hz_active = [d for d in _s2_hz_decisions if d.get("status") in ["Awaiting Approval", "Under Review", "Recorded", "Active", "Monitoring"]]
                 _s2_hz_count = len(_s2_hz_active)
 
-                _s2_dom_type = "—"
+                _s2_dom_type = "-"
                 if _s2_hz_active:
                     _s2_has_data = True
                     _s2_tc = {}
                     for d in _s2_hz_active:
                         dt = d.get("decision_type", d.get("event_type", "General"))
                         _s2_tc[dt] = _s2_tc.get(dt, 0) + 1
-                    _s2_dom_type = max(_s2_tc, key=_s2_tc.get) if _s2_tc else "—"
+                    _s2_dom_type = max(_s2_tc, key=_s2_tc.get) if _s2_tc else "-"
 
                 _s2_state = "Active" if _s2_hz_count > 0 else "Quiet"
                 _s2_state_c = "#F5C451" if _s2_state == "Active" else "#4B5563"
@@ -13366,7 +13366,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
         # =====================================================
-        # SECTION 3 — DECISION DRIVER ATTRIBUTION
+        # SECTION 3 - DECISION DRIVER ATTRIBUTION
         # =====================================================
         st.markdown('<div style="margin-bottom:6px;"><span style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Section 3 · Decision Driver Attribution</span></div>', unsafe_allow_html=True)
 
@@ -13394,11 +13394,11 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
                     if any(kw in _s3_text for kw in keywords):
                         _s3_ref_count += 1
 
-                _s3_contrib = "—"
+                _s3_contrib = "-"
                 _s3_contrib_color = "#9EA3AE"
-                _s3_direction = "—"
+                _s3_direction = "-"
                 _s3_dir_color = "#9EA3AE"
-                _s3_stability = "—"
+                _s3_stability = "-"
                 _s3_stab_color = "#9EA3AE"
 
                 if _s3_has_attrib and alpha_col in attrib_df.columns:
@@ -13451,7 +13451,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
         # =====================================================
-        # SECTION 3 — ACTIVE GOVERNANCE DECISIONS
+        # SECTION 3 - ACTIVE GOVERNANCE DECISIONS
         # =====================================================
         st.markdown('<div style="margin-bottom:6px;"><span style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Section 3 · Active Governance Decisions</span></div>', unsafe_allow_html=True)
 
@@ -13475,7 +13475,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
                 }
 
                 for _gi in _s4_gov_items[:20]:
-                    _gi_id = str(_gi.get("id", "—"))
+                    _gi_id = str(_gi.get("id", "-"))
                     if len(_gi_id) > 20:
                         _gi_id = _gi_id[:17] + "..."
                     _gi_scope = _gi.get("wave", "Portfolio")
@@ -13486,10 +13486,10 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
                     if len(str(_gi_context)) > 50:
                         _gi_context = str(_gi_context)[:47] + "..."
                     if not _gi_context:
-                        _gi_context = "—"
+                        _gi_context = "-"
                     _gi_timer = _gi.get("time_remaining", "")
                     if not _gi_timer:
-                        _gi_timer = _gi.get("window_label", "—")
+                        _gi_timer = _gi.get("window_label", "-")
 
                     _s4_html += f'<tr style="border-bottom:1px solid #1E2530;">'
                     _s4_html += f'<td style="color:#C0C4CC;padding:8px 10px;font-family:\'SF Mono\',monospace;font-size:10px;">{_gi_id}</td>'
@@ -13510,7 +13510,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
         # =====================================================
-        # SECTION 4 — DECISION CONTINUITY MONITORING (NOTE 066)
+        # SECTION 4 - DECISION CONTINUITY MONITORING (NOTE 066)
         # =====================================================
         st.markdown('<div style="margin-bottom:6px;"><span style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Section 4 · Decision Monitoring Summary</span></div>', unsafe_allow_html=True)
 
@@ -13584,7 +13584,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         st.markdown('<div style="border-bottom:1px solid #2A2F3A;margin:12px 0 20px 0;"></div>', unsafe_allow_html=True)
 
         # =====================================================
-        # SECTION 5 — DECISION POSTURE SUMMARY
+        # SECTION 5 - DECISION POSTURE SUMMARY
         # =====================================================
         render_decision_system_of_record_panel(all_decisions_dlm, adaptive_state=adaptive_state)
 
@@ -13609,7 +13609,7 @@ with tabs[TAB_INDEX['Decision Review & Implementation']]:
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Intelligence Layer</span>
 </div>""", unsafe_allow_html=True)
         st.header("Decision Review & Implementation")
-        st.caption("Governance Authority Surface — All governance actions require human approval")
+        st.caption("Governance Authority Surface - All governance actions require human approval")
 
         if SANDBOX_MODE:
             sandbox_log_event("tab_view", {"tab": "Decision Review & Implementation"})
@@ -13631,7 +13631,7 @@ AI generates governance instructions subject to time-governed approval windows. 
                 _cnav_tab_label = f' via <span style="color:#5C9CFF;">{_cnav_tab_map.get(_cnav_source_tab, _cnav_source_tab)}</span>'
             st.markdown(f"""<div class="signal-nav-banner" style="background: rgba(58, 111, 247, 0.08); border: 1px solid rgba(58, 111, 247, 0.25); padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
 <div style="color: #C8CCD4; font-size: 12px;">
-<span style="color: #3A6FF7; font-weight: 600;">Signal Navigation Active</span> — Routed from {_cnav_src_label}{_cnav_tab_label} for <strong style="color: #E5E5E5;">{_cnav_wave}</strong>. Matching decisions are highlighted below.
+<span style="color: #3A6FF7; font-weight: 600;">Signal Navigation Active</span> - Routed from {_cnav_src_label}{_cnav_tab_label} for <strong style="color: #E5E5E5;">{_cnav_wave}</strong>. Matching decisions are highlighted below.
 </div>
 <div style="color: #6B7280; font-size: 10px; font-style: italic;">Observational context only. No autonomous execution triggered.</div>
 </div>""", unsafe_allow_html=True)
@@ -13724,7 +13724,7 @@ AI generates governance instructions subject to time-governed approval windows. 
                     except Exception:
                         _dri_si_intent = "Governance review initiated following threshold-based diagnostic escalation."
                     st.markdown(f'''<div style="background: rgba(255,255,255,0.015); border: 1px solid #232830; border-radius: 4px; padding: 10px 16px; margin: 8px 0;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent — Governance Trigger Context</div>
+<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent - Governance Trigger Context</div>
 <div style="color: #9EA3AE; font-size: 11px; line-height: 1.5;">{_dri_si_intent}</div>
 </div>''', unsafe_allow_html=True)
 
@@ -13857,7 +13857,7 @@ AI generates governance instructions subject to time-governed approval windows. 
                     except Exception:
                         _gq_intent = "Governance review initiated following threshold-based diagnostic escalation."
                     st.markdown(f'''<div style="background: rgba(255,255,255,0.015); border: 1px solid #232830; border-radius: 4px; padding: 10px 16px; margin: 8px 0;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent — Governance Trigger Context</div>
+<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent - Governance Trigger Context</div>
 <div style="color: #9EA3AE; font-size: 11px; line-height: 1.5;">{_gq_intent}</div>
 </div>''', unsafe_allow_html=True)
 
@@ -13949,7 +13949,7 @@ AI generates governance instructions subject to time-governed approval windows. 
                 if _air_pending:
                     st.markdown(f"""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 20px; border-radius: 8px; margin: 16px 0 12px 0;">
 <div style="color: #E5E5E5; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;">AI Actions Awaiting Governance Review</div>
-<div style="color: #6B7280; font-size: 10px; margin-top: 4px; font-style: italic;">Post-execution governance. AI mutations executed in simulation — human review window follows. {len(_air_pending)} pending review{"s" if len(_air_pending) != 1 else ""}.</div>
+<div style="color: #6B7280; font-size: 10px; margin-top: 4px; font-style: italic;">Post-execution governance. AI mutations executed in simulation - human review window follows. {len(_air_pending)} pending review{"s" if len(_air_pending) != 1 else ""}.</div>
 </div>""", unsafe_allow_html=True)
 
                     _air_actions = load_ai_actions()
@@ -14011,7 +14011,7 @@ AI generates governance instructions subject to time-governed approval windows. 
                         except Exception:
                             _air_intent = "Governance review initiated following threshold-based diagnostic escalation."
                         st.markdown(f'''<div style="background: rgba(255,255,255,0.015); border: 1px solid #232830; border-radius: 4px; padding: 10px 16px; margin: 8px 0;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent — Governance Trigger Context</div>
+<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent - Governance Trigger Context</div>
 <div style="color: #9EA3AE; font-size: 11px; line-height: 1.5;">{_air_intent}</div>
 </div>''', unsafe_allow_html=True)
 
@@ -14224,7 +14224,7 @@ AI generates governance instructions subject to time-governed approval windows. 
         _s1_cols = st.columns(5)
         for _s1_i, (_s1_label, _s1_val, _s1_color) in enumerate(_s1_metrics):
             with _s1_cols[_s1_i]:
-                _s1_display = _s1_val if _s1_val else "—"
+                _s1_display = _s1_val if _s1_val else "-"
                 st.markdown(f"""<div style="background:#1C1F26;border:1px solid #2A2F3A;border-top:3px solid {_s1_color};padding:16px 12px;border-radius:6px;text-align:center;">
 <div style="color:{_s1_color};font-size:20px;font-weight:700;font-family:'SF Mono',monospace;">{_s1_display}</div>
 <div style="color:#9EA3AE;font-size:9px;text-transform:uppercase;margin-top:6px;letter-spacing:0.03em;">{_s1_label}</div>
@@ -14454,12 +14454,12 @@ All governance decisions are recorded with full audit context. Observational and
 
         if dri_under_review:
             for dri_d in dri_under_review:
-                dri_d_id = dri_d.get("id", "—")
-                dri_d_type = dri_d.get("decision_type", dri_d.get("event_type", "—"))
+                dri_d_id = dri_d.get("id", "-")
+                dri_d_type = dri_d.get("decision_type", dri_d.get("event_type", "-"))
                 dri_d_status = dri_d.get("approval_status", dri_d.get("status", "Under Review"))
-                dri_d_owner = dri_d.get("actor", "—")
-                dri_d_date = dri_d.get("date", "—")
-                dri_d_wave = dri_d.get("wave", "—")
+                dri_d_owner = dri_d.get("actor", "-")
+                dri_d_date = dri_d.get("date", "-")
+                dri_d_wave = dri_d.get("wave", "-")
                 dri_d_context = dri_d.get("context_notes", dri_d.get("rationale", ""))
 
                 if dri_d_status == "Deferred":
@@ -14520,11 +14520,11 @@ All governance decisions are recorded with full audit context. Observational and
 
         if dri_approved:
             for dri_d in dri_approved:
-                dri_d_id = dri_d.get("id", "—")
-                dri_d_type = dri_d.get("decision_type", dri_d.get("event_type", "—"))
-                dri_d_owner = dri_d.get("actor", "—")
-                dri_d_date = dri_d.get("approval_date", dri_d.get("date", "—"))
-                dri_d_wave = dri_d.get("wave", "—")
+                dri_d_id = dri_d.get("id", "-")
+                dri_d_type = dri_d.get("decision_type", dri_d.get("event_type", "-"))
+                dri_d_owner = dri_d.get("actor", "-")
+                dri_d_date = dri_d.get("approval_date", dri_d.get("date", "-"))
+                dri_d_wave = dri_d.get("wave", "-")
                 dri_d_impl = dri_d.get("implementation_state", "Pending Execution")
                 if dri_d_impl is None:
                     dri_d_impl = "Pending Execution"
@@ -14574,14 +14574,14 @@ All governance decisions are recorded with full audit context. Observational and
 
         if dri_completed:
             for dri_comp in dri_completed:
-                dri_comp_id = dri_comp.get("id", "—")
-                dri_comp_type = dri_comp.get("decision_type", dri_comp.get("event_type", "—"))
-                dri_comp_wave = dri_comp.get("wave", "—")
-                dri_comp_owner = dri_comp.get("actor", "—")
-                dri_comp_date = dri_comp.get("approval_date", dri_comp.get("date", "—"))
-                dri_comp_approved_by = dri_comp.get("approved_by", "—")
-                dri_comp_rationale = dri_comp.get("rationale", dri_comp.get("context_notes", "—"))
-                dri_comp_actor = dri_comp.get("actor", "—")
+                dri_comp_id = dri_comp.get("id", "-")
+                dri_comp_type = dri_comp.get("decision_type", dri_comp.get("event_type", "-"))
+                dri_comp_wave = dri_comp.get("wave", "-")
+                dri_comp_owner = dri_comp.get("actor", "-")
+                dri_comp_date = dri_comp.get("approval_date", dri_comp.get("date", "-"))
+                dri_comp_approved_by = dri_comp.get("approved_by", "-")
+                dri_comp_rationale = dri_comp.get("rationale", dri_comp.get("context_notes", "-"))
+                dri_comp_actor = dri_comp.get("actor", "-")
 
                 st.markdown(f'''<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-bottom: 10px;">
 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
@@ -14605,7 +14605,7 @@ All governance decisions are recorded with full audit context. Observational and
 </div>""", unsafe_allow_html=True)
 
         st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center; line-height: 1.6; padding: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
-Governance Authority Surface — All governance decisions are recorded with full audit context. Actions progress according to predefined simulation rules. No live execution occurs. No autonomous execution, no broker connections, no trade instructions. All actions require human approval.
+Governance Authority Surface - All governance decisions are recorded with full audit context. Actions progress according to predefined simulation rules. No live execution occurs. No autonomous execution, no broker connections, no trade instructions. All actions require human approval.
 </div>""", unsafe_allow_html=True)
 
     except Exception as e:
@@ -14615,7 +14615,7 @@ Governance Authority Surface — All governance decisions are recorded with full
     st.divider()
 
     # ===========================
-    # NOTE 025 — PORTFOLIO MANAGER DECISIONS SUB-TAB
+    # NOTE 025 - PORTFOLIO MANAGER DECISIONS SUB-TAB
     # ===========================
     st.markdown("""<div style="margin-bottom: 4px;">
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Section 6 · Portfolio Manager Decision Capture</span>
@@ -14650,7 +14650,7 @@ Institutional decision-capture interface. Decisions are logged into the governan
                 pmd_decisions = []
 
         # -----------------------------------------------
-        # SECTION 1 — WAVE SELECTION
+        # SECTION 1 - WAVE SELECTION
         # -----------------------------------------------
         st.markdown("""<div style="margin-bottom: 4px; margin-top: 16px;">
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">6.1 · Wave Selection</span>
@@ -14658,12 +14658,12 @@ Institutional decision-capture interface. Decisions are logged into the governan
 
         pmd_selected_wave = st.selectbox(
             "Select Wave",
-            options=["— Select a Wave —"] + pmd_wave_list,
+            options=["- Select a Wave -"] + pmd_wave_list,
             key="pmd_wave_select",
             index=0,
         )
 
-        if pmd_selected_wave and pmd_selected_wave != "— Select a Wave —":
+        if pmd_selected_wave and pmd_selected_wave != "- Select a Wave -":
             pmd_row = pmd_snapshot[pmd_snapshot[pmd_wave_col] == pmd_selected_wave].iloc[0] if len(pmd_snapshot[pmd_snapshot[pmd_wave_col] == pmd_selected_wave]) > 0 else None
 
             if pmd_row is not None:
@@ -14673,7 +14673,7 @@ Institutional decision-capture interface. Decisions are logged into the governan
 </div>''', unsafe_allow_html=True)
 
             # -----------------------------------------------
-            # SECTION 2 — DECISION CONTEXT (Read-only)
+            # SECTION 2 - DECISION CONTEXT (Read-only)
             # -----------------------------------------------
             st.markdown("""<div style="margin-bottom: 4px; margin-top: 20px;">
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">6.2 · Decision Context</span>
@@ -14694,12 +14694,12 @@ Institutional decision-capture interface. Decisions are logged into the governan
             st.markdown(pmd_ctx_html, unsafe_allow_html=True)
 
             # -----------------------------------------------
-            # SECTION 3 — DECISION ENTRY (Human Action Layer)
+            # SECTION 3 - DECISION ENTRY (Human Action Layer)
             # -----------------------------------------------
             if SANDBOX_MODE:
                 st.markdown('''<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:14px 20px;margin:20px 0;text-align:center;">
 <div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px;">6.3 · Enter Portfolio Manager Decision</div>
-<div style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">Sandbox Mode — Decision submission disabled. This form is available in production mode only.</div>
+<div style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">Sandbox Mode - Decision submission disabled. This form is available in production mode only.</div>
 </div>''', unsafe_allow_html=True)
             else:
                 st.markdown("""<div style="margin-bottom: 4px; margin-top: 20px;">
@@ -14747,7 +14747,7 @@ Institutional decision-capture interface. Decisions are logged into the governan
                     )
 
                 # -----------------------------------------------
-                # SECTION 4 — OUTCOME EXPECTATIONS (Optional)
+                # SECTION 4 - OUTCOME EXPECTATIONS (Optional)
                 # -----------------------------------------------
                 st.markdown("""<div style="margin-bottom: 4px; margin-top: 12px;">
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">6.4 · Outcome Expectations (Optional)</span>
@@ -14770,7 +14770,7 @@ Institutional decision-capture interface. Decisions are logged into the governan
                     )
 
                 # -----------------------------------------------
-                # SECTION 5 — SUBMIT
+                # SECTION 5 - SUBMIT
                 # -----------------------------------------------
                 pmd_submitted = st.form_submit_button("Submit Governance Decision", type="primary")
 
@@ -15030,8 +15030,8 @@ if TAB_INDEX.get('Wave Command Center') is not None:
             attr_row = attr_df[attr_df["wave"] == wave_name] if attr_df is not None and "wave" in attr_df.columns else pd.DataFrame()
             attr_30 = attr_row[attr_row["horizon"] == 30].iloc[0] if len(attr_row[attr_row["horizon"] == 30]) > 0 else None
 
-            pos_driver = "—"
-            neg_driver = "—"
+            pos_driver = "-"
+            neg_driver = "-"
             if attr_30 is not None:
                 components = {"Selection": float(attr_30.get("selection_alpha", 0) or 0),
                               "Momentum": float(attr_30.get("momentum_alpha", 0) or 0),
@@ -15135,7 +15135,7 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 a30_val = wr_det.get("alpha_30d", 0)
                 a60_val = wr_det.get("alpha_60d", 0)
                 a365_val = wr_det.get("alpha_365d", 0)
-                regime_al = wr_det.get("regime_alignment", "—")
+                regime_al = wr_det.get("regime_alignment", "-")
 
                 for col, label, val in [(wr_mc1, "30D Alpha", a30_val), (wr_mc2, "60D Alpha", a60_val), (wr_mc3, "365D Alpha", a365_val)]:
                     v_color = "#48BB78" if val > 0.005 else "#E06C75" if val < -0.005 else "#9EA3AE"
@@ -15157,12 +15157,12 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 with wr_drv1:
                     st.markdown(f"""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 14px 16px; border-radius: 6px; margin-top: 8px;">
 <div style="color: #6B7280; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">Primary Positive Driver</div>
-<div style="color: #48BB78; font-size: 14px; font-weight: 600;">{wr_det.get("pos_driver", "—")}</div>
+<div style="color: #48BB78; font-size: 14px; font-weight: 600;">{wr_det.get("pos_driver", "-")}</div>
 </div>""", unsafe_allow_html=True)
                 with wr_drv2:
                     st.markdown(f"""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 14px 16px; border-radius: 6px; margin-top: 8px;">
 <div style="color: #6B7280; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">Primary Detractor</div>
-<div style="color: #E06C75; font-size: 14px; font-weight: 600;">{wr_det.get("neg_driver", "—")}</div>
+<div style="color: #E06C75; font-size: 14px; font-weight: 600;">{wr_det.get("neg_driver", "-")}</div>
 </div>""", unsafe_allow_html=True)
 
                 wr_a30 = wr_det.get("alpha_30d", 0)
@@ -15170,7 +15170,7 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 wr_a365 = wr_det.get("alpha_365d", 0)
                 wr_pos_drv = wr_det.get("pos_driver", "None")
                 wr_neg_drv = wr_det.get("neg_driver", "None")
-                wr_regime_al = wr_det.get("regime_alignment", "—")
+                wr_regime_al = wr_det.get("regime_alignment", "-")
                 wr_multi_horizon = []
                 if wr_a30 > 0.005: wr_multi_horizon.append("positive short-term alpha")
                 elif wr_a30 < -0.005: wr_multi_horizon.append("negative short-term alpha")
@@ -15204,7 +15204,7 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                         _sleeve_html += f'<th style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; padding: 8px; text-align: left; letter-spacing: 0.04em;">{_sh}</th>'
                     _sleeve_html += '</tr>'
                     for _sl in _sleeve_struct.get("sleeves", []):
-                        _etfs = ", ".join(_sl.get("etfs", [])) if _sl.get("etfs") else "—"
+                        _etfs = ", ".join(_sl.get("etfs", [])) if _sl.get("etfs") else "-"
                         _sleeve_html += f'<tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">'
                         _sleeve_html += f'<td style="color: #E5E5E5; padding: 8px; font-weight: 500;">{_sl["name"]}</td>'
                         _sleeve_html += f'<td style="color: #9EA3AE; padding: 8px;">{_sl["role"]}</td>'
@@ -15296,20 +15296,20 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 else:
                     st.markdown('<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px; border-radius: 6px; color: #6B7280; font-size: 11px;">No strategy actions logged.</div>', unsafe_allow_html=True)
 
-                st.markdown('<div style="color:#3A6FF7;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin:24px 0 8px 0;">Section 4 · Wave Activity — Strategy Actions</div>', unsafe_allow_html=True)
+                st.markdown('<div style="color:#3A6FF7;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin:24px 0 8px 0;">Section 4 · Wave Activity - Strategy Actions</div>', unsafe_allow_html=True)
 
-        # ---- WAVE ACTIVITY — STRATEGY ACTIONS (NOTE 034 / NOTE 035) ----
+        # ---- WAVE ACTIVITY - STRATEGY ACTIONS (NOTE 034 / NOTE 035) ----
         st.markdown("""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 20px; border-radius: 8px; margin: 24px 0 12px 0;">
-<div style="color: #E5E5E5; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;">Wave Activity — Strategy Actions</div>
+<div style="color: #E5E5E5; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;">Wave Activity - Strategy Actions</div>
 <div style="color: #6B7280; font-size: 10px; margin-top: 4px; font-style: italic;">Chronological record of automated, rules-based strategy behavior. Human governance actions are recorded separately in Decision Review &amp; Implementation.</div>
 </div>""", unsafe_allow_html=True)
 
         st.markdown('<div style="color: #6B7280; font-size: 10px; font-style: italic; margin: 4px 0 12px 0; line-height: 1.5;">Strategy actions reflect automated, rules-based behavior executed by each wave. Human governance decisions are recorded separately in the Decision Timeline.</div>', unsafe_allow_html=True)
 
-        wal_wave_selected = st.selectbox("Select Wave for Activity Log", wr_waves if wr_waves else ["—"], index=0, key="wal_wave_select")
+        wal_wave_selected = st.selectbox("Select Wave for Activity Log", wr_waves if wr_waves else ["-"], index=0, key="wal_wave_select")
 
         try:
-            if wa is not None and wal_wave_selected and wal_wave_selected != "—":
+            if wa is not None and wal_wave_selected and wal_wave_selected != "-":
                 wal_all_events = wa.get_wave_events(wal_wave_selected)
                 wal_summary = wa.get_wave_summary(wal_wave_selected, wal_all_events)
 
@@ -15374,15 +15374,15 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                     wal_tbl_html += '<div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; font-weight: 600;">Gov. Link</div>'
                     wal_tbl_html += '</div>'
                     for wal_ev in wal_filtered:
-                        wal_et = wal_ev.get("event_type", "—")
+                        wal_et = wal_ev.get("event_type", "-")
                         wal_et_color = "#60A5FA" if wal_et == "Strategy Action: Rebalance" else ("#48BB78" if wal_et == "Strategy Action: Exposure Change" else ("#F59E0B" if wal_et == "Strategy Action: Overlay Adjustment" else ("#E06C75" if wal_et == "Strategy Action: Regime Shift" else "#9EA3AE")))
                         wal_tbl_html += f'<div style="display: grid; grid-template-columns: 80px 110px 1fr 1fr 1fr 100px 90px; padding: 6px 16px; border-bottom: 1px solid #2A2F3A;">'
-                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 11px;">{wal_ev.get("date", "—")}</div>'
+                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 11px;">{wal_ev.get("date", "-")}</div>'
                         wal_tbl_html += f'<div style="color: {wal_et_color}; font-size: 11px; font-weight: 500;">{wal_et}</div>'
-                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 10px;">{wal_ev.get("trigger", "—")[:60]}</div>'
-                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 10px;">{wal_ev.get("change_summary", "—")[:80]}</div>'
-                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 10px;">{wal_ev.get("impact_context", "—")[:60]}</div>'
-                        wal_tbl_html += f'<div style="color: #6B7280; font-size: 10px;">{wal_ev.get("event_id", "—")}</div>'
+                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 10px;">{wal_ev.get("trigger", "-")[:60]}</div>'
+                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 10px;">{wal_ev.get("change_summary", "-")[:80]}</div>'
+                        wal_tbl_html += f'<div style="color: #C0C4CC; font-size: 10px;">{wal_ev.get("impact_context", "-")[:60]}</div>'
+                        wal_tbl_html += f'<div style="color: #6B7280; font-size: 10px;">{wal_ev.get("event_id", "-")}</div>'
 
                         wal_gov_link = wal_ev.get("governance_link", None)
                         wal_gov_display = f'<span style="color: #60A5FA;">{wal_gov_link}</span>' if wal_gov_link else chr(8212)
@@ -15432,8 +15432,8 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                     _sb_score = _sb_c.get("score", 0)
                     _sb_score_color = "#48BB78" if _sb_score > 0.6 else "#ECC94B" if _sb_score > 0.4 else "#E06C75"
                     _sb_tbl += f'<tr style="border-bottom: 1px solid #1E2530;">'
-                    _sb_tbl += f'<td style="color: #C8CCD4; padding: 8px 12px; font-family: \'SF Mono\', monospace;">{_sb_c.get("rank", "—")}</td>'
-                    _sb_tbl += f'<td style="color: #E5E5E5; padding: 8px 12px; font-weight: 600;">{_sb_c.get("ticker", "—")}</td>'
+                    _sb_tbl += f'<td style="color: #C8CCD4; padding: 8px 12px; font-family: \'SF Mono\', monospace;">{_sb_c.get("rank", "-")}</td>'
+                    _sb_tbl += f'<td style="color: #E5E5E5; padding: 8px 12px; font-weight: 600;">{_sb_c.get("ticker", "-")}</td>'
                     _sb_tbl += f'<td style="color: {_sb_score_color}; padding: 8px 12px; font-family: \'SF Mono\', monospace; font-weight: 600;">{_sb_score:.4f}</td>'
                     _sb_tbl += f'<td style="color: #9EA3AE; padding: 8px 12px;">{_sb_c.get("status", "Candidate")}</td>'
                     _sb_tbl += '</tr>'
@@ -15464,11 +15464,11 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 _gc_id = _gc_last.get("id", "\u2014")
                 _gc_type = _gc_last.get("decision_type", _gc_last.get("event_type", "\u2014"))
                 _gc_date = _gc_last.get("date", "\u2014")
-                _gc_status = _gc_last.get("approval_status", _gc_last.get("status", "—"))
+                _gc_status = _gc_last.get("approval_status", _gc_last.get("status", "-"))
                 _gc_status_color = "#2BFF88" if _gc_status == "Approved" else ("#F59E0B" if _gc_status in ["Pending", "Under Review"] else ("#E06C75" if _gc_status in ["Rejected", "Deferred"] else "#9EA3AE"))
 
                 st.markdown(f"""<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:16px 20px;border-radius:8px;margin-top:8px;">
-<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:10px;">Last Governance Decision — {wr_selected}</div>
+<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:10px;">Last Governance Decision - {wr_selected}</div>
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;">
 <div>
 <div style="color:#6B7280;font-size:9px;text-transform:uppercase;font-weight:600;">Decision ID</div>
@@ -15521,7 +15521,7 @@ if TAB_INDEX.get('Governance & Operations') is not None:
 
     st.markdown('<div style="color:#3A6FF7;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin:16px 0 8px 0;">Section 1 · Governance Snapshot</div>', unsafe_allow_html=True)
     st.header("Governance Status")
-    st.caption("Governance compliance and oversight status — Observational · Read-only")
+    st.caption("Governance compliance and oversight status - Observational · Read-only")
     st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
 Governance compliance overview showing approval rates, decision audit coverage, and oversight status across the portfolio decision framework.
 </div>""", unsafe_allow_html=True)
@@ -15535,9 +15535,9 @@ Governance compliance overview showing approval rates, decision audit coverage, 
 
         gov_total = len(gov_decisions)
         gov_with_approval = len([d for d in gov_decisions if d.get("approved_by")])
-        gov_approval_rate = f"{(gov_with_approval / gov_total * 100):.0f}%" if gov_total > 0 else "—"
+        gov_approval_rate = f"{(gov_with_approval / gov_total * 100):.0f}%" if gov_total > 0 else "-"
         gov_with_rationale = len([d for d in gov_decisions if d.get("rationale")])
-        gov_audit_coverage = f"{(gov_with_rationale / gov_total * 100):.0f}%" if gov_total > 0 else "—"
+        gov_audit_coverage = f"{(gov_with_rationale / gov_total * 100):.0f}%" if gov_total > 0 else "-"
 
         gov_c1, gov_c2, gov_c3 = st.columns(3)
         with gov_c1:
@@ -15558,7 +15558,7 @@ Governance compliance overview showing approval rates, decision audit coverage, 
 
         gov_approved_all = [d for d in gov_decisions if d.get("approval_status") == "Approved"]
         gov_completed = len([d for d in gov_approved_all if d.get("implementation_state") == "Completed"])
-        gov_impl_rate = f"{(gov_completed / len(gov_approved_all) * 100):.0f}%" if len(gov_approved_all) > 0 else "—"
+        gov_impl_rate = f"{(gov_completed / len(gov_approved_all) * 100):.0f}%" if len(gov_approved_all) > 0 else "-"
 
         gov_c4, gov_c5 = st.columns(2)
         with gov_c4:
@@ -15569,7 +15569,7 @@ Governance compliance overview showing approval rates, decision audit coverage, 
 </div>""", unsafe_allow_html=True)
         with gov_c5:
             gov_with_context = len([d for d in gov_decisions if d.get("context_notes")])
-            gov_context_rate = f"{(gov_with_context / gov_total * 100):.0f}%" if gov_total > 0 else "—"
+            gov_context_rate = f"{(gov_with_context / gov_total * 100):.0f}%" if gov_total > 0 else "-"
             st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px; margin-top: 16px;">
 <div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Context Documentation Rate</div>
 <div style="color: #3A6FF7; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{gov_context_rate}</div>
@@ -15634,7 +15634,7 @@ Decision Policies define governance authority, review pathways, and escalation o
             policies = []
     
     # -----------------------------------------------
-    # SECTION 1 — POLICY ACTIVITY SUMMARY
+    # SECTION 1 - POLICY ACTIVITY SUMMARY
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Activity Summary</span>', unsafe_allow_html=True)
     st.subheader("Policy Activity Summary")
@@ -15681,7 +15681,7 @@ No active policy triggers at this time.
     st.divider()
     
     # -----------------------------------------------
-    # SECTION 2 — POLICY OVERVIEW TABLE
+    # SECTION 2 - POLICY OVERVIEW TABLE
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Policy Registry</span>', unsafe_allow_html=True)
     st.subheader("Policy Overview")
@@ -15704,9 +15704,9 @@ No active policy triggers at this time.
 <tbody>"""
         
         for policy in policies:
-            policy_id = policy.get("policy_id", "—")
+            policy_id = policy.get("policy_id", "-")
             policy_name = policy.get("policy_name", "Unnamed Policy")
-            trigger_type = policy.get("trigger_type", "—")
+            trigger_type = policy.get("trigger_type", "-")
             scope = policy.get("scope", "Portfolio")
             review_window = f"{policy.get('review_window_days', 5)} days"
             escalation_path = " → ".join(policy.get("escalation_path", []))
@@ -15744,14 +15744,14 @@ No decision policies defined. Default policies will be created on system initial
     st.divider()
     
     # -----------------------------------------------
-    # SECTION 3 — POLICY DETAIL PANEL
+    # SECTION 3 - POLICY DETAIL PANEL
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Policy Details</span>', unsafe_allow_html=True)
     st.subheader("Policy Detail")
     st.caption("Select a policy to view full governance details")
     
     if policies and len(policies) > 0:
-        policy_names = [f"{p.get('policy_id', 'POL')} — {p.get('policy_name', 'Unnamed')}" for p in policies]
+        policy_names = [f"{p.get('policy_id', 'POL')} - {p.get('policy_name', 'Unnamed')}" for p in policies]
         selected_policy_idx = st.selectbox(
             "Select Policy",
             options=range(len(policy_names)),
@@ -15770,15 +15770,15 @@ No decision policies defined. Default policies will be created on system initial
 <div style="color: #6B7280; font-size: 10px; text-transform: uppercase; margin-bottom: 8px;">Policy Information</div>
 <div style="margin: 6px 0;">
 <span style="color: #6B7280; font-size: 11px;">Policy ID:</span>
-<span style="color: #60A5FA; font-size: 12px; font-family: monospace; margin-left: 8px;">{selected_policy.get('policy_id', '—')}</span>
+<span style="color: #60A5FA; font-size: 12px; font-family: monospace; margin-left: 8px;">{selected_policy.get('policy_id', '-')}</span>
 </div>
 <div style="margin: 6px 0;">
 <span style="color: #6B7280; font-size: 11px;">Policy Name:</span>
-<span style="color: #E5E5E5; font-size: 12px; margin-left: 8px;">{selected_policy.get('policy_name', '—')}</span>
+<span style="color: #E5E5E5; font-size: 12px; margin-left: 8px;">{selected_policy.get('policy_name', '-')}</span>
 </div>
 <div style="margin: 6px 0;">
 <span style="color: #6B7280; font-size: 11px;">Trigger Condition:</span>
-<span style="color: #C8CCD4; font-size: 12px; margin-left: 8px;">{selected_policy.get('trigger_type', '—')}</span>
+<span style="color: #C8CCD4; font-size: 12px; margin-left: 8px;">{selected_policy.get('trigger_type', '-')}</span>
 </div>
 <div style="margin: 6px 0;">
 <span style="color: #6B7280; font-size: 11px;">Scope:</span>
@@ -15803,7 +15803,7 @@ No decision policies defined. Default policies will be created on system initial
 </div>
 <div style="margin: 6px 0;">
 <span style="color: #6B7280; font-size: 11px;">Severity:</span>
-<span style="color: #C8CCD4; font-size: 12px; margin-left: 8px;">{selected_policy.get('severity', '—')}</span>
+<span style="color: #C8CCD4; font-size: 12px; margin-left: 8px;">{selected_policy.get('severity', '-')}</span>
 </div>
 <div style="margin: 6px 0;">
 <span style="color: #6B7280; font-size: 11px;">Status:</span>
@@ -15833,16 +15833,16 @@ Policies define governance authority, review pathways, and escalation ownership.
     st.divider()
 
     st.markdown('<div style="color:#3A6FF7;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin:24px 0 8px 0;">Section 3 · Decision Timeline</div>', unsafe_allow_html=True)
-    st.header("Decision Timeline — Human Governance")
+    st.header("Decision Timeline - Human Governance")
     st.caption("Human-approved changes to parameters, overrides, and risk settings. This view is observational and non-executing.")
     st.markdown('<div style="color: #6B7280; font-size: 10px; font-style: italic; margin: 4px 0 12px 0; line-height: 1.5;">Strategy actions are executed automatically by autonomous waves. Human decisions are recorded separately in the governance decision timeline.</div>', unsafe_allow_html=True)
     
     st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px; background: #151A22; border-radius: 6px;">
-The Decision Timeline serves as a governed ledger of human-approved decisions, context, and outcomes. It functions as a decision flight recorder for institutional learning and governance purposes. Only Governance Decisions and Override Decisions appear here — automated strategy actions are logged separately in Wave Activity.
+The Decision Timeline serves as a governed ledger of human-approved decisions, context, and outcomes. It functions as a decision flight recorder for institutional learning and governance purposes. Only Governance Decisions and Override Decisions appear here - automated strategy actions are logged separately in Wave Activity.
 </div>""", unsafe_allow_html=True)
     
     # -----------------------------------------------
-    # SECTION 1 — TIMELINE VIEW (CHRONOLOGICAL LIST)
+    # SECTION 1 - TIMELINE VIEW (CHRONOLOGICAL LIST)
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Recent Activity</span>', unsafe_allow_html=True)
     st.subheader("Timeline View")
@@ -15865,7 +15865,7 @@ The Decision Timeline serves as a governed ledger of human-approved decisions, c
         timeline_html = """<div style="background: #151A22; border-radius: 6px; padding: 14px; margin: 8px 0;">"""
         
         for event in recent_events:
-            event_date = event.get("date", "—")
+            event_date = event.get("date", "-")
             event_desc = event.get("description", "Decision recorded")
             _raw_evt_type = event.get("decision_type", event.get("event_type", ""))
             event_type = "Override Decision" if "override" in str(_raw_evt_type).lower() else "Governance Decision"
@@ -15915,7 +15915,7 @@ No governance decisions recorded during the current observation window.
     st.divider()
     
     # -----------------------------------------------
-    # SECTION 2 — DECISION LEDGER TABLE
+    # SECTION 2 - DECISION LEDGER TABLE
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Decision Ledger</span>', unsafe_allow_html=True)
     st.subheader("Decision Ledger")
@@ -15938,12 +15938,12 @@ No governance decisions recorded during the current observation window.
 <tbody>"""
         
         for idx, record in enumerate(decision_records):
-            record_date = record.get("date", "—")
+            record_date = record.get("date", "-")
             record_id = record.get("decision_id", f"DEC-{idx+1:04d}")
             _raw_record_type = record.get("decision_type", record.get("event_type", ""))
             record_type = "Override Decision" if "override" in str(_raw_record_type).lower() else "Governance Decision"
             record_desc = record.get("description", "Decision recorded")
-            record_context = record.get("context", "—")
+            record_context = record.get("context", "-")
             record_status = record.get("status", record.get("approval_status", "Pending"))
             
             _outcome_raw = record.get("outcome_status", "")
@@ -16266,7 +16266,7 @@ This timeline records governance decision context and outcome existence for inst
         
         # Section 1: Attribution Summary
         artifact_html += """<div style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #2A2A2A;">
-<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 1 — ATTRIBUTION SUMMARY (HISTORICAL)</div>"""
+<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 1 - ATTRIBUTION SUMMARY (HISTORICAL)</div>"""
         
         attrib_summary = alpha_evidence.get("attribution_summary", {})
         if attrib_summary:
@@ -16282,7 +16282,7 @@ This timeline records governance decision context and outcome existence for inst
         
         # Section 2: Alpha Heat Index State
         artifact_html += """<div style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #2A2A2A;">
-<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 2 — ALPHA HEAT INDEX STATE</div>"""
+<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 2 - ALPHA HEAT INDEX STATE</div>"""
         
         heat_state = alpha_evidence.get("heat_index_state", {})
         heat_horizon = heat_state.get("horizon", "N/A")
@@ -16293,7 +16293,7 @@ This timeline records governance decision context and outcome existence for inst
         
         # Section 3: Cross-Horizon Stability
         artifact_html += """<div style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #2A2A2A;">
-<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 3 — CROSS-HORIZON STABILITY DIAGNOSTIC</div>"""
+<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 3 - CROSS-HORIZON STABILITY DIAGNOSTIC</div>"""
         
         stability = alpha_evidence.get("cross_horizon_stability", {})
         stability_text = stability.get("diagnostic", "Stability assessment was not available.")
@@ -16302,7 +16302,7 @@ This timeline records governance decision context and outcome existence for inst
         
         # Section 4: Market Direction Context
         artifact_html += """<div style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #2A2A2A;">
-<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 4 — MARKET DIRECTION CONTEXT</div>"""
+<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 4 - MARKET DIRECTION CONTEXT</div>"""
         
         direction_ctx = alpha_evidence.get("market_direction_context", {})
         if direction_ctx:
@@ -16316,12 +16316,12 @@ This timeline records governance decision context and outcome existence for inst
 </div>"""
         else:
             artifact_html += """<div style="color: #666666; font-size: 12px; font-style: italic;">Market direction context was not available.</div>"""
-        artifact_html += """<div style="color: #555555; font-size: 10px; margin-top: 8px; font-style: italic;">Context only — not causal or predictive.</div>"""
+        artifact_html += """<div style="color: #555555; font-size: 10px; margin-top: 8px; font-style: italic;">Context only - not causal or predictive.</div>"""
         artifact_html += "</div>"
         
         # Section 5: Technical Signal State
         artifact_html += """<div style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #2A2A2A;">
-<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 5 — TECHNICAL SIGNAL STATE CONTEXT</div>"""
+<div style="color: #A0A0A0; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px;">SECTION 5 - TECHNICAL SIGNAL STATE CONTEXT</div>"""
         
         tech_ctx = alpha_evidence.get("technical_signal_context", {})
         tech_summary = tech_ctx.get("summary", "Technical signal state was not available.")
@@ -16360,7 +16360,7 @@ Purpose: Governance Review, Investment Committee Documentation, Diligence Suppor
 </div>
 
 <div style="margin-bottom: 16px;">
-<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 1 — Overview</div>
+<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 1 - Overview</div>
 <div style="color: #A0A0A0; font-size: 12px; line-height: 1.6;">
 The Alpha Quality Evidence (Historical, Immutable Snapshot) is a static, timestamped governance artifact that consolidates key historical diagnostics related to alpha generation, concentration, and structural stability.<br><br>
 The artifact is observational only, uses past-tense language throughout, and does not influence any live model, adaptive logic, or execution pathway within the system.
@@ -16368,7 +16368,7 @@ The artifact is observational only, uses past-tense language throughout, and doe
 </div>
 
 <div style="margin-bottom: 16px;">
-<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 2 — Scope of the Artifact</div>
+<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 2 - Scope of the Artifact</div>
 <div style="color: #A0A0A0; font-size: 12px; line-height: 1.6;">
 <strong style="color: #888;">a. Attribution Summary (Historical)</strong><br>
 Displays total alpha contributions across 30-day, 60-day, and 365-day horizons using canonical attribution data. This section reflects realized historical outcomes only and does not imply future behavior.<br><br>
@@ -16388,7 +16388,7 @@ Summarizes observed momentum, volatility, regime, and participation conditions a
 </div>
 
 <div style="margin-bottom: 16px;">
-<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 3 — Data Provenance</div>
+<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 3 - Data Provenance</div>
 <div style="color: #A0A0A0; font-size: 12px; line-height: 1.6;">
 The artifact is derived exclusively from existing, canonical system data, including:<br>
 • Historical attribution snapshots (30D / 60D / 365D)<br>
@@ -16401,14 +16401,14 @@ No external or forward-looking data sources are introduced.
 </div>
 
 <div style="margin-bottom: 16px;">
-<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 4 — Immutability and Governance Controls</div>
+<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 4 - Immutability and Governance Controls</div>
 <div style="color: #A0A0A0; font-size: 12px; line-height: 1.6;">
 Once generated, the Alpha Quality Evidence artifact is immutable and does not update automatically. Subsequent system updates do not alter this snapshot. The artifact is preserved for audit, governance, and diligence reference.
 </div>
 </div>
 
 <div style="margin-bottom: 16px;">
-<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 5 — Intended Use</div>
+<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 5 - Intended Use</div>
 <div style="color: #A0A0A0; font-size: 12px; line-height: 1.6;">
 This artifact supports:<br>
 • Investment Committee documentation<br>
@@ -16420,7 +16420,7 @@ It is not intended for decision automation or execution.
 </div>
 
 <div style="margin-bottom: 0;">
-<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 6 — Compliance Statement</div>
+<div style="color: #888888; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Section 6 - Compliance Statement</div>
 <div style="color: #A0A0A0; font-size: 12px; line-height: 1.6;">
 This artifact is observational, backward-looking, non-executing, and informational in nature. It contains no recommendations, thresholds, alerts, or prescriptive language.
 </div>
@@ -16450,7 +16450,7 @@ This artifact is observational, backward-looking, non-executing, and information
         
         for step_title, step_question, step_answer in walkthrough_steps:
             walkthrough_html += f"""<div style="margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #2A2A2A;">
-<div style="color: #D0D0D0; font-weight: 600;">{step_title} — <span style="font-style: italic; font-weight: 400;">{step_question}</span></div>
+<div style="color: #D0D0D0; font-weight: 600;">{step_title} - <span style="font-style: italic; font-weight: 400;">{step_question}</span></div>
 <div style="color: #A0A0A0; font-size: 12px; padding-left: 12px; margin-top: 6px;">{step_answer}</div>
 </div>"""
         
@@ -16622,7 +16622,7 @@ This artifact is observational, backward-looking, non-executing, and information
     human_ratio_delta = (current_human_ratio - prior_human_ratio) * 100
     
     total_human_ratio = calc_human_ratio(analytics_entries)
-    human_pct = f"{total_human_ratio:.0%}" if analytics_entries else "—"
+    human_pct = f"{total_human_ratio:.0%}" if analytics_entries else "-"
     
     # 3. Average Time Between Actions
     analytics_timestamps = []
@@ -16644,7 +16644,7 @@ This artifact is observational, backward-looking, non-executing, and information
         else:
             avg_time_str = f"{avg_time_between:.1f}h"
     else:
-        avg_time_str = "—"
+        avg_time_str = "-"
         time_variance = 0
         avg_time_between = 0
     
@@ -16664,7 +16664,7 @@ This artifact is observational, backward-looking, non-executing, and information
         else:
             stability_badge = "[v] Volatile"
     else:
-        stability_badge = "—"
+        stability_badge = "-"
     
     # Display analytics in horizontal metrics row with deltas
     analytics_cols = st.columns(5)
@@ -16780,13 +16780,13 @@ This artifact is observational, backward-looking, non-executing, and information
     with dist_cols[0]:
         st.metric("Total Decisions", decision_count)
     with dist_cols[1]:
-        st.metric("Approved", f"{approve_pct:.0f}%" if decision_count > 0 else "—")
+        st.metric("Approved", f"{approve_pct:.0f}%" if decision_count > 0 else "-")
     with dist_cols[2]:
-        st.metric("Modified", f"{modify_pct:.0f}%" if decision_count > 0 else "—")
+        st.metric("Modified", f"{modify_pct:.0f}%" if decision_count > 0 else "-")
     with dist_cols[3]:
-        st.metric("Rejected", f"{reject_pct:.0f}%" if decision_count > 0 else "—")
+        st.metric("Rejected", f"{reject_pct:.0f}%" if decision_count > 0 else "-")
     with dist_cols[4]:
-        st.metric("Deferred", f"{defer_pct:.0f}%" if decision_count > 0 else "—")
+        st.metric("Deferred", f"{defer_pct:.0f}%" if decision_count > 0 else "-")
     
     # Row 2: System Activity
     st.markdown("**System Activity**")
@@ -16802,7 +16802,7 @@ This artifact is observational, backward-looking, non-executing, and information
         if avg_confidence is not None:
             st.metric("Avg Confidence at Approval", f"{avg_confidence:.0f}%")
         else:
-            st.metric("Avg Confidence at Approval", "—")
+            st.metric("Avg Confidence at Approval", "-")
     
     # Row 3: Governance Velocity (if enough data)
     if span_hours is not None or avg_time_between is not None:
@@ -16818,7 +16818,7 @@ This artifact is observational, backward-looking, non-executing, and information
                 else:
                     st.metric("Log Time Span", f"{span_hours / 24:.1f} days")
             else:
-                st.metric("Log Time Span", "—")
+                st.metric("Log Time Span", "-")
         
         with vel_cols[1]:
             if avg_time_between is not None:
@@ -16827,14 +16827,14 @@ This artifact is observational, backward-looking, non-executing, and information
                 else:
                     st.metric("Avg Time Between Actions", f"{avg_time_between:.1f} hours")
             else:
-                st.metric("Avg Time Between Actions", "—")
+                st.metric("Avg Time Between Actions", "-")
         
         with vel_cols[2]:
             if decision_count > 0 and recalc_count > 0:
                 ratio = decision_count / recalc_count
                 st.metric("Decisions per Recalc", f"{ratio:.1f}")
             else:
-                st.metric("Decisions per Recalc", "—")
+                st.metric("Decisions per Recalc", "-")
     
     # Action Type Distribution (visual breakdown)
     if total_entries > 0:
@@ -16887,13 +16887,13 @@ This artifact is observational, backward-looking, non-executing, and information
         with snap_cols[0]:
             st.metric("Total Decisions", decision_count)
         with snap_cols[1]:
-            st.metric("Approval Rate", f"{approve_pct:.0f}%" if decision_count > 0 else "—")
+            st.metric("Approval Rate", f"{approve_pct:.0f}%" if decision_count > 0 else "-")
         with snap_cols[2]:
-            st.metric("Modification Rate", f"{modify_pct:.0f}%" if decision_count > 0 else "—")
+            st.metric("Modification Rate", f"{modify_pct:.0f}%" if decision_count > 0 else "-")
         with snap_cols[3]:
-            st.metric("Rejection Rate", f"{reject_pct:.0f}%" if decision_count > 0 else "—")
+            st.metric("Rejection Rate", f"{reject_pct:.0f}%" if decision_count > 0 else "-")
         with snap_cols[4]:
-            st.metric("Deferral Rate", f"{defer_pct:.0f}%" if decision_count > 0 else "—")
+            st.metric("Deferral Rate", f"{defer_pct:.0f}%" if decision_count > 0 else "-")
         
         snap_cols2 = st.columns(3)
         with snap_cols2[0]:
@@ -16902,7 +16902,7 @@ This artifact is observational, backward-looking, non-executing, and information
             if avg_confidence is not None:
                 st.metric("Avg Confidence at Approval", f"{avg_confidence:.0f}%")
             else:
-                st.metric("Avg Confidence at Approval", "—")
+                st.metric("Avg Confidence at Approval", "-")
         with snap_cols2[2]:
             if span_hours is not None:
                 if span_hours < 1:
@@ -16912,7 +16912,7 @@ This artifact is observational, backward-looking, non-executing, and information
                 else:
                     st.metric("Log Time Span", f"{span_hours / 24:.1f} days")
             else:
-                st.metric("Log Time Span", "—")
+                st.metric("Log Time Span", "-")
         
         # B. Decision Highlights (Condensed Log)
         st.divider()
@@ -17026,11 +17026,11 @@ This artifact is observational, backward-looking, non-executing, and information
                 
                 # Get recommendation info
                 rec = entry.get("recommendation", {})
-                rec_id = rec.get("id", "—") if isinstance(rec, dict) else "—"
-                rec_title = rec.get("title", "—") if isinstance(rec, dict) else "—"
+                rec_id = rec.get("id", "-") if isinstance(rec, dict) else "-"
+                rec_title = rec.get("title", "-") if isinstance(rec, dict) else "-"
                 
                 # Get outcome
-                outcome = entry.get("decision", "—")
+                outcome = entry.get("decision", "-")
                 if len(outcome) > 80:
                     outcome = outcome[:77] + "..."
                 
@@ -17039,14 +17039,14 @@ This artifact is observational, backward-looking, non-executing, and information
                 
                 # Condensed display row
                 st.markdown(
-                    f"**`{badge}`** | {display_time} | **{rec_id}** — {rec_title}\n\n"
+                    f"**`{badge}`** | {display_time} | **{rec_id}** - {rec_title}\n\n"
                     f"> {outcome}"
                 )
                 st.markdown("---")
         
         # Footer for IC view
         st.caption(
-            "**IC Summary View** — Designed for Investment Committees, Compliance leadership, and Due Diligence reviewers. "
+            "**IC Summary View** - Designed for Investment Committees, Compliance leadership, and Due Diligence reviewers. "
             "Technical details are hidden. Switch to Detailed view for full audit information."
         )
     
@@ -17184,11 +17184,11 @@ This artifact is observational, backward-looking, non-executing, and information
                 except (ValueError, TypeError):
                     formatted_time = timestamp[:16].replace("T", " ") if len(timestamp) >= 16 else timestamp
                 
-                # Decision Summary Header: "APPROVED — REC-003 — Jan 29, 20:13"
+                # Decision Summary Header: "APPROVED - REC-003 - Jan 29, 20:13"
                 if rec_id:
-                    summary_header = f"{badge_icon} **{badge_text}** — {rec_id} — {formatted_time}"
+                    summary_header = f"{badge_icon} **{badge_text}** - {rec_id} - {formatted_time}"
                 else:
-                    summary_header = f"{badge_icon} **{badge_text}** — {entry_id} — {formatted_time}"
+                    summary_header = f"{badge_icon} **{badge_text}** - {entry_id} - {formatted_time}"
                 
                 with st.expander(summary_header):
                     # Governance badge display
@@ -17367,12 +17367,12 @@ This artifact is observational, backward-looking, non-executing, and information
     st.caption(
         "**Audit Trail Purpose:** This tab provides institutional-grade visibility into all portfolio governance decisions. "
         "Intended for Investment Committees, Compliance Teams, Risk Oversight, and Due Diligence reviews. "
-        "No actions can be taken from this view — all decisions are made through the Operations tab."
+        "No actions can be taken from this view - all decisions are made through the Operations tab."
     )
     st.caption("Activity metrics are derived from system governance logs and are not investment performance metrics.")
     
     # -----------------------------------------------
-    # TAB SUMMARY — GOVERNANCE & OPERATIONS
+    # TAB SUMMARY - GOVERNANCE & OPERATIONS
     # -----------------------------------------------
     st.divider()
     st.markdown('<span class="waves-micro-label">Tab Summary</span>', unsafe_allow_html=True)
@@ -17413,7 +17413,7 @@ Observational · Read-only · Non-executing · Non-interpretive
     
     # Context anchor
     context_anchor_html = """<div style="color: #6B7280; font-size: 11px; line-height: 1.6; margin: 8px 0 16px 0; padding-left: 2px;">
-This section documented tokenization readiness as an optional deployment pathway for acquisition, integration, or regulated distribution — not as a system dependency.
+This section documented tokenization readiness as an optional deployment pathway for acquisition, integration, or regulated distribution - not as a system dependency.
 </div>"""
     st.markdown(context_anchor_html, unsafe_allow_html=True)
     
@@ -17489,14 +17489,14 @@ WAVES Intelligence has treated tokenization as a deployment option, not a system
     with st.expander("Deployment Phases (Conceptual)", expanded=False):
         phases_html = """<div style="color: #8A8F9A; font-size: 11px; line-height: 1.7;">
 <div style="margin-bottom: 14px;">
-<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase I — Internal Unitization (Complete)</div>
+<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase I - Internal Unitization (Complete)</div>
 <ul style="margin: 0; padding-left: 18px; color: #6B7280;">
 <li>Waves expressed as units</li>
 <li>Governance and attribution already unit-aware</li>
 </ul>
 </div>
 <div style="margin-bottom: 14px;">
-<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase II — Token-Ready Wrappers (Optional)</div>
+<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase II - Token-Ready Wrappers (Optional)</div>
 <ul style="margin: 0; padding-left: 18px; color: #6B7280;">
 <li>Non-custodial wrappers</li>
 <li>No public issuance</li>
@@ -17504,7 +17504,7 @@ WAVES Intelligence has treated tokenization as a deployment option, not a system
 </ul>
 </div>
 <div style="margin-bottom: 14px;">
-<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase III — Regulated Distribution (Partner-Led)</div>
+<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase III - Regulated Distribution (Partner-Led)</div>
 <ul style="margin: 0; padding-left: 18px; color: #6B7280;">
 <li>RIA / SPV / fund structures</li>
 <li>Transfer restrictions</li>
@@ -17512,7 +17512,7 @@ WAVES Intelligence has treated tokenization as a deployment option, not a system
 </ul>
 </div>
 <div style="margin-bottom: 6px;">
-<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase IV — Secondary Enablement (Selective)</div>
+<div style="color: #7A8090; font-weight: 600; margin-bottom: 5px; font-size: 11px;">Phase IV - Secondary Enablement (Selective)</div>
 <ul style="margin: 0; padding-left: 18px; color: #6B7280;">
 <li>Jurisdiction-dependent</li>
 <li>Approved venues only</li>
@@ -17669,7 +17669,7 @@ This research surface provides observational diagnostics for signal integrity, r
 </div>""", unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 1 — Signal Integrity Overview
+    # SECTION 1 - Signal Integrity Overview
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Signal Diagnostics</span>', unsafe_allow_html=True)
     st.subheader("Signal Integrity Overview")
@@ -17700,7 +17700,7 @@ High-level health of system signals · Read-only
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 2 — Regime & Volatility Diagnostics
+    # SECTION 2 - Regime & Volatility Diagnostics
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Regime Analysis</span>', unsafe_allow_html=True)
     st.subheader("Regime & Volatility Diagnostics")
@@ -17739,7 +17739,7 @@ NOTE 010: This is an observational volatility stress probability indicator inten
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 3 — Parameter Sensitivity Monitor
+    # SECTION 3 - Parameter Sensitivity Monitor
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Parameter Diagnostics</span>', unsafe_allow_html=True)
     st.subheader("Parameter Sensitivity Monitor")
@@ -17779,7 +17779,7 @@ Component sensitivity status · NOTE 007 logic · Read-only
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 4 — Cross-Horizon Conflict Panel
+    # SECTION 4 - Cross-Horizon Conflict Panel
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Horizon Analysis</span>', unsafe_allow_html=True)
     st.subheader("Cross-Horizon Conflict Panel")
@@ -17804,7 +17804,7 @@ Short-term vs long-term signal alignment · Read-only
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 5 — Strategy Integrity & Health
+    # SECTION 5 - Strategy Integrity & Health
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Strategy Health</span>', unsafe_allow_html=True)
     st.subheader("Strategy Integrity & Health")
@@ -17844,7 +17844,7 @@ Algorithm and strategy component health · Read-only
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 6 — Upcoming Portfolio Events (NOTE 012)
+    # SECTION 6 - Upcoming Portfolio Events (NOTE 012)
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Event Calendar</span>', unsafe_allow_html=True)
     st.subheader("Upcoming Portfolio Events")
@@ -18003,7 +18003,7 @@ Scheduled company and macro events affecting portfolio holdings · Observational
             m_date = datetime.strptime(m["date"], "%Y-%m-%d").date()
             if today <= m_date <= max_date:
                 macro_events.append({
-                    "symbol": "—",
+                    "symbol": "-",
                     "event": m["event"],
                     "date": m["date"],
                     "days_away": (m_date - today).days
@@ -18050,8 +18050,8 @@ Scheduled company and macro events affecting portfolio holdings · Observational
 <tr>
 <td style="color: #6B7280;">System</td>
 <td style="color: #9AA0AC;">Event data unavailable</td>
-<td class="mono">—</td>
-<td class="text-right mono">—</td>
+<td class="mono">-</td>
+<td class="text-right mono">-</td>
 </tr>
 </tbody></table></div>""", unsafe_allow_html=True)
         st.markdown("""<div class="waves-caption" style="color: #F59E0B; margin-top: 8px;">
@@ -18071,7 +18071,7 @@ Event calendar temporarily unavailable. Data refresh in progress.
 <tbody>"""
 
         for evt in upcoming_events[:12]:  # Show up to 12 events
-            symbol_display = evt["symbol"] if evt["symbol"] != "—" else '<span style="color: #6B7280;">Macro</span>'
+            symbol_display = evt["symbol"] if evt["symbol"] != "-" else '<span style="color: #6B7280;">Macro</span>'
             events_html += f"""<tr>
 <td>{symbol_display}</td>
 <td>{evt['event']}</td>
@@ -18093,7 +18093,7 @@ Scheduled events are provided for situational awareness only. This information i
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 6B — Benchmark Construction & Governance (NOTE 006 + NOTE 009)
+    # SECTION 6B - Benchmark Construction & Governance (NOTE 006 + NOTE 009)
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Methodology</span>', unsafe_allow_html=True)
     with st.expander("Benchmark Construction & Governance", expanded=False):
@@ -18111,7 +18111,7 @@ Scheduled events are provided for situational awareness only. This information i
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 7 — Data Health & Coverage
+    # SECTION 7 - Data Health & Coverage
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Data Quality</span>', unsafe_allow_html=True)
     st.subheader("Data Health & Coverage")
@@ -18144,7 +18144,7 @@ Data integrity and coverage metrics · Read-only
     st.markdown("")
 
     # -----------------------------------------------
-    # SECTION 7 — Top Holdings Technical Context
+    # SECTION 7 - Top Holdings Technical Context
     # -----------------------------------------------
     st.markdown('<span class="waves-micro-label">Position Diagnostics</span>', unsafe_allow_html=True)
     st.subheader("Top Holdings Technical Context")
@@ -18373,13 +18373,13 @@ Fundamental research links are optional integrations and reflect external instit
 
     if not holdings_data:
         holdings_data = [
-            {"ticker": "—", "weight": None, "return_30d": None, "contribution": None, "alignment": "Insufficient Data"}
+            {"ticker": "-", "weight": None, "return_30d": None, "contribution": None, "alignment": "Insufficient Data"}
         ]
 
     # Calculate coverage stats
     # Use full wave counts if available (for individual waves), otherwise use holdings_data
-    displayed_count = len([h for h in holdings_data if h["ticker"] != "—"])
-    displayed_return_coverage = sum(1 for h in holdings_data if h["return_30d"] is not None and h["ticker"] != "—")
+    displayed_count = len([h for h in holdings_data if h["ticker"] != "-"])
+    displayed_return_coverage = sum(1 for h in holdings_data if h["return_30d"] is not None and h["ticker"] != "-")
 
     # For individual waves, show full wave stats
     if selected_wave_id and 'full_holdings_count' in dir():
@@ -18414,7 +18414,7 @@ Holdings in wave: {wave_holdings} · 30D return coverage: {wave_return_cov}/{wav
     # Exchange mapping for Google Finance URLs
     def get_google_finance_url(ticker):
         """Generate Google Finance URL with exchange suffix."""
-        if not ticker or ticker == "—":
+        if not ticker or ticker == "-":
             return "#"
 
         # Common NASDAQ stocks
@@ -18495,12 +18495,12 @@ Holdings in wave: {wave_holdings} · 30D return coverage: {wave_return_cov}/{wav
         alignment_color = "#9AA0AC"  # Neutral muted color for all
 
         # Symbol link
-        if ticker != "—":
+        if ticker != "-":
             symbol_cell = f'<a href="{google_finance_url}" target="_blank" style="color: #60A5FA; text-decoration: none;">{ticker}</a>'
             view_link = f'<a href="{google_finance_url}" target="_blank" style="color: #6B7280; text-decoration: none; font-size: 10px;">View</a>'
         else:
-            symbol_cell = '<span style="color: #6B7280;">—</span>'
-            view_link = '<span style="color: #6B7280;">—</span>'
+            symbol_cell = '<span style="color: #6B7280;">-</span>'
+            view_link = '<span style="color: #6B7280;">-</span>'
 
         holdings_html += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
 <td style="text-align: center; padding: 8px; color: #6B7280;">{rank}</td>
@@ -18536,7 +18536,7 @@ Signal integrity, regime diagnostics, parameter sensitivity, cross-horizon confl
 Quantitative researchers, model oversight teams, and technical analysts requiring diagnostic visibility.
 </div>
 <div style="color: #6B7280; font-size: 11px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
-<strong>Actionability:</strong> Observational only — diagnostics surface for research and oversight.
+<strong>Actionability:</strong> Observational only - diagnostics surface for research and oversight.
 </div>
 </div>""", unsafe_allow_html=True)
 
@@ -18552,7 +18552,7 @@ This research view is observational and intended for model diagnostics and overs
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
 </div>""", unsafe_allow_html=True)
     st.header("Signal Diagnostics")
-    st.caption("Signal quality and integrity diagnostics — Observational · Read-only")
+    st.caption("Signal quality and integrity diagnostics - Observational · Read-only")
     st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
 Diagnostic view of signal quality across alpha components. Examines signal consistency, coverage, and integrity across waves and horizons to support quantitative research review.
 </div>""", unsafe_allow_html=True)
@@ -18566,7 +18566,7 @@ Diagnostic view of signal quality across alpha components. Examines signal consi
                     vals = pd.to_numeric(attrib_df[col], errors="coerce")
                     total = len(vals)
                     non_null = vals.dropna().shape[0]
-                    sd_coverage[col] = f"{(non_null / total * 100):.0f}%" if total > 0 else "—"
+                    sd_coverage[col] = f"{(non_null / total * 100):.0f}%" if total > 0 else "-"
 
                 sd_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px;">'
                 sd_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Signal Coverage</div>'
@@ -18608,7 +18608,7 @@ This view is observational only. No automated execution or trade logic is applie
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
 </div>""", unsafe_allow_html=True)
     st.header("Parameter Sensitivity")
-    st.caption("Sensitivity analysis of model parameters — Observational · Read-only")
+    st.caption("Sensitivity analysis of model parameters - Observational · Read-only")
     st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
 Examines model parameter configuration and how alpha component weights, learned thresholds, and exposure limits affect the attribution framework. Derived from portfolio configuration and adaptive learning state.
 </div>""", unsafe_allow_html=True)
@@ -18666,7 +18666,7 @@ Examines model parameter configuration and how alpha component weights, learned 
             ps_pat_labels = {"selection_persistence": "Selection Persistence", "momentum_reversal": "Momentum Reversal", "volatility_regime": "Volatility Regime"}
             for k, v in ps_pattern.items():
                 label = ps_pat_labels.get(k, k.replace("_", " ").title())
-                trend = v.get("trend", "—") if isinstance(v, dict) else "—"
+                trend = v.get("trend", "-") if isinstance(v, dict) else "-"
                 conf = v.get("confidence", 0) if isinstance(v, dict) else 0
                 conf_color = "#2BFF88" if conf > 0.7 else "#F5C451" if conf > 0.5 else "#E06C75"
                 ps_pat_html += f'<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><div><span style="color: #C8CCD4; font-size: 12px;">{label}</span><br><span style="color: #6B7280; font-size: 10px;">Trend: {trend}</span></div><span style="color: {conf_color}; font-size: 13px; font-family: \'SF Mono\', monospace; font-weight: 600;">{conf:.1%}</span></div>'
@@ -18730,7 +18730,7 @@ This view is observational only. No automated execution or trade logic is applie
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
 </div>""", unsafe_allow_html=True)
     st.header("Regime Alignment")
-    st.caption("Regime classification alignment analysis — Observational · Read-only")
+    st.caption("Regime classification alignment analysis - Observational · Read-only")
     st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
 Analyzes the alignment between current regime classification and portfolio positioning. Examines whether decisions made under specific regime contexts have produced expected outcomes.
 </div>""", unsafe_allow_html=True)
@@ -18784,7 +18784,7 @@ This view is observational only. No automated execution or trade logic is applie
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
 </div>""", unsafe_allow_html=True)
     st.header("Cross-Horizon Conflicts")
-    st.caption("Conflicts between horizon signals — Observational · Read-only")
+    st.caption("Conflicts between horizon signals - Observational · Read-only")
     st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
 Identifies waves where short-term and long-term alpha signals diverge, creating potential conflicts in portfolio positioning. Highlights where horizon-specific signals are sending contradictory messages.
 </div>""", unsafe_allow_html=True)
@@ -18855,7 +18855,7 @@ This view is observational only. No automated execution or trade logic is applie
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
 </div>""", unsafe_allow_html=True)
     st.header("Model Stability Indicators")
-    st.caption("Model stability and robustness metrics — Observational · Read-only")
+    st.caption("Model stability and robustness metrics - Observational · Read-only")
     st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
 Assesses the stability and robustness of the attribution model by examining signal variance, alpha dispersion across waves, and consistency of component contributions over time.
 </div>""", unsafe_allow_html=True)
@@ -18990,7 +18990,7 @@ This view applies WAVES decision intelligence to external portfolios. The analys
         st.divider()
         
         # -----------------------------------------------
-        # SECTION 1 — PORTFOLIO HEALTH SNAPSHOT
+        # SECTION 1 - PORTFOLIO HEALTH SNAPSHOT
         # -----------------------------------------------
         st.markdown('<span class="waves-micro-label">Health Assessment</span>', unsafe_allow_html=True)
         st.subheader("Portfolio Health Snapshot")
@@ -19061,7 +19061,7 @@ This view applies WAVES decision intelligence to external portfolios. The analys
         st.divider()
         
         # -----------------------------------------------
-        # SECTION 2 — ATTENTION SIGNALS
+        # SECTION 2 - ATTENTION SIGNALS
         # -----------------------------------------------
         st.markdown('<span class="waves-micro-label">Attention Layer</span>', unsafe_allow_html=True)
         st.subheader("Attention Signals")
@@ -19082,7 +19082,7 @@ This view applies WAVES decision intelligence to external portfolios. The analys
 <div style="color: {status_color}; font-size: 11px; font-weight: 500;">{status}</div>
 </div>
 <div style="color: #9AA0AC; font-size: 12px; margin-bottom: 6px;">{observation}</div>
-<div style="color: #6B7280; font-size: 10px;">Scope: {scope} · Observational only — human evaluation may be warranted based on institutional judgment.</div>
+<div style="color: #6B7280; font-size: 10px;">Scope: {scope} · Observational only - human evaluation may be warranted based on institutional judgment.</div>
 </div>"""
             st.markdown(signal_html, unsafe_allow_html=True)
         
@@ -19112,7 +19112,7 @@ This view applies WAVES decision intelligence to external portfolios. The analys
         ext_conc_obs = "Portfolio concentration within normal parameters."
         if top_3_weight_ext > 0.40:
             ext_conc_status = "Review Eligible"
-            ext_conc_obs = f"Top 3 holdings represent {top_3_weight_ext*100:.0f}% of portfolio — elevated concentration."
+            ext_conc_obs = f"Top 3 holdings represent {top_3_weight_ext*100:.0f}% of portfolio - elevated concentration."
         elif top_3_weight_ext > 0.30:
             ext_conc_status = "Monitoring"
             ext_conc_obs = f"Top 3 holdings represent {top_3_weight_ext*100:.0f}% of portfolio."
@@ -19129,7 +19129,7 @@ This view applies WAVES decision intelligence to external portfolios. The analys
         st.divider()
         
         # -----------------------------------------------
-        # SECTION 3 — PORTFOLIO STRUCTURE SNAPSHOT
+        # SECTION 3 - PORTFOLIO STRUCTURE SNAPSHOT
         # -----------------------------------------------
         st.markdown('<span class="waves-micro-label">Internal Structure</span>', unsafe_allow_html=True)
         st.subheader("Portfolio Structure Snapshot")
@@ -19255,7 +19255,7 @@ Upload a CSV file or paste holdings to begin analysis.
 No trade, allocation, or execution guidance is provided by this system.
 </div>""", unsafe_allow_html=True)
     # -----------------------------------------------
-    # TAB SUMMARY — EXTERNAL PORTFOLIO
+    # TAB SUMMARY - EXTERNAL PORTFOLIO
     # -----------------------------------------------
     st.divider()
     st.markdown('<span class="waves-micro-label">Tab Summary</span>', unsafe_allow_html=True)
@@ -19264,7 +19264,7 @@ No trade, allocation, or execution guidance is provided by this system.
     st.markdown("""<div style="background: #151A22; border-radius: 6px; padding: 16px; margin: 8px 0; font-size: 12px; line-height: 1.7; color: #C8CCD4;">
 <div style="margin-bottom: 12px;">
 <strong style="color: #E5E5E5;">What this tab is showing:</strong><br>
-This tab lets you analyze any portfolio using the WAVES intelligence framework — just upload or paste holdings.
+This tab lets you analyze any portfolio using the WAVES intelligence framework - just upload or paste holdings.
 </div>
 <div style="margin-bottom: 12px;">
 <strong style="color: #E5E5E5;">What it means right now:</strong><br>
@@ -19291,7 +19291,7 @@ You can run the same diagnostic analysis on external portfolios that you run on 
 This tool extends WAVES analysis to any portfolio for comparative or due diligence purposes.
 </div>
 <div style="color: #6B7280; font-size: 11px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
-<strong>Actionability:</strong> Observational only — final decisions remain under human control.
+<strong>Actionability:</strong> Observational only - final decisions remain under human control.
 </div>
 </div>""", unsafe_allow_html=True)
     
@@ -19301,8 +19301,8 @@ This tool extends WAVES analysis to any portfolio for comparative or due diligen
 <div style="color: #D1D5DB; font-size: 11px; line-height: 1.8;">
 Navigate to the <strong>Reference</strong> tab for:
 <ul style="margin: 4px 0 0 16px; padding: 0;">
-<li>Parameter Sensitivity Reference — System threshold diagnostics</li>
-<li>Historical Diagnostics — Time-series analysis tools</li>
+<li>Parameter Sensitivity Reference - System threshold diagnostics</li>
+<li>Historical Diagnostics - Time-series analysis tools</li>
 </ul>
 </div>
 </div>""", unsafe_allow_html=True)
@@ -19389,14 +19389,14 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
               pld_table_html += '</tr>'
               for _, pld_row in pld_returns_df.iterrows():
                   pld_table_html += '<tr>'
-                  pld_table_html += f'<td style="padding: 8px; color: #E5E5E5; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.04);">{pld_row.get("ticker", "—")}</td>'
+                  pld_table_html += f'<td style="padding: 8px; color: #E5E5E5; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.04);">{pld_row.get("ticker", "-")}</td>'
                   for ret_col in ["return_1d", "return_5d", "return_30d", "return_60d"]:
                       val = pld_row.get(ret_col, None)
                       if val is not None and not pd.isna(val):
                           ret_color = "#2BFF88" if val > 0 else "#E06C75" if val < 0 else "#9EA3AE"
                           pld_table_html += f'<td style="text-align: right; padding: 8px; color: {ret_color}; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{val*100:.2f}%</td>'
                       else:
-                          pld_table_html += '<td style="text-align: right; padding: 8px; color: #4B5563; border-bottom: 1px solid rgba(255,255,255,0.04);">—</td>'
+                          pld_table_html += '<td style="text-align: right; padding: 8px; color: #4B5563; border-bottom: 1px solid rgba(255,255,255,0.04);">-</td>'
                   pld_table_html += '</tr>'
               pld_table_html += '</table></div>'
               st.markdown(pld_table_html, unsafe_allow_html=True)
@@ -19447,7 +19447,7 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
       st.markdown("""<div style="margin-bottom: 4px; margin-top: 28px;">
   <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Security-Level Review Signals</span>
   </div>""", unsafe_allow_html=True)
-      st.caption("Observed security-level anomalies and structural drift inside each wave. Observational only — human evaluation required.")
+      st.caption("Observed security-level anomalies and structural drift inside each wave. Observational only - human evaluation required.")
 
       try:
           _slrs_snap = snapshot_df.copy() if snapshot_df is not None and not snapshot_df.empty else pd.DataFrame()
@@ -19628,7 +19628,7 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
 
       # -----------------------------------------------
 
-    # SECTION 1 — Attribution Lab
+    # SECTION 1 - Attribution Lab
     # -----------------------------------------------
     with st.expander("Attribution Lab", expanded=False):
         st.markdown("""<div style="padding: 8px 0;">
@@ -19644,13 +19644,13 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
                 component_cols = ["selection_alpha", "momentum_alpha", "volatility_alpha", "regime_alpha", "exposure_alpha", "residual_alpha", "total_alpha"]
                 display_data = []
                 for _, row in rh_data.iterrows():
-                    row_data = {"Wave": row.get("wave", "—")}
+                    row_data = {"Wave": row.get("wave", "-")}
                     for cc in component_cols:
                         val = row.get(cc, None)
                         try:
-                            row_data[cc.replace("_", " ").title()] = f"{float(val):.4f}" if val is not None else "—"
+                            row_data[cc.replace("_", " ").title()] = f"{float(val):.4f}" if val is not None else "-"
                         except (ValueError, TypeError):
-                            row_data[cc.replace("_", " ").title()] = "—"
+                            row_data[cc.replace("_", " ").title()] = "-"
                     display_data.append(row_data)
                 if display_data:
                     st.dataframe(pd.DataFrame(display_data), width="stretch", hide_index=True)
@@ -19660,7 +19660,7 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
         st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Attribution Lab provides granular decomposition for institutional review. No execution controls.</div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 2 — Risk Deep-Dive
+    # SECTION 2 - Risk Deep-Dive
     # -----------------------------------------------
     with st.expander("Risk Deep-Dive Tools", expanded=False):
         st.markdown("""<div style="padding: 8px 0;">
@@ -19674,7 +19674,7 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
             for _, row in snapshot_df.iterrows():
                 try:
                     risk_data.append({
-                        "Wave": row.get(name_col, "—"),
+                        "Wave": row.get(name_col, "-"),
                         "Volatility (30D)": f"{float(row.get('volatility_30d', 0) or 0):.2%}",
                         "Benchmark Vol (30D)": f"{float(row.get('benchmark_volatility_30d', 0) or 0):.2%}",
                         "Max Drawdown": f"{float(row.get('drawdown_30d', 0) or 0):.2%}",
@@ -19691,7 +19691,7 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
         st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Risk analytics are observational. No position changes or execution controls.</div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 3 — Governance & Audit Archive
+    # SECTION 3 - Governance & Audit Archive
     # -----------------------------------------------
     with st.expander("Governance & Audit Archive", expanded=False):
         st.markdown("""<div style="padding: 8px 0;">
@@ -19706,11 +19706,11 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
                     ref_decisions = json.load(f)
                 if ref_decisions:
                     for rd in ref_decisions[:20]:
-                        rd_id = rd.get("id", "—")
-                        rd_date = rd.get("timestamp", "—")[:10]
-                        rd_wave = rd.get("wave", "—")
-                        rd_action = rd.get("action", "—")
-                        rd_status = rd.get("status", "—")
+                        rd_id = rd.get("id", "-")
+                        rd_date = rd.get("timestamp", "-")[:10]
+                        rd_wave = rd.get("wave", "-")
+                        rd_action = rd.get("action", "-")
+                        rd_status = rd.get("status", "-")
                         status_color = "#48BB78" if rd_status == "approved" else ("#F59E0B" if rd_status == "pending" else "#9EA3AE")
                         st.markdown(f"""<div style="background: #151A22; border: 1px solid #2A2F3A; border-radius: 6px; padding: 12px 16px; margin-bottom: 8px;">
 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -19730,7 +19730,7 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
         st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Governance records are immutable and observational. No modifications are possible from this surface.</div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 4 — Historical Diagnostics
+    # SECTION 4 - Historical Diagnostics
     # -----------------------------------------------
     with st.expander("Historical Diagnostics", expanded=False):
         st.markdown("""<div style="padding: 8px 0;">
@@ -19763,7 +19763,7 @@ The Reference layer consolidates deep-dive tools and historical analysis surface
         st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Historical diagnostics are observational and non-executing.</div>', unsafe_allow_html=True)
 
     # -----------------------------------------------
-    # SECTION 5 — Parameter Sensitivity Reference
+    # SECTION 5 - Parameter Sensitivity Reference
     # -----------------------------------------------
     with st.expander("Parameter Sensitivity Reference", expanded=False):
         st.markdown("""<div style="padding: 8px 0;">
@@ -19910,7 +19910,7 @@ This environment enables institutional audit, training, and reconstruction of go
 
         st.markdown("---")
 
-        st.markdown('<div style="color:#9EA3AE;font-size:11px;font-weight:600;letter-spacing:0.04em;margin:8px 0;">DECISION REPLAY — IMMUTABLE CONTEXT</div>', unsafe_allow_html=True)
+        st.markdown('<div style="color:#9EA3AE;font-size:11px;font-weight:600;letter-spacing:0.04em;margin:8px 0;">DECISION REPLAY - IMMUTABLE CONTEXT</div>', unsafe_allow_html=True)
 
         _df_selected_decision = None
         if _df_filtered_ids:

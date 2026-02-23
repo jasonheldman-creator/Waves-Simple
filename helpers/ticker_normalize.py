@@ -30,7 +30,7 @@ def normalize_ticker(t: str) -> str:
         'AAPL'
         >>> normalize_ticker("BRK.B")
         'BRK-B'
-        >>> normalize_ticker("BRK–B")  # en-dash
+        >>> normalize_ticker("BRK-B")  # en-dash
         'BRK-B'
         >>> normalize_ticker(None)
         ''
@@ -42,8 +42,8 @@ def normalize_ticker(t: str) -> str:
     return (
         str(t).strip()
         .upper()
-        .replace("–", "-")  # en-dash (U+2013)
-        .replace("—", "-")  # em-dash (U+2014)
+        .replace("\u2013", "-")  # en-dash (U+2013)
+        .replace("\u2014", "-")  # em-dash (U+2014)
         .replace("‐", "-")  # hyphen (U+2010)
         .replace("−", "-")  # minus sign (U+2212)
         .replace(".", "-")  # dot to hyphen

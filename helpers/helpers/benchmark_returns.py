@@ -1,5 +1,5 @@
 """
-benchmark_returns.py — Canonical Benchmark Return Engine
+benchmark_returns.py - Canonical Benchmark Return Engine
 
 Purpose:
 • Construct benchmark return series per Wave_ID

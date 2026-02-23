@@ -33,7 +33,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow pytest numpy
+          pip install -r requirements.txt pytest
       
       - name: Run portfolio composite benchmark validation
         id: validation

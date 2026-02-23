@@ -1,12 +1,12 @@
 """
 patch_waves_ic_scores_001.py
 
-WAVES IC — Score Normalization Patch
-Removes letter grading (A–F) and standardizes on numeric 0–100 scores only.
+WAVES IC - Score Normalization Patch
+Removes letter grading (A-F) and standardizes on numeric 0-100 scores only.
 
 Targets:
-• Benchmark Fit (Beta Reliability) — IC Summary
-• Beta Reliability — IC Tiles
+• Benchmark Fit (Beta Reliability) - IC Summary
+• Beta Reliability - IC Tiles
 
 SAFE:
 • Creates timestamped backup of app.py
@@ -48,7 +48,7 @@ def main():
     backup(APP_PATH)
 
     # ------------------------------------------------------------------
-    # FIX 1 — IC SUMMARY: Remove letter grade from "Benchmark Fit"
+    # FIX 1 - IC SUMMARY: Remove letter grade from "Benchmark Fit"
     #
     # BEFORE:
     #   st.markdown("### Benchmark Fit")
@@ -74,11 +74,11 @@ st.metric("Beta Reliability", f"{beta_rel:.1f}/100")
         src,
         fix1_pattern,
         fix1_repl,
-        "IC Summary — remove A–F grade, show numeric Beta Reliability",
+        "IC Summary - remove A-F grade, show numeric Beta Reliability",
     )
 
     # ------------------------------------------------------------------
-    # FIX 2 — IC TILES: Remove letter grade from Beta Reliability tile
+    # FIX 2 - IC TILES: Remove letter grade from Beta Reliability tile
     #
     # BEFORE:
     #   tile("Beta Reliability", "F", "53.7/100 • β 0.75 tgt 1.00")
@@ -106,11 +106,11 @@ tile(
         src,
         fix2_pattern,
         fix2_repl,
-        "IC Tiles — remove A–F grade, numeric Beta Reliability only",
+        "IC Tiles - remove A-F grade, numeric Beta Reliability only",
     )
 
     APP_PATH.write_text(src, encoding="utf-8")
-    print("\n✅ DONE — Numeric scoring enforced. Letter grades fully removed.\n")
+    print("\n✅ DONE - Numeric scoring enforced. Letter grades fully removed.\n")
     print("Re-run Streamlit. Restore anytime from the .bak_scores_ file.")
 
 if __name__ == "__main__":

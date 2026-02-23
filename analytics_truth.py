@@ -11,7 +11,7 @@ NO side effects
 
 Purpose:
 Expose the TRUE sources of alpha for IC review.
-TruthFrame must reflect reality — not erase or blur it.
+TruthFrame must reflect reality - not erase or blur it.
 """
 
 from datetime import datetime

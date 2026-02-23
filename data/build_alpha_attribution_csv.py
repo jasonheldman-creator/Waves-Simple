@@ -1,5 +1,5 @@
 # build_alpha_attribution_csv.py
-# WAVES Intelligence — Alpha Source Attribution Builder
+# WAVES Intelligence - Alpha Source Attribution Builder
 # PURPOSE: Generate long-format alpha source breakdown by Wave and Horizon
 # OUTPUT: data/alpha_attribution_summary.csv
 # AUTHOR: Stabilized institutional rewrite (v2)

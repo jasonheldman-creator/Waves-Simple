@@ -1,4 +1,4 @@
-# metric_guide.py — WAVES Intelligence™ Metric Interpretation Layer (V1→V2)
+# metric_guide.py - WAVES Intelligence™ Metric Interpretation Layer (V1→V2)
 # Central registry for:
 #   • Grade bands (A+/A/B/C/D)
 #   • Plain-English interpretations
@@ -41,7 +41,7 @@ def band_lookup(value: float, bands: List[Band]) -> Tuple[str, str]:
 
 
 def grade_badge(grade: str, label: str) -> str:
-    return f"{grade} — {label}"
+    return f"{grade} - {label}"
 
 
 def safe_float(x) -> float:
@@ -94,7 +94,7 @@ def get_specs() -> Dict[str, MetricSpec]:
         "hhi": MetricSpec(
             key="hhi",
             title="HHI (Concentration)",
-            unit="0–1",
+            unit="0-1",
             better="lower",
             bands=[
                 (0.00, 0.05, "A+", "Very diversified"),
@@ -146,7 +146,7 @@ def get_specs() -> Dict[str, MetricSpec]:
 
         "ahi": MetricSpec(
             key="ahi",
-            title="Alpha Heat Index (0–100)",
+            title="Alpha Heat Index (0-100)",
             unit="score",
             better="higher",
             bands=[
@@ -157,14 +157,14 @@ def get_specs() -> Dict[str, MetricSpec]:
                 (80.0, 101.0, "A+", "Elite relative alpha"),
             ],
             explainer=(
-                "Relative alpha surface normalized to 0–100, where 50 is median by design. "
+                "Relative alpha surface normalized to 0-100, where 50 is median by design. "
                 "This is observational intelligence (not a trading signal)."
             ),
         ),
 
         "wavescore": MetricSpec(
             key="wavescore",
-            title="WaveScore (0–100)",
+            title="WaveScore (0-100)",
             unit="score",
             better="higher",
             bands=[
@@ -208,7 +208,7 @@ def get_specs() -> Dict[str, MetricSpec]:
                 (0.35, 9.99, "D",  "Very high active risk"),
             ],
             explainer=(
-                "Annualized volatility of active returns vs benchmark. Not inherently good/bad—"
+                "Annualized volatility of active returns vs benchmark. Not inherently good/bad-"
                 "interpret alongside alpha and risk posture."
             ),
         ),

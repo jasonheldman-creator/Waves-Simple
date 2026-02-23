@@ -143,7 +143,7 @@ def validate_alpha_ledger():
                 print(f"{period_key:<10} {'✓':<12} {cum_ret:+.2%}      {total_alpha:+.2%}      {residual_status} {residual:+.4%}")
             else:
                 reason = period_data.get('reason', 'unknown')
-                print(f"{period_key:<10} {'✗':<12} {'—':<12} {'—':<12} {reason}")
+                print(f"{period_key:<10} {'✗':<12} {'-':<12} {'-':<12} {reason}")
         
         # Display 30D attribution breakdown
         print(f"\n30D Attribution Breakdown:")

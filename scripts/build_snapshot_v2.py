@@ -39,7 +39,7 @@ SNAPSHOT_COLUMNS = [
     "CashPercent",
 ]
 
-# Canonical waves — explicit and deterministic
+# Canonical waves - explicit and deterministic
 WAVES = [
     ("sp500_wave", "S&P 500 Wave", "Equity", "Standard"),
     ("ai_cloud_megacap_wave", "AI & Cloud MegaCap Wave", "Equity", "Standard"),

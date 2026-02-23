@@ -115,7 +115,7 @@ def validate_active_required_metric():
     
     if guardrail_triggered:
         print(f"  🚨 GUARDRAIL WARNING WOULD TRIGGER:")
-        print(f"     'BUG: active_required too small — registry/ticker collection failed.'")
+        print(f"     'BUG: active_required too small - registry/ticker collection failed.'")
         print(f"     Active waves: {active_wave_count}")
         print(f"     Active required: {active_required}")
     else:

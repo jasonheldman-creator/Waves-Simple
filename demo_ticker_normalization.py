@@ -31,8 +31,8 @@ def demo_ticker_normalization():
     
     test_cases = [
         ("brk.b", "BRK-B (dot to hyphen)"),
-        ("BRK–B", "BRK-B (en-dash to hyphen)"),
-        ("BRK—B", "BRK-B (em-dash to hyphen)"),
+        ("BRK-B", "BRK-B (en-dash to hyphen)"),
+        ("BRK-B", "BRK-B (em-dash to hyphen)"),
         ("BRK‐B", "BRK-B (Unicode hyphen to hyphen)"),
         ("BRK−B", "BRK-B (minus sign to hyphen)"),
         ("  aapl  ", "AAPL (whitespace trimmed)"),

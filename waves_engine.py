@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.5)
+# waves_engine.py - WAVES Intelligence™ Vector Engine (v17.5)
 # Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks + Unified Price Source
 #
 # NEW in v17.5:
@@ -4711,7 +4711,7 @@ def get_latest_diagnostics(wave_name: str, mode: str = "Standard", days: int = 3
 
     if not np.isnan(alpha) and alpha < 0:
         flags.append("Alpha is negative vs benchmark over the window.")
-        suggestions.append("Check benchmark mix (Benchmark Mix table) — if the auto benchmark shifted, alpha can swing even if raw return looks good.")
+        suggestions.append("Check benchmark mix (Benchmark Mix table) - if the auto benchmark shifted, alpha can swing even if raw return looks good.")
         suggestions.append("Use What-If: toggle 'Freeze benchmark' to compare dynamic benchmark vs static baseline for stability.")
 
     if not np.isnan(te) and te > 0.25:

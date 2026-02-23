@@ -4532,7 +4532,7 @@ def render_mission_control():
                 
                 # Show fallback message
                 if exposure_alpha['is_fallback']:
-                    st.info("ℹ️ No exposure series found — showing unadjusted alpha")
+                    st.info("ℹ️ No exposure series found - showing unadjusted alpha")
                 else:
                     st.success("✅ Using exposure-adjusted alpha")
             else:
@@ -8223,7 +8223,7 @@ def render_overlays_tab():
             with col2:
                 method_label = capital_alpha['weighting_method']
                 if method_label == 'equal-weight':
-                    st.info("ℹ️ Equal-weight fallback — no capital inputs found")
+                    st.info("ℹ️ Equal-weight fallback - no capital inputs found")
                 else:
                     st.success(f"✅ Using {method_label} weighting")
         else:
@@ -8257,7 +8257,7 @@ def render_overlays_tab():
             
             with col2:
                 if exposure_alpha['is_fallback']:
-                    st.info("ℹ️ No exposure series found — showing unadjusted alpha")
+                    st.info("ℹ️ No exposure series found - showing unadjusted alpha")
                 else:
                     st.success("✅ Using exposure-adjusted alpha")
         else:
@@ -8283,10 +8283,10 @@ def render_attribution_tab():
     st.markdown("""
     **Precise, reconciled decomposition of Wave alpha into actionable components:**
     
-    1️⃣ **Stock Selection Alpha** — Wave return vs benchmark return differential  
-    2️⃣ **Overlay Alpha** — VIX gating, exposure scaling, and SmartSafe features  
-    3️⃣ **Beta/Exposure Drift** — Target vs realized exposure impact  
-    4️⃣ **Residual Alpha** — Unexplained deviation and other factors
+    1️⃣ **Stock Selection Alpha** - Wave return vs benchmark return differential  
+    2️⃣ **Overlay Alpha** - VIX gating, exposure scaling, and SmartSafe features  
+    3️⃣ **Beta/Exposure Drift** - Target vs realized exposure impact  
+    4️⃣ **Residual Alpha** - Unexplained deviation and other factors
     
     **Reconciliation:** All components sum to total realized Wave alpha.
     """)

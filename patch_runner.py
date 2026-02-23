@@ -24,7 +24,7 @@ def backup(path: Path):
 
 def apply_patch(src: str):
     """
-    PATCH: Remove A–F grading for Beta Reliability
+    PATCH: Remove A-F grading for Beta Reliability
     Replace with numeric-only display
     """
 
@@ -60,7 +60,7 @@ if st.button("🚀 RUN SCORE PATCH"):
     new_src, n = apply_patch(src)
 
     if n == 0:
-        st.error("❌ Patch anchor not found — app.py unchanged")
+        st.error("❌ Patch anchor not found - app.py unchanged")
     else:
         APP.write_text(new_src, encoding="utf-8")
         st.success(f"✅ Patch applied ({n} replacement)")
