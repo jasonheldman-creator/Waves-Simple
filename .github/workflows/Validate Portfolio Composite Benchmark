@@ -1,40 +1,29 @@
 name: Validate Portfolio Composite Benchmark
 
 on:
-  workflow_dispatch:
-  pull_request:
-    branches: [ "main" ]
   push:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
+    branches:
+      - main
+  pull_request:
 
 jobs:
-  integration:
-    name: Run integration tests
+  validate:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt
           pip install pytest
 
-      - name: Run portfolio composite benchmark integration tests
-        run: |
-          pytest -q -k "portfolio_composite_benchmark" || pytest -q
-
-      - name: Validation summary
-        if: always()
-        run: |
-          echo "Validation completed at $(date -u)"
+      - name: Run portfolio composite benchmark validation
+        run: pytest tests/
