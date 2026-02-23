@@ -1,6 +1,8 @@
-name: Validate Dynamic Benchmarks
+name: Validate Portfolio Composite Benchmark
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 
 jobs:
   validate:
@@ -30,11 +32,6 @@ jobs:
 
     - name: Set PYTHONPATH
       run: echo "PYTHONPATH=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
-
-    - name: Verify Environment (debug)
-      run: |
-        python -c "import sys; print('Python:', sys.version)"
-        python -c "import sys; print('PATH:', sys.path)"
 
     - name: Run Tests
       run: |
