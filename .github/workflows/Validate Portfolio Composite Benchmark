@@ -5,17 +5,22 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
+    name: Run validation tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
@@ -25,5 +30,5 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
-      - name: Run portfolio composite benchmark validation
-        run: pytest tests/
+      - name: Run integration tests
+        run: pytest -q
