@@ -157,7 +157,11 @@ st.set_page_config(
 )
 
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=90_000, limit=None, key="waves_live_refresh")
+st_autorefresh(
+    interval=90_000,
+    limit=None,
+    key="waves_global_autorefresh"
+)
 
 if gov and "gov_dup_checked" not in st.session_state:
     _dup_warnings = gov.detect_duplicates()
@@ -18524,65 +18528,4 @@ Fundamental research links are optional integrations and reflect external instit
 
     # For individual waves, show full wave stats
     if selected_wave_id and 'full_holdings_count' in dir():
-        wave_holdings = full_holdings_count
-        wave_return_cov = full_return_coverage
-    else:
-        wave_holdings = displayed_count
-        wave_return_cov = displayed_return_coverage
-
-    # Display coverage caption
-    if wave_holdings > 0:
-        st.markdown(f"""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 12px 0; font-style: italic;">
-Holdings in wave: {wave_holdings} · 30D return coverage: {wave_return_cov}/{wave_holdings} · Showing top {min(displayed_count, 10)}
-</div>""", unsafe_allow_html=True)
-
-    # Build table HTML
-    holdings_html = """<div style="background: #151A22; border-radius: 6px; padding: 12px; margin: 12px 0; overflow-x: auto;">
-<table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-<thead>
-<tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-<th style="text-align: center; padding: 8px; color: #6B7280; font-weight: 500; width: 50px;">Rank</th>
-<th style="text-align: left; padding: 8px; color: #6B7280; font-weight: 500;">Symbol</th>
-<th style="text-align: right; padding: 8px; color: #6B7280; font-weight: 500;">Weight</th>
-<th style="text-align: right; padding: 8px; color: #6B7280; font-weight: 500;">30D Return</th>
-<th style="text-align: right; padding: 8px; color: #6B7280; font-weight: 500;">Contribution</th>
-<th style="text-align: center; padding: 8px; color: #6B7280; font-weight: 500;">Alignment</th>
-<th style="text-align: center; padding: 8px; color: #6B7280; font-weight: 500;">External</th>
-</tr>
-</thead>
-<tbody>"""
-
-    # Exchange mapping for Google Finance URLs
-    def get_google_finance_url(ticker):
-        """Generate Google Finance URL with exchange suffix."""
-        if not ticker or ticker == "-":
-            return "#"
-
-        # Common NASDAQ stocks
-        nasdaq_tickers = {'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'NVDA', 'TSLA', 'AVGO', 
-                         'COST', 'ADBE', 'CSCO', 'PEP', 'AMD', 'NFLX', 'INTC', 'CMCSA', 'TMUS', 
-                         'INTU', 'QCOM', 'TXN', 'AMGN', 'AMAT', 'ISRG', 'BKNG', 'SBUX', 'MDLZ',
-                         'ADI', 'LRCX', 'MU', 'REGN', 'PYPL', 'KLAC', 'SNPS', 'CDNS', 'ORLY',
-                         'MRVL', 'ASML', 'PANW', 'MNST', 'FTNT', 'CTAS', 'NXPI', 'MELI', 'ADSK',
-                         'ADP', 'PAYX', 'CPRT', 'CHTR', 'PCAR', 'MCHP', 'ODFL', 'KDP', 'ROST',
-                         'IDXX', 'DXCM', 'FAST', 'AZN', 'BIIB', 'VRSK', 'WDAY', 'SGEN', 'ILMN',
-                         'DLTR', 'WBD', 'ZS', 'ANSS', 'TEAM', 'ALGN', 'EBAY', 'CTSH', 'EA',
-                         'CRWD', 'DDOG', 'ZM', 'SPLK', 'OKTA', 'DOCU', 'SNOW', 'NET', 'MDB',
-                         'PLTR', 'RIVN', 'LCID', 'HOOD', 'SOFI', 'AFRM', 'UPST', 'RBLX', 'DKNG',
-                         'PATH', 'HUBS', 'BILL', 'PCTY', 'GTLB', 'CFLT', 'TTD', 'ZI', 'DOCN',
-                         'ASAN', 'MNDY', 'NOW', 'CRM', 'ORCL', 'IBM', 'ARM', 'IONQ', 'RGTI', 
-                         'QUBT', 'QBTS', 'ARQQ', 'SWKS', 'MPWR', 'ON'}
-
-        # Common NYSE stocks
-        nyse_tickers = {'BRK.B', 'BRK.A', 'JPM', 'V', 'UNH', 'XOM', 'JNJ', 'WMT', 'MA', 'PG',
-                       'HD', 'CVX', 'MRK', 'ABBV', 'LLY', 'KO', 'BAC', 'PFE', 'TMO', 'DIS',
-                       'VZ', 'ABT', 'DHR', 'NKE', 'MCD', 'WFC', 'PM', 'T', 'NEE', 'LOW',
-                       'UNP', 'RTX', 'UPS', 'HON', 'GS', 'CAT', 'BA', 'IBM', 'GE', 'MMM',
-                       'BMY', 'SPGI', 'LMT', 'ELV', 'SYK', 'BLK', 'DE', 'AXP', 'GILD', 'MDT',
-                       'C', 'AMT', 'CVS', 'ADM', 'SO', 'DUK', 'CL', 'CME', 'TGT', 'ZTS',
-                       'BDX', 'CI', 'SLB', 'EOG', 'USB'}
-        if ticker in nasdaq_tickers:
-            return f'https://www.google.com/finance/quote/{ticker}:NASDAQ'
-        if ticker in nyse_tickers:
-            return f'https://www.google.com/finance/quote/{ticker}:NYSE'
-        return f'https://www.google.com/finance/quote/{ticker}'
+        wave_holdin
