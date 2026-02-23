@@ -13723,246 +13723,246 @@ AI generates governance instructions subject to time-governed approval windows. 
                         _dri_si_intent = _gen_intent({"decision_type": _dri_si_dtype, "scope": _dri_si_wave, "trigger_count": _dri_si_p.get("trigger_count")})
                     except Exception:
                         _dri_si_intent = "Governance review initiated following threshold-based diagnostic escalation."
-                    st.markdown(f'''<div style="background: rgba(255,255,255,0.015); border: 1px solid #232830; border-radius: 4px; padding: 10px 16px; margin: 8px 0;">
-# ----- Decision Intent -----
-intent_html = f"""
-<div style="color:#6B7280;font-size:10px;text-transform:uppercase;
-            letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">
-    Decision Intent - Governance Trigger Context
-</div>
-<div style="color:#9EA3AE;font-size:11px;line-height:1.5;">
-    {_dri_si_intent}
-</div>
-"""
-st.markdown(intent_html, unsafe_allow_html=True)
+                    st.markdown(f'<div style="background: rgba(255,255,255,0.015); border: 1px solid #232830; border-radius: 4px; padding: 10px 16px; margin: 8px 0;"><div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent - Governance Trigger Context</div><div style="color: #9EA3AE; font-size: 11px; line-height: 1.5;">{_dri_si_intent}</div></div>', unsafe_allow_html=True)
+                    # ----- Decision Intent -----
+                    intent_html = f"""
+                    <div style="color:#6B7280;font-size:10px;text-transform:uppercase;
+                                letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">
+                        Decision Intent - Governance Trigger Context
+                    </div>
+                    <div style="color:#9EA3AE;font-size:11px;line-height:1.5;">
+                        {_dri_si_intent}
+                    </div>
+                    """
+                    st.markdown(intent_html, unsafe_allow_html=True)
 
 
-# ----- Proposed Governance Action -----
-_dri_si_pa = _dri_si_p.get("proposed_action", "")
+                    # ----- Proposed Governance Action -----
+                    _dri_si_pa = _dri_si_p.get("proposed_action", "")
 
-if not _dri_si_pa:
-    try:
-        from helpers.decision_constructor import build_governance_decision as _build_gov_dec
-        _dri_ctx = _dri_si_p.get("context_snapshot") or {}
-        _dri_ctx["wave"] = _dri_si_wave
-        _dri_ctx["instruction_type"] = _dri_si_dtype
-        _dri_ctx["trigger_source"] = _dri_si_p.get("trigger_source", "")
-        _dri_dec = _build_gov_dec(_dri_ctx)
-        _dri_si_pa = _dri_dec.get("proposed_action", "")
-    except Exception:
-        pass
+                    if not _dri_si_pa:
+                        try:
+                            from helpers.decision_constructor import build_governance_decision as _build_gov_dec
+                            _dri_ctx = _dri_si_p.get("context_snapshot") or {}
+                            _dri_ctx["wave"] = _dri_si_wave
+                            _dri_ctx["instruction_type"] = _dri_si_dtype
+                            _dri_ctx["trigger_source"] = _dri_si_p.get("trigger_source", "")
+                            _dri_dec = _build_gov_dec(_dri_ctx)
+                            _dri_si_pa = _dri_dec.get("proposed_action", "")
+                        except Exception:
+                            pass
 
-if not _dri_si_pa:
-    _dri_si_pa = (
-        _dri_si_p.get("trigger_source", "")
-        or _dri_si_p.get("decision_plain_english", "")
-        or "This governance instruction proposes initiating a structured review of strategy parameters. Approval authorizes governance review only."
-    )
+                    if not _dri_si_pa:
+                        _dri_si_pa = (
+                            _dri_si_p.get("trigger_source", "")
+                            or _dri_si_p.get("decision_plain_english", "")
+                            or "This governance instruction proposes initiating a structured review of strategy parameters. Approval authorizes governance review only."
+                        )
 
-proposal_html = f"""
-<div style="background:rgba(255,255,255,0.02);
-            border:1px solid #2A2F3A;
-            border-radius:4px;
-            padding:12px 16px;
-            margin:8px 0;">
-    <div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;
-                letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">
-        Proposed Governance Action
-    </div>
-    <div style="color:#6B7280;font-size:9px;font-style:italic;margin-bottom:6px;">
-        AI-generated governance instruction · Observational · Non-executing
-    </div>
-    <div style="color:#C0C4CC;font-size:11px;line-height:1.6;">
-        {_dri_si_pa}
-    </div>
-</div>
-"""
-st.markdown(proposal_html, unsafe_allow_html=True)
-
-
-# ----- Status Messages -----
-if _dri_si_is_overnight:
-    st.markdown(
-        '<div style="color:#9CA3AF;font-size:10px;padding:4px 0;margin-bottom:4px;">'
-        'Overnight Queue — this instruction will activate at 8:00 AM ET. '
-        'No autonomous execution overnight.</div>',
-        unsafe_allow_html=True
-    )
-
-if _dri_si_is_delib:
-    st.markdown(
-        '<div style="color:#A78BFA;font-size:10px;padding:4px 0;margin-bottom:4px;">'
-        'Under Deliberation — expiration timer extended. Review and decide before new deadline.</div>',
-        unsafe_allow_html=True
-    )
+                    proposal_html = f"""
+                    <div style="background:rgba(255,255,255,0.02);
+                                border:1px solid #2A2F3A;
+                                border-radius:4px;
+                                padding:12px 16px;
+                                margin:8px 0;">
+                        <div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;
+                                    letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">
+                            Proposed Governance Action
+                        </div>
+                        <div style="color:#6B7280;font-size:9px;font-style:italic;margin-bottom:6px;">
+                            AI-generated governance instruction · Observational · Non-executing
+                        </div>
+                        <div style="color:#C0C4CC;font-size:11px;line-height:1.6;">
+                            {_dri_si_pa}
+                        </div>
+                    </div>
+                    """
+                    st.markdown(proposal_html, unsafe_allow_html=True)
 
 
-# ----- Extension History -----
-_dri_ext_hist = _dri_si_p.get("extension_history", [])
+                    # ----- Status Messages -----
+                    if _dri_si_is_overnight:
+                        st.markdown(
+                            '<div style="color:#9CA3AF;font-size:10px;padding:4px 0;margin-bottom:4px;">'
+                            'Overnight Queue — this instruction will activate at 8:00 AM ET. '
+                            'No autonomous execution overnight.</div>',
+                            unsafe_allow_html=True
+                        )
 
-if _dri_ext_hist:
-    ext_html = """
-    <div style="background:rgba(167,139,250,0.04);
-                border:1px solid #2A2F3A;
-                border-radius:4px;
-                padding:8px 12px;
-                margin-bottom:6px;">
-    """
-    ext_html += f"""
-        <div style="color:#A78BFA;font-size:9px;font-weight:600;
-                    text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">
-            Extension History ({len(_dri_ext_hist)})
-        </div>
-    """
-
-    for _dri_ext in _dri_ext_hist:
-        ext_html += f"""
-        <div style="color:#9EA3AE;font-size:10px;">
-            {_dri_ext.get("timestamp","")} — +{_dri_ext.get("extension_hours","")}h
-            by {_dri_ext.get("actor","PM")}.
-            {_dri_ext.get("rationale","")}
-        </div>
-        """
-
-    ext_html += "</div>"
-    st.markdown(ext_html, unsafe_allow_html=True)
+                    if _dri_si_is_delib:
+                        st.markdown(
+                            '<div style="color:#A78BFA;font-size:10px;padding:4px 0;margin-bottom:4px;">'
+                            'Under Deliberation — expiration timer extended. Review and decide before new deadline.</div>',
+                            unsafe_allow_html=True
+                        )
 
 
-# ----- Sandbox Banner (FIXED — THIS WAS THE CRASH) -----
-if not _dri_si_is_overnight:
+                    # ----- Extension History -----
+                    _dri_ext_hist = _dri_si_p.get("extension_history", [])
 
-    if SANDBOX_MODE:
-        banner_text = (
-            "Replay Mode — Actions Disabled"
-            if REPLAY_MODE
-            else "Sandbox Mode — Governance actions disabled"
-        )
+                    if _dri_ext_hist:
+                        ext_html = """
+                        <div style="background:rgba(167,139,250,0.04);
+                                    border:1px solid #2A2F3A;
+                                    border-radius:4px;
+                                    padding:8px 12px;
+                                    margin-bottom:6px;">
+                        """
+                        ext_html += f"""
+                            <div style="color:#A78BFA;font-size:9px;font-weight:600;
+                                        text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">
+                                Extension History ({len(_dri_ext_hist)})
+                            </div>
+                        """
 
-        banner_html = f"""
-        <div style="background:rgba(255,255,255,0.02);
-                    border:1px solid #2A2F3A;
-                    border-radius:4px;
-                    padding:10px 16px;
-                    margin:8px 0;
-                    text-align:center;">
-            <span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">
-                {banner_text}
-            </span>
-        </div>
-        """
-        st.markdown(banner_html, unsafe_allow_html=True)
+                        for _dri_ext in _dri_ext_hist:
+                            ext_html += f"""
+                            <div style="color:#9EA3AE;font-size:10px;">
+                                {_dri_ext.get("timestamp","")} — +{_dri_ext.get("extension_hours","")}h
+                                by {_dri_ext.get("actor","PM")}.
+                                {_dri_ext.get("rationale","")}
+                            </div>
+                            """
 
-    else:
-        _dri_si_bc1, _dri_si_bc2, _dri_si_bc3, _dri_si_bc4, _dri_si_bc5 = st.columns(5)
+                        ext_html += "</div>"
+                        st.markdown(ext_html, unsafe_allow_html=True)
 
-        with _dri_si_bc1:
-            if st.button("Approve", key=f"si_approve_{_dri_si_did}_{_dri_si_idx}"):
-                if gov:
-                    gov.propagate_action(
-                        _dri_si_did, "approved",
-                        actor="Investment Committee",
-                        notes="Approved via Decision Review & Implementation.",
-                        source_surface="decision_review",
-                        wave=_dri_si_wave,
-                        decision_type=_dri_si_dtype,
-                        is_instruction=True
-                    )
-                else:
-                    si.update_instruction_status(
-                        _dri_si_did, "approved",
-                        actor="Investment Committee",
-                        source_surface="decision_review"
-                    )
-                st.rerun()
 
-        with _dri_si_bc2:
-            if st.button("Modify", key=f"si_modify_{_dri_si_did}_{_dri_si_idx}"):
-                if gov:
-                    gov.propagate_action(
-                        _dri_si_did, "modified",
-                        actor="Investment Committee",
-                        notes="Approved with PM modifications.",
-                        source_surface="decision_review",
-                        wave=_dri_si_wave,
-                        decision_type=_dri_si_dtype,
-                        is_instruction=True
-                    )
-                else:
-                    si.update_instruction_status(
-                        _dri_si_did, "modified",
-                        actor="Investment Committee",
-                        source_surface="decision_review"
-                    )
-                st.rerun()
+                    # ----- Sandbox Banner (FIXED — THIS WAS THE CRASH) -----
+                    if not _dri_si_is_overnight:
 
-        with _dri_si_bc3:
-            if st.button("Reject", key=f"si_reject_{_dri_si_did}_{_dri_si_idx}"):
-                if gov:
-                    gov.propagate_action(
-                        _dri_si_did, "rejected",
-                        actor="Investment Committee",
-                        notes="Strategy instruction rejected.",
-                        source_surface="decision_review",
-                        wave=_dri_si_wave,
-                        decision_type=_dri_si_dtype,
-                        is_instruction=True
-                    )
-                else:
-                    si.update_instruction_status(
-                        _dri_si_did, "rejected",
-                        actor="Investment Committee",
-                        source_surface="decision_review"
-                    )
-                st.rerun()
+                        if SANDBOX_MODE:
+                            banner_text = (
+                                "Replay Mode — Actions Disabled"
+                                if REPLAY_MODE
+                                else "Sandbox Mode — Governance actions disabled"
+                            )
 
-        with _dri_si_bc4:
-            if st.button("Defer", key=f"si_defer_{_dri_si_did}_{_dri_si_idx}"):
-                if gov:
-                    gov.propagate_action(
-                        _dri_si_did, "deferred",
-                        actor="Investment Committee",
-                        notes="Deferred to next governance cycle.",
-                        source_surface="decision_review",
-                        wave=_dri_si_wave,
-                        decision_type=_dri_si_dtype,
-                        is_instruction=True
-                    )
-                else:
-                    si.update_instruction_status(
-                        _dri_si_did, "deferred",
-                        actor="Investment Committee",
-                        source_surface="decision_review"
-                    )
-                st.rerun()
+                            banner_html = f"""
+                            <div style="background:rgba(255,255,255,0.02);
+                                        border:1px solid #2A2F3A;
+                                        border-radius:4px;
+                                        padding:10px 16px;
+                                        margin:8px 0;
+                                        text-align:center;">
+                                <span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">
+                                    {banner_text}
+                                </span>
+                            </div>
+                            """
+                            st.markdown(banner_html, unsafe_allow_html=True)
 
-        with _dri_si_bc5:
-            if st.button("Extend Window", key=f"si_extend_{_dri_si_did}_{_dri_si_idx}"):
-                if gov:
-                    gov.request_extension(
-                        _dri_si_did,
-                        actor="Investment Committee",
-                        rationale="Extension requested via DRI.",
-                        source_surface="decision_review"
-                    )
-                st.rerun()
+                        else:
+                            _dri_si_bc1, _dri_si_bc2, _dri_si_bc3, _dri_si_bc4, _dri_si_bc5 = st.columns(5)
 
-        st.markdown(
-            '<div style="color:#4B5563;font-size:9px;margin-top:4px;font-style:italic;">'
-            'Approval confirms governance action only. No trading or allocation changes occur.'
-            '</div>',
-            unsafe_allow_html=True
-        )
+                            with _dri_si_bc1:
+                                if st.button("Approve", key=f"si_approve_{_dri_si_did}_{_dri_si_idx}"):
+                                    if gov:
+                                        gov.propagate_action(
+                                            _dri_si_did, "approved",
+                                            actor="Investment Committee",
+                                            notes="Approved via Decision Review & Implementation.",
+                                            source_surface="decision_review",
+                                            wave=_dri_si_wave,
+                                            decision_type=_dri_si_dtype,
+                                            is_instruction=True
+                                        )
+                                    else:
+                                        si.update_instruction_status(
+                                            _dri_si_did, "approved",
+                                            actor="Investment Committee",
+                                            source_surface="decision_review"
+                                        )
+                                    st.rerun()
 
-else:
-    st.markdown(
-        '<div style="color:#9CA3AF;font-size:10px;padding:8px 0;">'
-        'Approval controls activate at 8:00 AM ET.'
-        '</div>',
-        unsafe_allow_html=True
-    )
-<div style="color: #E5E5E5; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;">Escalated Governance Instructions</div>
-<div style="color: #6B7280; font-size: 10px; margin-top: 4px; font-style: italic;">Deterministic escalations from persistent review signals. {len(_gq_pending)} pending instruction{"s" if len(_gq_pending) != 1 else ""}.</div>
-</div>""", unsafe_allow_html=True)
+                            with _dri_si_bc2:
+                                if st.button("Modify", key=f"si_modify_{_dri_si_did}_{_dri_si_idx}"):
+                                    if gov:
+                                        gov.propagate_action(
+                                            _dri_si_did, "modified",
+                                            actor="Investment Committee",
+                                            notes="Approved with PM modifications.",
+                                            source_surface="decision_review",
+                                            wave=_dri_si_wave,
+                                            decision_type=_dri_si_dtype,
+                                            is_instruction=True
+                                        )
+                                    else:
+                                        si.update_instruction_status(
+                                            _dri_si_did, "modified",
+                                            actor="Investment Committee",
+                                            source_surface="decision_review"
+                                        )
+                                    st.rerun()
+
+                            with _dri_si_bc3:
+                                if st.button("Reject", key=f"si_reject_{_dri_si_did}_{_dri_si_idx}"):
+                                    if gov:
+                                        gov.propagate_action(
+                                            _dri_si_did, "rejected",
+                                            actor="Investment Committee",
+                                            notes="Strategy instruction rejected.",
+                                            source_surface="decision_review",
+                                            wave=_dri_si_wave,
+                                            decision_type=_dri_si_dtype,
+                                            is_instruction=True
+                                        )
+                                    else:
+                                        si.update_instruction_status(
+                                            _dri_si_did, "rejected",
+                                            actor="Investment Committee",
+                                            source_surface="decision_review"
+                                        )
+                                    st.rerun()
+
+                            with _dri_si_bc4:
+                                if st.button("Defer", key=f"si_defer_{_dri_si_did}_{_dri_si_idx}"):
+                                    if gov:
+                                        gov.propagate_action(
+                                            _dri_si_did, "deferred",
+                                            actor="Investment Committee",
+                                            notes="Deferred to next governance cycle.",
+                                            source_surface="decision_review",
+                                            wave=_dri_si_wave,
+                                            decision_type=_dri_si_dtype,
+                                            is_instruction=True
+                                        )
+                                    else:
+                                        si.update_instruction_status(
+                                            _dri_si_did, "deferred",
+                                            actor="Investment Committee",
+                                            source_surface="decision_review"
+                                        )
+                                    st.rerun()
+
+                            with _dri_si_bc5:
+                                if st.button("Extend Window", key=f"si_extend_{_dri_si_did}_{_dri_si_idx}"):
+                                    if gov:
+                                        gov.request_extension(
+                                            _dri_si_did,
+                                            actor="Investment Committee",
+                                            rationale="Extension requested via DRI.",
+                                            source_surface="decision_review"
+                                        )
+                                    st.rerun()
+
+                            st.markdown(
+                                '<div style="color:#4B5563;font-size:9px;margin-top:4px;font-style:italic;">'
+                                'Approval confirms governance action only. No trading or allocation changes occur.'
+                                '</div>',
+                                unsafe_allow_html=True
+                            )
+
+                    else:
+                        st.markdown(
+                            '<div style="color:#9CA3AF;font-size:10px;padding:8px 0;">'
+                            'Approval controls activate at 8:00 AM ET.'
+                            '</div>',
+                            unsafe_allow_html=True
+                        )
+            try: from helpers.escalation_engine import load_governance_queue as _lgq, save_governance_queue; _gq_items = _lgq()
+            except Exception: _gq_items = []; save_governance_queue = lambda items: None
+            if (_gq_pending := [g for g in _gq_items if (g.get("status") or "").strip().lower() in ("pending approval", "pending")]):
 
                 for _gq_idx, _gq_inst in enumerate(_gq_pending):
                     _gq_title = _gq_inst.get("title", "Untitled")
@@ -14057,7 +14057,7 @@ else:
                                 pass
 
                     if SANDBOX_MODE:
-                        st.markdown('<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:10px 16px;margin:8px 0;text-align:center;"><span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">''' + ("Replay Mode \u2014 Actions Disabled" if REPLAY_MODE else "Sandbox Mode \u2014 Governance actions disabled") + '''</span></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:10px 16px;margin:8px 0;text-align:center;"><span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">{"Replay Mode \u2014 Actions Disabled" if REPLAY_MODE else "Sandbox Mode \u2014 Governance actions disabled"}</span></div>', unsafe_allow_html=True)
                     else:
                         _gq_cols = st.columns(4)
                         with _gq_cols[0]:
@@ -14169,7 +14169,7 @@ else:
 </div>''', unsafe_allow_html=True)
 
                         if SANDBOX_MODE:
-                            st.markdown('<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:10px 16px;margin:8px 0;text-align:center;"><span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">''' + ("Replay Mode \u2014 Actions Disabled" if REPLAY_MODE else "Sandbox Mode \u2014 Governance actions disabled") + '''</span></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:10px 16px;margin:8px 0;text-align:center;"><span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">{"Replay Mode \u2014 Actions Disabled" if REPLAY_MODE else "Sandbox Mode \u2014 Governance actions disabled"}</span></div>', unsafe_allow_html=True)
                         else:
                             _air_c1, _air_c2 = st.columns(2)
                             with _air_c1:
@@ -14539,7 +14539,7 @@ else:
                     return dec_id
 
                 if SANDBOX_MODE:
-                    st.markdown('<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:10px 16px;margin:8px 0;text-align:center;"><span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">''' + ("Replay Mode \u2014 Actions Disabled" if REPLAY_MODE else "Sandbox Mode \u2014 Governance actions disabled") + '''</span></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:10px 16px;margin:8px 0;text-align:center;"><span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">{"Replay Mode \u2014 Actions Disabled" if REPLAY_MODE else "Sandbox Mode \u2014 Governance actions disabled"}</span></div>', unsafe_allow_html=True)
                 else:
                     dri_btn_cols = st.columns([1, 1, 1, 1, 2])
                     with dri_btn_cols[0]:
@@ -18580,4 +18580,9 @@ Holdings in wave: {wave_holdings} · 30D return coverage: {wave_return_cov}/{wav
                        'UNP', 'RTX', 'UPS', 'HON', 'GS', 'CAT', 'BA', 'IBM', 'GE', 'MMM',
                        'BMY', 'SPGI', 'LMT', 'ELV', 'SYK', 'BLK', 'DE', 'AXP', 'GILD', 'MDT',
                        'C', 'AMT', 'CVS', 'ADM', 'SO', 'DUK', 'CL', 'CME', 'TGT', 'ZTS',
-                       'BDX', 'CI', 'SLB', 'EOG', 'USB', 
+                       'BDX', 'CI', 'SLB', 'EOG', 'USB'}
+        if ticker in nasdaq_tickers:
+            return f'https://www.google.com/finance/quote/{ticker}:NASDAQ'
+        if ticker in nyse_tickers:
+            return f'https://www.google.com/finance/quote/{ticker}:NYSE'
+        return f'https://www.google.com/finance/quote/{ticker}'
