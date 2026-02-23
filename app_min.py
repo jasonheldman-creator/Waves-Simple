@@ -13724,101 +13724,242 @@ AI generates governance instructions subject to time-governed approval windows. 
                     except Exception:
                         _dri_si_intent = "Governance review initiated following threshold-based diagnostic escalation."
                     st.markdown(f'''<div style="background: rgba(255,255,255,0.015); border: 1px solid #232830; border-radius: 4px; padding: 10px 16px; margin: 8px 0;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Decision Intent - Governance Trigger Context</div>
-<div style="color: #9EA3AE; font-size: 11px; line-height: 1.5;">{_dri_si_intent}</div>
-</div>''', unsafe_allow_html=True)
+# ----- Decision Intent -----
+intent_html = f"""
+<div style="color:#6B7280;font-size:10px;text-transform:uppercase;
+            letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">
+    Decision Intent - Governance Trigger Context
+</div>
+<div style="color:#9EA3AE;font-size:11px;line-height:1.5;">
+    {_dri_si_intent}
+</div>
+"""
+st.markdown(intent_html, unsafe_allow_html=True)
 
-                    _dri_si_pa = _dri_si_p.get("proposed_action", "")
-                    if not _dri_si_pa:
-                        try:
-                            from helpers.decision_constructor import build_governance_decision as _build_gov_dec
-                            _dri_ctx = _dri_si_p.get("context_snapshot") or {}
-                            _dri_ctx["wave"] = _dri_si_wave
-                            _dri_ctx["instruction_type"] = _dri_si_dtype
-                            _dri_ctx["trigger_source"] = _dri_si_p.get("trigger_source", "")
-                            _dri_dec = _build_gov_dec(_dri_ctx)
-                            _dri_si_pa = _dri_dec.get("proposed_action", "")
-                        except Exception:
-                            pass
-                    if not _dri_si_pa:
-                        _dri_si_pa = _dri_si_p.get("trigger_source", "") or _dri_si_p.get("decision_plain_english", "") or "This governance instruction proposes initiating a structured review of strategy parameters. Approval authorizes governance review only."
-                    st.markdown(f'''<div style="background: rgba(255,255,255,0.02); border: 1px solid #2A2F3A; border-radius: 4px; padding: 12px 16px; margin: 8px 0;">
-<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 4px;">Proposed Governance Action</div>
-<div style="color: #6B7280; font-size: 9px; font-style: italic; margin-bottom: 6px;">AI-generated governance instruction \u00b7 Observational \u00b7 Non-executing</div>
-<div style="color: #C0C4CC; font-size: 11px; line-height: 1.6;">{_dri_si_pa}</div>
-</div>''', unsafe_allow_html=True)
 
-                    if _dri_si_is_overnight:
-                        st.markdown(f'<div style="color:#9CA3AF;font-size:10px;padding:4px 0;margin-bottom:4px;">Overnight Queue \u2014 this instruction will activate at 8:00 AM ET. No autonomous execution overnight.</div>', unsafe_allow_html=True)
-                    if _dri_si_is_delib:
-                        st.markdown(f'<div style="color:#A78BFA;font-size:10px;padding:4px 0;margin-bottom:4px;">Under Deliberation \u2014 expiration timer extended. Review and decide before new deadline.</div>', unsafe_allow_html=True)
+# ----- Proposed Governance Action -----
+_dri_si_pa = _dri_si_p.get("proposed_action", "")
 
-                    _dri_ext_hist = _dri_si_p.get("extension_history", [])
-                    if _dri_ext_hist:
-                        _dri_ext_html = '<div style="background:rgba(167,139,250,0.04);border:1px solid #2A2F3A;border-radius:4px;padding:8px 12px;margin-bottom:6px;">'
-                        _dri_ext_html += f'<div style="color:#A78BFA;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Extension History ({len(_dri_ext_hist)})</div>'
-                        for _dri_ext in _dri_ext_hist:
-                            _dri_ext_html += f'<div style="color:#9EA3AE;font-size:10px;">{_dri_ext.get("timestamp", "")} \u2014 +{_dri_ext.get("extension_hours", "")}h by {_dri_ext.get("actor", "PM")}. {_dri_ext.get("rationale", "")}</div>'
-                        _dri_ext_html += '</div>'
-                        st.markdown(_dri_ext_html, unsafe_allow_html=True)
+if not _dri_si_pa:
+    try:
+        from helpers.decision_constructor import build_governance_decision as _build_gov_dec
+        _dri_ctx = _dri_si_p.get("context_snapshot") or {}
+        _dri_ctx["wave"] = _dri_si_wave
+        _dri_ctx["instruction_type"] = _dri_si_dtype
+        _dri_ctx["trigger_source"] = _dri_si_p.get("trigger_source", "")
+        _dri_dec = _build_gov_dec(_dri_ctx)
+        _dri_si_pa = _dri_dec.get("proposed_action", "")
+    except Exception:
+        pass
 
-                    if not _dri_si_is_overnight:
-                        if SANDBOX_MODE:
-                            st.markdown('<div style="background:rgba(255,255,255,0.02);border:1px solid #2A2F3A;border-radius:4px;padding:10px 16px;margin:8px 0;text-align:center;"><span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">''' + ("Replay Mode \u2014 Actions Disabled" if REPLAY_MODE else "Sandbox Mode \u2014 Governance actions disabled") + '''</span></div>', unsafe_allow_html=True)
-                        else:
-                            _dri_si_bc1, _dri_si_bc2, _dri_si_bc3, _dri_si_bc4, _dri_si_bc5 = st.columns(5)
-                            with _dri_si_bc1:
-                                if st.button("Approve", key=f"si_approve_{_dri_si_did}_{_dri_si_idx}", help="Approve this governance instruction for simulated execution"):
-                                    if gov:
-                                        gov.propagate_action(_dri_si_did, "approved", actor="Investment Committee", notes="Approved via Decision Review & Implementation.", source_surface="decision_review", wave=_dri_si_wave, decision_type=_dri_si_dtype, is_instruction=True)
-                                    else:
-                                        si.update_instruction_status(_dri_si_did, "approved", actor="Investment Committee", source_surface="decision_review")
-                                    st.rerun()
-                            with _dri_si_bc2:
-                                if st.button("Modify", key=f"si_modify_{_dri_si_did}_{_dri_si_idx}", help="Approve with modifications"):
-                                    if gov:
-                                        gov.propagate_action(_dri_si_did, "modified", actor="Investment Committee", notes="Approved with PM modifications.", source_surface="decision_review", wave=_dri_si_wave, decision_type=_dri_si_dtype, is_instruction=True)
-                                    else:
-                                        si.update_instruction_status(_dri_si_did, "modified", notes="Approved with PM modifications.", actor="Investment Committee", source_surface="decision_review")
-                                    st.rerun()
-                            with _dri_si_bc3:
-                                if st.button("Reject", key=f"si_reject_{_dri_si_did}_{_dri_si_idx}", help="Reject this strategy instruction"):
-                                    if gov:
-                                        gov.propagate_action(_dri_si_did, "rejected", actor="Investment Committee", notes="Strategy instruction rejected by Investment Committee.", source_surface="decision_review", wave=_dri_si_wave, decision_type=_dri_si_dtype, is_instruction=True)
-                                    else:
-                                        si.update_instruction_status(_dri_si_did, "rejected", notes="Strategy instruction rejected by Investment Committee.", actor="Investment Committee", source_surface="decision_review")
-                                    st.rerun()
-                            with _dri_si_bc4:
-                                if st.button("Defer", key=f"si_defer_{_dri_si_did}_{_dri_si_idx}", help="Defer to next decision cycle"):
-                                    if gov:
-                                        gov.propagate_action(_dri_si_did, "deferred", actor="Investment Committee", notes="Deferred to next governance cycle.", source_surface="decision_review", wave=_dri_si_wave, decision_type=_dri_si_dtype, is_instruction=True)
-                                    else:
-                                        si.update_instruction_status(_dri_si_did, "deferred", notes="Deferred to next governance cycle.", actor="Investment Committee", source_surface="decision_review")
-                                    st.rerun()
-                            with _dri_si_bc5:
-                                if st.button("Extend Window", key=f"si_extend_{_dri_si_did}_{_dri_si_idx}", help="Request extension \u2014 pauses expiration and enters deliberation."):
-                                    if gov:
-                                        gov.request_extension(_dri_si_did, actor="Investment Committee", rationale="Extension requested via DRI.", source_surface="decision_review")
-                                    st.rerun()
-                            st.markdown('<div style="color:#4B5563;font-size:9px;margin-top:4px;font-style:italic;">Approval confirms the proposed governance action only. No trading or allocation changes occur.</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div style="color:#9CA3AF;font-size:10px;padding:8px 0;">Approval controls activate at 8:00 AM ET.</div>', unsafe_allow_html=True)
-            else:
-                st.markdown('<div style="color: #6B7280; font-size: 11px; padding: 12px; background: #151A22; border-radius: 6px;">No pending governance instructions at this time. All instructions have been resolved.</div>', unsafe_allow_html=True)
+if not _dri_si_pa:
+    _dri_si_pa = (
+        _dri_si_p.get("trigger_source", "")
+        or _dri_si_p.get("decision_plain_english", "")
+        or "This governance instruction proposes initiating a structured review of strategy parameters. Approval authorizes governance review only."
+    )
 
-            st.markdown('<div style="color: #4B5563; font-size: 9px; margin: 4px 0 16px 0; font-style: italic;">Governance instructions are AI-generated and require human approval. All actions progress according to predefined simulation rules. No live execution occurs. No broker connections.</div>', unsafe_allow_html=True)
-        except Exception:
-            st.markdown('<div style="color: #6B7280; font-size: 11px; padding: 12px; background: #151A22; border-radius: 6px;">No strategy actions logged.</div>', unsafe_allow_html=True)
-        # ---- END PENDING STRATEGY INSTRUCTIONS ----
+proposal_html = f"""
+<div style="background:rgba(255,255,255,0.02);
+            border:1px solid #2A2F3A;
+            border-radius:4px;
+            padding:12px 16px;
+            margin:8px 0;">
+    <div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;
+                letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">
+        Proposed Governance Action
+    </div>
+    <div style="color:#6B7280;font-size:9px;font-style:italic;margin-bottom:6px;">
+        AI-generated governance instruction · Observational · Non-executing
+    </div>
+    <div style="color:#C0C4CC;font-size:11px;line-height:1.6;">
+        {_dri_si_pa}
+    </div>
+</div>
+"""
+st.markdown(proposal_html, unsafe_allow_html=True)
 
-        # ---- ESCALATED GOVERNANCE INSTRUCTIONS ----
-        try:
-            from helpers.escalation_engine import load_governance_queue, save_governance_queue
-            _gq_items = load_governance_queue()
-            _gq_pending = [g for g in _gq_items if g.get("status") == "Pending Approval"]
 
-            if _gq_pending:
-                st.markdown(f"""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 20px; border-radius: 8px; margin: 16px 0 12px 0;">
+# ----- Status Messages -----
+if _dri_si_is_overnight:
+    st.markdown(
+        '<div style="color:#9CA3AF;font-size:10px;padding:4px 0;margin-bottom:4px;">'
+        'Overnight Queue — this instruction will activate at 8:00 AM ET. '
+        'No autonomous execution overnight.</div>',
+        unsafe_allow_html=True
+    )
+
+if _dri_si_is_delib:
+    st.markdown(
+        '<div style="color:#A78BFA;font-size:10px;padding:4px 0;margin-bottom:4px;">'
+        'Under Deliberation — expiration timer extended. Review and decide before new deadline.</div>',
+        unsafe_allow_html=True
+    )
+
+
+# ----- Extension History -----
+_dri_ext_hist = _dri_si_p.get("extension_history", [])
+
+if _dri_ext_hist:
+    ext_html = """
+    <div style="background:rgba(167,139,250,0.04);
+                border:1px solid #2A2F3A;
+                border-radius:4px;
+                padding:8px 12px;
+                margin-bottom:6px;">
+    """
+    ext_html += f"""
+        <div style="color:#A78BFA;font-size:9px;font-weight:600;
+                    text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">
+            Extension History ({len(_dri_ext_hist)})
+        </div>
+    """
+
+    for _dri_ext in _dri_ext_hist:
+        ext_html += f"""
+        <div style="color:#9EA3AE;font-size:10px;">
+            {_dri_ext.get("timestamp","")} — +{_dri_ext.get("extension_hours","")}h
+            by {_dri_ext.get("actor","PM")}.
+            {_dri_ext.get("rationale","")}
+        </div>
+        """
+
+    ext_html += "</div>"
+    st.markdown(ext_html, unsafe_allow_html=True)
+
+
+# ----- Sandbox Banner (FIXED — THIS WAS THE CRASH) -----
+if not _dri_si_is_overnight:
+
+    if SANDBOX_MODE:
+        banner_text = (
+            "Replay Mode — Actions Disabled"
+            if REPLAY_MODE
+            else "Sandbox Mode — Governance actions disabled"
+        )
+
+        banner_html = f"""
+        <div style="background:rgba(255,255,255,0.02);
+                    border:1px solid #2A2F3A;
+                    border-radius:4px;
+                    padding:10px 16px;
+                    margin:8px 0;
+                    text-align:center;">
+            <span style="color:#6B7280;font-size:10px;letter-spacing:0.04em;">
+                {banner_text}
+            </span>
+        </div>
+        """
+        st.markdown(banner_html, unsafe_allow_html=True)
+
+    else:
+        _dri_si_bc1, _dri_si_bc2, _dri_si_bc3, _dri_si_bc4, _dri_si_bc5 = st.columns(5)
+
+        with _dri_si_bc1:
+            if st.button("Approve", key=f"si_approve_{_dri_si_did}_{_dri_si_idx}"):
+                if gov:
+                    gov.propagate_action(
+                        _dri_si_did, "approved",
+                        actor="Investment Committee",
+                        notes="Approved via Decision Review & Implementation.",
+                        source_surface="decision_review",
+                        wave=_dri_si_wave,
+                        decision_type=_dri_si_dtype,
+                        is_instruction=True
+                    )
+                else:
+                    si.update_instruction_status(
+                        _dri_si_did, "approved",
+                        actor="Investment Committee",
+                        source_surface="decision_review"
+                    )
+                st.rerun()
+
+        with _dri_si_bc2:
+            if st.button("Modify", key=f"si_modify_{_dri_si_did}_{_dri_si_idx}"):
+                if gov:
+                    gov.propagate_action(
+                        _dri_si_did, "modified",
+                        actor="Investment Committee",
+                        notes="Approved with PM modifications.",
+                        source_surface="decision_review",
+                        wave=_dri_si_wave,
+                        decision_type=_dri_si_dtype,
+                        is_instruction=True
+                    )
+                else:
+                    si.update_instruction_status(
+                        _dri_si_did, "modified",
+                        actor="Investment Committee",
+                        source_surface="decision_review"
+                    )
+                st.rerun()
+
+        with _dri_si_bc3:
+            if st.button("Reject", key=f"si_reject_{_dri_si_did}_{_dri_si_idx}"):
+                if gov:
+                    gov.propagate_action(
+                        _dri_si_did, "rejected",
+                        actor="Investment Committee",
+                        notes="Strategy instruction rejected.",
+                        source_surface="decision_review",
+                        wave=_dri_si_wave,
+                        decision_type=_dri_si_dtype,
+                        is_instruction=True
+                    )
+                else:
+                    si.update_instruction_status(
+                        _dri_si_did, "rejected",
+                        actor="Investment Committee",
+                        source_surface="decision_review"
+                    )
+                st.rerun()
+
+        with _dri_si_bc4:
+            if st.button("Defer", key=f"si_defer_{_dri_si_did}_{_dri_si_idx}"):
+                if gov:
+                    gov.propagate_action(
+                        _dri_si_did, "deferred",
+                        actor="Investment Committee",
+                        notes="Deferred to next governance cycle.",
+                        source_surface="decision_review",
+                        wave=_dri_si_wave,
+                        decision_type=_dri_si_dtype,
+                        is_instruction=True
+                    )
+                else:
+                    si.update_instruction_status(
+                        _dri_si_did, "deferred",
+                        actor="Investment Committee",
+                        source_surface="decision_review"
+                    )
+                st.rerun()
+
+        with _dri_si_bc5:
+            if st.button("Extend Window", key=f"si_extend_{_dri_si_did}_{_dri_si_idx}"):
+                if gov:
+                    gov.request_extension(
+                        _dri_si_did,
+                        actor="Investment Committee",
+                        rationale="Extension requested via DRI.",
+                        source_surface="decision_review"
+                    )
+                st.rerun()
+
+        st.markdown(
+            '<div style="color:#4B5563;font-size:9px;margin-top:4px;font-style:italic;">'
+            'Approval confirms governance action only. No trading or allocation changes occur.'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+else:
+    st.markdown(
+        '<div style="color:#9CA3AF;font-size:10px;padding:8px 0;">'
+        'Approval controls activate at 8:00 AM ET.'
+        '</div>',
+        unsafe_allow_html=True
+    )
 <div style="color: #E5E5E5; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;">Escalated Governance Instructions</div>
 <div style="color: #6B7280; font-size: 10px; margin-top: 4px; font-style: italic;">Deterministic escalations from persistent review signals. {len(_gq_pending)} pending instruction{"s" if len(_gq_pending) != 1 else ""}.</div>
 </div>""", unsafe_allow_html=True)
@@ -18439,1598 +18580,4 @@ Holdings in wave: {wave_holdings} · 30D return coverage: {wave_return_cov}/{wav
                        'UNP', 'RTX', 'UPS', 'HON', 'GS', 'CAT', 'BA', 'IBM', 'GE', 'MMM',
                        'BMY', 'SPGI', 'LMT', 'ELV', 'SYK', 'BLK', 'DE', 'AXP', 'GILD', 'MDT',
                        'C', 'AMT', 'CVS', 'ADM', 'SO', 'DUK', 'CL', 'CME', 'TGT', 'ZTS',
-                       'BDX', 'CI', 'SLB', 'EOG', 'USB', 'PNC', 'TFC', 'ICE', 'MO', 'AON',
-                       'FDX', 'GM', 'F', 'SPY', 'GLD', 'SLV', 'IAU', 'BAR'}
-
-        ticker_upper = ticker.upper()
-        if ticker_upper in nasdaq_tickers:
-            return f"https://www.google.com/finance/quote/{ticker_upper}:NASDAQ"
-        elif ticker_upper in nyse_tickers:
-            return f"https://www.google.com/finance/quote/{ticker_upper}:NYSE"
-        else:
-            # Default to NASDAQ for tech stocks, try without exchange as fallback
-            return f"https://www.google.com/finance/quote/{ticker_upper}:NASDAQ"
-
-    for rank, h in enumerate(holdings_data[:10], 1):
-        ticker = h["ticker"]
-        google_finance_url = get_google_finance_url(ticker)
-
-        # Format weight
-        if h["weight"] is not None:
-            try:
-                weight_display = f"{float(h['weight']) * 100:.2f}%" if float(h['weight']) < 1 else f"{float(h['weight']):.2f}%"
-            except:
-                weight_display = "Insufficient data"
-        else:
-            weight_display = "Insufficient data"
-
-        # Format 30D return
-        if h["return_30d"] is not None:
-            try:
-                ret_val = float(h["return_30d"])
-                if abs(ret_val) < 1:
-                    return_display = f"{ret_val * 100:.2f}%"
-                else:
-                    return_display = f"{ret_val:.2f}%"
-            except:
-                return_display = "Insufficient data"
-        else:
-            return_display = "Insufficient data"
-
-        # Format contribution
-        if h["contribution"] is not None:
-            try:
-                contrib_val = float(h["contribution"])
-                if abs(contrib_val) < 1:
-                    contrib_display = f"{contrib_val * 100:.2f}%"
-                else:
-                    contrib_display = f"{contrib_val:.2f}%"
-            except:
-                contrib_display = "Insufficient data"
-        else:
-            contrib_display = "Insufficient data"
-
-        # Alignment styling (muted, no bright colors)
-        alignment = h["alignment"]
-        alignment_color = "#9AA0AC"  # Neutral muted color for all
-
-        # Symbol link
-        if ticker != "-":
-            symbol_cell = f'<a href="{google_finance_url}" target="_blank" style="color: #60A5FA; text-decoration: none;">{ticker}</a>'
-            view_link = f'<a href="{google_finance_url}" target="_blank" style="color: #6B7280; text-decoration: none; font-size: 10px;">View</a>'
-        else:
-            symbol_cell = '<span style="color: #6B7280;">-</span>'
-            view_link = '<span style="color: #6B7280;">-</span>'
-
-        holdings_html += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-<td style="text-align: center; padding: 8px; color: #6B7280;">{rank}</td>
-<td style="text-align: left; padding: 8px;">{symbol_cell}</td>
-<td style="text-align: right; padding: 8px; color: #C8CCD4;">{weight_display}</td>
-<td style="text-align: right; padding: 8px; color: #C8CCD4;">{return_display}</td>
-<td style="text-align: right; padding: 8px; color: #C8CCD4;">{contrib_display}</td>
-<td style="text-align: center; padding: 8px; color: {alignment_color};">{alignment}</td>
-<td style="text-align: center; padding: 8px;">{view_link}</td>
-</tr>"""
-
-    holdings_html += """</tbody></table></div>"""
-    st.markdown(holdings_html, unsafe_allow_html=True)
-
-    # Governance disclaimer for holdings section
-    st.markdown("""<div style="color: #6B7280; font-size: 10px; margin: 8px 0 16px 0; font-style: italic;">
-External links provide technical reference context only. WAVES does not provide security-level recommendations, research opinions, or trading functionality.
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("")
-
-    # Tab Summary
-    st.divider()
-    st.markdown('<span class="waves-micro-label">Tab Summary</span>', unsafe_allow_html=True)
-    st.subheader("Tab Summary")
-    st.markdown("""<div style="background: #151A22; border-radius: 6px; padding: 16px; margin: 8px 0; font-size: 12px; line-height: 1.7; color: #C8CCD4;">
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">What this tab is showing:</strong><br>
-Signal integrity, regime diagnostics, parameter sensitivity, cross-horizon conflicts, strategy health, data coverage metrics, and top holdings technical context.
-</div>
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">Who should use this:</strong><br>
-Quantitative researchers, model oversight teams, and technical analysts requiring diagnostic visibility.
-</div>
-<div style="color: #6B7280; font-size: 11px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
-<strong>Actionability:</strong> Observational only - diagnostics surface for research and oversight.
-</div>
-</div>""", unsafe_allow_html=True)
-
-    # Governance Disclaimer
-    st.markdown("""<div style="color: #6B7280; font-size: 10px; margin: 16px 0; padding: 12px; background: #0D1117; border-radius: 6px; text-align: center; font-style: italic;">
-This research view is observational and intended for model diagnostics and oversight. It does not execute trades, calibrate parameters, or recommend actions.
-</div>""", unsafe_allow_html=True)
-
-
-    st.divider()
-
-    st.markdown("""<div style="margin-bottom: 4px;">
-<span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
-</div>""", unsafe_allow_html=True)
-    st.header("Signal Diagnostics")
-    st.caption("Signal quality and integrity diagnostics - Observational · Read-only")
-    st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
-Diagnostic view of signal quality across alpha components. Examines signal consistency, coverage, and integrity across waves and horizons to support quantitative research review.
-</div>""", unsafe_allow_html=True)
-
-    try:
-        if attrib_df is not None and not attrib_df.empty:
-            sd_signal_cols = [c for c in attrib_df.columns if "alpha" in c.lower()]
-            if sd_signal_cols:
-                sd_coverage = {}
-                for col in sd_signal_cols:
-                    vals = pd.to_numeric(attrib_df[col], errors="coerce")
-                    total = len(vals)
-                    non_null = vals.dropna().shape[0]
-                    sd_coverage[col] = f"{(non_null / total * 100):.0f}%" if total > 0 else "-"
-
-                sd_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px;">'
-                sd_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Signal Coverage</div>'
-                for col, cov in sd_coverage.items():
-                    sd_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #C8CCD4; font-size: 12px;">{col}</span><span style="color: #E5E5E5; font-size: 12px; font-family: \'SF Mono\', monospace;">{cov}</span></div>'
-                sd_html += '</div>'
-                st.markdown(sd_html, unsafe_allow_html=True)
-
-                sd_consistency_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-                sd_consistency_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Signal Statistics</div>'
-                for col in sd_signal_cols:
-                    vals = pd.to_numeric(attrib_df[col], errors="coerce").dropna()
-                    if len(vals) > 0:
-                        sd_consistency_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #C8CCD4; font-size: 12px;">{col}</span><span style="color: #9EA3AE; font-size: 11px; font-family: \'SF Mono\', monospace;">mean: {vals.mean()*100:.2f}% · std: {vals.std()*100:.2f}%</span></div>'
-                sd_consistency_html += '</div>'
-                st.markdown(sd_consistency_html, unsafe_allow_html=True)
-            else:
-                st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">No alpha signal columns found in attribution data.</div>
-</div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Attribution data not available for signal diagnostics.</div>
-</div>""", unsafe_allow_html=True)
-
-    except Exception:
-        st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Institutional data sources will populate as canonical feeds are connected.</div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center;">
-This view is observational only. No automated execution or trade logic is applied.
-</div>""", unsafe_allow_html=True)
-
-
-    st.divider()
-
-    st.markdown("""<div style="margin-bottom: 4px;">
-<span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
-</div>""", unsafe_allow_html=True)
-    st.header("Parameter Sensitivity")
-    st.caption("Sensitivity analysis of model parameters - Observational · Read-only")
-    st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
-Examines model parameter configuration and how alpha component weights, learned thresholds, and exposure limits affect the attribution framework. Derived from portfolio configuration and adaptive learning state.
-</div>""", unsafe_allow_html=True)
-
-    try:
-        ps_config_path = Path("data/portfolio_config.json")
-        ps_adaptive_path = Path("data/adaptive_state.json")
-        ps_config = {}
-        ps_adaptive = {}
-        if ps_config_path.exists():
-            with open(ps_config_path, "r") as f:
-                ps_config = json.load(f)
-        if ps_adaptive_path.exists():
-            with open(ps_adaptive_path, "r") as f:
-                ps_adaptive = json.load(f)
-
-        ps_tilt = ps_config.get("tilt_settings", {})
-        ps_exposure = ps_config.get("exposure_limits", {})
-        ps_learned = ps_adaptive.get("learned_thresholds", {})
-        ps_pattern = ps_adaptive.get("pattern_memory", {})
-
-        if ps_tilt:
-            ps_tilt_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px;">'
-            ps_tilt_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Tilt Weight Parameters</div>'
-            ps_tilt_labels = {"momentum_weight": "Momentum Weight", "selection_weight": "Selection Weight", "volatility_weight": "Volatility Weight", "regime_weight": "Regime Weight", "volatility_dampening_factor": "Volatility Dampening"}
-            for k, v in ps_tilt.items():
-                label = ps_tilt_labels.get(k, k.replace("_", " ").title())
-                ps_tilt_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #C8CCD4; font-size: 12px;">{label}</span><span style="color: #E5E5E5; font-size: 12px; font-family: \'SF Mono\', monospace;">{v}</span></div>'
-            ps_tilt_html += '</div>'
-            st.markdown(ps_tilt_html, unsafe_allow_html=True)
-
-        if ps_exposure:
-            ps_exp_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-            ps_exp_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Exposure Limits</div>'
-            ps_exp_labels = {"max_single_wave_pct": "Max Single Wave %", "min_wave_count": "Min Wave Count", "max_drawdown_trigger_pct": "Max Drawdown Trigger %"}
-            for k, v in ps_exposure.items():
-                label = ps_exp_labels.get(k, k.replace("_", " ").title())
-                ps_exp_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #C8CCD4; font-size: 12px;">{label}</span><span style="color: #E5E5E5; font-size: 12px; font-family: \'SF Mono\', monospace;">{v}{"%" if "pct" in k else ""}</span></div>'
-            ps_exp_html += '</div>'
-            st.markdown(ps_exp_html, unsafe_allow_html=True)
-
-        if ps_learned:
-            ps_learn_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-            ps_learn_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Learned Thresholds (Adaptive)</div>'
-            ps_learn_labels = {"alpha_significance": "Alpha Significance Threshold", "drawdown_concern": "Drawdown Concern Level", "momentum_confirmation": "Momentum Confirmation Threshold"}
-            for k, v in ps_learned.items():
-                label = ps_learn_labels.get(k, k.replace("_", " ").title())
-                ps_learn_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #C8CCD4; font-size: 12px;">{label}</span><span style="color: #3A6FF7; font-size: 12px; font-family: \'SF Mono\', monospace;">{v}</span></div>'
-            ps_learn_html += '</div>'
-            st.markdown(ps_learn_html, unsafe_allow_html=True)
-
-        if ps_pattern:
-            ps_pat_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-            ps_pat_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Pattern Memory Confidence</div>'
-            ps_pat_labels = {"selection_persistence": "Selection Persistence", "momentum_reversal": "Momentum Reversal", "volatility_regime": "Volatility Regime"}
-            for k, v in ps_pattern.items():
-                label = ps_pat_labels.get(k, k.replace("_", " ").title())
-                trend = v.get("trend", "-") if isinstance(v, dict) else "-"
-                conf = v.get("confidence", 0) if isinstance(v, dict) else 0
-                conf_color = "#2BFF88" if conf > 0.7 else "#F5C451" if conf > 0.5 else "#E06C75"
-                ps_pat_html += f'<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><div><span style="color: #C8CCD4; font-size: 12px;">{label}</span><br><span style="color: #6B7280; font-size: 10px;">Trend: {trend}</span></div><span style="color: {conf_color}; font-size: 13px; font-family: \'SF Mono\', monospace; font-weight: 600;">{conf:.1%}</span></div>'
-            ps_pat_html += '</div>'
-            st.markdown(ps_pat_html, unsafe_allow_html=True)
-
-        if attrib_df is not None and not attrib_df.empty and ps_tilt:
-            ps_alpha_cols = [c for c in attrib_df.columns if c.endswith("_alpha") and c != "total_alpha"]
-            if ps_alpha_cols:
-                ps_sens_html = '<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-                ps_sens_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Component Contribution Sensitivity</div>'
-                ps_sens_html += '<div style="color: #6B7280; font-size: 10px; margin-bottom: 12px;">Shows how each alpha component\'s average contribution compares to its configured tilt weight</div>'
-                ps_weight_map = {"selection_alpha": ps_tilt.get("selection_weight", 0), "momentum_alpha": ps_tilt.get("momentum_weight", 0), "volatility_alpha": ps_tilt.get("volatility_weight", 0), "regime_alpha": ps_tilt.get("regime_weight", 0)}
-                for col in ps_alpha_cols:
-                    vals = pd.to_numeric(attrib_df[col], errors="coerce").dropna()
-                    if len(vals) > 0:
-                        avg_contrib = vals.mean()
-                        configured_wt = ps_weight_map.get(col, None)
-                        wt_str = f" · Tilt Weight: {configured_wt}" if configured_wt is not None else ""
-                        contrib_color = "#2BFF88" if avg_contrib > 0 else "#E06C75" if avg_contrib < 0 else "#9EA3AE"
-                        ps_sens_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #C8CCD4; font-size: 12px;">{col.replace("_", " ").title()}{wt_str}</span><span style="color: {contrib_color}; font-size: 12px; font-family: \'SF Mono\', monospace;">Avg: {avg_contrib*100:.3f}%</span></div>'
-                ps_sens_html += '</div>'
-                st.markdown(ps_sens_html, unsafe_allow_html=True)
-
-        ps_cycles = ps_adaptive.get("learning_cycles", 0)
-        ps_regime = ps_adaptive.get("regime_state", "unknown")
-        ps_alignment = ps_adaptive.get("cross_horizon_alignment", 0)
-        if ps_cycles > 0:
-            ps_state_c1, ps_state_c2, ps_state_c3 = st.columns(3)
-            with ps_state_c1:
-                st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Learning Cycles</div>
-<div style="color: #E5E5E5; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{ps_cycles}</div>
-</div>""", unsafe_allow_html=True)
-            with ps_state_c2:
-                regime_color = "#2BFF88" if ps_regime == "normal" else "#F5C451" if ps_regime == "elevated" else "#E06C75"
-                st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Regime State</div>
-<div style="color: {regime_color}; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{ps_regime.title()}</div>
-</div>""", unsafe_allow_html=True)
-            with ps_state_c3:
-                align_color = "#2BFF88" if ps_alignment > 0.6 else "#F5C451" if ps_alignment > 0.3 else "#E06C75"
-                st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Cross-Horizon Alignment</div>
-<div style="color: {align_color}; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{ps_alignment:.0%}</div>
-</div>""", unsafe_allow_html=True)
-
-    except Exception:
-        st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Error loading parameter sensitivity data.</div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center;">
-This view is observational only. No automated execution or trade logic is applied.
-</div>""", unsafe_allow_html=True)
-
-
-    st.divider()
-
-    st.markdown("""<div style="margin-bottom: 4px;">
-<span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
-</div>""", unsafe_allow_html=True)
-    st.header("Regime Alignment")
-    st.caption("Regime classification alignment analysis - Observational · Read-only")
-    st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
-Analyzes the alignment between current regime classification and portfolio positioning. Examines whether decisions made under specific regime contexts have produced expected outcomes.
-</div>""", unsafe_allow_html=True)
-
-    try:
-        ra_path = Path("data/decision_log.json")
-        ra_decisions = []
-        if ra_path.exists():
-            with open(ra_path, "r") as f:
-                ra_decisions = json.load(f)
-
-        if ra_decisions:
-            ra_regimes = {}
-            for d in ra_decisions:
-                regime = d.get("regime_at_decision", "Unknown")
-                if regime not in ra_regimes:
-                    ra_regimes[regime] = {"count": 0, "positive": 0, "negative": 0}
-                ra_regimes[regime]["count"] += 1
-                o30 = d.get("outcome_30d", "")
-                if isinstance(o30, str) and o30.startswith("+"):
-                    ra_regimes[regime]["positive"] += 1
-                elif isinstance(o30, str) and o30.startswith("-"):
-                    ra_regimes[regime]["negative"] += 1
-
-            ra_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px;">'
-            ra_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Regime-Outcome Analysis</div>'
-            ra_html += '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">'
-            ra_html += '<tr><th style="text-align: left; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Regime</th><th style="text-align: right; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Decisions</th><th style="text-align: right; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Positive</th><th style="text-align: right; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Negative</th></tr>'
-            for regime, data in ra_regimes.items():
-                ra_html += f'<tr><td style="padding: 8px; color: #C8CCD4; border-bottom: 1px solid rgba(255,255,255,0.04);">{regime}</td><td style="text-align: right; padding: 8px; color: #E5E5E5; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{data["count"]}</td><td style="text-align: right; padding: 8px; color: #2BFF88; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{data["positive"]}</td><td style="text-align: right; padding: 8px; color: #E06C75; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{data["negative"]}</td></tr>'
-            ra_html += '</table></div>'
-            st.markdown(ra_html, unsafe_allow_html=True)
-        else:
-            st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">No governance decisions recorded during the current observation window for regime alignment analysis.</div>
-</div>""", unsafe_allow_html=True)
-
-    except Exception:
-        st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Institutional data sources will populate as canonical feeds are connected.</div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center;">
-This view is observational only. No automated execution or trade logic is applied.
-</div>""", unsafe_allow_html=True)
-
-
-    st.divider()
-
-    st.markdown("""<div style="margin-bottom: 4px;">
-<span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
-</div>""", unsafe_allow_html=True)
-    st.header("Cross-Horizon Conflicts")
-    st.caption("Conflicts between horizon signals - Observational · Read-only")
-    st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
-Identifies waves where short-term and long-term alpha signals diverge, creating potential conflicts in portfolio positioning. Highlights where horizon-specific signals are sending contradictory messages.
-</div>""", unsafe_allow_html=True)
-
-    try:
-        if snapshot_df is not None and not snapshot_df.empty:
-            chc_short = "alpha_1d" if "alpha_1d" in snapshot_df.columns else "alpha_30d"
-            chc_long = "alpha_365d" if "alpha_365d" in snapshot_df.columns else "alpha_60d"
-
-            if chc_short in snapshot_df.columns and chc_long in snapshot_df.columns:
-                chc_df = snapshot_df[["display_name", chc_short, chc_long]].copy()
-                chc_df[chc_short] = pd.to_numeric(chc_df[chc_short], errors="coerce")
-                chc_df[chc_long] = pd.to_numeric(chc_df[chc_long], errors="coerce")
-                chc_df = chc_df.dropna(subset=[chc_short, chc_long])
-
-                chc_conflicts = chc_df[np.sign(chc_df[chc_short]) != np.sign(chc_df[chc_long])]
-
-                chc_c1, chc_c2 = st.columns(2)
-                with chc_c1:
-                    st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Waves Analyzed</div>
-<div style="color: #E5E5E5; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{len(chc_df)}</div>
-</div>""", unsafe_allow_html=True)
-                with chc_c2:
-                    conflict_color = "#E06C75" if len(chc_conflicts) > 0 else "#2BFF88"
-                    st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Horizon Conflicts</div>
-<div style="color: {conflict_color}; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{len(chc_conflicts)}</div>
-</div>""", unsafe_allow_html=True)
-
-                if len(chc_conflicts) > 0:
-                    conflict_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-                    conflict_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Conflicting Waves</div>'
-                    for _, row in chc_conflicts.iterrows():
-                        short_val = row[chc_short]
-                        long_val = row[chc_long]
-                        short_color = "#2BFF88" if short_val > 0 else "#E06C75"
-                        long_color = "#2BFF88" if long_val > 0 else "#E06C75"
-                        conflict_html += f'<div style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #E5E5E5; font-size: 12px; font-weight: 600;">{row["display_name"]}</span><div style="margin-top: 4px;"><span style="color: #6B7280; font-size: 10px;">Short: </span><span style="color: {short_color}; font-size: 11px; font-family: \'SF Mono\', monospace;">{short_val*100:.2f}%</span><span style="color: #6B7280; font-size: 10px; margin-left: 16px;">Long: </span><span style="color: {long_color}; font-size: 11px; font-family: \'SF Mono\', monospace;">{long_val*100:.2f}%</span></div></div>'
-                    conflict_html += '</div>'
-                    st.markdown(conflict_html, unsafe_allow_html=True)
-                else:
-                    st.markdown("""<div style="background: #151A22; padding: 20px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #2BFF88; font-size: 12px;">No cross-horizon conflicts detected. All wave signals are directionally aligned.</div>
-</div>""", unsafe_allow_html=True)
-            else:
-                st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Insufficient horizon data for conflict analysis.</div>
-</div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Snapshot data not available for cross-horizon analysis.</div>
-</div>""", unsafe_allow_html=True)
-
-    except Exception:
-        st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Institutional data sources will populate as canonical feeds are connected.</div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center;">
-This view is observational only. No automated execution or trade logic is applied.
-</div>""", unsafe_allow_html=True)
-
-
-    st.divider()
-
-    st.markdown("""<div style="margin-bottom: 4px;">
-<span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Research & Quantitative Analysis</span>
-</div>""", unsafe_allow_html=True)
-    st.header("Model Stability Indicators")
-    st.caption("Model stability and robustness metrics - Observational · Read-only")
-    st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
-Assesses the stability and robustness of the attribution model by examining signal variance, alpha dispersion across waves, and consistency of component contributions over time.
-</div>""", unsafe_allow_html=True)
-
-    try:
-        if attrib_df is not None and not attrib_df.empty:
-            msi_alpha_cols = [c for c in attrib_df.columns if "alpha" in c.lower()]
-            if msi_alpha_cols:
-                msi_metrics = []
-                for col in msi_alpha_cols:
-                    vals = pd.to_numeric(attrib_df[col], errors="coerce").dropna()
-                    if len(vals) > 0:
-                        msi_metrics.append({
-                            "signal": col,
-                            "mean": vals.mean(),
-                            "std": vals.std(),
-                            "min": vals.min(),
-                            "max": vals.max(),
-                            "range": vals.max() - vals.min(),
-                        })
-
-                if msi_metrics:
-                    msi_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px;">'
-                    msi_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Signal Stability Summary</div>'
-                    msi_html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">'
-                    msi_html += '<tr><th style="text-align: left; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Signal</th><th style="text-align: right; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Mean</th><th style="text-align: right; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Std Dev</th><th style="text-align: right; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">Range</th></tr>'
-                    for m in msi_metrics:
-                        msi_html += f'<tr><td style="padding: 8px; color: #C8CCD4; border-bottom: 1px solid rgba(255,255,255,0.04);">{m["signal"]}</td><td style="text-align: right; padding: 8px; color: #E5E5E5; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{m["mean"]*100:.3f}%</td><td style="text-align: right; padding: 8px; color: #9EA3AE; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{m["std"]*100:.3f}%</td><td style="text-align: right; padding: 8px; color: #9EA3AE; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{m["range"]*100:.3f}%</td></tr>'
-                    msi_html += '</table></div>'
-                    st.markdown(msi_html, unsafe_allow_html=True)
-
-                    avg_std = np.mean([m["std"] for m in msi_metrics])
-                    stability_label = "Stable" if avg_std < 0.05 else "Moderate" if avg_std < 0.15 else "Elevated Variance"
-                    stability_color = "#2BFF88" if avg_std < 0.05 else "#F5C451" if avg_std < 0.15 else "#E06C75"
-                    st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px; text-align: center;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Overall Model Stability Assessment</div>
-<div style="color: {stability_color}; font-size: 18px; font-weight: 600;">{stability_label}</div>
-<div style="color: #6B7280; font-size: 10px; margin-top: 4px;">Average signal standard deviation: {avg_std*100:.3f}%</div>
-</div>""", unsafe_allow_html=True)
-                else:
-                    st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Insufficient data for stability analysis.</div>
-</div>""", unsafe_allow_html=True)
-            else:
-                st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">No alpha signal columns found in attribution data.</div>
-</div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Attribution data not available for model stability analysis.</div>
-</div>""", unsafe_allow_html=True)
-
-    except Exception:
-        st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-<div style="color: #6B7280; font-size: 12px;">Institutional data sources will populate as canonical feeds are connected.</div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center;">
-This view is observational only. No automated execution or trade logic is applied.
-</div>""", unsafe_allow_html=True)
-
-
-    st.divider()
-
-    st.header("External Portfolio")
-    st.caption("Universal decision infrastructure for any portfolio · Observational · Non-executing")
-    
-    st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 16px 0; line-height: 1.6; padding: 12px; background: #151A22; border-radius: 6px;">
-This view applies WAVES decision intelligence to external portfolios. The analysis is observational, non-executing, and intended to support human decision-making.
-</div>""", unsafe_allow_html=True)
-    
-    st.markdown('<span class="waves-micro-label">Portfolio Input</span>', unsafe_allow_html=True)
-    st.subheader("Upload or Paste Portfolio")
-    
-    input_method = st.radio(
-        "Select input method",
-        options=["Upload CSV", "Paste Holdings"],
-        horizontal=True,
-        key="ext_input_method",
-        label_visibility="collapsed"
-    )
-    
-    ext_portfolio_df = None
-    ext_error_msg = None
-    
-    if input_method == "Upload CSV":
-        uploaded_file = st.file_uploader(
-            "Upload portfolio CSV (columns: ticker, weight)",
-            type=["csv"],
-            key="ext_csv_upload"
-        )
-        if uploaded_file is not None:
-            try:
-                ext_portfolio_df = pd.read_csv(uploaded_file)
-                if "ticker" not in ext_portfolio_df.columns or "weight" not in ext_portfolio_df.columns:
-                    ext_error_msg = "Invalid portfolio format. Please upload a CSV with columns: ticker, weight."
-                    ext_portfolio_df = None
-            except Exception as e:
-                ext_error_msg = f"Error reading CSV: {str(e)}"
-    else:
-        st.markdown("**Paste holdings (one per line: ticker,weight)**")
-        pasted_text = st.text_area(
-            "Holdings",
-            height=150,
-            placeholder="AAPL,0.08\nMSFT,0.07\nNVDA,0.05",
-            key="ext_paste_holdings",
-            label_visibility="collapsed"
-        )
-        if pasted_text.strip():
-            try:
-                lines = [l.strip() for l in pasted_text.strip().split("\n") if l.strip()]
-                holdings_data = []
-                for line in lines:
-                    parts = line.split(",")
-                    if len(parts) >= 2:
-                        ticker = parts[0].strip().upper()
-                        weight = float(parts[1].strip())
-                        holdings_data.append({"ticker": ticker, "weight": weight})
-                if holdings_data:
-                    ext_portfolio_df = pd.DataFrame(holdings_data)
-            except Exception as e:
-                ext_error_msg = f"Error parsing holdings: {str(e)}"
-    
-    if ext_portfolio_df is not None and not ext_portfolio_df.empty:
-        weight_sum = ext_portfolio_df["weight"].sum()
-        if abs(weight_sum - 1.0) > 0.01:
-            ext_portfolio_df["weight"] = ext_portfolio_df["weight"] / weight_sum
-            st.info(f"Weights normalized (original sum: {weight_sum:.2f})")
-        
-        ext_portfolio_df = ext_portfolio_df.sort_values("weight", ascending=False)
-        
-        st.divider()
-        
-        # -----------------------------------------------
-        # SECTION 1 - PORTFOLIO HEALTH SNAPSHOT
-        # -----------------------------------------------
-        st.markdown('<span class="waves-micro-label">Health Assessment</span>', unsafe_allow_html=True)
-        st.subheader("Portfolio Health Snapshot")
-        st.caption("Derived from uploaded portfolio structure · Observational only")
-        
-        ext_health_cols = st.columns(5)
-        
-        top_3_weight_ext = ext_portfolio_df.head(3)["weight"].sum()
-        if top_3_weight_ext < 0.15:
-            ext_concentration = "Low"
-        elif top_3_weight_ext <= 0.30:
-            ext_concentration = "Moderate"
-        else:
-            ext_concentration = "High"
-        
-        num_holdings_ext = len(ext_portfolio_df)
-        if num_holdings_ext >= 20:
-            ext_diversification = "Diversified"
-        elif num_holdings_ext >= 10:
-            ext_diversification = "Moderate"
-        else:
-            ext_diversification = "Concentrated"
-        
-        weight_std_ext = ext_portfolio_df["weight"].std() if len(ext_portfolio_df) > 1 else 0
-        if weight_std_ext < 0.03:
-            ext_stability = "Stable"
-        elif weight_std_ext < 0.08:
-            ext_stability = "Mixed"
-        else:
-            ext_stability = "Elevated"
-        
-        ext_wavescore = "Provisional"
-        if num_holdings_ext >= 5 and top_3_weight_ext < 0.50:
-            ext_wavescore = "Moderate"
-        elif num_holdings_ext < 5 or top_3_weight_ext > 0.60:
-            ext_wavescore = "Limited"
-        
-        with ext_health_cols[0]:
-            st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 12px; text-align: center;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">External WaveScore</div>
-<div style="color: #E5E5E5; font-size: 14px; font-weight: 500;">{ext_wavescore}</div>
-</div>""", unsafe_allow_html=True)
-        
-        with ext_health_cols[1]:
-            st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 12px; text-align: center;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">Concentration</div>
-<div style="color: #E5E5E5; font-size: 14px; font-weight: 500;">{ext_concentration}</div>
-</div>""", unsafe_allow_html=True)
-        
-        with ext_health_cols[2]:
-            st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 12px; text-align: center;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">Diversification</div>
-<div style="color: #E5E5E5; font-size: 14px; font-weight: 500;">{ext_diversification}</div>
-</div>""", unsafe_allow_html=True)
-        
-        with ext_health_cols[3]:
-            st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 12px; text-align: center;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">Stability</div>
-<div style="color: #E5E5E5; font-size: 14px; font-weight: 500;">{ext_stability}</div>
-</div>""", unsafe_allow_html=True)
-        
-        with ext_health_cols[4]:
-            st.markdown(f"""<div style="background: #151A22; border-radius: 6px; padding: 12px; text-align: center;">
-<div style="color: #6B7280; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">Holdings</div>
-<div style="color: #E5E5E5; font-size: 14px; font-weight: 500;">{num_holdings_ext}</div>
-</div>""", unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # -----------------------------------------------
-        # SECTION 2 - ATTENTION SIGNALS
-        # -----------------------------------------------
-        st.markdown('<span class="waves-micro-label">Attention Layer</span>', unsafe_allow_html=True)
-        st.subheader("Attention Signals")
-        st.caption("Areas requiring human attention · Observational only")
-        
-        def render_ext_signal(title, status, observation, scope):
-            status_color = "#6B7280"
-            if status == "Review Eligible":
-                status_color = "#F59E0B"
-            elif status == "Monitoring":
-                status_color = "#60A5FA"
-            elif status == "Stable":
-                status_color = "#10B981"
-            
-            signal_html = f"""<div style="background: #151A22; border-radius: 6px; padding: 14px; margin: 8px 0; border-left: 3px solid {status_color};">
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-<div style="color: #E5E5E5; font-size: 13px; font-weight: 500;">{title}</div>
-<div style="color: {status_color}; font-size: 11px; font-weight: 500;">{status}</div>
-</div>
-<div style="color: #9AA0AC; font-size: 12px; margin-bottom: 6px;">{observation}</div>
-<div style="color: #6B7280; font-size: 10px;">Scope: {scope} · Observational only - human evaluation may be warranted based on institutional judgment.</div>
-</div>"""
-            st.markdown(signal_html, unsafe_allow_html=True)
-        
-        render_ext_signal(
-            "Persistent Detractor",
-            "Stable",
-            "Insufficient historical data for detractor analysis on external portfolio.",
-            "Portfolio-level"
-        )
-        
-        ext_strength_status = "Monitoring"
-        ext_strength_obs = "Portfolio structure reflects balanced weight distribution among holdings."
-        if num_holdings_ext >= 10 and weight_std_ext < 0.05:
-            ext_strength_status = "Stable"
-            ext_strength_obs = "Broad diversification with even weight distribution indicates structural stability."
-        
-        render_ext_signal("Structural Strength", ext_strength_status, ext_strength_obs, "Portfolio-level")
-        
-        render_ext_signal(
-            "Regime Misalignment",
-            "Monitoring",
-            "External portfolio regime alignment cannot be fully assessed without historical context.",
-            "Portfolio-level"
-        )
-        
-        ext_conc_status = "Stable"
-        ext_conc_obs = "Portfolio concentration within normal parameters."
-        if top_3_weight_ext > 0.40:
-            ext_conc_status = "Review Eligible"
-            ext_conc_obs = f"Top 3 holdings represent {top_3_weight_ext*100:.0f}% of portfolio - elevated concentration."
-        elif top_3_weight_ext > 0.30:
-            ext_conc_status = "Monitoring"
-            ext_conc_obs = f"Top 3 holdings represent {top_3_weight_ext*100:.0f}% of portfolio."
-        
-        render_ext_signal("Concentration Drift", ext_conc_status, ext_conc_obs, "Portfolio-level")
-        
-        render_ext_signal(
-            "Stability Degradation",
-            "Stable",
-            "Stability trends require time-series data not available for external portfolios.",
-            "Portfolio-level"
-        )
-        
-        st.divider()
-        
-        # -----------------------------------------------
-        # SECTION 3 - PORTFOLIO STRUCTURE SNAPSHOT
-        # -----------------------------------------------
-        st.markdown('<span class="waves-micro-label">Internal Structure</span>', unsafe_allow_html=True)
-        st.subheader("Portfolio Structure Snapshot")
-        st.caption("Observational view of portfolio composition · Read-only")
-        
-        st.markdown("**Top Holdings**")
-        
-        top_10_ext = ext_portfolio_df.head(10).copy()
-        top_10_ext["Rank"] = range(1, len(top_10_ext) + 1)
-        
-        holdings_html_ext = """<div style="background: #151A22; border-radius: 6px; padding: 12px; margin: 8px 0;">
-<table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-<thead>
-<tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-<th style="text-align: left; padding: 6px 8px; color: #6B7280; font-weight: 500;">Rank</th>
-<th style="text-align: left; padding: 6px 8px; color: #6B7280; font-weight: 500;">Security</th>
-<th style="text-align: right; padding: 6px 8px; color: #6B7280; font-weight: 500;">Weight</th>
-</tr>
-</thead>
-<tbody>"""
-        
-        for _, row in top_10_ext.iterrows():
-            ticker = row["ticker"]
-            ticker_clean = str(ticker).replace("-USD", "")
-            google_url = f"https://www.google.com/finance/quote/{ticker_clean}:NYSEARCA"
-            weight_pct = f"{row['weight']*100:.1f}%"
-            holdings_html_ext += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-<td style="padding: 6px 8px; color: #9AA0AC;">{row['Rank']}</td>
-<td style="padding: 6px 8px;"><a href="{google_url}" target="_blank" style="color: #60A5FA; text-decoration: none;">{ticker}</a></td>
-<td style="text-align: right; padding: 6px 8px; color: #E5E5E5;">{weight_pct}</td>
-</tr>"""
-        
-        holdings_html_ext += """</tbody></table></div>"""
-        st.markdown(holdings_html_ext, unsafe_allow_html=True)
-        
-        st.markdown("""<div style="color: #6B7280; font-size: 10px; margin: 4px 0 16px 0; line-height: 1.5;">
-Click a security symbol to view external market context. External links are informational only.
-</div>""", unsafe_allow_html=True)
-        
-        st.markdown("**Volatility Contributors**")
-        
-        ext_vol_contributors = []
-        for _, row in ext_portfolio_df.head(10).iterrows():
-            ticker = row["ticker"]
-            weight = row["weight"]
-            vol_contribution = weight * 0.20
-            ext_vol_contributors.append({"ticker": ticker, "contribution": vol_contribution})
-        
-        ext_vol_sorted = sorted(ext_vol_contributors, key=lambda x: x["contribution"], reverse=True)[:3]
-        ext_vol_tickers = [v["ticker"] for v in ext_vol_sorted]
-        
-        if ext_vol_tickers:
-            st.markdown(f"""<div style="color: #C8CCD4; font-size: 12px; margin: 8px 0;">Primary sources: <strong>{", ".join(ext_vol_tickers)}</strong></div>""", unsafe_allow_html=True)
-        
-        st.markdown("""<div style="color: #6B7280; font-size: 10px; margin: 4px 0 16px 0;">
-Volatility contributors are estimated based on weight. This view is observational and non-executing.
-</div>""", unsafe_allow_html=True)
-        
-        st.markdown("**Structural Strength Contributors**")
-        
-        ext_strength_sorted = ext_portfolio_df.head(3)
-        ext_strength_tickers = ext_strength_sorted["ticker"].tolist()
-        
-        if ext_strength_tickers:
-            st.markdown(f"""<div style="color: #C8CCD4; font-size: 12px; margin: 8px 0;">Primary sources: <strong>{", ".join(ext_strength_tickers)}</strong></div>""", unsafe_allow_html=True)
-        
-        st.markdown("""<div style="color: #6B7280; font-size: 10px; margin: 4px 0 16px 0;">
-Structural contributors based on portfolio weight. This view is observational and non-executing.
-</div>""", unsafe_allow_html=True)
-        
-        st.markdown("**Alignment Watchlist**")
-        
-        avg_weight_ext = ext_portfolio_df["weight"].mean()
-        ext_alignment_data = []
-        for _, row in ext_portfolio_df.iterrows():
-            deviation = row["weight"] - avg_weight_ext
-            ext_alignment_data.append({"ticker": row["ticker"], "deviation": deviation})
-        
-        ext_alignment_sorted = sorted(ext_alignment_data, key=lambda x: x["deviation"])[:3]
-        ext_alignment_tickers = [a["ticker"] for a in ext_alignment_sorted if a["deviation"] < 0]
-        
-        if ext_alignment_tickers:
-            st.markdown(f"""<div style="color: #C8CCD4; font-size: 12px; margin: 8px 0;">Securities showing structural drift: <strong>{", ".join(ext_alignment_tickers)}</strong></div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("""<div style="color: #6B7280; font-size: 12px;">No significant structural drift detected</div>""", unsafe_allow_html=True)
-        
-        st.markdown("""<div style="color: #6B7280; font-size: 10px; margin: 4px 0 16px 0;">
-Alignment indicators highlight securities with below-average weight. Intended for human review only.
-</div>""", unsafe_allow_html=True)
-        
-        st.markdown("**Structure Summary**")
-        
-        if top_3_weight_ext < 0.15:
-            ext_conc_label = "Low"
-        elif top_3_weight_ext <= 0.30:
-            ext_conc_label = "Moderate"
-        else:
-            ext_conc_label = "High"
-        
-        if weight_std_ext < 0.05:
-            ext_stab_label = "Stable"
-        elif weight_std_ext < 0.10:
-            ext_stab_label = "Mixed"
-        else:
-            ext_stab_label = "Elevated dispersion"
-        
-        ext_summary_html = f"""<div style="background: #151A22; border-radius: 6px; padding: 14px; margin: 8px 0; font-size: 12px; line-height: 1.7;">
-<div style="color: #9AA0AC;">Concentration: <strong style="color: #E5E5E5;">{ext_conc_label}</strong> <span style="color: #6B7280;">(Top 3 = {top_3_weight_ext*100:.0f}%)</span></div>
-<div style="color: #9AA0AC;">Internal stability: <strong style="color: #E5E5E5;">{ext_stab_label}</strong></div>
-<div style="color: #9AA0AC;">Holdings count: <span style="color: #C8CCD4;">{num_holdings_ext} securities</span></div>
-</div>"""
-        st.markdown(ext_summary_html, unsafe_allow_html=True)
-        
-    elif ext_error_msg:
-        st.error(ext_error_msg)
-    else:
-        st.markdown("""<div style="background: #151A22; border-radius: 6px; padding: 24px; text-align: center; color: #6B7280; font-size: 12px; margin: 16px 0;">
-Upload a CSV file or paste holdings to begin analysis.
-</div>""", unsafe_allow_html=True)
-    
-    st.divider()
-    st.markdown("""<div style="color: #6B7280; font-size: 10px; text-align: center; margin: 8px 0;">
-No trade, allocation, or execution guidance is provided by this system.
-</div>""", unsafe_allow_html=True)
-    # -----------------------------------------------
-    # TAB SUMMARY - EXTERNAL PORTFOLIO
-    # -----------------------------------------------
-    st.divider()
-    st.markdown('<span class="waves-micro-label">Tab Summary</span>', unsafe_allow_html=True)
-    st.subheader("Tab Summary")
-    
-    st.markdown("""<div style="background: #151A22; border-radius: 6px; padding: 16px; margin: 8px 0; font-size: 12px; line-height: 1.7; color: #C8CCD4;">
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">What this tab is showing:</strong><br>
-This tab lets you analyze any portfolio using the WAVES intelligence framework - just upload or paste holdings.
-</div>
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">What it means right now:</strong><br>
-You can run the same diagnostic analysis on external portfolios that you run on your own.
-</div>
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">What looks strong:</strong><br>
-• Universal analysis capability for any portfolio<br>
-• Same diagnostic framework applied consistently
-</div>
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">What may need attention:</strong><br>
-• External portfolios may have limited historical context<br>
-• Some metrics require time-series data not available
-</div>
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">Who should care about this:</strong><br>
-• Portfolio manager<br>
-• Advisor<br>
-• Investment committee
-</div>
-<div style="margin-bottom: 12px;">
-<strong style="color: #E5E5E5;">Bottom line:</strong><br>
-This tool extends WAVES analysis to any portfolio for comparative or due diligence purposes.
-</div>
-<div style="color: #6B7280; font-size: 11px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
-<strong>Actionability:</strong> Observational only - final decisions remain under human control.
-</div>
-</div>""", unsafe_allow_html=True)
-    
-    if RESEARCH_MODE and TAB_INDEX.get('Reference') is not None:
-        st.markdown("""<div style="background: #0D1117; border: 1px solid #1E2530; border-radius: 8px; padding: 16px 20px; margin-top: 24px;">
-<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Related Reference Views</div>
-<div style="color: #D1D5DB; font-size: 11px; line-height: 1.8;">
-Navigate to the <strong>Reference</strong> tab for:
-<ul style="margin: 4px 0 0 16px; padding: 0;">
-<li>Parameter Sensitivity Reference - System threshold diagnostics</li>
-<li>Historical Diagnostics - Time-series analysis tools</li>
-</ul>
-</div>
-</div>""", unsafe_allow_html=True)
-
-    st.caption("End of External Portfolio · All views are observational and non-executing")
-
-
-
-# ===========================
-# REFERENCE TAB
-# ===========================
-if TAB_INDEX.get('Reference') is not None:
-  with tabs[TAB_INDEX['Reference']]:
-    st.header('Reference')
-    st.caption('Deep-dive analytical tools, historical diagnostics, and governance archives · Read-only · Observational · Non-executing')
-
-    if SANDBOX_MODE:
-        sandbox_log_event("tab_view", {"tab": "Reference"})
-
-    st.markdown("""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 20px 0; line-height: 1.6; padding: 12px 16px; background: #151A22; border-radius: 6px;">
-The Reference layer consolidates deep-dive tools and historical analysis surfaces. All outputs are observational and intended for institutional review and governance context. No execution controls are present in this view.
-</div>""", unsafe_allow_html=True)
-
-
-    # --- Relocated from Governance & Operations (Fix #9C) ---
-    try:
-        with st.expander("Holdings Integrity", expanded=False):
-            _gov_holdings()
-    except Exception:
-        pass
-
-    # -----------------------------------------------
-
-    # Relocated from Wave Command Center (Fix #9B)
-    with st.expander("Position-Level Diagnostics", expanded=False):
-      try:
-          pld_returns_path = Path("data/ticker_returns.csv")
-          pld_prices_path = Path("data/prices.csv")
-          pld_returns_df = None
-          pld_prices_df = None
-          if pld_returns_path.exists():
-              pld_returns_df = pd.read_csv(pld_returns_path)
-          if pld_prices_path.exists():
-              pld_prices_df = pd.read_csv(pld_prices_path)
-
-          if pld_returns_df is not None and not pld_returns_df.empty:
-              pld_ticker_count = len(pld_returns_df)
-              pld_avg_30d = pld_returns_df["return_30d"].mean() if "return_30d" in pld_returns_df.columns else 0
-              pld_best = pld_returns_df.loc[pld_returns_df["return_30d"].idxmax()] if "return_30d" in pld_returns_df.columns else None
-              pld_worst = pld_returns_df.loc[pld_returns_df["return_30d"].idxmin()] if "return_30d" in pld_returns_df.columns else None
-
-              pld_c1, pld_c2, pld_c3, pld_c4 = st.columns(4)
-              with pld_c1:
-                  st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px;">
-  <div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Positions Tracked</div>
-  <div style="color: #E5E5E5; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{pld_ticker_count}</div>
-  </div>""", unsafe_allow_html=True)
-              with pld_c2:
-                  st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px;">
-  <div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Avg Return (30D)</div>
-  <div style="color: {'#2BFF88' if pld_avg_30d > 0 else '#E06C75'}; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{pld_avg_30d*100:.2f}%</div>
-  </div>""", unsafe_allow_html=True)
-              with pld_c3:
-                  if pld_best is not None:
-                      st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px;">
-  <div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Top Performer (30D)</div>
-  <div style="color: #2BFF88; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{pld_best['ticker']}</div>
-  <div style="color: #6B7280; font-size: 10px; margin-top: 2px;">{pld_best['return_30d']*100:.2f}%</div>
-  </div>""", unsafe_allow_html=True)
-              with pld_c4:
-                  if pld_worst is not None:
-                      st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 20px; border-radius: 8px;">
-  <div style="color: #6B7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px;">Weakest (30D)</div>
-  <div style="color: #E06C75; font-size: 22px; font-weight: 600; font-family: 'SF Mono', 'Consolas', monospace;">{pld_worst['ticker']}</div>
-  <div style="color: #6B7280; font-size: 10px; margin-top: 2px;">{pld_worst['return_30d']*100:.2f}%</div>
-  </div>""", unsafe_allow_html=True)
-
-              pld_table_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-              pld_table_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Position Return Detail</div>'
-              pld_table_html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">'
-              pld_table_html += '<tr>'
-              for hdr in ["Ticker", "1D", "5D", "30D", "60D"]:
-                  pld_table_html += f'<th style="text-align: {"left" if hdr == "Ticker" else "right"}; padding: 8px; color: #6B7280; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #2A2F3A;">{hdr}</th>'
-              pld_table_html += '</tr>'
-              for _, pld_row in pld_returns_df.iterrows():
-                  pld_table_html += '<tr>'
-                  pld_table_html += f'<td style="padding: 8px; color: #E5E5E5; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.04);">{pld_row.get("ticker", "-")}</td>'
-                  for ret_col in ["return_1d", "return_5d", "return_30d", "return_60d"]:
-                      val = pld_row.get(ret_col, None)
-                      if val is not None and not pd.isna(val):
-                          ret_color = "#2BFF88" if val > 0 else "#E06C75" if val < 0 else "#9EA3AE"
-                          pld_table_html += f'<td style="text-align: right; padding: 8px; color: {ret_color}; font-family: \'SF Mono\', monospace; border-bottom: 1px solid rgba(255,255,255,0.04);">{val*100:.2f}%</td>'
-                      else:
-                          pld_table_html += '<td style="text-align: right; padding: 8px; color: #4B5563; border-bottom: 1px solid rgba(255,255,255,0.04);">-</td>'
-                  pld_table_html += '</tr>'
-              pld_table_html += '</table></div>'
-              st.markdown(pld_table_html, unsafe_allow_html=True)
-
-              if pld_prices_df is not None and not pld_prices_df.empty:
-                  pld_vol_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-                  pld_vol_html += '<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Realized Volatility (Annualized from Daily Prices)</div>'
-                  pld_tickers_in_prices = pld_prices_df["ticker"].unique()
-                  for pld_tkr in sorted(pld_tickers_in_prices):
-                      tkr_prices = pld_prices_df[pld_prices_df["ticker"] == pld_tkr]["close"].astype(float)
-                      if len(tkr_prices) > 1:
-                          tkr_returns_series = tkr_prices.pct_change().dropna()
-                          tkr_vol = tkr_returns_series.std() * np.sqrt(252)
-                          vol_color = "#E06C75" if tkr_vol > 0.30 else "#F5C451" if tkr_vol > 0.20 else "#2BFF88"
-                          pld_vol_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #C8CCD4; font-size: 12px;">{pld_tkr}</span><span style="color: {vol_color}; font-size: 12px; font-family: \'SF Mono\', monospace;">{tkr_vol*100:.1f}%</span></div>'
-                  pld_vol_html += '</div>'
-                  st.markdown(pld_vol_html, unsafe_allow_html=True)
-
-              pld_outlier_threshold = 0.05
-              pld_outliers = pld_returns_df[pld_returns_df["return_30d"].abs() > pld_outlier_threshold] if "return_30d" in pld_returns_df.columns else pd.DataFrame()
-              if not pld_outliers.empty:
-                  pld_flag_html = '<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-top: 16px;">'
-                  pld_flag_html += '<div style="color: #F5C451; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 12px;">Flagged Positions (|30D Return| > 5%)</div>'
-                  for _, pld_ol in pld_outliers.iterrows():
-                      ol_val = pld_ol["return_30d"]
-                      ol_color = "#2BFF88" if ol_val > 0 else "#E06C75"
-                      pld_flag_html += f'<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);"><span style="color: #E5E5E5; font-size: 12px; font-weight: 600;">{pld_ol["ticker"]}</span><span style="color: {ol_color}; font-size: 12px; font-family: \'SF Mono\', monospace;">{ol_val*100:.2f}%</span></div>'
-                  pld_flag_html += '</div>'
-                  st.markdown(pld_flag_html, unsafe_allow_html=True)
-          else:
-              st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-  <div style="color: #6B7280; font-size: 12px;">Position-level return data not available.</div>
-  </div>""", unsafe_allow_html=True)
-
-      except Exception:
-          st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-  <div style="color: #6B7280; font-size: 12px;">Error loading position-level diagnostics.</div>
-  </div>""", unsafe_allow_html=True)
-
-      st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center;">
-  </div>""", unsafe_allow_html=True)
-
-
-    # Relocated from Wave Command Center (Fix #9B)
-    with st.expander("Security-Level Review Signals", expanded=False):
-      # SECURITY-LEVEL REVIEW SIGNALS (NOTE 043)
-      # -----------------------------------------------
-      st.markdown("""<div style="margin-bottom: 4px; margin-top: 28px;">
-  <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Security-Level Review Signals</span>
-  </div>""", unsafe_allow_html=True)
-      st.caption("Observed security-level anomalies and structural drift inside each wave. Observational only - human evaluation required.")
-
-      try:
-          _slrs_snap = snapshot_df.copy() if snapshot_df is not None and not snapshot_df.empty else pd.DataFrame()
-          _slrs_ncol = "display_name" if "display_name" in _slrs_snap.columns else "wave_name"
-
-          _slrs_signals = []
-
-          if not _slrs_snap.empty:
-              _slrs_snap["_a30"] = pd.to_numeric(_slrs_snap.get("alpha_30d", pd.Series(dtype=float)), errors="coerce")
-              _slrs_snap["_a60"] = pd.to_numeric(_slrs_snap.get("alpha_60d", pd.Series(dtype=float)), errors="coerce")
-              _slrs_snap["_a365"] = pd.to_numeric(_slrs_snap.get("alpha_365d", pd.Series(dtype=float)), errors="coerce")
-              _slrs_snap["_vol"] = pd.to_numeric(_slrs_snap.get("volatility", pd.Series(dtype=float)), errors="coerce")
-              _slrs_snap["_wt"] = pd.to_numeric(_slrs_snap.get("weight", pd.Series(dtype=float)), errors="coerce")
-
-              _slrs_a30_mean = _slrs_snap["_a30"].mean()
-              _slrs_a30_std = _slrs_snap["_a30"].std()
-              _slrs_vol_median = _slrs_snap["_vol"].median()
-              _slrs_n_waves = len(_slrs_snap)
-              _slrs_target_wt = 1.0 / _slrs_n_waves if _slrs_n_waves > 0 else 0
-
-              for _, _slrs_row in _slrs_snap.iterrows():
-                  _slrs_wname = _slrs_row.get(_slrs_ncol, "Unassigned (Data Issue)")
-                  _slrs_r_a30 = _slrs_row.get("_a30", float("nan"))
-                  _slrs_r_a60 = _slrs_row.get("_a60", float("nan"))
-                  _slrs_r_a365 = _slrs_row.get("_a365", float("nan"))
-                  _slrs_r_vol = _slrs_row.get("_vol", float("nan"))
-                  _slrs_r_wt = _slrs_row.get("_wt", float("nan"))
-
-                  if pd.notna(_slrs_r_a30) and pd.notna(_slrs_a30_mean) and pd.notna(_slrs_a30_std) and _slrs_a30_std > 0:
-                      _slrs_dev = (_slrs_r_a30 - _slrs_a30_mean) / _slrs_a30_std
-                      if _slrs_dev > 1.0 and _slrs_r_a30 > 0.005:
-                          _slrs_a30_p = _slrs_r_a30 * 100
-                          _slrs_a365_p = _slrs_r_a365 * 100 if pd.notna(_slrs_r_a365) else 0
-                          _slrs_obs = f"Alpha {_slrs_a30_p:+.2f}% vs wave average {_slrs_a30_mean*100:+.2f}% across 30D"
-                          if pd.notna(_slrs_r_a365) and _slrs_r_a365 > 0:
-                              _slrs_obs += f" and 365D ({_slrs_a365_p:+.2f}%) horizons."
-                          else:
-                              _slrs_obs += " horizon."
-                          _slrs_signals.append({"wave": _slrs_wname, "security": _slrs_wname, "status": "Positive Anomaly", "observation": _slrs_obs, "scope": "Leader", "severity": "High" if _slrs_dev > 1.5 else "Moderate"})
-
-                  if pd.notna(_slrs_r_a30) and pd.notna(_slrs_r_a60):
-                      _slrs_neg_count = sum(1 for v in [_slrs_r_a30, _slrs_r_a60, _slrs_r_a365] if pd.notna(v) and v < -0.005)
-                      if _slrs_neg_count >= 2:
-                          _slrs_horizons = []
-                          if pd.notna(_slrs_r_a30) and _slrs_r_a30 < -0.005:
-                              _slrs_horizons.append(f"30D ({_slrs_r_a30*100:+.2f}%)")
-                          if pd.notna(_slrs_r_a60) and _slrs_r_a60 < -0.005:
-                              _slrs_horizons.append(f"60D ({_slrs_r_a60*100:+.2f}%)")
-                          if pd.notna(_slrs_r_a365) and _slrs_r_a365 < -0.005:
-                              _slrs_horizons.append(f"365D ({_slrs_r_a365*100:+.2f}%)")
-                          _slrs_obs = f"Persistent negative alpha across {' and '.join(_slrs_horizons)} horizons."
-                          _slrs_signals.append({"wave": _slrs_wname, "security": _slrs_wname, "status": "Negative Detractor", "observation": _slrs_obs, "scope": "Detractor", "severity": "High" if _slrs_neg_count >= 3 else "Moderate"})
-
-                  if pd.notna(_slrs_r_vol) and pd.notna(_slrs_vol_median) and _slrs_vol_median > 0:
-                      _slrs_vol_dev = (_slrs_r_vol - _slrs_vol_median) / _slrs_vol_median
-                      if abs(_slrs_vol_dev) > 0.15:
-                          _slrs_dir = "above" if _slrs_vol_dev > 0 else "below"
-                          _slrs_obs = f"Volatility {abs(_slrs_vol_dev)*100:+.0f}% {_slrs_dir} sleeve median ({_slrs_vol_median*100:.1f}%)."
-                          _slrs_signals.append({"wave": _slrs_wname, "security": _slrs_wname, "status": "Volatility Outlier", "observation": _slrs_obs, "scope": "Risk", "severity": "High" if abs(_slrs_vol_dev) > 0.25 else "Moderate"})
-
-                  if pd.notna(_slrs_r_wt) and _slrs_target_wt > 0:
-                      _slrs_wt_diff = _slrs_r_wt - _slrs_target_wt
-                      if abs(_slrs_wt_diff) > 0.005:
-                          _slrs_dir = "above" if _slrs_wt_diff > 0 else "below"
-                          _slrs_obs = f"Weight {_slrs_wt_diff*100:+.2f}% {_slrs_dir} target allocation ({_slrs_target_wt*100:.2f}%)."
-                          _slrs_signals.append({"wave": _slrs_wname, "security": _slrs_wname, "status": "Allocation Drift", "observation": _slrs_obs, "scope": "Allocation drift", "severity": "High" if abs(_slrs_wt_diff) > 0.01 else "Moderate"})
-
-                  if pd.notna(_slrs_r_a30) and pd.notna(_slrs_r_a365):
-                      if (_slrs_r_a30 > 0.005 and _slrs_r_a365 < -0.005) or (_slrs_r_a30 < -0.005 and _slrs_r_a365 > 0.005):
-                          _slrs_a60_txt = f" 60D ({_slrs_r_a60*100:+.2f}%);" if pd.notna(_slrs_r_a60) else ""
-                          _slrs_obs = f"30D alpha {_slrs_r_a30*100:+.2f}%;{_slrs_a60_txt} 365D alpha {_slrs_r_a365*100:+.2f}%. Conflicting signals across horizons."
-                          _slrs_signals.append({"wave": _slrs_wname, "security": _slrs_wname, "status": "Structural Instability", "observation": _slrs_obs, "scope": "Review candidate", "severity": "High" if abs(_slrs_r_a30 - _slrs_r_a365) > 0.10 else "Moderate"})
-
-          _slrs_wave_list = sorted(set(s["wave"] for s in _slrs_signals)) if _slrs_signals else []
-          _slrs_cat_list = sorted(set(s["status"] for s in _slrs_signals)) if _slrs_signals else []
-          _slrs_sev_list = sorted(set(s["severity"] for s in _slrs_signals)) if _slrs_signals else []
-
-          _slrs_fc1, _slrs_fc2, _slrs_fc3 = st.columns(3)
-          with _slrs_fc1:
-              _slrs_fw = st.selectbox("Filter by Wave", ["All Waves"] + _slrs_wave_list, key="slrs_filter_wave_relocated")
-          with _slrs_fc2:
-              _slrs_fcat = st.selectbox("Filter by Signal Category", ["All Categories"] + _slrs_cat_list, key="slrs_filter_cat_relocated")
-          with _slrs_fc3:
-              _slrs_fsev = st.selectbox("Filter by Severity", ["All Severity"] + _slrs_sev_list, key="slrs_filter_sev_relocated")
-
-          _slrs_filtered = _slrs_signals
-          if _slrs_fw != "All Waves":
-              _slrs_filtered = [s for s in _slrs_filtered if s["wave"] == _slrs_fw]
-          if _slrs_fcat != "All Categories":
-              _slrs_filtered = [s for s in _slrs_filtered if s["status"] == _slrs_fcat]
-          if _slrs_fsev != "All Severity":
-              _slrs_filtered = [s for s in _slrs_filtered if s["severity"] == _slrs_fsev]
-
-          if _slrs_filtered:
-              _slrs_wave_groups = {}
-              for s in _slrs_filtered:
-                  _slrs_wave_groups.setdefault(s["wave"], []).append(s)
-
-              for _slrs_wg_name in sorted(_slrs_wave_groups.keys()):
-                  _slrs_wg_sigs = _slrs_wave_groups[_slrs_wg_name]
-                  _slrs_leaders = sum(1 for s in _slrs_wg_sigs if s["scope"] == "Leader")
-                  _slrs_detractors = sum(1 for s in _slrs_wg_sigs if s["scope"] == "Detractor")
-                  _slrs_vol_out = sum(1 for s in _slrs_wg_sigs if s["scope"] == "Risk")
-                  _slrs_alloc_dr = sum(1 for s in _slrs_wg_sigs if s["scope"] == "Allocation drift")
-                  _slrs_review_c = sum(1 for s in _slrs_wg_sigs if s["scope"] == "Review candidate")
-
-                  _slrs_summary_parts = []
-                  if _slrs_leaders:
-                      _slrs_summary_parts.append(f'<span style="color:#48BB78;">Leaders: {_slrs_leaders}</span>')
-                  if _slrs_detractors:
-                      _slrs_summary_parts.append(f'<span style="color:#EF4444;">Detractors: {_slrs_detractors}</span>')
-                  if _slrs_vol_out:
-                      _slrs_summary_parts.append(f'<span style="color:#F59E0B;">Vol Outliers: {_slrs_vol_out}</span>')
-                  if _slrs_alloc_dr:
-                      _slrs_summary_parts.append(f'<span style="color:#3A6FF7;">Alloc Drift: {_slrs_alloc_dr}</span>')
-                  if _slrs_review_c:
-                      _slrs_summary_parts.append(f'<span style="color:#A78BFA;">Review: {_slrs_review_c}</span>')
-
-                  st.markdown(f'''<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 14px 18px; border-radius: 8px; margin-bottom: 4px; margin-top: 12px;">
-  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-  <div style="color: #E5E5E5; font-size: 13px; font-weight: 600;">{_slrs_wg_name}</div>
-  <div style="color: #6B7280; font-size: 11px;">{len(_slrs_wg_sigs)} flagged signal{"s" if len(_slrs_wg_sigs) != 1 else ""}</div>
-  </div>
-  <div style="display: flex; gap: 16px; margin-top: 6px; flex-wrap: wrap; font-size: 11px;">
-  {" ".join(_slrs_summary_parts)}
-  </div>
-  </div>''', unsafe_allow_html=True)
-
-                  _slrs_status_colors = {"Positive Anomaly": "#48BB78", "Negative Detractor": "#EF4444", "Volatility Outlier": "#F59E0B", "Allocation Drift": "#3A6FF7", "Structural Instability": "#A78BFA"}
-
-                  _slrs_tbl_html = '<table style="width:100%; border-collapse:collapse; margin-bottom: 8px;">'
-                  _slrs_tbl_html += '<tr style="border-bottom: 1px solid #2A2F3A;"><th style="color:#6B7280;font-size:10px;text-align:left;padding:6px 4px;font-weight:500;">Wave</th><th style="color:#6B7280;font-size:10px;text-align:left;padding:6px 4px;font-weight:500;">Security</th><th style="color:#6B7280;font-size:10px;text-align:left;padding:6px 4px;font-weight:500;">Status</th><th style="color:#6B7280;font-size:10px;text-align:left;padding:6px 4px;font-weight:500;">Observation</th><th style="color:#6B7280;font-size:10px;text-align:left;padding:6px 4px;font-weight:500;">Scope</th><th style="color:#6B7280;font-size:10px;text-align:left;padding:6px 4px;font-weight:500;">Action</th></tr>'
-                  for _slrs_sig in _slrs_wg_sigs:
-                      _slrs_sc = _slrs_status_colors.get(_slrs_sig["status"], "#9EA3AE")
-                      _slrs_action_label = "Review in Council →" if _slrs_sig["status"] in ("Negative Detractor", "Structural Instability", "Allocation Drift") else "View Diagnostics →"
-                      _slrs_action_color = "#3A6FF7" if "Council" in _slrs_action_label else "#8B5CF6"
-                      _slrs_tbl_html += f'<tr style="border-bottom: 1px solid rgba(255,255,255,0.04);"><td style="color:#C8CCD4;font-size:11px;padding:6px 4px;">{_slrs_sig["wave"]}</td><td style="color:#C8CCD4;font-size:11px;padding:6px 4px;">{_slrs_sig["security"]}</td><td style="padding:6px 4px;"><span style="background:{_slrs_sc}22;color:{_slrs_sc};font-size:10px;padding:2px 8px;border-radius:3px;font-weight:600;">{_slrs_sig["status"]}</span></td><td style="color:#9EA3AE;font-size:11px;padding:6px 4px;line-height:1.5;font-style:italic;">{_slrs_sig["observation"]}</td><td style="color:#C8CCD4;font-size:11px;padding:6px 4px;">{_slrs_sig["scope"]}</td><td style="padding:6px 4px;"><span style="color:{_slrs_action_color};font-size:10px;font-weight:600;">{_slrs_action_label}</span></td></tr>'
-                  _slrs_tbl_html += '</table>'
-                  st.markdown(_slrs_tbl_html, unsafe_allow_html=True)
-
-                  _slrs_btn_c1, _slrs_btn_c2, _slrs_btn_c3 = st.columns([3, 2, 2])
-                  with _slrs_btn_c2:
-                      if st.button("Review in Council →", key=f"slrs_council_ref_{_slrs_wg_name[:12].replace(' ', '_')}", help="Navigate to Decision Review & Implementation"):
-                          st.session_state["council_nav_wave"] = _slrs_wg_name
-                          st.session_state["council_nav_source"] = "security_signal"
-                          st.session_state["council_nav_diag"] = None
-                          st.session_state["signal_route_source_tab"] = "executive_snapshot"
-                          st.session_state["signal_route_pending"] = True
-                          st.rerun()
-                  with _slrs_btn_c3:
-                      if st.button("View Diagnostics →", key=f"slrs_diag_ref_{_slrs_wg_name[:12].replace(' ', '_')}", help="Navigate to Adaptive Intelligence diagnostics"):
-                          st.session_state["council_nav_diag"] = _slrs_wg_name
-                          st.session_state["council_nav_wave"] = None
-                          st.session_state["council_nav_source"] = None
-                          st.toast(f"Navigate to Adaptive Intelligence tab for diagnostics on {_slrs_wg_name}.")
-
-          else:
-              st.markdown("""<div style="background: #151A22; padding: 20px; border-radius: 8px; text-align: center; margin-top: 12px;">
-  <div style="color: #6B7280; font-size: 12px;">No security-level review signals detected under current thresholds.</div>
-  </div>""", unsafe_allow_html=True)
-
-          st.markdown(f"""<div style="color: #6B7280; font-size: 11px; margin: 8px 0 4px 0; text-align: center;">
-  {len(_slrs_filtered)} signal{"s" if len(_slrs_filtered) != 1 else ""} across {len(set(s["wave"] for s in _slrs_filtered)) if _slrs_filtered else 0} wave{"s" if not _slrs_filtered or len(set(s["wave"] for s in _slrs_filtered)) != 1 else ""}.
-  </div>""", unsafe_allow_html=True)
-
-          st.markdown("""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 12px 16px; border-radius: 6px; margin-top: 8px; text-align: center;">
-  <div style="color: #4B5563; font-size: 10px; line-height: 1.7; font-style: italic;">
-  Security-level signals are observational only.<br/>
-  No execution or trade instructions are provided.<br/>
-  Human evaluation required for all decisions.
-  </div>
-  </div>""", unsafe_allow_html=True)
-
-      except Exception:
-          st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
-  <div style="color: #6B7280; font-size: 12px;">No review signals currently active.</div>
-  </div>""", unsafe_allow_html=True)
-
-      # -----------------------------------------------
-
-    # SECTION 1 - Attribution Lab
-    # -----------------------------------------------
-    with st.expander("Attribution Lab", expanded=False):
-        st.markdown("""<div style="padding: 8px 0;">
-<span style="color: #E5E7EB; font-size: 14px; font-weight: 600;">Attribution Lab</span>
-<div style="color: #6B7280; font-size: 11px; margin-top: 4px;">Deep-dive alpha decomposition across horizons and components.</div>
-</div>""", unsafe_allow_html=True)
-
-        if attrib_df is not None and not attrib_df.empty:
-            ref_horizons = sorted(attrib_df["horizon"].dropna().unique().tolist())
-            for rh in ref_horizons:
-                rh_data = attrib_df[attrib_df["horizon"] == rh]
-                st.markdown(f'<div style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; margin: 12px 0 4px 0; font-weight: 600;">{rh}-Day Horizon</div>', unsafe_allow_html=True)
-                component_cols = ["selection_alpha", "momentum_alpha", "volatility_alpha", "regime_alpha", "exposure_alpha", "residual_alpha", "total_alpha"]
-                display_data = []
-                for _, row in rh_data.iterrows():
-                    row_data = {"Wave": row.get("wave", "-")}
-                    for cc in component_cols:
-                        val = row.get(cc, None)
-                        try:
-                            row_data[cc.replace("_", " ").title()] = f"{float(val):.4f}" if val is not None else "-"
-                        except (ValueError, TypeError):
-                            row_data[cc.replace("_", " ").title()] = "-"
-                    display_data.append(row_data)
-                if display_data:
-                    st.dataframe(pd.DataFrame(display_data), width="stretch", hide_index=True)
-        else:
-            st.info("Attribution data not available.")
-
-        st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Attribution Lab provides granular decomposition for institutional review. No execution controls.</div>', unsafe_allow_html=True)
-
-    # -----------------------------------------------
-    # SECTION 2 - Risk Deep-Dive
-    # -----------------------------------------------
-    with st.expander("Risk Deep-Dive Tools", expanded=False):
-        st.markdown("""<div style="padding: 8px 0;">
-<span style="color: #E5E7EB; font-size: 14px; font-weight: 600;">Risk Deep-Dive</span>
-<div style="color: #6B7280; font-size: 11px; margin-top: 4px;">Volatility, drawdown, and risk decomposition analytics.</div>
-</div>""", unsafe_allow_html=True)
-
-        if snapshot_df is not None and not snapshot_df.empty:
-            risk_data = []
-            name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
-            for _, row in snapshot_df.iterrows():
-                try:
-                    risk_data.append({
-                        "Wave": row.get(name_col, "-"),
-                        "Volatility (30D)": f"{float(row.get('volatility_30d', 0) or 0):.2%}",
-                        "Benchmark Vol (30D)": f"{float(row.get('benchmark_volatility_30d', 0) or 0):.2%}",
-                        "Max Drawdown": f"{float(row.get('drawdown_30d', 0) or 0):.2%}",
-                        "Return (30D)": f"{float(row.get('return_30d', 0) or 0):.2%}",
-                        "Return (365D)": f"{float(row.get('return_365d', 0) or 0):.2%}",
-                    })
-                except Exception:
-                    pass
-            if risk_data:
-                st.dataframe(pd.DataFrame(risk_data), width="stretch", hide_index=True)
-        else:
-            st.info("Risk data not available.")
-
-        st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Risk analytics are observational. No position changes or execution controls.</div>', unsafe_allow_html=True)
-
-    # -----------------------------------------------
-    # SECTION 3 - Governance & Audit Archive
-    # -----------------------------------------------
-    with st.expander("Governance & Audit Archive", expanded=False):
-        st.markdown("""<div style="padding: 8px 0;">
-<span style="color: #E5E7EB; font-size: 14px; font-weight: 600;">Governance & Audit Archive</span>
-<div style="color: #6B7280; font-size: 11px; margin-top: 4px;">Historical decision audit trail and governance records.</div>
-</div>""", unsafe_allow_html=True)
-
-        try:
-            dl_path = Path("data/decision_log.json")
-            if dl_path.exists():
-                with open(dl_path, "r") as f:
-                    ref_decisions = json.load(f)
-                if ref_decisions:
-                    for rd in ref_decisions[:20]:
-                        rd_id = rd.get("id", "-")
-                        rd_date = rd.get("timestamp", "-")[:10]
-                        rd_wave = rd.get("wave", "-")
-                        rd_action = rd.get("action", "-")
-                        rd_status = rd.get("status", "-")
-                        status_color = "#48BB78" if rd_status == "approved" else ("#F59E0B" if rd_status == "pending" else "#9EA3AE")
-                        st.markdown(f"""<div style="background: #151A22; border: 1px solid #2A2F3A; border-radius: 6px; padding: 12px 16px; margin-bottom: 8px;">
-<div style="display: flex; justify-content: space-between; align-items: center;">
-<span style="color: #E5E7EB; font-size: 12px; font-weight: 600;">{rd_id}</span>
-<span style="color: {status_color}; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;">{rd_status}</span>
-</div>
-<div style="color: #9EA3AE; font-size: 11px; margin-top: 4px;">{rd_date} · {rd_wave}</div>
-<div style="color: #D1D5DB; font-size: 11px; margin-top: 4px;">{rd_action}</div>
-</div>""", unsafe_allow_html=True)
-                else:
-                    st.info("No governance records recorded during the current observation window.")
-            else:
-                st.info("Decision log not available.")
-        except Exception:
-            st.info("Unable to load governance records.")
-
-        st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Governance records are immutable and observational. No modifications are possible from this surface.</div>', unsafe_allow_html=True)
-
-    # -----------------------------------------------
-    # SECTION 4 - Historical Diagnostics
-    # -----------------------------------------------
-    with st.expander("Historical Diagnostics", expanded=False):
-        st.markdown("""<div style="padding: 8px 0;">
-<span style="color: #E5E7EB; font-size: 14px; font-weight: 600;">Historical Diagnostics</span>
-<div style="color: #6B7280; font-size: 11px; margin-top: 4px;">Time-series analysis of portfolio behavior and system metrics.</div>
-</div>""", unsafe_allow_html=True)
-
-        try:
-            prices_path = Path("data/prices.csv")
-            if prices_path.exists():
-                hist_df = pd.read_csv(prices_path, parse_dates=["date"])
-                hist_tickers = sorted(hist_df["ticker"].unique().tolist())
-                st.markdown(f'<div style="color: #9EA3AE; font-size: 11px; margin-bottom: 8px;">{len(hist_tickers)} instruments tracked · {len(hist_df)} data points</div>', unsafe_allow_html=True)
-
-                for ht in hist_tickers[:5]:
-                    ht_data = hist_df[hist_df["ticker"] == ht].tail(60)
-                    if len(ht_data) > 5:
-                        import altair as alt
-                        ht_chart = alt.Chart(ht_data).mark_line(color="#3A6FF7", strokeWidth=1.5).encode(
-                            x=alt.X("date:T", title=None, axis=alt.Axis(labelColor="#6B7280", gridColor="#1E2530")),
-                            y=alt.Y("close:Q", title="Price", axis=alt.Axis(labelColor="#6B7280", gridColor="#1E2530")),
-                            tooltip=[alt.Tooltip("date:T"), alt.Tooltip("close:Q", format=".2f")]
-                        ).properties(title=alt.Title(text=ht, color="#E5E5E5"), height=120).configure_view(stroke=None).configure(background="transparent")
-                        st.altair_chart(ht_chart, width="stretch")
-            else:
-                st.info("Historical price data not available.")
-        except Exception as e:
-            st.info(f"Historical diagnostics unavailable.")
-
-        st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Historical diagnostics are observational and non-executing.</div>', unsafe_allow_html=True)
-
-    # -----------------------------------------------
-    # SECTION 5 - Parameter Sensitivity Reference
-    # -----------------------------------------------
-    with st.expander("Parameter Sensitivity Reference", expanded=False):
-        st.markdown("""<div style="padding: 8px 0;">
-<span style="color: #E5E7EB; font-size: 14px; font-weight: 600;">Parameter Sensitivity Reference</span>
-<div style="color: #6B7280; font-size: 11px; margin-top: 4px;">System parameter review and threshold diagnostics.</div>
-</div>""", unsafe_allow_html=True)
-
-        try:
-            adaptive_ref = al.load_adaptive_state()
-            ref_thresholds = adaptive_ref.get("adaptive_thresholds", adaptive_ref.get("thresholds", {}))
-            if ref_thresholds:
-                ref_th_data = [{"Parameter": k.replace("_", " ").title(), "Value": str(v)} for k, v in ref_thresholds.items()]
-                st.dataframe(pd.DataFrame(ref_th_data), width="stretch", hide_index=True)
-            else:
-                st.info("No adaptive thresholds recorded during the current observation window.")
-        except Exception:
-            st.info("Parameter sensitivity data unavailable.")
-
-        st.markdown('<div style="color: #4B5563; font-size: 10px; font-style: italic; margin-top: 8px;">Parameter reference is observational. System parameters are governed and may not be modified from this surface.</div>', unsafe_allow_html=True)
-
-    st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 20px 0 0 0; font-style: italic; text-align: center;">
-Reference views are read-only and observational. No execution controls are available. All outputs require human review.
-</div>""", unsafe_allow_html=True)
-    st.caption("End of Reference · All views are observational and non-executing")
-
-if _signal_route_active:
-    _route_target = _DRI_TAB_INDEX
-    st.html(f"""
-    <script>
-    (function() {{
-        var targetText = "Decision Review";
-        var targetIdx = {_route_target};
-        function findAndClickTab() {{
-            var tabs = document.querySelectorAll('[data-baseweb="tab"]');
-            if (!tabs || tabs.length === 0) tabs = document.querySelectorAll('[role="tab"]');
-            if (!tabs || tabs.length === 0) tabs = document.querySelectorAll('.stTabs [data-baseweb="tab-list"] button');
-            if (!tabs || tabs.length === 0) return false;
-            for (var i = 0; i < tabs.length; i++) {{
-                var txt = tabs[i].textContent || tabs[i].innerText || "";
-                if (txt.indexOf(targetText) !== -1) {{
-                    tabs[i].click();
-                    return true;
-                }}
-            }}
-            if (tabs.length > targetIdx) {{
-                tabs[targetIdx].click();
-                return true;
-            }}
-            return false;
-        }}
-        function attempt(tries) {{
-            if (tries <= 0) return;
-            if (!findAndClickTab()) {{
-                setTimeout(function() {{ attempt(tries - 1); }}, 500);
-            }} else {{
-                setTimeout(function() {{
-                    var el = document.querySelector('.signal-nav-banner');
-                    if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-                }}, 500);
-            }}
-        }}
-        setTimeout(function() {{ attempt(15); }}, 300);
-    }})();
-    </script>
-    """, unsafe_allow_javascript=True)
-
-# ============================================================
-# TAB: Decision Forensics & Sandbox
-# ============================================================
-if TAB_INDEX.get('Decision Forensics & Sandbox') is not None:
-  with tabs[TAB_INDEX['Decision Forensics & Sandbox']]:
-    try:
-        from helpers.decision_forensics import (
-            load_decision_log,
-            load_wave_registry,
-            get_decision_by_id,
-            reconstruct_decision_snapshot,
-        )
-        from helpers.decision_context_snapshot import get_decision_context_snapshot
-
-        st.markdown("""<div style="background:#0D1117;border:1px solid #1E2530;padding:20px 24px;border-radius:8px;margin-bottom:16px;">
-<div style="color:#E5E5E5;font-size:16px;font-weight:700;letter-spacing:0.02em;">Decision Forensics & Sandbox</div>
-<div style="color:#6B7280;font-size:11px;margin-top:4px;">Searchable governance audit replay and deterministic governance comparison.</div>
-</div>""", unsafe_allow_html=True)
-
-        if SANDBOX_MODE:
-            sandbox_log_event("tab_view", {"tab": "Decision Forensics & Sandbox"})
-
-        st.markdown("""<div style="color:#9EA3AE;font-size:11px;line-height:1.6;padding:8px 0;">
-This environment enables institutional audit, training, and reconstruction of governance decisions under controlled, non-executing conditions.
-</div>""", unsafe_allow_html=True)
-
-        _df_decisions = load_decision_log()
-
-        st.markdown('<div style="color:#9EA3AE;font-size:11px;font-weight:600;letter-spacing:0.04em;margin:16px 0 8px 0;">SEARCH & FILTER</div>', unsafe_allow_html=True)
-
-        _df_fc1, _df_fc2, _df_fc3 = st.columns(3)
-
-        _df_registry_waves = load_wave_registry()
-        _df_wave_options = ["All", "Portfolio"] + _df_registry_waves
-        _df_statuses = sorted(set(d.get("approval_status", d.get("status", "Unknown")) for d in _df_decisions)) if _df_decisions else []
-
-        with _df_fc1:
-            _df_sel_wave = st.selectbox("Filter by Wave", _df_wave_options, key="df_wave_filter")
-        with _df_fc2:
-            _df_sel_status = st.selectbox("Filter by Status", ["All"] + _df_statuses, key="df_status_filter")
-
-        _df_filtered = [
-            d for d in _df_decisions
-            if (
-                (_df_sel_wave == "All" or d.get("wave") == _df_sel_wave)
-                and
-                (_df_sel_status == "All" or d.get("approval_status", d.get("status")) == _df_sel_status)
-            )
-        ]
-
-        _df_filtered_ids = [d.get("id") for d in _df_filtered if d.get("id")]
-
-        if not _df_filtered_ids:
-            with _df_fc3:
-                st.selectbox("Select Decision ID", ["No decisions"], key="df_id_select", disabled=True)
-            if _df_sel_wave != "All":
-                st.info("No governance decisions recorded during the current observation window.")
-        else:
-            with _df_fc3:
-                _df_sel_id = st.selectbox("Select Decision ID", _df_filtered_ids, key="df_id_select")
-
-        if _df_filtered:
-            _df_table_data = []
-            for d in _df_filtered:
-                _df_table_data.append({
-                    "Decision ID": d.get("id", "\u2014"),
-                    "Wave": d.get("wave", "\u2014"),
-                    "Decision Type": d.get("decision_type", "\u2014"),
-                    "Regime at Decision": d.get("regime_at_decision", "\u2014"),
-                    "Status": d.get("approval_status", d.get("status", "\u2014")),
-                    "Timestamp": d.get("approval_timestamp", d.get("timestamp", "\u2014")),
-                })
-
-            _df_table_df = pd.DataFrame(_df_table_data)
-            st.dataframe(_df_table_df, hide_index=True, width="stretch")
-        else:
-            st.markdown('<div style="color:#6B7280;font-size:11px;padding:12px;background:#151A22;border-radius:6px;">No decisions found matching the selected filters.</div>', unsafe_allow_html=True)
-
-        st.markdown("---")
-
-        st.markdown('<div style="color:#9EA3AE;font-size:11px;font-weight:600;letter-spacing:0.04em;margin:8px 0;">DECISION REPLAY - IMMUTABLE CONTEXT</div>', unsafe_allow_html=True)
-
-        _df_selected_decision = None
-        if _df_filtered_ids:
-            _df_cur_sel = st.session_state.get("df_id_select")
-            if _df_cur_sel and _df_cur_sel in _df_filtered_ids:
-                _df_selected_decision = get_decision_by_id(_df_cur_sel)
-
-        if _df_selected_decision:
-            _df_snap = reconstruct_decision_snapshot(_df_selected_decision)
-
-            st.markdown('<div style="color:#6B7280;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:8px;">Replay Context \u2014 Read Only</div>', unsafe_allow_html=True)
-
-            _df_snap_id = _df_snap.get("decision_id", "\u2014")
-            _df_snap_wave = _df_snap.get("wave", "\u2014")
-            _df_snap_type = _df_snap.get("decision_type", "\u2014")
-            _df_snap_regime = _df_snap.get("regime_at_decision", "\u2014")
-            _df_snap_conf = _df_snap.get("confidence", "\u2014")
-            _df_snap_status = _df_snap.get("approval_status", "\u2014")
-            _df_snap_ts = _df_snap.get("approval_timestamp", "\u2014")
-            _df_snap_ctx = _df_snap.get("signal_context", {})
-
-            _df_ctx_str = json.dumps(_df_snap_ctx, indent=2) if _df_snap_ctx else "No signal context recorded."
-
-            st.markdown(f"""<div style="background:#151A22;border:1px solid #2A2F3A;border-radius:6px;padding:16px 20px;margin-bottom:12px;">
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-<div style="color:#6B7280;font-size:10px;">Decision ID: <span style="color:#C9CDD4;font-weight:600;">{_df_snap_id}</span></div>
-<div style="color:#6B7280;font-size:10px;">Wave: <span style="color:#C9CDD4;font-weight:600;">{_df_snap_wave}</span></div>
-<div style="color:#6B7280;font-size:10px;">Decision Type: <span style="color:#C9CDD4;font-weight:600;">{_df_snap_type}</span></div>
-<div style="color:#6B7280;font-size:10px;">Regime State: <span style="color:#C9CDD4;font-weight:600;">{_df_snap_regime}</span></div>
-<div style="color:#6B7280;font-size:10px;">Confidence: <span style="color:#C9CDD4;font-weight:600;">{_df_snap_conf}</span></div>
-<div style="color:#6B7280;font-size:10px;">Approval Status: <span style="color:#C9CDD4;font-weight:600;">{_df_snap_status}</span></div>
-<div style="color:#6B7280;font-size:10px;">Approval Timestamp: <span style="color:#C9CDD4;font-weight:600;">{_df_snap_ts}</span></div>
-</div>
-</div>""", unsafe_allow_html=True)
-
-            with st.expander("Signal Context (JSON)", expanded=False):
-                st.code(_df_ctx_str, language="json")
-
-            st.markdown('<div style="color:#9EA3AE;font-size:11px;font-weight:600;letter-spacing:0.04em;margin:12px 0 8px 0;">DECISION CONTEXT SNAPSHOT (IMMUTABLE)</div>', unsafe_allow_html=True)
-            _df_imm_snap = get_decision_context_snapshot(_df_snap_id)
-            if _df_imm_snap:
-                _df_imm_regime = _df_imm_snap.get("market_regime") or "\u2014"
-                _df_imm_vol = _df_imm_snap.get("volatility_state") or "\u2014"
-                _df_imm_alpha = _df_imm_snap.get("alpha_state") or "\u2014"
-                _df_imm_driver = _df_imm_snap.get("dominant_driver") or "\u2014"
-                _df_imm_align = _df_imm_snap.get("cross_horizon_alignment") or "\u2014"
-                _df_imm_signals = _df_imm_snap.get("active_review_signals")
-                _df_imm_signals_str = str(_df_imm_signals) if _df_imm_signals is not None else "\u2014"
-                _df_imm_wsd = _df_imm_snap.get("wave_status_distribution", {})
-                _df_imm_stable = _df_imm_wsd.get("stable")
-                _df_imm_trans = _df_imm_wsd.get("transitional")
-                _df_imm_stress = _df_imm_wsd.get("stressed")
-                _df_dash = "\u2014"
-                _df_imm_stable_s = str(_df_imm_stable) if _df_imm_stable is not None else _df_dash
-                _df_imm_trans_s = str(_df_imm_trans) if _df_imm_trans is not None else _df_dash
-                _df_imm_stress_s = str(_df_imm_stress) if _df_imm_stress is not None else _df_dash
-                _df_imm_wsd_str = f"Stable: {_df_imm_stable_s} \u00b7 Transitional: {_df_imm_trans_s} \u00b7 Stressed: {_df_imm_stress_s}"
-
-                st.markdown(f"""<div style="background:#151A22;border:1px solid #2A2F3A;border-radius:6px;padding:16px 20px;margin-bottom:12px;">
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-<div style="color:#6B7280;font-size:10px;">Market Regime: <span style="color:#C9CDD4;font-weight:600;">{_df_imm_regime}</span></div>
-<div style="color:#6B7280;font-size:10px;">Volatility State: <span style="color:#C9CDD4;font-weight:600;">{_df_imm_vol}</span></div>
-<div style="color:#6B7280;font-size:10px;">Alpha State: <span style="color:#C9CDD4;font-weight:600;">{_df_imm_alpha}</span></div>
-<div style="color:#6B7280;font-size:10px;">Dominant Driver: <span style="color:#C9CDD4;font-weight:600;">{_df_imm_driver}</span></div>
-<div style="color:#6B7280;font-size:10px;">Cross-Horizon Alignment: <span style="color:#C9CDD4;font-weight:600;">{_df_imm_align}</span></div>
-<div style="color:#6B7280;font-size:10px;">Active Review Signals: <span style="color:#C9CDD4;font-weight:600;">{_df_imm_signals_str}</span></div>
-</div>
-<div style="color:#6B7280;font-size:10px;margin-top:10px;">Wave Status Distribution: <span style="color:#C9CDD4;font-weight:600;">{_df_imm_wsd_str}</span></div>
-</div>""", unsafe_allow_html=True)
-            else:
-                st.markdown('<div style="color:#6B7280;font-size:11px;padding:12px;background:#151A22;border-radius:6px;">Historical context snapshot not recorded for this decision.</div>', unsafe_allow_html=True)
-
-            st.markdown("---")
-
-            st.markdown('<div style="color:#9EA3AE;font-size:11px;font-weight:600;letter-spacing:0.04em;margin:8px 0;">DETERMINISTIC SANDBOX (NON-EXECUTING)</div>', unsafe_allow_html=True)
-            st.markdown('<div style="color:#6B7280;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:8px;">Observational Simulation \u2014 Does Not Alter Governance History</div>', unsafe_allow_html=True)
-
-            st.markdown('<div style="color:#9EA3AE;font-size:11px;font-weight:600;letter-spacing:0.04em;margin:16px 0 8px 0;">DETERMINISTIC GOVERNANCE COMPARISON</div>', unsafe_allow_html=True)
-
-            _df_gov_comp_html = """<table style="width:100%;border-collapse:collapse;font-size:11px;">
-<tr style="border-bottom:1px solid #2A2F3A;">
-<th style="color:#6B7280;font-size:10px;text-align:left;padding:8px 6px;font-weight:600;">Scenario</th>
-<th style="color:#6B7280;font-size:10px;text-align:left;padding:8px 6px;font-weight:600;">Governance State</th>
-<th style="color:#6B7280;font-size:10px;text-align:left;padding:8px 6px;font-weight:600;">Structural Interpretation</th>
-</tr>
-<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-<td style="color:#C9CDD4;padding:8px 6px;font-weight:500;">Approved</td>
-<td style="color:#9EA3AE;padding:8px 6px;">Governance action recorded</td>
-<td style="color:#9EA3AE;padding:8px 6px;">Baseline historical path</td>
-</tr>
-<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-<td style="color:#C9CDD4;padding:8px 6px;font-weight:500;">Deferred</td>
-<td style="color:#9EA3AE;padding:8px 6px;">Governance delayed</td>
-<td style="color:#9EA3AE;padding:8px 6px;">No structural modification</td>
-</tr>
-<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-<td style="color:#C9CDD4;padding:8px 6px;font-weight:500;">Rejected</td>
-<td style="color:#9EA3AE;padding:8px 6px;">Governance not applied</td>
-<td style="color:#9EA3AE;padding:8px 6px;">Baseline maintained</td>
-</tr>
-</table>"""
-            st.markdown(_df_gov_comp_html, unsafe_allow_html=True)
-
-            st.markdown('<div style="color:#6B7280;font-size:10px;margin-top:8px;font-style:italic;">Governance comparison is deterministic and structural. No performance estimates, alpha impact, or projections are provided.</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="color:#6B7280;font-size:11px;padding:12px;background:#151A22;border-radius:6px;">Select a Decision ID above to view replay context and governance comparison.</div>', unsafe_allow_html=True)
-
-        st.markdown("---")
-
-        st.markdown("""<div style="background:#0D1117;border:1px solid #1E2530;padding:14px 20px;border-radius:6px;margin-top:8px;">
-<div style="color:#6B7280;font-size:10px;line-height:1.6;">
-This console provides forensic replay and deterministic governance comparison of recorded decisions.
-All views are non-executing and do not alter strategy state, governance logs, or capital allocation.
-This environment is intended for institutional audit, training, and governance review purposes only.
-</div>
-</div>""", unsafe_allow_html=True)
-
-        st.markdown("""<div style="color:#4B5563;font-size:9px;text-align:center;margin:8px 0 0 0;letter-spacing:0.02em;">
-Data Sources: Market data, portfolio attribution, and governance records. Observational only · Read-only · Non-executing.
-</div>""", unsafe_allow_html=True)
-
-    except Exception as _df_err:
-        st.markdown(f'<div style="color:#6B7280;font-size:11px;padding:12px;background:#151A22;border-radius:6px;">Decision Forensics module unavailable: {_df_err}</div>', unsafe_allow_html=True)
+                       'BDX', 'CI', 'SLB', 'EOG', 'USB', 
