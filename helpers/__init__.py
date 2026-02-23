@@ -1,7 +1,8 @@
 """
 Helpers Package - Pure Utility Functions
 
-This package provides computational helpers and utilities that do not depend on Streamlit.
+This package provides computational helpers and utilities that do not depend
+on Streamlit.
 
 For Streamlit-specific UI components, import explicitly:
     - from helpers.ticker_rail import render_bottom_ticker_v3
@@ -10,9 +11,9 @@ For Streamlit-specific UI components, import explicitly:
 Core utilities (non-UI) are safe to import without Streamlit installed.
 """
 
-# ============================================================
-# CORE NON-UI UTILITIES
-# ============================================================
+# ---------------------------------------------------------------------
+# Core non-UI utility functions (safe for CI + pytest environments)
+# ---------------------------------------------------------------------
 
 from .ticker_sources import (
     get_wave_holdings_tickers,
@@ -24,13 +25,14 @@ from .ticker_sources import (
     test_ticker_fetch,
 )
 
-# ✅ REQUIRED FOR CI — expose benchmark computation
+# ✅ REQUIRED FOR CI — exposes benchmark function to test runner
 from .wave_performance import compute_portfolio_composite_benchmark
 
 
-# ============================================================
-# OPTIONAL RESILIENCE FEATURES
-# ============================================================
+# ---------------------------------------------------------------------
+# Optional resilience utilities
+# These may not exist in minimal CI environments
+# ---------------------------------------------------------------------
 
 try:
     from .circuit_breaker import get_circuit_breaker, get_all_circuit_states
@@ -41,12 +43,12 @@ except ImportError:
     RESILIENCE_FEATURES_AVAILABLE = False
 
 
-# ============================================================
-# PUBLIC EXPORTS
-# ============================================================
+# ---------------------------------------------------------------------
+# Public package exports
+# ---------------------------------------------------------------------
 
 __all__ = [
-    # ticker data utilities
+    # Ticker data utilities
     "get_wave_holdings_tickers",
     "get_ticker_price_data",
     "get_earnings_date",
@@ -55,7 +57,7 @@ __all__ = [
     "get_ticker_health_status",
     "test_ticker_fetch",
 
-    # ✅ expose composite benchmark for CI + integrations
+    # ✅ Composite benchmark (CI requirement)
     "compute_portfolio_composite_benchmark",
 ]
 
@@ -69,11 +71,10 @@ if RESILIENCE_FEATURES_AVAILABLE:
     )
 
 
-# ============================================================
-# NOTES
-# ============================================================
-
-# Streamlit UI components must be imported explicitly:
+# ---------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------
+# Streamlit UI components MUST be imported explicitly:
 #
 #   from helpers.ticker_rail import render_bottom_ticker_v3
 #   from helpers.data_health_panel import (
@@ -81,4 +82,4 @@ if RESILIENCE_FEATURES_AVAILABLE:
 #       render_compact_health_indicator,
 #   )
 #
-# This prevents Streamlit from being required during CI testing.
+# This keeps CI environments lightweight and prevents Streamlit import errors.
