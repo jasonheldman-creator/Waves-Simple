@@ -11,3 +11,6 @@ scipy>=1.10.0
 python-pptx>=0.6.21
 requests>=2.31.0
 alpaca-py>=0.8.2
+alpaca-py>=0.30.0
+yfinance
+pyarrow>=15.0.0
