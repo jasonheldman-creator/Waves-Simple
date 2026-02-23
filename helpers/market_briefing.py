@@ -173,7 +173,8 @@ def compute_volatility_stress_assessment(prices):
     """Return volatility stress assessment dict."""
     if not prices:
         return {"level": "Unknown", "score": 0.0, "description": "No price data available.",
-                "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral"}
+                "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
+                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": False}
     vols = []
     vov_readings = []
     dd_readings = []
@@ -185,7 +186,8 @@ def compute_volatility_stress_assessment(prices):
             dd_readings.append(compute_drawdown(series))
     if not vols:
         return {"level": "Unknown", "score": 0.0, "description": "Insufficient data.",
-                "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral"}
+                "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
+                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": False}
     avg_vol = (sum(vols) / len(vols)) if vols else 0.15
     avg_vov = (sum(vov_readings) / len(vov_readings)) if vov_readings else 0.03
     worst_dd = min(dd_readings) if dd_readings else -0.03
@@ -221,6 +223,7 @@ def compute_volatility_stress_assessment(prices):
             elif spy_vol_short < spy_vol_long * 0.8:
                 trend = "Subsiding"
 
+    cross_asset_agreement = len(vols) >= 3
     score = round(min(100.0, avg_vol * 300.0), 2)
     level = "High" if avg_vol > 0.30 else ("Medium" if avg_vol > 0.15 else "Low")
     return {
@@ -233,6 +236,7 @@ def compute_volatility_stress_assessment(prices):
         "avg_vol": avg_vol,
         "avg_vov": avg_vov,
         "worst_dd": worst_dd,
+        "cross_asset_agreement": cross_asset_agreement,
     }
 
 
