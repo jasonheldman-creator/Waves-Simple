@@ -11031,7 +11031,7 @@ Security Intelligence is observational only - no recommendations, price targets,
                  "Tailwind conditions for trend strategies" if mi_vol_assess["opportunity_context"] == "Tailwind" else ("Headwind for trend strategies" if mi_vol_assess["opportunity_context"] == "Headwind" else "Neutral backdrop")),
                 ("Stress Probability", f"{mi_vol_assess['stress_level']} · {mi_vol_assess['trend']}", 
                  "#48BB78" if mi_vol_assess["stress_level"] == "Low" else ("#F59E0B" if mi_vol_assess["stress_level"] == "Moderate" else "#EF4444"),
-                 f"Realized vol: {mi_vol_assess['avg_vol']*100:.1f}% · Max DD: {mi_vol_assess['worst_dd']*100:.1f}%"),
+                 f"Realized vol: {mi_vol_assess.get('avg_vol', 0.0)*100:.1f}% · Max DD: {mi_vol_assess.get('worst_dd', 0.0)*100:.1f}%"),
         ]
         for i, (label, value, color, detail) in enumerate(mi_vs_items):
             with mi_vs_cols[i]:
@@ -11043,9 +11043,9 @@ Security Intelligence is observational only - no recommendations, price targets,
 
         mi_vol_detail_items = []
         mi_vol_detail_items.append(f"Realized volatility acceleration: {'Increasing' if mi_vol_assess['trend'] == 'Rising' else ('Decreasing' if mi_vol_assess['trend'] == 'Subsiding' else 'Stable')}")
-        mi_vol_detail_items.append(f"Recent drawdown clustering: {'Detected' if mi_vol_assess['worst_dd'] < -0.07 else 'Not detected'}")
-        mi_vol_detail_items.append(f"Cross-asset volatility agreement: {'Aligned' if mi_vol_assess['cross_asset_agreement'] else 'Divergent'}")
-        mi_vol_detail_items.append(f"Volatility-of-volatility: {mi_vol_assess['avg_vov']:.4f}")
+        mi_vol_detail_items.append(f"Recent drawdown clustering: {'Detected' if mi_vol_assess.get('worst_dd', 0.0) < -0.07 else 'Not detected'}")
+        mi_vol_detail_items.append(f"Cross-asset volatility agreement: {'Aligned' if mi_vol_assess.get('cross_asset_agreement', False) else 'Divergent'}")
+        mi_vol_detail_items.append(f"Volatility-of-volatility: {mi_vol_assess.get('avg_vov', 0.0):.4f}")
 
         detail_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 12px 16px; border-radius: 6px; margin-top: 12px;">'
         for item in mi_vol_detail_items:
@@ -11359,9 +11359,9 @@ Headlines are provided for informational context only. WAVES does not interpret,
                 ("Market Regime", mi_regime_computed),
                 ("Vol Stress Level", mi_vol_assess["stress_level"]),
                 ("Vol Trend", mi_vol_assess["trend"]),
-                ("Avg Realized Vol", f"{mi_vol_assess['avg_vol']*100:.1f}%"),
-                ("Vol-of-Vol", f"{mi_vol_assess['avg_vov']:.4f}"),
-                ("Max Drawdown (30D)", f"{mi_vol_assess['worst_dd']*100:.1f}%"),
+                ("Avg Realized Vol", f"{mi_vol_assess.get('avg_vol', 0.0)*100:.1f}%"),
+                ("Vol-of-Vol", f"{mi_vol_assess.get('avg_vov', 0.0):.4f}"),
+                ("Max Drawdown (30D)", f"{mi_vol_assess.get('worst_dd', 0.0)*100:.1f}%"),
                 ("Breadth Class", mi_breadth_assess["classification"]),
                 ("Above 50DMA", f"{mi_breadth_assess['above_50']}/{mi_breadth_assess['total_tracked']}"),
                 ("Above 200DMA", f"{mi_breadth_assess['above_200']}/{mi_breadth_assess['total_tracked']}"),
