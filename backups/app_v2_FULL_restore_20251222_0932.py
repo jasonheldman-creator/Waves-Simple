@@ -5997,10 +5997,10 @@ def render_attribution_tab():
     st.markdown("""
     **Precise, reconciled decomposition of Wave alpha into actionable components:**
     
-    1️⃣ **Stock Selection Alpha** — Wave return vs benchmark return differential  
-    2️⃣ **Overlay Alpha** — VIX gating, exposure scaling, and SmartSafe features  
-    3️⃣ **Beta/Exposure Drift** — Target vs realized exposure impact  
-    4️⃣ **Residual Alpha** — Unexplained deviation and other factors
+    1️⃣ **Stock Selection Alpha** - Wave return vs benchmark return differential  
+    2️⃣ **Overlay Alpha** - VIX gating, exposure scaling, and SmartSafe features  
+    3️⃣ **Beta/Exposure Drift** - Target vs realized exposure impact  
+    4️⃣ **Residual Alpha** - Unexplained deviation and other factors
     
     **Reconciliation:** All components sum to total realized Wave alpha.
     """)

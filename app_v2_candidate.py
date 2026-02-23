@@ -26,7 +26,7 @@ import decision_engine as de
 
 # Page configuration
 st.set_page_config(
-    page_title="WAVES Intelligence™ — V2 CANDIDATE (EXPERIMENTAL)",
+    page_title="WAVES Intelligence™ - V2 CANDIDATE (EXPERIMENTAL)",
     page_icon="⚠️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -177,7 +177,7 @@ st.sidebar.caption("⚠️ EXPERIMENTAL - NOT FOR PRODUCTION USE")
 
 st.title("⚠️ WAVES Intelligence™ V2 Candidate (EXPERIMENTAL)")
 st.warning("**EXPERIMENTAL VERSION** - This is NOT the production console. For production use, run: `streamlit run app.py`")
-st.caption(f"**{selected_wave}** — {selected_mode} Mode — {selected_days}D Window")
+st.caption(f"**{selected_wave}** - {selected_mode} Mode - {selected_days}D Window")
 
 # Create tabs
 tabs = st.tabs([
@@ -665,6 +665,6 @@ with tabs[5]:
 # ============================================================
 
 st.markdown("---")
-st.caption("WAVES Intelligence™ V2 Candidate — ⚠️ EXPERIMENTAL VERSION")
+st.caption("WAVES Intelligence™ V2 Candidate - ⚠️ EXPERIMENTAL VERSION")
 st.caption("This is NOT the production console. Use app.py for production.")
 st.caption("This is not investment advice. For institutional use only.")

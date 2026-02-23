@@ -20,6 +20,42 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install -r requirements.txt pytest
+      
+      - name: Run dynamic benchmarks validation
+        id: validation
+        run: |
+          python validate_dynamic_benchmarks.py
+      
+      - name: Run integration tests
+        id: tests
+        run: |
+          pytest test_dynamic_benchmarks_integration.py -v
+      
+      - name: Validation summary
+        if: always()
+        run: |
+          echo "## Dynamic Benchmarks Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration Validation" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.validation.outcome }}" == "success" ]; then
+            echo "✅ All 10 equity waves have valid dynamic benchmarks" >> $GITHUB_STEP_SUMMARY
+            echo "✅ S&P 500 Wave correctly excluded" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All benchmark weights sum to 1.0" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All tickers available in cache" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Configuration validation failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Integration Tests" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.tests.outcome }}" == "success" ]; then
+            echo "✅ All integration tests passed" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Benchmark series compute correctly" >> $GITHUB_STEP_SUMMARY
+            echo "✅ No all-NaN benchmarks" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Benchmark alignment verified" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Integration tests failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
           python -m pip install --upgrade pip
           pip install pytest
 

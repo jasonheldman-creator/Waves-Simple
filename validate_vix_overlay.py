@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# validate_vix_overlay.py — Quick validation that VIX/regime overlay is active
+# validate_vix_overlay.py - Quick validation that VIX/regime overlay is active
 #
 # This script proves that the VIX/regime overlay is materially affecting
 # equity Wave returns by showing exposure scaling in action.

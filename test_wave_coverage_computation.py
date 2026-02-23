@@ -148,7 +148,7 @@ def test_ticker_normalization_in_coverage():
     # Create test wave weights with various ticker formats
     weights_data = {
         'wave': ['Test Wave'] * 4,
-        'ticker': ['brk.b', 'BRK–B', 'BRK—B', 'AAPL'],  # Different formats, first 3 should normalize to same
+        'ticker': ['brk.b', 'BRK\u2013B', 'BRK\u2014B', 'AAPL'],  # Different formats, first 3 should normalize to same
         'weight': [0.25, 0.25, 0.25, 0.25]
     }
     weights_df = pd.DataFrame(weights_data)

@@ -1,3 +1,6 @@
+# ============================================================================
+# INTRADAY-AWARE PRICE BOOK (24/7 - INSTITUTIONAL SAFE)
+# ============================================================================
 # helpers/wave_performance.py
 
 import pandas as pd

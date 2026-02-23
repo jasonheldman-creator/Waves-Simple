@@ -1,5 +1,5 @@
 """
-PRICE_BOOK — Canonical Price Source of Truth
+PRICE_BOOK - Canonical Price Source of Truth
 
 This module is the ONLY authoritative source of price data for the system.
 All pricing, readiness, diagnostics, governance, and execution intelligence
@@ -61,7 +61,7 @@ PRICE_CACHE_OK_DAYS = int(os.getenv("PRICE_CACHE_OK_DAYS", "14"))
 PRICE_CACHE_DEGRADED_DAYS = int(os.getenv("PRICE_CACHE_DEGRADED_DAYS", "30"))
 
 if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
-    logger.warning("Invalid cache thresholds — resetting to defaults")
+    logger.warning("Invalid cache thresholds - resetting to defaults")
     PRICE_CACHE_OK_DAYS = 14
     PRICE_CACHE_DEGRADED_DAYS = 30
 
@@ -236,7 +236,7 @@ def rebuild_price_cache(
         return {
             "allowed": False,
             "success": False,
-            "message": "LIVE_DATA_ENABLED=false — network fetch blocked",
+            "message": "LIVE_DATA_ENABLED=false - network fetch blocked",
         }
 
     required = _get_required_tickers(active_only=active_only)
@@ -302,7 +302,7 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
         "missing_count": len(missing),
         "total_required": len(required),
         "days_stale": days_stale,
-        "details": f"{status} — {coverage_pct:.1f}% coverage",
+        "details": f"{status} - {coverage_pct:.1f}% coverage",
     }
 
 

@@ -169,7 +169,7 @@ def generate_live_snapshot() -> None:
 
     if df.empty:
         logger.critical(
-            "NO VALID WAVES COMPUTED — writing headers only to live_snapshot.csv"
+            "NO VALID WAVES COMPUTED - writing headers only to live_snapshot.csv"
         )
         df.to_csv(OUTPUT_PATH, index=False)
         return

@@ -23,6 +23,15 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install -r requirements.txt pytest
+      
+      - name: Run portfolio composite benchmark validation
+        id: validation
+        run: |
+          python validate_portfolio_composite_benchmark.py
+      
+      - name: Run integration tests
+        id: tests
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt

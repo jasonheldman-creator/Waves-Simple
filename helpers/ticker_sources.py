@@ -42,7 +42,7 @@ except Exception:
 # QUICK FIX: Normalize + block known-bad tickers
 # ============================================================================
 
-# Keep this EXACT name — other modules may reference it.
+# Keep this EXACT name - other modules may reference it.
 BLOCKLIST_TICKERS: Set[str] = {
     # These have been repeatedly failing / causing yfinance noise
     # Note: COMP-USD and IMX-USD are required by active waves, so they cannot be blocklisted
@@ -124,7 +124,7 @@ def get_wave_holdings_tickers(
     """
     Extract tickers from universal_universe.csv (preferred) with safe fallbacks.
 
-    This must NEVER raise — it feeds UI elements and health checks.
+    This must NEVER raise - it feeds UI elements and health checks.
     """
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))

@@ -1,6 +1,6 @@
 """
 patch_waves_ic_scores_002.py
-WAVES IC: Remove letter grades (A–F) from tiles and show 0–100 score instead.
+WAVES IC: Remove letter grades (A-F) from tiles and show 0-100 score instead.
 
 Why this works:
 - Your letters (A/F) are already baked into the displayed tile value.
@@ -82,7 +82,7 @@ def main():
 
     inject = f"""
 {indent}    # --- WAVES_PATCH_SCORE_TILES_V1 ---
-{indent}    # Auto-convert letter grades (A–F) into numeric 0–100 score when subtitle includes '/100'.
+{indent}    # Auto-convert letter grades (A-F) into numeric 0-100 score when subtitle includes '/100'.
 {indent}    # Example:
 {indent}    #   tile("Beta Reliability", "F", "53.7/100 · β 0.75 tgt 1.00")
 {indent}    # becomes:
@@ -112,7 +112,7 @@ def main():
     new_src = src[:end_idx] + inject + src[end_idx:]
 
     APP_PATH.write_text(new_src, encoding="utf-8")
-    print("✅ DONE. Letter-grade tiles will now display numeric 0–100 scores.\n")
+    print("✅ DONE. Letter-grade tiles will now display numeric 0-100 scores.\n")
     print("Next: reload Streamlit. If anything looks off, restore from the .bak_ file created above.")
 
 

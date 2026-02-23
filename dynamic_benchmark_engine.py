@@ -1,5 +1,5 @@
 """
-dynamic_benchmark_engine.py — WAVES Dynamic Benchmark Attribution
+dynamic_benchmark_engine.py - WAVES Dynamic Benchmark Attribution
 
 Purpose:
 • Decompose alpha into benchmark-related components

@@ -17,7 +17,7 @@ rows = []
 
 for wave in waves:
     # You can tweak these if you want different profiles per wave
-    port_mu = 0.0005   # ~+12–13% annualized
+    port_mu = 0.0005   # ~+12-13% annualized
     port_sigma = 0.01  # daily volatility
 
     bench_mu = 0.0004  # ~+10% annualized

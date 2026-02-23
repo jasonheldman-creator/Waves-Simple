@@ -1,4 +1,4 @@
-# alpha_attribution.py — WAVES Intelligence™ Alpha Attribution Engine
+# alpha_attribution.py - WAVES Intelligence™ Alpha Attribution Engine
 # 
 # Purpose:
 #   Provide precise, reconciled decomposition of Wave alpha into:
@@ -566,7 +566,7 @@ def format_attribution_summary_table(summary: AlphaAttributionSummary) -> str:
         return f"{val:+.1f}%"
     
     md = f"""
-## Alpha Attribution Summary — {summary.wave_name} ({summary.mode})
+## Alpha Attribution Summary - {summary.wave_name} ({summary.mode})
 
 **Period:** {summary.days} trading days
 

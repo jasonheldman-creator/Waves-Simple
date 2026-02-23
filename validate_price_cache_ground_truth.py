@@ -220,7 +220,7 @@ def main() -> int:
     else:
         print("\n[Wave Registry Cross-check]")
         print("⚠️ Could not locate/load wave registry tickers (skipping registry cross-check).")
-        print("This is OK — cache validation above still stands.")
+        print("This is OK - cache validation above still stands.")
 
     # Quick sanity thresholds (informational)
     print("\n[Sanity Heuristics]")

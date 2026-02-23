@@ -1,4 +1,4 @@
-# decision_engine.py — WAVES Intelligence™ Decision Intelligence (V1→V2)
+# decision_engine.py - WAVES Intelligence™ Decision Intelligence (V1→V2)
 # Converts analytics into:
 #   • Actions
 #   • Watch items
@@ -269,9 +269,9 @@ def build_daily_wave_activity(ctx: Dict[str, Any]) -> Dict[str, Any]:
         what_changed.append("A rebalance was triggered (weights adjusted).")
     if math.isfinite(turnover):
         if turnover >= 1.2:
-            what_changed.append("Turnover is elevated (>=120%/yr) — expect higher implementation churn.")
+            what_changed.append("Turnover is elevated (>=120%/yr) - expect higher implementation churn.")
         elif turnover >= 0.6:
-            what_changed.append("Turnover is moderate-to-high — active changes contributed to movement.")
+            what_changed.append("Turnover is moderate-to-high - active changes contributed to movement.")
 
     # Beta discipline
     if math.isfinite(beta_real) and math.isfinite(beta_target):
@@ -304,9 +304,9 @@ def build_daily_wave_activity(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     if math.isfinite(te):
         if te >= 0.20:
-            why.append("Active risk is high (TE elevated) — divergence vs benchmark is expected.")
+            why.append("Active risk is high (TE elevated) - divergence vs benchmark is expected.")
         elif te <= 0.08:
-            why.append("Active risk is low (TE tight) — alpha is harder; small differences matter more.")
+            why.append("Active risk is low (TE tight) - alpha is harder; small differences matter more.")
 
     # Results (what happened)
     results: List[str] = []
@@ -344,11 +344,11 @@ def build_daily_wave_activity(ctx: Dict[str, Any]) -> Dict[str, Any]:
         if ir >= 1.0:
             checks.append("Risk-adjusted alpha quality looks strong (IR >= 1.0).")
         elif ir < 0:
-            checks.append("Negative IR — sanity-check benchmark truth, drift, and regime alignment.")
+            checks.append("Negative IR - sanity-check benchmark truth, drift, and regime alignment.")
 
     if math.isfinite(mdd):
         if mdd <= -0.25:
-            checks.append("Drawdown is deep — highlight downside controls and/or tighter exposure caps.")
+            checks.append("Drawdown is deep - highlight downside controls and/or tighter exposure caps.")
         else:
             checks.append("Drawdown is within typical bounds for active risk level (no red flag).")
 
@@ -362,7 +362,7 @@ def build_daily_wave_activity(ctx: Dict[str, Any]) -> Dict[str, Any]:
         headline_parts.append(f"1D {_pct(r1d)}")
     if math.isfinite(a1d_pts):
         headline_parts.append(f"α {_pp(a1d_pts)}")
-    headline = " — ".join(headline_parts)
+    headline = " - ".join(headline_parts)
 
     # Guarantee non-empty sections
     if not what_changed:
@@ -427,61 +427,61 @@ def generate_decisions(ctx: Dict[str, Any]) -> Dict[str, List[str]]:
 
     # --- Data integrity / demo stability
     if bm_drift != "stable":
-        actions.append("Benchmark drift detected — freeze benchmark snapshot for demos / diligence.")
+        actions.append("Benchmark drift detected - freeze benchmark snapshot for demos / diligence.")
     if math.isfinite(completeness) and completeness < 80:
-        actions.append("Coverage is below 80 — verify history source, missing business days, and engine writes.")
+        actions.append("Coverage is below 80 - verify history source, missing business days, and engine writes.")
     elif math.isfinite(completeness) and completeness < 90:
-        watch.append("Coverage is good but not perfect — watch missing days / staleness for investor demos.")
+        watch.append("Coverage is good but not perfect - watch missing days / staleness for investor demos.")
 
     if math.isfinite(age_days) and age_days >= 5:
-        actions.append("History is stale (>=5 days) — refresh or validate data feed before external sharing.")
+        actions.append("History is stale (>=5 days) - refresh or validate data feed before external sharing.")
     elif math.isfinite(age_days) and age_days >= 3:
-        watch.append("History is slightly stale (>=3 days) — consider refresh before key meetings.")
+        watch.append("History is slightly stale (>=3 days) - consider refresh before key meetings.")
 
     # --- Regime posture
     if regime == "risk-off" or (math.isfinite(vix) and vix >= 25):
-        actions.append("Macro regime is risk-off — emphasize SmartSafe posture and downside discipline in narrative.")
+        actions.append("Macro regime is risk-off - emphasize SmartSafe posture and downside discipline in narrative.")
     elif regime == "risk-on" or (math.isfinite(vix) and vix <= 16):
-        watch.append("Macro regime is risk-on — confirm exposure caps match mode intent.")
+        watch.append("Macro regime is risk-on - confirm exposure caps match mode intent.")
 
     # --- Active risk posture
     if math.isfinite(te) and te >= 0.20:
-        watch.append("Tracking error is high — ensure stakeholders understand active risk vs benchmark.")
+        watch.append("Tracking error is high - ensure stakeholders understand active risk vs benchmark.")
     elif math.isfinite(te) and te <= 0.08:
-        watch.append("Tracking error is low — alpha may be harder to generate; interpret IR carefully.")
+        watch.append("Tracking error is low - alpha may be harder to generate; interpret IR carefully.")
 
     # --- Quality / persistence
     if math.isfinite(ir) and ir >= 1.0:
         notes.append("Strong risk-adjusted excess return (IR >= 1.0).")
     elif math.isfinite(ir) and ir < 0:
-        watch.append("Negative IR — investigate benchmark truth, recent regime shift, or alpha decay.")
+        watch.append("Negative IR - investigate benchmark truth, recent regime shift, or alpha decay.")
 
     # --- Alpha condition
     if math.isfinite(a30) and abs(a30) >= 0.08:
-        watch.append("Large 30D alpha — verify benchmark mix, missing days, and attribution assumptions.")
+        watch.append("Large 30D alpha - verify benchmark mix, missing days, and attribution assumptions.")
     if math.isfinite(a30) and math.isfinite(a60) and (a30 < 0 and a60 > 0):
-        watch.append("Short-term alpha weak but medium-term positive — potential drawdown or timing/exposure management effects.")
+        watch.append("Short-term alpha weak but medium-term positive - potential drawdown or timing/exposure management effects.")
     if math.isfinite(a365) and a365 > 0 and math.isfinite(a30) and a30 < 0:
-        watch.append("Long-term alpha positive but 30D weak — monitor for alpha decay vs temporary noise.")
+        watch.append("Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.")
 
     # --- Drawdown
     if math.isfinite(mdd) and mdd <= -0.25:
-        watch.append("Deep drawdown — consider stronger downside narrative and/or tighter exposure caps.")
+        watch.append("Deep drawdown - consider stronger downside narrative and/or tighter exposure caps.")
 
     # --- AHI decision layer
     if math.isfinite(ahi_30) and ahi_30 >= 80:
         notes.append("AHI indicates elite 30D relative alpha vs peers (>=80).")
     elif math.isfinite(ahi_30) and ahi_30 <= 30:
-        watch.append("AHI shows weak 30D relative alpha (<=30) — investigate contributors and regime alignment.")
+        watch.append("AHI shows weak 30D relative alpha (<=30) - investigate contributors and regime alignment.")
 
     if math.isfinite(ahi_60) and ahi_60 >= 80 and math.isfinite(ahi_30) and ahi_30 >= 60:
-        notes.append("AHI strength persists across 30D/60D — higher confidence in relative alpha.")
+        notes.append("AHI strength persists across 30D/60D - higher confidence in relative alpha.")
     if math.isfinite(ahi_60) and ahi_60 <= 30 and math.isfinite(ahi_30) and ahi_30 <= 40:
-        actions.append("Sustained weak AHI across 30D/60D — run Wave Doctor review (contributors, drift, regime).")
+        actions.append("Sustained weak AHI across 30D/60D - run Wave Doctor review (contributors, drift, regime).")
 
     # --- Always have something
     if not actions:
-        actions.append("No urgent actions — system appears stable on this window.")
+        actions.append("No urgent actions - system appears stable on this window.")
     if not watch:
         watch.append("No major watch items detected.")
     if not notes:

@@ -114,7 +114,7 @@ def fetch_price_data(tickers: List[str]) -> pd.DataFrame:
             log.warning(f"Skipping {ticker}: no data")
 
     if not prices:
-        hard_fail("All tickers failed — no price data")
+        hard_fail("All tickers failed - no price data")
 
     df = pd.DataFrame(prices).dropna(how="all")
     df.index = pd.to_datetime(df.index, utc=True).tz_convert(None)

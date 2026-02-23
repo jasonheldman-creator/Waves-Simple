@@ -305,13 +305,13 @@ def validate_no_change_logic(cache_freshness_valid, has_changes):
         return {
             'should_commit': False,
             'should_succeed': True,
-            'message': 'Fresh but unchanged — no commit needed'
+            'message': 'Fresh but unchanged - no commit needed'
         }
     elif cache_freshness_valid and has_changes:
         return {
             'should_commit': True,
             'should_succeed': True,
-            'message': 'Fresh and changed — committing updates'
+            'message': 'Fresh and changed - committing updates'
         }
     elif not cache_freshness_valid and not has_changes:
         return {
@@ -323,5 +323,5 @@ def validate_no_change_logic(cache_freshness_valid, has_changes):
         return {
             'should_commit': True,
             'should_succeed': True,
-            'message': 'Stale but changed — committing updates'
+            'message': 'Stale but changed - committing updates'
         }

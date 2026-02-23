@@ -1,4 +1,4 @@
-# vector_truth.py — WAVES Intelligence™
+# vector_truth.py - WAVES Intelligence™
 # Vector™ Truth Layer v1 (Read-only, deterministic, governance-ready)
 #
 # Purpose:
@@ -535,13 +535,13 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
     if suppress_detailed:
         # Simplified output when confidence is not High
         md = f"""
-### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
+### Vector™ Truth Layer - {report.wave_name} ({report.timeframe_label})
 
 > **Governance Notice:**  
 > Vector™ Truth provides governance-grade attribution and reliability signals.  
 > It does not predict future performance or isolate single-factor causality.
 
-**Vector Truth — Excess Return Decomposition (Governance)**
+**Vector Truth - Excess Return Decomposition (Governance)**
 
 **Benchmark Snapshot Context:**
 - **Benchmark:** Governed Composite (fixed)
@@ -558,7 +558,7 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
 
 ---
 
-**Vector Truth — Alpha Reconciliation**
+**Vector Truth - Alpha Reconciliation**
 - Capital-Weighted Alpha: **{_pct(r.capital_weighted_alpha)}**
 - Exposure-Adjusted Alpha: **{_pct(r.exposure_adjusted_alpha)}**
 
@@ -570,13 +570,13 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
     else:
         # Full output when confidence is High
         md = f"""
-### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
+### Vector™ Truth Layer - {report.wave_name} ({report.timeframe_label})
 
 > **Governance Notice:**  
 > Vector™ Truth provides governance-grade attribution and reliability signals.  
 > It does not predict future performance or isolate single-factor causality.
 
-**Vector Truth — Excess Return Decomposition (Governance)**
+**Vector Truth - Excess Return Decomposition (Governance)**
 
 **Benchmark Snapshot Context:**
 - **Benchmark:** Governed Composite (fixed)
@@ -607,7 +607,7 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
 
 ---
 
-**Vector Truth — Alpha Reconciliation**
+**Vector Truth - Alpha Reconciliation**
 - Capital-Weighted Alpha: **{_pct(r.capital_weighted_alpha)}**
 - Exposure-Adjusted Alpha: **{_pct(r.exposure_adjusted_alpha)}**
 
@@ -618,7 +618,7 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
 
 ---
 
-**Vector Truth — Regime Attribution**
+**Vector Truth - Regime Attribution**
 - Alpha in Risk-On: **{_pct(g.alpha_risk_on)}**
 - Alpha in Risk-Off: **{_pct(g.alpha_risk_off)}**
 
@@ -627,7 +627,7 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
 
 ---
 
-**Vector Truth — Durability Scan**
+**Vector Truth - Durability Scan**
 - Alpha Type: **{d.alpha_type}**
   - *Timing & Exposure Dominant refers to residual attribution after structural overlays.*
   - *It does not imply asset selection or static weight allocation.*
@@ -648,7 +648,7 @@ def render_vector_truth_alpha_attribution(report: VectorTruthReport) -> str:
     s = report.sources
     
     md = f"""
-**Alpha Enhancements — Representation Variants**
+**Alpha Enhancements - Representation Variants**
 
 **Detailed Attribution Breakdown:**
 - Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**
@@ -790,7 +790,7 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
     interpretation = reliability_metrics.get("interpretation", "")
     
     md = f"""
-**VECTOR TRUTH — ALPHA RELIABILITY**
+**VECTOR TRUTH - ALPHA RELIABILITY**
 
 - **Attribution Confidence:** {confidence}
   - *High: Benchmark stable, clean data, high n; Medium: Adequate context; Low: Limited reliability*

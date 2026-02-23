@@ -122,7 +122,7 @@ def compute_wave_scores(
         + 0.15 * _safe_z(agg["Return"])
     )
 
-    # Normalize to 0–100 scale
+    # Normalize to 0-100 scale
     min_ws = agg["WaveScore"].min()
     max_ws = agg["WaveScore"].max()
 

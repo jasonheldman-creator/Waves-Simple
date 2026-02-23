@@ -1,5 +1,5 @@
 """
-waves.py — import-safe recovery scaffold
+waves.py - import-safe recovery scaffold
 
 This file previously executed logic at import time using
 undefined globals (unique_wave_ids, truth_df), which caused

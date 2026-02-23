@@ -28,17 +28,17 @@ def ensure_canonical_snapshot() -> None:
     If missing or empty, generate placeholder rows.
     """
     if not CANONICAL_PATH.exists():
-        print("⚠ canonical_snapshot.csv missing — generating fallback snapshot")
+        print("⚠ canonical_snapshot.csv missing - generating fallback snapshot")
         build_canonical_snapshot()
         return
 
     try:
         df = pd.read_csv(CANONICAL_PATH, header=None)
         if df.empty:
-            print("⚠ canonical_snapshot.csv empty — regenerating fallback snapshot")
+            print("⚠ canonical_snapshot.csv empty - regenerating fallback snapshot")
             build_canonical_snapshot()
     except Exception as e:
-        print(f"⚠ Error reading canonical_snapshot.csv ({e}) — regenerating")
+        print(f"⚠ Error reading canonical_snapshot.csv ({e}) - regenerating")
         build_canonical_snapshot()
 
 

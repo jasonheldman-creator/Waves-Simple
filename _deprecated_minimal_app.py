@@ -1,5 +1,5 @@
 """
-WAVES Intelligence™ — Minimal Console v1
+WAVES Intelligence™ - Minimal Console v1
 =========================================
 
 A minimal, focused Streamlit application for viewing WAVES portfolio metrics.
@@ -30,7 +30,7 @@ from streamlit_autorefresh import st_autorefresh
 # CONFIGURATION
 # ============================================================================
 
-PAGE_TITLE = "WAVES Intelligence™ — Minimal Console v1"
+PAGE_TITLE = "WAVES Intelligence™ - Minimal Console v1"
 DATA_FILE = "live_snapshot.csv"
 WEIGHTS_FILE = "wave_weights.csv"
 CACHE_TTL = 60  # seconds

@@ -1,4 +1,4 @@
-# vix_overlay_diagnostics.py — VIX/Regime Overlay Diagnostic Validation
+# vix_overlay_diagnostics.py - VIX/Regime Overlay Diagnostic Validation
 #
 # Purpose: Prove VIX/regime overlay is materially active in equity Wave returns
 # and provide auditable diagnostic logs for exposure scaling, safe fraction, and
