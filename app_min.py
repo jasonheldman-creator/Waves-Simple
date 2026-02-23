@@ -11025,12 +11025,12 @@ Security Intelligence is observational only - no recommendations, price targets,
 
         mi_vs_cols = st.columns(3)
         mi_vs_items = [
-                ("Volatility Regime", mi_vol_assess["regime"], "#A78BFA",
-                 "Compression" if mi_vol_assess["regime"] == "Compression" else ("Expansion" if mi_vol_assess["regime"] == "Expansion" else "Neutral")),
-                ("Opportunity Context", mi_vol_assess["opportunity_context"], "#60A5FA",
-                 "Tailwind conditions for trend strategies" if mi_vol_assess["opportunity_context"] == "Tailwind" else ("Headwind for trend strategies" if mi_vol_assess["opportunity_context"] == "Headwind" else "Neutral backdrop")),
-                ("Stress Probability", f"{mi_vol_assess['stress_level']} · {mi_vol_assess['trend']}", 
-                 "#48BB78" if mi_vol_assess["stress_level"] == "Low" else ("#F59E0B" if mi_vol_assess["stress_level"] == "Moderate" else "#EF4444"),
+                ("Volatility Regime", mi_vol_assess.get("regime", "Neutral"), "#A78BFA",
+                 "Compression" if mi_vol_assess.get("regime", "Neutral") == "Compression" else ("Expansion" if mi_vol_assess.get("regime", "Neutral") == "Expansion" else "Neutral")),
+                ("Opportunity Context", mi_vol_assess.get("opportunity_context", "Neutral"), "#60A5FA",
+                 "Tailwind conditions for trend strategies" if mi_vol_assess.get("opportunity_context", "Neutral") == "Tailwind" else ("Headwind for trend strategies" if mi_vol_assess.get("opportunity_context", "Neutral") == "Headwind" else "Neutral backdrop")),
+                ("Stress Probability", f"{mi_vol_assess.get('stress_level', 'Low')} · {mi_vol_assess.get('trend', 'Stable')}", 
+                 "#48BB78" if mi_vol_assess.get("stress_level", "Low") == "Low" else ("#F59E0B" if mi_vol_assess.get("stress_level", "Low") == "Moderate" else "#EF4444"),
                  f"Realized vol: {mi_vol_assess.get('avg_vol', 0.0)*100:.1f}% · Max DD: {mi_vol_assess.get('worst_dd', 0.0)*100:.1f}%"),
         ]
         for i, (label, value, color, detail) in enumerate(mi_vs_items):
@@ -11042,9 +11042,9 @@ Security Intelligence is observational only - no recommendations, price targets,
 </div>""", unsafe_allow_html=True)
 
         mi_vol_detail_items = []
-        mi_vol_detail_items.append(f"Realized volatility acceleration: {'Increasing' if mi_vol_assess['trend'] == 'Rising' else ('Decreasing' if mi_vol_assess['trend'] == 'Subsiding' else 'Stable')}")
+        mi_vol_detail_items.append(f"Realized volatility acceleration: {'Increasing' if mi_vol_assess.get('trend', 'Stable') == 'Rising' else ('Decreasing' if mi_vol_assess.get('trend', 'Stable') == 'Subsiding' else 'Stable')}")
         mi_vol_detail_items.append(f"Recent drawdown clustering: {'Detected' if mi_vol_assess.get('worst_dd', 0.0) < -0.07 else 'Not detected'}")
-        mi_vol_detail_items.append(f"Cross-asset volatility agreement: {'Aligned' if mi_vol_assess.get('cross_asset_agreement', False) else 'Divergent'}")
+        mi_vol_detail_items.append(f"Cross-asset volatility agreement: {mi_vol_assess.get('cross_asset_agreement', 'Unknown')}")
         mi_vol_detail_items.append(f"Volatility-of-volatility: {mi_vol_assess.get('avg_vov', 0.0):.4f}")
 
         detail_html = '<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 12px 16px; border-radius: 6px; margin-top: 12px;">'
@@ -11076,10 +11076,10 @@ Security Intelligence is observational only - no recommendations, price targets,
 <div style="color: #E5E5E5; font-size: 18px; font-weight: 700;">{mi_breadth_assess.get('above_200', 0)}/{mi_breadth_assess.get('total_tracked', 0)}</div>
 <div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; margin-top: 6px;">Above 200-Day MA</div>
 </div>""", unsafe_allow_html=True)
-        br_class_color = "#48BB78" if mi_breadth_assess["classification"] == "Broad" else ("#F59E0B" if mi_breadth_assess["classification"] == "Mixed" else "#EF4444")
+        br_class_color = "#48BB78" if mi_breadth_assess.get("classification", "Mixed") == "Broad" else ("#F59E0B" if mi_breadth_assess.get("classification", "Mixed") == "Mixed" else "#EF4444")
         with mi_br_cols[2]:
             st.markdown(f"""<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-top: 3px solid {br_class_color}; padding: 14px 16px; border-radius: 6px; text-align: center;">
-<div style="color: {br_class_color}; font-size: 18px; font-weight: 700;">{mi_breadth_assess['classification']}</div>
+<div style="color: {br_class_color}; font-size: 18px; font-weight: 700;">{mi_breadth_assess.get('classification', 'Mixed')}</div>
 <div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; margin-top: 6px;">Participation Classification</div>
 </div>""", unsafe_allow_html=True)
 
@@ -11119,13 +11119,13 @@ Security Intelligence is observational only - no recommendations, price targets,
 </div>""", unsafe_allow_html=True)
 
         mi_rcl_items = [
-                ("Rates Regime", mi_rates_assess["rates_trend"], "#60A5FA"),
-                ("Curve Shape", mi_rates_assess["curve_proxy"], "#A78BFA"),
-                ("Credit Conditions", mi_rates_assess["credit_condition"],
-                 "#48BB78" if mi_rates_assess["credit_condition"] in ["Stable", "Tightening"] else "#EF4444"),
-                ("Liquidity Proxy", mi_rates_assess["liquidity_proxy"],
-                 "#48BB78" if mi_rates_assess["liquidity_proxy"] == "Risk-seeking" else ("#EF4444" if mi_rates_assess["liquidity_proxy"] == "Risk-averse" else "#9EA3AE")),
-                ("Dollar Trend", mi_rates_assess["dollar_trend"], "#F59E0B"),
+                ("Rates Regime", mi_rates_assess.get("rates_trend", "Unknown"), "#60A5FA"),
+                ("Curve Shape", mi_rates_assess.get("curve_proxy", "—"), "#A78BFA"),
+                ("Credit Conditions", mi_rates_assess.get("credit_condition", "—"),
+                 "#48BB78" if mi_rates_assess.get("credit_condition", "—") in ["Stable", "Tightening"] else "#EF4444"),
+                ("Liquidity Proxy", mi_rates_assess.get("liquidity_proxy", "—"),
+                 "#48BB78" if mi_rates_assess.get("liquidity_proxy", "—") == "Risk-seeking" else ("#EF4444" if mi_rates_assess.get("liquidity_proxy", "—") == "Risk-averse" else "#9EA3AE")),
+                ("Dollar Trend", mi_rates_assess.get("dollar_trend", "—"), "#F59E0B"),
         ]
         mi_rcl_cols = st.columns(5)
         for i, (label, value, color) in enumerate(mi_rcl_items):
@@ -11136,21 +11136,21 @@ Security Intelligence is observational only - no recommendations, price targets,
 </div>""", unsafe_allow_html=True)
 
         mi_rate_detail_parts = []
-        if mi_rates_assess["rates_trend"] == "Falling":
+        if mi_rates_assess.get("rates_trend", "Unknown") == "Falling":
             mi_rate_detail_parts.append("Long-duration bonds are rallying, suggesting the market expects easing conditions or a flight to safety.")
-        elif mi_rates_assess["rates_trend"] == "Rising":
+        elif mi_rates_assess.get("rates_trend", "Unknown") == "Rising":
             mi_rate_detail_parts.append("Long-duration bonds are under pressure, indicating rising rate expectations or inflationary concerns.")
         else:
             mi_rate_detail_parts.append("The rate environment is relatively stable with no strong directional signal from duration proxies.")
 
-        if mi_rates_assess["credit_condition"] == "Widening":
+        if mi_rates_assess.get("credit_condition", "—") == "Widening":
             mi_rate_detail_parts.append("Credit spreads appear to be widening, which may signal deteriorating risk appetite in fixed income.")
-        elif mi_rates_assess["credit_condition"] == "Tightening":
+        elif mi_rates_assess.get("credit_condition", "—") == "Tightening":
             mi_rate_detail_parts.append("Credit conditions are constructive with spreads tightening, supportive of risk asset performance.")
 
-        if mi_rates_assess["liquidity_proxy"] == "Risk-seeking":
+        if mi_rates_assess.get("liquidity_proxy", "—") == "Risk-seeking":
             mi_rate_detail_parts.append("Risk appetite indicators favor growth-oriented exposures. This does not constitute a directional recommendation.")
-        elif mi_rates_assess["liquidity_proxy"] == "Risk-averse":
+        elif mi_rates_assess.get("liquidity_proxy", "—") == "Risk-averse":
             mi_rate_detail_parts.append("Risk appetite indicators suggest caution. This observation is provided for context, not as a recommendation.")
 
         st.markdown(f"""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 12px 16px; border-radius: 6px; margin-top: 10px;">
@@ -11165,7 +11165,7 @@ Security Intelligence is observational only - no recommendations, price targets,
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Sector & Factor Temperature Check</span>
 </div>""", unsafe_allow_html=True)
 
-        if mi_sector_assess["sectors"]:
+        if mi_sector_assess.get("sectors", []):
             sect_table_html = '<div style="background: #1C1F26; border: 1px solid #2A2F3A; border-radius: 6px; overflow: hidden;">'
             sect_table_html += '<div style="display: grid; grid-template-columns: 50px 1fr 100px 100px 100px; padding: 8px 16px; background: #151A22; border-bottom: 1px solid #2A2F3A;">'
             sect_table_html += '<div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; font-weight: 600;">Ticker</div>'
@@ -11174,7 +11174,7 @@ Security Intelligence is observational only - no recommendations, price targets,
             sect_table_html += '<div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; font-weight: 600; text-align: center;">30D RS vs SPY</div>'
             sect_table_html += '<div style="color: #9EA3AE; font-size: 9px; text-transform: uppercase; font-weight: 600; text-align: center;">90D RS vs SPY</div>'
             sect_table_html += '</div>'
-            for s in mi_sector_assess["sectors"]:
+            for s in mi_sector_assess.get("sectors", []):
                 ret_val = f"{s['return_30d']*100:+.1f}%" if s["return_30d"] is not None else "-"
                 rs30_val = f"{s['rs_30d']*100:+.1f}%" if s["rs_30d"] is not None else "-"
                 rs90_val = f"{s['rs_90d']*100:+.1f}%" if s["rs_90d"] is not None else "-"
@@ -11190,13 +11190,13 @@ Security Intelligence is observational only - no recommendations, price targets,
             sect_table_html += '</div>'
             st.markdown(sect_table_html, unsafe_allow_html=True)
 
-            if mi_sector_assess["top2"] or mi_sector_assess["bottom2"]:
+            if mi_sector_assess.get("top2") or mi_sector_assess.get("bottom2"):
                 leadership_parts = []
-                if mi_sector_assess["top2"]:
-                    top_names = [s["name"] for s in mi_sector_assess["top2"]]
+                if mi_sector_assess.get("top2"):
+                    top_names = [s["name"] for s in mi_sector_assess.get("top2", [])]
                     leadership_parts.append(f"Current leadership favors {' and '.join(top_names)}")
-                if mi_sector_assess["bottom2"]:
-                    bottom_names = [s["name"] for s in mi_sector_assess["bottom2"]]
+                if mi_sector_assess.get("bottom2"):
+                    bottom_names = [s["name"] for s in mi_sector_assess.get("bottom2", [])]
                     leadership_parts.append(f"while {' and '.join(bottom_names)} are lagging on a relative basis")
                 leadership_text = ", ".join(leadership_parts) + "." if leadership_parts else ""
                 st.markdown(f"""<div style="background: #151A22; padding: 10px 16px; border-radius: 6px; margin-top: 10px;">
@@ -11212,10 +11212,10 @@ Security Intelligence is observational only - no recommendations, price targets,
         # ==============================================
         mi_change_snapshot = {
                 "regime": mi_regime_computed,
-                "stress_level": mi_vol_assess["stress_level"],
-                "breadth": mi_breadth_assess["classification"],
-                "credit": mi_rates_assess["credit_condition"],
-                "rates": mi_rates_assess["rates_trend"],
+                "stress_level": mi_vol_assess.get("stress_level", "Low"),
+                "breadth": mi_breadth_assess.get("classification", "Mixed"),
+                "credit": mi_rates_assess.get("credit_condition", "—"),
+                "rates": mi_rates_assess.get("rates_trend", "Unknown"),
         }
         mi_changes = compute_what_changed(mi_change_snapshot)
 
@@ -11357,17 +11357,17 @@ Headlines are provided for informational context only. WAVES does not interpret,
             metrics_html = '<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 12px 16px; border-radius: 6px;">'
             metrics_items = [
                 ("Market Regime", mi_regime_computed),
-                ("Vol Stress Level", mi_vol_assess["stress_level"]),
-                ("Vol Trend", mi_vol_assess["trend"]),
+                ("Vol Stress Level", mi_vol_assess.get("stress_level", "Low")),
+                ("Vol Trend", mi_vol_assess.get("trend", "Stable")),
                 ("Avg Realized Vol", f"{mi_vol_assess.get('avg_vol', 0.0)*100:.1f}%"),
                 ("Vol-of-Vol", f"{mi_vol_assess.get('avg_vov', 0.0):.4f}"),
                 ("Max Drawdown (30D)", f"{mi_vol_assess.get('worst_dd', 0.0)*100:.1f}%"),
-                ("Breadth Class", mi_breadth_assess["classification"]),
+                ("Breadth Class", mi_breadth_assess.get("classification", "Mixed")),
                 ("Above 50DMA", f"{mi_breadth_assess.get('above_50', 0)}/{mi_breadth_assess.get('total_tracked', 0)}"),
                 ("Above 200DMA", f"{mi_breadth_assess.get('above_200', 0)}/{mi_breadth_assess.get('total_tracked', 0)}"),
-                ("Rates Regime", mi_rates_assess["rates_trend"]),
-                ("Credit Condition", mi_rates_assess["credit_condition"]),
-                ("Curve Proxy", mi_rates_assess["curve_proxy"]),
+                ("Rates Regime", mi_rates_assess.get("rates_trend", "Unknown")),
+                ("Credit Condition", mi_rates_assess.get("credit_condition", "—")),
+                ("Curve Proxy", mi_rates_assess.get("curve_proxy", "—")),
             ]
             for ml, mv in metrics_items:
                 metrics_html += f'<div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #2A2F3A;">'
