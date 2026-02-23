@@ -594,9 +594,19 @@ def compute_orientation_sentence(regime_or_prices, vol_assessment=None, breadth_
 
 
 def compute_what_changed(prices):
-    """Return list of notable change strings."""
+    """Return dict describing notable changes since yesterday.
+
+    Always returns a dict with schema:
+        {"summary": str, "changes": list, "drivers": list, "status": str}
+    """
+    _unavailable = {
+        "summary": "No material changes detected.",
+        "changes": [],
+        "drivers": [],  # reserved for future use
+        "status": "unavailable",
+    }
     if not prices:
-        return ["No price data available to detect changes."]
+        return _unavailable
     changes = []
     for ticker, series in prices.items():
         if isinstance(series, list) and len(series) >= 2:
@@ -605,4 +615,16 @@ def compute_what_changed(prices):
             if r1d is not None and abs(r1d) > 0.02:
                 direction = "gained" if r1d > 0 else "fell"
                 changes.append(f"{ticker} {direction} {abs(r1d):.1%} yesterday.")
-    return changes if changes else ["No significant moves detected."]
+    if not changes:
+        return {
+            "summary": "No significant moves detected.",
+            "changes": [],
+            "drivers": [],  # reserved for future use
+            "status": "ok",
+        }
+    return {
+        "summary": f"{len(changes)} notable move(s) detected.",
+        "changes": changes,
+        "drivers": [],  # reserved for future use
+        "status": "ok",
+    }

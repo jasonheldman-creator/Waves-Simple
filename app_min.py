@@ -11224,11 +11224,11 @@ Security Intelligence is observational only - no recommendations, price targets,
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">What Changed Since Yesterday</span>
 </div>""", unsafe_allow_html=True)
 
-        if mi_changes["available"]:
+        if mi_changes.get("status", "unavailable") != "unavailable":
             changes_html = '<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 14px 16px; border-radius: 6px;">'
             if mi_changes.get("saved_date"):
                 changes_html += f'<div style="color: #6B7280; font-size: 10px; margin-bottom: 8px;">Compared to snapshot from: {mi_changes["saved_date"]}</div>'
-            for ch in mi_changes["changes"]:
+            for ch in mi_changes.get("changes", []):
                 is_change = "No material" not in ch
                 icon = "⚡" if is_change else "-"
                 ch_color = "#F59E0B" if is_change else "#6B7280"
@@ -11237,7 +11237,7 @@ Security Intelligence is observational only - no recommendations, price targets,
             st.markdown(changes_html, unsafe_allow_html=True)
         else:
             st.markdown(f"""<div style="background: #151A22; padding: 14px 16px; border-radius: 6px;">
-<div style="color: #6B7280; font-size: 12px;">{mi_changes["message"]}</div>
+<div style="color: #6B7280; font-size: 12px;">{mi_changes.get("summary", "")}</div>
 </div>""", unsafe_allow_html=True)
 
         # ==============================================
