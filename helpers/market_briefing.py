@@ -10,6 +10,20 @@ from helpers.market_data import (
     SECTOR_TICKERS,
 )
 
+_SECTOR_NAMES = {
+    "XLK": "Technology",
+    "XLF": "Financials",
+    "XLV": "Health Care",
+    "XLE": "Energy",
+    "XLI": "Industrials",
+    "XLY": "Consumer Discretionary",
+    "XLP": "Consumer Staples",
+    "XLB": "Materials",
+    "XLU": "Utilities",
+    "XLRE": "Real Estate",
+    "XLC": "Communication Services",
+}
+
 
 def _safe_prices(prices, ticker):
     """Return price list for ticker or empty list."""
@@ -174,7 +188,7 @@ def compute_volatility_stress_assessment(prices):
     if not prices:
         return {"level": "Unknown", "score": 0.0, "description": "No price data available.",
                 "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
-                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": False}
+                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": "Unknown"}
     vols = []
     vov_readings = []
     dd_readings = []
@@ -187,7 +201,7 @@ def compute_volatility_stress_assessment(prices):
     if not vols:
         return {"level": "Unknown", "score": 0.0, "description": "Insufficient data.",
                 "stress_level": "Low", "trend": "Stable", "regime": "Neutral", "opportunity_context": "Neutral",
-                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": False}
+                "avg_vol": 0.0, "avg_vov": 0.0, "worst_dd": 0.0, "cross_asset_agreement": "Unknown"}
     avg_vol = (sum(vols) / len(vols)) if vols else 0.15
     avg_vov = (sum(vov_readings) / len(vov_readings)) if vov_readings else 0.03
     worst_dd = min(dd_readings) if dd_readings else -0.03
@@ -223,7 +237,7 @@ def compute_volatility_stress_assessment(prices):
             elif spy_vol_short < spy_vol_long * 0.8:
                 trend = "Subsiding"
 
-    cross_asset_agreement = len(vols) >= 3
+    cross_asset_agreement = "Aligned" if len(vols) >= 3 else "Divergent"
     score = round(min(100.0, avg_vol * 300.0), 2)
     level = "High" if avg_vol > 0.30 else ("Medium" if avg_vol > 0.15 else "Low")
     return {
@@ -364,21 +378,64 @@ def compute_rates_credit_assessment(prices):
 
 def compute_sector_assessment(prices):
     """Return sector rotation assessment dict."""
+    _empty = {
+        "top_sector": "N/A", "lagging_sector": "N/A", "rotation_signal": "No data",
+        "sectors": [], "top2": [], "bottom2": [],
+    }
     if not prices:
-        return {"top_sector": "N/A", "lagging_sector": "N/A", "rotation_signal": "No data"}
-    sector_rets = {}
+        return _empty
+    spy = _safe_prices(prices, "SPY")
+    spy_rets = _compute_returns_series(spy) if spy else {}
+    spy_30d = spy_rets.get("30d")
+    spy_90d = spy_rets.get("90d")
+
+    sector_data = []
+    sector_rets_5d = {}
     for t in SECTOR_TICKERS:
         series = _safe_prices(prices, t)
-        if series:
-            r = _compute_returns_series(series)
-            if r.get("5d") is not None:
-                sector_rets[t] = r["5d"]
-    if not sector_rets:
-        return {"top_sector": "N/A", "lagging_sector": "N/A", "rotation_signal": "Insufficient data"}
-    top = max(sector_rets, key=sector_rets.get)
-    lag = min(sector_rets, key=sector_rets.get)
-    return {"top_sector": top, "lagging_sector": lag,
-            "rotation_signal": f"Rotation towards {top}, away from {lag}."}
+        if not series:
+            continue
+        r = _compute_returns_series(series)
+        ret_30d = r.get("30d")
+        ret_90d = r.get("90d")
+        ret_5d = r.get("5d")
+        rs_30d = (ret_30d - spy_30d) if ret_30d is not None and spy_30d is not None else None
+        rs_90d = (ret_90d - spy_90d) if ret_90d is not None and spy_90d is not None else None
+        sector_data.append({
+            "ticker": t,
+            "name": _SECTOR_NAMES.get(t, t),
+            "return_30d": ret_30d,
+            "rs_30d": rs_30d,
+            "rs_90d": rs_90d,
+        })
+        if ret_5d is not None:
+            sector_rets_5d[t] = ret_5d
+
+    if not sector_rets_5d:
+        return {
+            "top_sector": "N/A", "lagging_sector": "N/A", "rotation_signal": "Insufficient data",
+            "sectors": sector_data, "top2": [], "bottom2": [],
+        }
+
+    top = max(sector_rets_5d, key=sector_rets_5d.get)
+    lag = min(sector_rets_5d, key=sector_rets_5d.get)
+
+    sorted_by_30d = sorted(
+        [s for s in sector_data if s["return_30d"] is not None],
+        key=lambda s: s["return_30d"],
+        reverse=True,
+    )
+    top2 = sorted_by_30d[:2]
+    bottom2 = sorted_by_30d[-2:] if len(sorted_by_30d) >= 2 else sorted_by_30d
+
+    return {
+        "top_sector": top,
+        "lagging_sector": lag,
+        "rotation_signal": f"Rotation towards {top}, away from {lag}.",
+        "sectors": sector_data,
+        "top2": top2,
+        "bottom2": bottom2,
+    }
 
 
 def compute_regime_assessment(prices):
