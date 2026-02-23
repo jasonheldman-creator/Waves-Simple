@@ -157,11 +157,19 @@ st.set_page_config(
 )
 
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(
-    interval=90_000,
-    limit=None,
-    key="waves_global_autorefresh"
-)
+import streamlit as st
+
+# -------------------------------------------------
+# SAFE AUTOREFRESH (prevents duplicate element key)
+# -------------------------------------------------
+if "autorefresh_initialized" not in st.session_state:
+    st.session_state["autorefresh_initialized"] = True
+
+    st_autorefresh(
+        interval=90_000,
+        limit=None,
+        key="waves_global_autorefresh"
+    )
 
 if gov and "gov_dup_checked" not in st.session_state:
     _dup_warnings = gov.detect_duplicates()
@@ -18528,4 +18536,3 @@ Fundamental research links are optional integrations and reflect external instit
 
     # For individual waves, show full wave stats
     if selected_wave_id and 'full_holdings_count' in dir():
-        wave_holdin
