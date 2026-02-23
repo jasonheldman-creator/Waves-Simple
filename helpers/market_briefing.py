@@ -19,8 +19,9 @@ def _wrap(data, status=_SCHEMA_STATUS_OK, message=""):
 
     Non-dict data is silently coerced to an empty dict to ensure callers always
     receive a valid schema structure even under unexpected conditions.
+    All results are passed through ensure_schema to guarantee a "data" key.
     """
-    return {"status": status, "data": data if isinstance(data, dict) else {}, "message": message}
+    return ensure_schema({"status": status, "data": data if isinstance(data, dict) else {}, "message": message})
 
 
 def _maybe_unwrap(d):
@@ -28,6 +29,17 @@ def _maybe_unwrap(d):
     if isinstance(d, dict) and "status" in d and "data" in d:
         return d.get("data", {})
     return d if isinstance(d, dict) else {}
+
+
+def ensure_schema(x):
+    """Ensure a consistent return schema of {"data": <payload>, "meta": {}}.
+
+    If x is already a dict with a "data" key it is returned unchanged.
+    All other values are wrapped so every helper return is dict-accessible.
+    """
+    if isinstance(x, dict) and "data" in x:
+        return x
+    return {"data": x, "meta": {}}
 
 _SECTOR_NAMES = {
     "XLK": "Technology",
