@@ -1034,6 +1034,27 @@ def _compute_weighted_return(prices_pivot, ticker_weights, days):
     return weighted_sum / total_weight
 
 
+def _compute_weighted_price_series(prices_pivot, ticker_weights):
+    """Build a composite price series by weighting each ticker's close prices.
+
+    Returns a pd.Series indexed by date, or an empty Series if data is unavailable.
+    """
+    if prices_pivot is None or (isinstance(prices_pivot, pd.DataFrame) and prices_pivot.empty) or not ticker_weights:
+        return pd.Series(dtype=float)
+    available = [(t, w) for t, w in ticker_weights if t in prices_pivot.columns]
+    if not available:
+        return pd.Series(dtype=float)
+    total_weight = sum(w for _, w in available)
+    if total_weight <= 0:
+        return pd.Series(dtype=float)
+    composite = None
+    for ticker, weight in available:
+        series = prices_pivot[ticker].ffill()
+        scaled = series * (weight / total_weight)
+        composite = scaled if composite is None else composite.add(scaled, fill_value=0.0)
+    return composite.dropna() if composite is not None else pd.Series(dtype=float)
+
+
 def expand_wave_holdings():
     """Load wave holdings from data/wave_weights.csv.
 
@@ -1130,6 +1151,15 @@ def generate_full_snapshot(holdings, prices_pivot):
         "alpha_beta_30d", "alpha_beta_60d", "alpha_beta_365d",
         "alpha_allocation_30d", "alpha_allocation_60d", "alpha_allocation_365d",
     ]
+    try:
+        from attribution_engine import compute_horizon_attribution as _compute_ha
+        _attr_engine_available = True
+    except Exception as _attr_import_err:
+        _attr_engine_available = False
+        print(f"[LIVE] attribution_engine unavailable: {_attr_import_err}")
+
+    _attr_engine_weights = {"beta": 1.0, "momentum": 1.0, "volatility": 1.0, "allocation": 1.0}
+
     rows = []
     for wave_name, tickers in holdings.items():
         row = {"wave_name": wave_name, "asof": asof_date}
@@ -1141,6 +1171,20 @@ def generate_full_snapshot(holdings, prices_pivot):
             row[f"alpha_{label}"] = (wave_ret - bench_ret) if not (np.isnan(wave_ret) or np.isnan(bench_ret)) else np.nan
         for col in attribution_cols:
             row[col] = np.nan
+        if _attr_engine_available:
+            wave_series = _compute_weighted_price_series(prices_pivot, tickers)
+            bench_series = _compute_weighted_price_series(prices_pivot, bench_tickers)
+            if len(wave_series) >= 2 and len(bench_series) >= 2:
+                for attr_days, label in [(30, "30d"), (60, "60d"), (365, "365d")]:
+                    try:
+                        attr = _compute_ha(wave_series, bench_series, _attr_engine_weights, attr_days)
+                        row[f"alpha_residual_{label}"] = attr.get("residual", np.nan)
+                        row[f"alpha_momentum_{label}"] = attr.get("momentum", np.nan)
+                        row[f"alpha_volatility_{label}"] = attr.get("volatility", np.nan)
+                        row[f"alpha_beta_{label}"] = attr.get("beta", np.nan)
+                        row[f"alpha_allocation_{label}"] = attr.get("allocation", np.nan)
+                    except Exception:
+                        pass
         rows.append(row)
 
     if not rows:
@@ -1152,6 +1196,70 @@ def generate_full_snapshot(holdings, prices_pivot):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     snap.to_csv(output_path, index=False)
     print(f"[LIVE] generate_full_snapshot: wrote {len(snap)} waves to {output_path}")
+
+
+def queue_startup_governance_decisions(snap_df):
+    """Generate and persist governance decisions for each wave at startup.
+
+    Uses ``generate_decisions`` from the decision engine to build actionable
+    governance items based on the freshly computed snapshot data, then persists
+    them to ``data/governance_decisions.json`` via the governance lifecycle helper.
+    """
+    try:
+        from decision_engine import generate_decisions as _gen_decisions
+        from helpers.governance_lifecycle import create_governance_decision
+        import uuid
+
+        if snap_df is None or snap_df.empty:
+            print("[LIVE] queue_startup_governance_decisions: no snapshot data")
+            return
+
+        # Placeholder text returned by generate_decisions when no real items exist
+        _NO_ACTION_MARKER = "No urgent actions"
+        _NO_WATCH_MARKER = "No major watch items"
+
+        decisions_created = 0
+        for _, row in snap_df.iterrows():
+            wave_name = str(row.get("wave_name", "")).strip()
+            if not wave_name:
+                continue
+
+            ctx = {
+                "a30": row.get("alpha_30d"),
+                "a60": row.get("alpha_60d"),
+                "a365": row.get("alpha_365d"),
+            }
+
+            result = _gen_decisions(ctx)
+            actions = result.get("actions", [])
+            watch = result.get("watch", [])
+
+            governance_items = [
+                (a, "action") for a in actions if _NO_ACTION_MARKER not in a
+            ] + [
+                (w, "monitor") for w in watch if _NO_WATCH_MARKER not in w
+            ]
+
+            # Limit to 2 items per wave to avoid flooding the governance queue
+            for item_text, item_type in governance_items[:2]:
+                decision_id = f"startup_{wave_name.lower().replace(' ', '_')}_{uuid.uuid4().hex[:8]}"
+                create_governance_decision(
+                    decision_id=decision_id,
+                    wave=wave_name,
+                    instruction_type="system_generated",
+                    trigger_source="startup_pipeline",
+                    context_snapshot={
+                        "action": item_text,
+                        "item_type": item_type,
+                        "snapshot_asof": str(row.get("asof", "")),
+                    },
+                    source="initialize_live_system",
+                )
+                decisions_created += 1
+
+        print(f"[LIVE] queue_startup_governance_decisions: created {decisions_created} decisions")
+    except Exception as e:
+        print(f"[LIVE] queue_startup_governance_decisions error: {e}")
 
 
 def initialize_live_system():
@@ -1172,6 +1280,8 @@ def initialize_live_system():
         holdings = expand_wave_holdings()
         prices_pivot = fetch_prices_for_holdings(holdings)
         generate_full_snapshot(holdings, prices_pivot)
+        snap_df = pd.read_csv(LIVE_SNAPSHOT_PATH) if LIVE_SNAPSHOT_PATH.exists() else None
+        queue_startup_governance_decisions(snap_df)
         st.session_state["live_system_initialized"] = True
         print("[LIVE] initialize_live_system: complete")
     except Exception as e:
