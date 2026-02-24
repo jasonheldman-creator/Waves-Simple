@@ -177,6 +177,12 @@ except ImportError:
     dlm = None
 
 try:
+    from helpers.forward_intelligence import generate_forward_intelligence_signals
+    _forward_intelligence_available = True
+except ImportError:
+    _forward_intelligence_available = False
+
+try:
     from helpers import wave_activity as wa
     from helpers import strategy_instructions as si
     from helpers import alpha_igniters as ai_ig
@@ -7174,133 +7180,47 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
     except Exception:
         pass
 
-    # --- Forward Intelligence Signals (NOTE 073) ---
+    # --- Forward Intelligence Signals (NOTE 077) ---
     try:
-        _fis_signals = []
+        _fis077_attrib = attrib_df if attrib_df is not None else pd.DataFrame()
+        _fis077_gov_df = pd.DataFrame()
+        if gov:
+            try:
+                _fis077_gov_df = gov.load_governance_decisions_df()
+            except Exception:
+                pass
 
-        _fis_snap_path = BASE_DIR / "data" / "live_snapshot.csv"
-        if _fis_snap_path.exists():
-            _fis_df = pd.read_csv(_fis_snap_path)
-            _fis_weight_col = "Weight" if "Weight" in _fis_df.columns else "current_weight"
-            _fis_target_col = "Target_Weight" if "Target_Weight" in _fis_df.columns else "target_weight"
-            _fis_ticker_col = "Ticker" if "Ticker" in _fis_df.columns else "ticker"
-            _fis_wave_col = "Wave" if "Wave" in _fis_df.columns else "wave"
+        if _forward_intelligence_available:
+            _fis077_signals_df = generate_forward_intelligence_signals(
+                _fis077_attrib, _fis077_gov_df
+            )
+        else:
+            _fis077_signals_df = pd.DataFrame(
+                columns=["signal_id", "wave", "signal_type", "signal_title",
+                         "observation", "confidence", "horizon", "created_at"]
+            )
 
-            if _fis_weight_col in _fis_df.columns and _fis_target_col in _fis_df.columns:
-                for _, _fis_row in _fis_df.iterrows():
-                    _fis_w = float(_fis_row.get(_fis_weight_col, 0) or 0)
-                    _fis_tw = float(_fis_row.get(_fis_target_col, _fis_w) or _fis_w)
-                    _fis_drift = abs(_fis_w - _fis_tw)
-                    _fis_tkr = str(_fis_row.get(_fis_ticker_col, ""))
-                    _fis_wv = str(_fis_row.get(_fis_wave_col, ""))
-                    if _fis_drift > 0.015 and _fis_drift <= 0.02:
-                        _fis_signals.append({
-                            "category": "Position Conditioning Pressure",
-                            "scope": f"{_fis_tkr} · {_fis_wv}",
-                            "observation": f"{_fis_tkr} allocation approaching drift threshold ({_fis_drift*100:.1f}% drift observed, conditioning band at 2%).",
-                            "horizon": "Short",
-                            "status": "Building",
-                        })
-                    elif _fis_drift > 0.01 and _fis_drift <= 0.015:
-                        _fis_signals.append({
-                            "category": "Position Conditioning Pressure",
-                            "scope": f"{_fis_tkr} · {_fis_wv}",
-                            "observation": f"{_fis_tkr} allocation drift forming ({_fis_drift*100:.1f}% drift observed). Conditioning threshold not yet reached.",
-                            "horizon": "Short",
-                            "status": "Forming",
-                        })
+        st.session_state["forward_intelligence_signals"] = _fis077_signals_df
 
-        try:
-            _fis_apath = Path("data/adaptive_state.json")
-            if _fis_apath.exists():
-                with open(_fis_apath, "r") as f:
-                    _fis_astate = json.load(f)
-                _fis_regime = (_fis_astate.get("regime_state", "normal") or "normal").lower()
-                _fis_vol = (_fis_astate.get("vol_regime", "") or "").lower()
-                _fis_lr = float(_fis_astate.get("learning_rate", 0) or 0)
-
-                if _fis_regime not in ("normal", "stable"):
-                    _fis_signals.append({
-                        "category": "Regime Transition Watch",
-                        "scope": "Portfolio-Wide",
-                        "observation": f"Current regime state is {_fis_regime.replace('_', ' ')}. Conditions may continue to evolve.",
-                        "horizon": "Medium",
-                        "status": "Building" if _fis_regime in ("stressed", "high_volatility", "crisis") else "Forming",
-                    })
-                elif _fis_vol in ("compressed", "compression", "low"):
-                    _fis_signals.append({
-                        "category": "Regime Transition Watch",
-                        "scope": "Portfolio-Wide",
-                        "observation": "Volatility compression conditions observed. Historical patterns suggest potential regime transition.",
-                        "horizon": "Medium",
-                        "status": "Forming",
-                    })
-
-                if _fis_lr > 0.05:
-                    _fis_signals.append({
-                        "category": "Regime Transition Watch",
-                        "scope": "Adaptive System",
-                        "observation": f"Elevated learning rate ({_fis_lr:.3f}) indicates the system is adjusting to changing market conditions.",
-                        "horizon": "Structural",
-                        "status": "Forming",
-                    })
-        except Exception:
-            pass
-
-        try:
-            _fis_sb_path = Path("data/secondary_baskets.json")
-            if _fis_sb_path.exists():
-                with open(_fis_sb_path, "r") as f:
-                    _fis_sb = json.load(f)
-                for _fis_wname, _fis_wdata in _fis_sb.get("waves", {}).items():
-                    _fis_sec = _fis_wdata.get("secondary", [])
-                    for _fis_cand in _fis_sec:
-                        _fis_crank = _fis_cand.get("rank", 99)
-                        if _fis_crank <= 3:
-                            _fis_signals.append({
-                                "category": "Secondary Basket Promotion Pressure",
-                                "scope": f"{_fis_cand.get('ticker', '')} · {_fis_wname}",
-                                "observation": f"Candidate security {_fis_cand.get('ticker', '')} showing sustained ranking improvement (rank {_fis_crank}) in {_fis_wname} wave.",
-                                "horizon": "Structural",
-                                "status": "Building" if _fis_crank <= 2 else "Forming",
-                            })
-        except Exception:
-            pass
-
-        _fis_cell = "background:#0D1117;border:1px solid #1E2530;border-radius:4px;padding:10px 14px;"
-
-        st.markdown(f"""<div style="background:#0D1117;border:1px solid #1E2530;border-radius:8px;padding:18px 22px;margin-top:14px;margin-bottom:14px;">
+        st.markdown("""<div style="background:#0D1117;border:1px solid #1E2530;border-radius:8px;padding:18px 22px;margin-top:14px;margin-bottom:14px;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.04);">
 <div style="color:#9EA3AE;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">FORWARD INTELLIGENCE SIGNALS</div>
 <div style="color:#555A65;font-size:9px;font-style:italic;">Early awareness of emerging portfolio and market conditions · Observational · Non-executing</div>
 </div>""", unsafe_allow_html=True)
 
-        if _fis_signals:
-            for _fis_sig in _fis_signals:
-                _fis_status_color = "#6B7280"
-                if _fis_sig["status"] == "Building":
-                    _fis_status_color = "#60A5FA"
-                elif _fis_sig["status"] == "Forming":
-                    _fis_status_color = "#6B7280"
-
-                st.markdown(f"""<div style="{_fis_cell}margin-bottom:8px;">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;">
-<div style="flex:1;min-width:200px;">
-<div style="color:#9EA3AE;font-size:9px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;margin-bottom:3px;">{_fis_sig["category"]}</div>
-<div style="color:#C0C4CC;font-size:11px;line-height:1.5;">{_fis_sig["observation"]}</div>
-<div style="color:#555A65;font-size:9px;margin-top:4px;">Scope: {_fis_sig["scope"]} · Horizon: {_fis_sig["horizon"]}</div>
-</div>
-<div style="text-align:right;min-width:70px;">
-<div style="color:{_fis_status_color};font-size:10px;font-weight:600;border:1px solid {_fis_status_color}33;border-radius:3px;padding:2px 8px;display:inline-block;">{_fis_sig["status"]}</div>
-</div>
-</div>
-</div>""", unsafe_allow_html=True)
+        if _fis077_signals_df.empty:
+            st.info("No emerging forward intelligence signals detected.")
         else:
-            st.markdown('<div style="color:#6B7280;font-size:11px;font-style:italic;text-align:center;padding:12px;">No emerging forward intelligence signals detected.</div>', unsafe_allow_html=True)
+            _fis077_display_cols = ["wave", "signal_title", "observation", "confidence", "horizon"]
+            _fis077_display = _fis077_signals_df[
+                [c for c in _fis077_display_cols if c in _fis077_signals_df.columns]
+            ].copy()
+            st.dataframe(_fis077_display, use_container_width=True, hide_index=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
-    except Exception:
-        pass
+    except Exception as e:
+        st.error("Forward Intelligence Signals failed to generate.")
+        st.exception(e)
 
     # --- Governance Momentum Indicator (NOTE 074) ---
     try:
