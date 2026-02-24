@@ -177,7 +177,13 @@ except ImportError:
     dlm = None
 
 try:
-    from helpers.forward_intelligence import generate_forward_intelligence_signals
+    from helpers.forward_intelligence import (
+        generate_forward_intelligence_signals,
+        load_wave_holdings,
+        fetch_forward_events,
+        fetch_news_context,
+        compute_forward_signals,
+    )
     _forward_intelligence_available = True
 except ImportError:
     _forward_intelligence_available = False
@@ -7179,48 +7185,6 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
 </div>""", unsafe_allow_html=True)
     except Exception:
         pass
-
-    # --- Forward Intelligence Signals (NOTE 077) ---
-    try:
-        _fis077_attrib = attrib_df if attrib_df is not None else pd.DataFrame()
-        _fis077_gov_df = pd.DataFrame()
-        if gov:
-            try:
-                _fis077_gov_df = gov.load_governance_decisions_df()
-            except Exception:
-                pass
-
-        if _forward_intelligence_available:
-            _fis077_signals_df = generate_forward_intelligence_signals(
-                _fis077_attrib, _fis077_gov_df
-            )
-        else:
-            _fis077_signals_df = pd.DataFrame(
-                columns=["signal_id", "wave", "signal_type", "signal_title",
-                         "observation", "confidence", "horizon", "created_at"]
-            )
-
-        st.session_state["forward_intelligence_signals"] = _fis077_signals_df
-
-        st.markdown("""<div style="background:#0D1117;border:1px solid #1E2530;border-radius:8px;padding:18px 22px;margin-top:14px;margin-bottom:14px;">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.04);">
-<div style="color:#9EA3AE;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">FORWARD INTELLIGENCE SIGNALS</div>
-<div style="color:#555A65;font-size:9px;font-style:italic;">Early awareness of emerging portfolio and market conditions · Observational · Non-executing</div>
-</div>""", unsafe_allow_html=True)
-
-        if _fis077_signals_df.empty:
-            st.info("No emerging forward intelligence signals detected.")
-        else:
-            _fis077_display_cols = ["wave", "signal_title", "observation", "confidence", "horizon"]
-            _fis077_display = _fis077_signals_df[
-                [c for c in _fis077_display_cols if c in _fis077_signals_df.columns]
-            ].copy()
-            st.dataframe(_fis077_display, use_container_width=True, hide_index=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-    except Exception as e:
-        st.error("Forward Intelligence Signals failed to generate.")
-        st.exception(e)
 
     # --- Governance Momentum Indicator (NOTE 074) ---
     try:
@@ -16162,6 +16126,208 @@ if TAB_INDEX.get('Wave Command Center') is not None:
         except Exception:
             st.markdown('<div style="color:#6B7280;font-size:11px;padding:12px;background:#151A22;border-radius:6px;margin-top:8px;">No governance decisions recorded during the current observation window.</div>', unsafe_allow_html=True)
 
+        # --- Forward Intelligence — Wave View (NOTE 077 Revised) ---
+        st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 20px 0 16px 0;"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="color:#3A6FF7;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin:24px 0 4px 0;">Section 7 · Forward Intelligence — Wave View</div>', unsafe_allow_html=True)
+        st.markdown('<div style="color: #6B7280; font-size: 10px; font-style: italic; margin: 0 0 12px 0;">Observational awareness of upcoming earnings, corporate events, news, and structural risk conditions per holding. No trade signals or price targets.</div>', unsafe_allow_html=True)
+
+        try:
+            # Wave selector populated from wave_registry.json
+            _fi_registry_path = Path("config/wave_registry.json")
+            _fi_registry_waves = []
+            if _fi_registry_path.exists():
+                try:
+                    with open(_fi_registry_path, "r") as _fi_rf:
+                        _fi_reg = json.load(_fi_rf)
+                    _fi_registry_waves = [
+                        w.get("display_name", w.get("wave_id", ""))
+                        for w in _fi_reg.get("waves", [])
+                        if w.get("enabled", True) and (w.get("display_name") or w.get("wave_id"))
+                    ]
+                except Exception:
+                    pass
+
+            if not _fi_registry_waves:
+                _fi_registry_waves = wr_waves if wr_waves else []
+
+            if not _fi_registry_waves:
+                st.info("No forward intelligence signals detected.")
+            else:
+                _fi_selected = st.selectbox(
+                    "Select Wave:",
+                    _fi_registry_waves,
+                    index=0,
+                    key="fi_wave_selector_077",
+                )
+
+                if _fi_selected:
+                    # Load holdings for selected wave
+                    _fi_holdings_df = pd.DataFrame(columns=["ticker", "weight"])
+                    if _forward_intelligence_available:
+                        try:
+                            _fi_holdings_df = load_wave_holdings(_fi_selected)
+                        except Exception:
+                            pass
+
+                    # Fallback: try wave_weights.csv directly
+                    if _fi_holdings_df.empty:
+                        try:
+                            _fi_ww_path = Path("data/wave_weights.csv")
+                            if not _fi_ww_path.exists():
+                                _fi_ww_path = Path("wave_weights.csv")
+                            if _fi_ww_path.exists():
+                                _fi_ww = pd.read_csv(_fi_ww_path)
+                                _fi_ww.columns = [c.strip().lower() for c in _fi_ww.columns]
+                                _fi_wave_col = next(
+                                    (c for c in ["wave_id", "wave_name", "wave"] if c in _fi_ww.columns), None
+                                )
+                                if _fi_wave_col:
+                                    _fi_mask = _fi_ww[_fi_wave_col].astype(str).str.strip() == str(_fi_selected).strip()
+                                    _fi_filtered = _fi_ww[_fi_mask]
+                                    if not _fi_filtered.empty:
+                                        _fi_ticker_col = next(
+                                            (c for c in ["ticker", "symbol"] if c in _fi_filtered.columns), None
+                                        )
+                                        if _fi_ticker_col:
+                                            _fi_holdings_df = _fi_filtered[[_fi_ticker_col]].rename(columns={_fi_ticker_col: "ticker"})
+                                            if "weight" in _fi_filtered.columns:
+                                                _fi_holdings_df["weight"] = pd.to_numeric(_fi_filtered["weight"], errors="coerce").fillna(0.0)
+                                            else:
+                                                _fi_holdings_df["weight"] = 0.0
+                                            _fi_holdings_df = _fi_holdings_df.reset_index(drop=True)
+                        except Exception:
+                            pass
+
+                    if _fi_holdings_df.empty:
+                        st.info("No forward intelligence signals detected.")
+                    else:
+                        _fi_tickers = _fi_holdings_df["ticker"].dropna().unique().tolist()
+
+                        # Fetch forward events (earnings + corporate actions)
+                        _fi_events_df = pd.DataFrame()
+                        _fi_news_df = pd.DataFrame()
+                        _fi_signals_df = pd.DataFrame()
+
+                        if _forward_intelligence_available:
+                            try:
+                                _fi_events_df = fetch_forward_events(_fi_tickers)
+                            except Exception:
+                                _fi_events_df = pd.DataFrame()
+                            try:
+                                _fi_news_df = fetch_news_context(_fi_tickers)
+                            except Exception:
+                                _fi_news_df = pd.DataFrame()
+                            try:
+                                _fi_signals_df = compute_forward_signals(_fi_holdings_df)
+                            except Exception:
+                                _fi_signals_df = pd.DataFrame()
+
+                        # Store in session state
+                        st.session_state["forward_intelligence"] = {
+                            "wave": _fi_selected,
+                            "holdings": _fi_holdings_df,
+                            "events": _fi_events_df,
+                            "news": _fi_news_df,
+                            "signals": _fi_signals_df,
+                        }
+
+                        # ── Panel A: Earnings & Corporate Events ──
+                        with st.expander("A · Earnings & Corporate Events", expanded=True):
+                            if _fi_events_df is None or (hasattr(_fi_events_df, "empty") and _fi_events_df.empty):
+                                st.info("No forward intelligence signals detected.")
+                            else:
+                                _fi_earn_cols = [c for c in ["ticker", "company_name", "earnings_date", "earnings_status", "earnings_surprise"] if c in _fi_events_df.columns]
+                                _fi_earn_display = _fi_events_df[_fi_earn_cols].copy() if _fi_earn_cols else pd.DataFrame()
+
+                                _fi_upcoming = _fi_events_df[_fi_events_df.get("earnings_status", pd.Series()) == "Upcoming"] if "earnings_status" in _fi_events_df.columns else pd.DataFrame()
+                                if not _fi_upcoming.empty:
+                                    st.markdown('<div style="background:#1a1f2e;border:1px solid #3A6FF7;border-radius:6px;padding:8px 14px;margin-bottom:8px;"><span style="color:#3A6FF7;font-size:10px;font-weight:700;">⚡ Preparation Window Active</span><span style="color:#6B7280;font-size:9px;margin-left:8px;">≤10 trading days to earnings for one or more holdings</span></div>', unsafe_allow_html=True)
+
+                                if _fi_earn_display.empty:
+                                    st.info("No forward intelligence signals detected.")
+                                else:
+                                    st.dataframe(_fi_earn_display, use_container_width=True, hide_index=True)
+
+                        # ── Panel B: Corporate Actions ──
+                        with st.expander("B · Corporate Actions", expanded=False):
+                            if _fi_events_df is None or (hasattr(_fi_events_df, "empty") and _fi_events_df.empty):
+                                st.info("No forward intelligence signals detected.")
+                            else:
+                                _fi_action_cols = [c for c in ["ticker", "split_flag", "dividend_flag", "buyback_flag", "symbol_change_flag", "ma_flag"] if c in _fi_events_df.columns]
+                                _fi_actions = _fi_events_df[_fi_action_cols].copy() if _fi_action_cols else pd.DataFrame()
+                                _fi_has_action = False
+                                if not _fi_actions.empty:
+                                    _fi_flag_cols = [c for c in _fi_action_cols if c != "ticker"]
+                                    if _fi_flag_cols:
+                                        _fi_has_action = _fi_actions[_fi_flag_cols].any(axis=None)
+                                if not _fi_has_action:
+                                    st.info("No corporate actions detected for this wave's holdings.")
+                                else:
+                                    st.dataframe(_fi_actions[_fi_actions[_fi_flag_cols].any(axis=1)], use_container_width=True, hide_index=True)
+
+                        # ── Panel C: News & Material Developments ──
+                        with st.expander("C · News & Material Developments", expanded=False):
+                            if _fi_news_df is None or (hasattr(_fi_news_df, "empty") and _fi_news_df.empty):
+                                st.info("No forward intelligence signals detected.")
+                            else:
+                                _fi_news_cols = [c for c in ["ticker", "title", "source", "timestamp", "sentiment"] if c in _fi_news_df.columns]
+                                _fi_news_display = _fi_news_df[_fi_news_cols].copy() if _fi_news_cols else pd.DataFrame()
+                                if _fi_news_display.empty:
+                                    st.info("No forward intelligence signals detected.")
+                                else:
+                                    _fi_sentiment_colors = {"Positive": "#48BB78", "Negative": "#E06C75", "Neutral": "#9EA3AE"}
+                                    for _, _fi_nr in _fi_news_display.iterrows():
+                                        _fi_sc = _fi_sentiment_colors.get(str(_fi_nr.get("sentiment", "Neutral")), "#9EA3AE")
+                                        st.markdown(f'<div style="background:#151A22;border:1px solid #2A2F3A;border-left:3px solid {_fi_sc};padding:8px 12px;border-radius:4px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;align-items:flex-start;"><div style="color:#C8CCD4;font-size:11px;line-height:1.4;flex:1;">[{_fi_nr.get("ticker","")}] {_fi_nr.get("title","")}</div><span style="color:{_fi_sc};font-size:9px;font-weight:600;margin-left:8px;white-space:nowrap;">{_fi_nr.get("sentiment","Neutral")}</span></div><div style="color:#4B5563;font-size:9px;margin-top:4px;">{_fi_nr.get("source","")} · {_fi_nr.get("timestamp","")}</div></div>', unsafe_allow_html=True)
+
+                        # ── Panel D: Structural Risk Alerts ──
+                        with st.expander("D · Structural Risk Alerts", expanded=False):
+                            if _fi_signals_df is None or (hasattr(_fi_signals_df, "empty") and _fi_signals_df.empty):
+                                st.info("No forward intelligence signals detected.")
+                            else:
+                                _fi_sig_cols = [c for c in ["ticker", "volatility_status", "volume_status", "gap_flag", "correlation_status", "overall_status"] if c in _fi_signals_df.columns]
+                                _fi_sig_display = _fi_signals_df[_fi_sig_cols].copy() if _fi_sig_cols else pd.DataFrame()
+                                if _fi_sig_display.empty:
+                                    st.info("No forward intelligence signals detected.")
+                                else:
+                                    st.dataframe(_fi_sig_display, use_container_width=True, hide_index=True)
+
+                        # ── Panel E: Wave-level Forward Intelligence Summary ──
+                        with st.expander("E · Wave-level Forward Intelligence Summary", expanded=False):
+                            _fi_summary_parts = []
+                            _fi_n_holdings = len(_fi_tickers)
+                            _fi_summary_parts.append(f"Wave **{_fi_selected}** contains {_fi_n_holdings} holding(s) under observation.")
+
+                            if _fi_events_df is not None and not _fi_events_df.empty and "earnings_status" in _fi_events_df.columns:
+                                _fi_upcoming_count = (_fi_events_df["earnings_status"] == "Upcoming").sum()
+                                _fi_scheduled_count = (_fi_events_df["earnings_status"] == "Scheduled").sum()
+                                if _fi_upcoming_count > 0:
+                                    _fi_summary_parts.append(f"{_fi_upcoming_count} holding(s) have earnings within the 10-trading-day preparation window.")
+                                if _fi_scheduled_count > 0:
+                                    _fi_summary_parts.append(f"{_fi_scheduled_count} holding(s) have scheduled earnings outside the immediate window.")
+
+                            if _fi_news_df is not None and not _fi_news_df.empty:
+                                _fi_news_count = len(_fi_news_df)
+                                _fi_neg_count = (_fi_news_df.get("sentiment", pd.Series()) == "Negative").sum() if "sentiment" in _fi_news_df.columns else 0
+                                _fi_summary_parts.append(f"{_fi_news_count} recent headline(s) observed across holdings.")
+                                if _fi_neg_count > 0:
+                                    _fi_summary_parts.append(f"{_fi_neg_count} headline(s) carry a negative sentiment classification.")
+
+                            if _fi_signals_df is not None and not _fi_signals_df.empty and "overall_status" in _fi_signals_df.columns:
+                                _fi_review_count = (_fi_signals_df["overall_status"] == "Review Awareness").sum()
+                                _fi_monitor_count = (_fi_signals_df["overall_status"] == "Monitoring").sum()
+                                if _fi_review_count > 0:
+                                    _fi_summary_parts.append(f"{_fi_review_count} holding(s) at Review Awareness structural risk status.")
+                                if _fi_monitor_count > 0:
+                                    _fi_summary_parts.append(f"{_fi_monitor_count} holding(s) at Monitoring structural risk status.")
+
+                            if not _fi_summary_parts:
+                                st.info("No forward intelligence signals detected.")
+                            else:
+                                st.markdown('<div style="background:#151A22;border:1px solid #2A2F3A;padding:16px 18px;border-radius:6px;">' + "<br>".join(f'<span style="color:#C8CCD4;font-size:11px;display:block;margin-bottom:4px;">• {p}</span>' for p in _fi_summary_parts) + '<div style="color:#4B5563;font-size:9px;margin-top:12px;font-style:italic;">Observational awareness only · No trade signals · No price targets · Non-executing</div></div>', unsafe_allow_html=True)
+
+        except Exception:
+            st.info("No forward intelligence signals detected.")
 
     except Exception:
         st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin-top: 16px;">
