@@ -39,10 +39,10 @@ _qp_source = st.query_params.get("source", "")
 _qp_days = st.query_params.get("days", "30")
 if _qp_mode == "replay":
     st.session_state["SYSTEM_MODE"] = "replay"
-elif _qp_mode == "production":
-    st.session_state["SYSTEM_MODE"] = "production"
-else:
+elif _qp_mode == "sandbox":
     st.session_state["SYSTEM_MODE"] = "sandbox"
+else:
+    st.session_state["SYSTEM_MODE"] = "production"
 if "DATASET_MODE" not in st.session_state:
     st.session_state["DATASET_MODE"] = "demo" if _qp_dataset == "demo" else "live"
 else:
