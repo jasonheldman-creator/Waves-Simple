@@ -1368,6 +1368,25 @@ else:
     print(f"[ALPHA-INTELLIGENCE] Attribution validated: {len(_attrib_waves)} waves, horizons={_horizons_present}")
 
 # ===========================
+# Intelligence Layer Pre-initialization
+# ===========================
+if attrib_df is not None and not attrib_df.empty and "intelligence_initialized" not in st.session_state:
+    try:
+        st.session_state["alpha_quality_df"] = al.alpha_quality_df(attrib_df)
+        st.session_state["capital_pressure_df"] = al.capital_pressure_df(attrib_df)
+        st.session_state["rotation_velocity_df"] = al.rotation_velocity_df(attrib_df)
+        st.session_state["alpha_ignition_df"] = al.alpha_ignition_df(attrib_df)
+        st.session_state["cross_horizon_df"] = (
+            attrib_df.groupby(["wave", "horizon"])
+            .mean(numeric_only=True)
+            .reset_index()
+        )
+    except Exception as _init_err:
+        print(f"[ALPHA-INTELLIGENCE][ERROR] Intelligence pre-initialization failed: {_init_err}")
+    st.session_state["intelligence_initialized"] = True
+    st.experimental_rerun()
+
+# ===========================
 # Daily Intelligence Cycle Engine
 # ===========================
 cycle_state = None
@@ -12598,51 +12617,55 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         # --- Alpha Quality Ranking ---
         st.markdown("### Alpha Quality Ranking")
+        st.write(
+            "Alpha rows:",
+            len(st.session_state.get("alpha_quality_df", pd.DataFrame()))
+        )
         try:
             _quality_df = st.session_state.get("alpha_quality_df")
             if _quality_df is None or _quality_df.empty:
-                st.warning("Data initializing…")
+                st.info("Initializing intelligence layer…")
             else:
                 _apr_has_any = True
                 st.dataframe(_quality_df, use_container_width=True, hide_index=True)
         except Exception as _e:
-            st.error(f"Panel load error: {_e}")
+            st.error(f"Render failure: {_e}")
 
         # --- Capital Pressure Regime ---
         st.markdown("### Capital Pressure Regime")
         try:
             _pressure_df = st.session_state.get("capital_pressure_df")
             if _pressure_df is None or _pressure_df.empty:
-                st.warning("Data initializing…")
+                st.info("Initializing intelligence layer…")
             else:
                 _apr_has_any = True
                 st.dataframe(_pressure_df, use_container_width=True, hide_index=True)
         except Exception as _e:
-            st.error(f"Panel load error: {_e}")
+            st.error(f"Render failure: {_e}")
 
         # --- Rotation Velocity ---
         st.markdown("### Rotation Velocity")
         try:
             _velocity_df = st.session_state.get("rotation_velocity_df")
             if _velocity_df is None or _velocity_df.empty:
-                st.warning("Data initializing…")
+                st.info("Initializing intelligence layer…")
             else:
                 _apr_has_any = True
                 st.dataframe(_velocity_df, use_container_width=True, hide_index=True)
         except Exception as _e:
-            st.error(f"Panel load error: {_e}")
+            st.error(f"Render failure: {_e}")
 
         # --- Alpha Ignition Surface ---
         st.markdown("### Alpha Ignition Surface")
         try:
             _ignition_df = st.session_state.get("alpha_ignition_df")
             if _ignition_df is None or _ignition_df.empty:
-                st.warning("Data initializing…")
+                st.info("Initializing intelligence layer…")
             else:
                 _apr_has_any = True
                 st.dataframe(_ignition_df, use_container_width=True, hide_index=True)
         except Exception as _e:
-            st.error(f"Panel load error: {_e}")
+            st.error(f"Render failure: {_e}")
 
         if not _apr_has_any:
             st.info("Alpha Pressure & Rotation data will populate as canonical attribution sources are connected.")
