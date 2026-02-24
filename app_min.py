@@ -12537,41 +12537,66 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         st.subheader("Alpha Pressure & Rotation Intelligence")
         st.caption("Cross-wave structural capital flow and rotation diagnostics \u00b7 Observational only")
 
-        quality = al.compute_alpha_quality(snapshot_df, attrib_df)
-        pressure = al.compute_capital_pressure(snapshot_df)
-        velocity = al.compute_rotation_velocity(snapshot_df)
-        ignition = al.compute_alpha_ignition(snapshot_df)
-
         _apr_has_any = False
 
-        if quality.get("has_data"):
-            _apr_has_any = True
-            st.markdown("### Alpha Quality Ranking")
-            st.dataframe(pd.DataFrame(quality["waves"]), width="stretch", hide_index=True)
+        # --- Alpha Quality Ranking ---
+        st.markdown("### Alpha Quality Ranking")
+        try:
+            _quality_df = al.compute_alpha_quality_df(attrib_df)
+            if _quality_df.empty:
+                st.warning("Alpha Quality Ranking: No data — attribution DataFrame is empty after computation.")
+            else:
+                _apr_has_any = True
+                st.dataframe(_quality_df, use_container_width=True, hide_index=True)
+        except ValueError as _e:
+            st.error(f"Alpha Quality Ranking unavailable: {_e}")
+        except Exception as _e:
+            st.error(f"Alpha Quality Ranking error: {_e}")
 
-        if pressure.get("has_data"):
-            _apr_has_any = True
-            st.markdown("### Capital Pressure Regime")
-            _cp_regime = pressure.get("Capital Pressure Regime", "N/A")
-            _cp_pos = pressure.get("Positive Alpha %", 0)
-            _cp_disp = pressure.get("Dispersion (Std Dev)", 0)
-            col_cp1, col_cp2, col_cp3 = st.columns(3)
-            col_cp1.metric("Regime", _cp_regime)
-            col_cp2.metric("Positive Alpha %", f"{_cp_pos}%")
-            col_cp3.metric("Dispersion", f"{_cp_disp}")
+        # --- Capital Pressure Regime ---
+        st.markdown("### Capital Pressure Regime")
+        try:
+            _pressure_df = al.compute_capital_pressure_df(attrib_df)
+            if _pressure_df.empty:
+                st.warning("Capital Pressure Regime: No data — attribution DataFrame is empty after computation.")
+            else:
+                _apr_has_any = True
+                st.dataframe(_pressure_df, use_container_width=True, hide_index=True)
+        except ValueError as _e:
+            st.error(f"Capital Pressure Regime unavailable: {_e}")
+        except Exception as _e:
+            st.error(f"Capital Pressure Regime error: {_e}")
 
-        if velocity.get("has_data"):
-            _apr_has_any = True
-            st.markdown("### Rotation Velocity")
-            st.dataframe(pd.DataFrame(velocity["waves"]), width="stretch", hide_index=True)
+        # --- Rotation Velocity ---
+        st.markdown("### Rotation Velocity")
+        try:
+            _velocity_df = al.compute_rotation_velocity_df(attrib_df)
+            if _velocity_df.empty:
+                st.warning("Rotation Velocity: No data — attribution DataFrame is empty after computation.")
+            else:
+                _apr_has_any = True
+                st.dataframe(_velocity_df, use_container_width=True, hide_index=True)
+        except ValueError as _e:
+            st.error(f"Rotation Velocity unavailable: {_e}")
+        except Exception as _e:
+            st.error(f"Rotation Velocity error: {_e}")
 
-        if ignition.get("has_data"):
-            _apr_has_any = True
-            st.markdown("### Alpha Ignition Surface")
-            st.dataframe(pd.DataFrame(ignition["waves"]), width="stretch", hide_index=True)
+        # --- Alpha Ignition Surface ---
+        st.markdown("### Alpha Ignition Surface")
+        try:
+            _ignition_df = al.compute_alpha_ignition_df(attrib_df)
+            if _ignition_df.empty:
+                st.warning("Alpha Ignition Surface: No data — attribution DataFrame is empty after computation.")
+            else:
+                _apr_has_any = True
+                st.dataframe(_ignition_df, use_container_width=True, hide_index=True)
+        except ValueError as _e:
+            st.error(f"Alpha Ignition Surface unavailable: {_e}")
+        except Exception as _e:
+            st.error(f"Alpha Ignition Surface error: {_e}")
 
         if not _apr_has_any:
-            st.info("Alpha Pressure & Rotation data will populate as snapshot sources are connected.")
+            st.info("Alpha Pressure & Rotation data will populate as canonical attribution sources are connected.")
 
         st.caption("This layer is observational and non-executing. It does not modify allocations or governance state.")
 
