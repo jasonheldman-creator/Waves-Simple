@@ -1171,9 +1171,24 @@ def generate_full_snapshot(holdings, prices_pivot):
             row[f"alpha_{label}"] = (wave_ret - bench_ret) if not (np.isnan(wave_ret) or np.isnan(bench_ret)) else np.nan
         for col in attribution_cols:
             row[col] = np.nan
+        # Compute price series for drawdown and benchmark volatility (always, not just when attr engine available)
+        wave_series = _compute_weighted_price_series(prices_pivot, tickers)
+        bench_series = _compute_weighted_price_series(prices_pivot, bench_tickers)
+        # drawdown_30d: maximum drawdown of wave composite over last 30 trading days
+        if len(wave_series) >= 2:
+            _ws_recent = wave_series.iloc[-31:]
+            _ws_peak = _ws_recent.cummax()
+            _ws_dd = ((_ws_recent - _ws_peak) / _ws_peak).min()
+            row["drawdown_30d"] = float(abs(_ws_dd)) if not np.isnan(_ws_dd) else np.nan
+        else:
+            row["drawdown_30d"] = np.nan
+        # benchmark_volatility_30d: annualised std dev of benchmark daily returns over 30 days
+        if len(bench_series) >= 2:
+            _bs_rets = bench_series.pct_change().dropna().iloc[-30:]
+            row["benchmark_volatility_30d"] = float(_bs_rets.std() * np.sqrt(252)) if len(_bs_rets) >= 5 else np.nan
+        else:
+            row["benchmark_volatility_30d"] = np.nan
         if _attr_engine_available:
-            wave_series = _compute_weighted_price_series(prices_pivot, tickers)
-            bench_series = _compute_weighted_price_series(prices_pivot, bench_tickers)
             if len(wave_series) >= 2 and len(bench_series) >= 2:
                 for attr_days, label in [(30, "30d"), (60, "60d"), (365, "365d")]:
                     try:

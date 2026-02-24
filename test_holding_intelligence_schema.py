@@ -63,8 +63,8 @@ class TestEvaluateHoldings:
         assert result == []
 
     def test_required_fields_present(self, tmp_path):
-        csv_path = tmp_path / "live_snapshot.csv"
-        csv_path.write_text("ticker,wave,weight,target_weight\nAAPL,Growth,5.0,5.0\n")
+        csv_path = tmp_path / "wave_weights.csv"
+        csv_path.write_text("wave_id,ticker,weight\nGrowth Wave,AAPL,5.0\n")
         result = evaluate_holdings(str(tmp_path))
         assert len(result) == 1
         holding = result[0]
@@ -77,8 +77,8 @@ class TestEvaluateHoldings:
             assert field in holding, f"Missing field: {field}"
 
     def test_new_metric_fields_are_none_by_default(self, tmp_path):
-        csv_path = tmp_path / "live_snapshot.csv"
-        csv_path.write_text("ticker,wave,weight,target_weight\nMSFT,Income,3.0,3.0\n")
+        csv_path = tmp_path / "wave_weights.csv"
+        csv_path.write_text("wave_id,ticker,weight\nIncome Wave,MSFT,3.0\n")
         result = evaluate_holdings(str(tmp_path))
         h = result[0]
         assert h["vol_30d"] is None
