@@ -193,6 +193,13 @@ except ImportError:
     _forward_intelligence_available = False
 
 try:
+    from helpers.wave_holdings_loader import load_wave_holdings as _load_wave_holdings_list
+    from helpers.forward_intelligence_engine import generate_forward_signals as _generate_forward_signals
+    _fi_engine_available = True
+except ImportError:
+    _fi_engine_available = False
+
+try:
     from helpers import wave_activity as wa
     from helpers import strategy_instructions as si
     from helpers import alpha_igniters as ai_ig
@@ -16161,88 +16168,74 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                 )
 
                 if _fi_selected:
-                    # Load holdings for selected wave
-                    _fi_holdings_df = pd.DataFrame(columns=["ticker", "weight"])
-                    if _forward_intelligence_available:
+                    # ── Load holdings via new wave_holdings_loader ──
+                    _fi_tickers: list = []
+                    if _fi_engine_available:
                         try:
-                            _fi_holdings_df = load_wave_holdings(_fi_selected)
+                            _fi_tickers = _load_wave_holdings_list(_fi_selected)
+                        except Exception:
+                            _fi_tickers = []
+
+                    # Fallback to helpers.forward_intelligence.load_wave_holdings
+                    if not _fi_tickers and _forward_intelligence_available:
+                        try:
+                            _fi_holdings_df_tmp = load_wave_holdings(_fi_selected)
+                            if not _fi_holdings_df_tmp.empty and "ticker" in _fi_holdings_df_tmp.columns:
+                                _fi_tickers = _fi_holdings_df_tmp["ticker"].dropna().unique().tolist()
                         except Exception:
                             pass
 
-                    # Fallback: try wave_weights.csv directly
-                    if _fi_holdings_df.empty:
-                        try:
-                            _fi_ww_path = Path("data/wave_weights.csv")
-                            if not _fi_ww_path.exists():
-                                _fi_ww_path = Path("wave_weights.csv")
-                            if _fi_ww_path.exists():
-                                _fi_ww = pd.read_csv(_fi_ww_path)
-                                _fi_ww.columns = [c.strip().lower() for c in _fi_ww.columns]
-                                _fi_wave_col = next(
-                                    (c for c in ["wave_id", "wave_name", "wave"] if c in _fi_ww.columns), None
-                                )
-                                if _fi_wave_col:
-                                    _fi_mask = _fi_ww[_fi_wave_col].astype(str).str.strip() == str(_fi_selected).strip()
-                                    _fi_filtered = _fi_ww[_fi_mask]
-                                    if not _fi_filtered.empty:
-                                        _fi_ticker_col = next(
-                                            (c for c in ["ticker", "symbol"] if c in _fi_filtered.columns), None
-                                        )
-                                        if _fi_ticker_col:
-                                            _fi_holdings_df = _fi_filtered[[_fi_ticker_col]].rename(columns={_fi_ticker_col: "ticker"})
-                                            if "weight" in _fi_filtered.columns:
-                                                _fi_holdings_df["weight"] = pd.to_numeric(_fi_filtered["weight"], errors="coerce").fillna(0.0)
-                                            else:
-                                                _fi_holdings_df["weight"] = 0.0
-                                            _fi_holdings_df = _fi_holdings_df.reset_index(drop=True)
-                        except Exception:
-                            pass
-
-                    if _fi_holdings_df.empty:
-                        st.info("No forward intelligence signals detected.")
+                    if not _fi_tickers:
+                        st.error("Wave holdings not found.")
                     else:
-                        _fi_tickers = _fi_holdings_df["ticker"].dropna().unique().tolist()
-
-                        # Fetch forward events (earnings + corporate actions)
-                        _fi_events_df = pd.DataFrame()
-                        _fi_news_df = pd.DataFrame()
-                        _fi_signals_df = pd.DataFrame()
-
-                        if _forward_intelligence_available:
+                        # ── Execute pipeline — generate live signals ──
+                        _fi_signals_df = st.session_state.get("forward_signals", pd.DataFrame())
+                        _fi_prev_wave = st.session_state.get("_fi_prev_wave", "")
+                        if _fi_engine_available and (
+                            _fi_signals_df.empty or _fi_prev_wave != _fi_selected
+                        ):
                             try:
-                                _fi_events_df = fetch_forward_events(_fi_tickers)
-                            except Exception:
-                                _fi_events_df = pd.DataFrame()
-                            try:
-                                _fi_news_df = fetch_news_context(_fi_tickers)
-                            except Exception:
-                                _fi_news_df = pd.DataFrame()
-                            try:
-                                _fi_signals_df = compute_forward_signals(_fi_holdings_df)
+                                _fi_signals_df = _generate_forward_signals(
+                                    _fi_tickers, wave_name=_fi_selected
+                                )
+                                st.session_state["forward_signals"] = _fi_signals_df
+                                st.session_state["_fi_prev_wave"] = _fi_selected
                             except Exception:
                                 _fi_signals_df = pd.DataFrame()
+                        else:
+                            _fi_signals_df = st.session_state.get("forward_signals", pd.DataFrame())
 
-                        # Store in session state
-                        st.session_state["forward_intelligence"] = {
-                            "wave": _fi_selected,
-                            "holdings": _fi_holdings_df,
-                            "events": _fi_events_df,
-                            "news": _fi_news_df,
-                            "signals": _fi_signals_df,
-                        }
+                        # Fail loudly if signals empty despite having holdings
+                        if _fi_signals_df is None or (hasattr(_fi_signals_df, "empty") and _fi_signals_df.empty):
+                            st.warning("Forward Intelligence pipeline executed but produced zero signals.")
+
+                        # Subset DataFrames by signal_type for each panel
+                        def _fi_subset(stype: str) -> pd.DataFrame:
+                            if _fi_signals_df is None or not hasattr(_fi_signals_df, "empty") or _fi_signals_df.empty:
+                                return pd.DataFrame()
+                            if "signal_type" not in _fi_signals_df.columns:
+                                return pd.DataFrame()
+                            return _fi_signals_df[_fi_signals_df["signal_type"] == stype].copy()
+
+                        _fi_earn_signals = _fi_subset("earnings")
+                        _fi_corp_signals = _fi_subset("corporate_action")
+                        _fi_news_signals = _fi_subset("news")
+                        _fi_risk_signals = _fi_subset("risk")
 
                         # ── Panel A: Earnings & Corporate Events ──
                         with st.expander("A · Earnings & Corporate Events", expanded=True):
-                            if _fi_events_df is None or (hasattr(_fi_events_df, "empty") and _fi_events_df.empty):
+                            if _fi_earn_signals.empty:
                                 st.info("No forward intelligence signals detected.")
                             else:
-                                _fi_earn_cols = [c for c in ["ticker", "company_name", "earnings_date", "earnings_status", "earnings_surprise"] if c in _fi_events_df.columns]
-                                _fi_earn_display = _fi_events_df[_fi_earn_cols].copy() if _fi_earn_cols else pd.DataFrame()
-
-                                _fi_upcoming = _fi_events_df[_fi_events_df.get("earnings_status", pd.Series()) == "Upcoming"] if "earnings_status" in _fi_events_df.columns else pd.DataFrame()
-                                if not _fi_upcoming.empty:
+                                _fi_earn_cols = [c for c in ["ticker", "title", "description", "event_date", "severity", "source"] if c in _fi_earn_signals.columns]
+                                _fi_earn_display = _fi_earn_signals[_fi_earn_cols].copy() if _fi_earn_cols else pd.DataFrame()
+                                _today_val = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+                                _cutoff_val = (datetime.now(tz=timezone.utc) + timedelta(days=10)).strftime("%Y-%m-%d")
+                                _fi_upcoming_earn = _fi_earn_signals[
+                                    _fi_earn_signals.get("event_date", pd.Series("")).astype(str) <= _cutoff_val
+                                ] if "event_date" in _fi_earn_signals.columns else pd.DataFrame()
+                                if not _fi_upcoming_earn.empty:
                                     st.markdown('<div style="background:#1a1f2e;border:1px solid #3A6FF7;border-radius:6px;padding:8px 14px;margin-bottom:8px;"><span style="color:#3A6FF7;font-size:10px;font-weight:700;">⚡ Preparation Window Active</span><span style="color:#6B7280;font-size:9px;margin-left:8px;">≤10 trading days to earnings for one or more holdings</span></div>', unsafe_allow_html=True)
-
                                 if _fi_earn_display.empty:
                                     st.info("No forward intelligence signals detected.")
                                 else:
@@ -16250,47 +16243,37 @@ if TAB_INDEX.get('Wave Command Center') is not None:
 
                         # ── Panel B: Corporate Actions ──
                         with st.expander("B · Corporate Actions", expanded=False):
-                            if _fi_events_df is None or (hasattr(_fi_events_df, "empty") and _fi_events_df.empty):
-                                st.info("No forward intelligence signals detected.")
+                            if _fi_corp_signals.empty:
+                                st.info("No corporate actions detected for this wave's holdings.")
                             else:
-                                _fi_action_cols = [c for c in ["ticker", "split_flag", "dividend_flag", "buyback_flag", "symbol_change_flag", "ma_flag"] if c in _fi_events_df.columns]
-                                _fi_actions = _fi_events_df[_fi_action_cols].copy() if _fi_action_cols else pd.DataFrame()
-                                _fi_has_action = False
-                                if not _fi_actions.empty:
-                                    _fi_flag_cols = [c for c in _fi_action_cols if c != "ticker"]
-                                    if _fi_flag_cols:
-                                        _fi_has_action = _fi_actions[_fi_flag_cols].any(axis=None)
-                                if not _fi_has_action:
-                                    st.info("No corporate actions detected for this wave's holdings.")
-                                else:
-                                    st.dataframe(_fi_actions[_fi_actions[_fi_flag_cols].any(axis=1)], use_container_width=True, hide_index=True)
+                                _fi_corp_cols = [c for c in ["ticker", "title", "description", "event_date", "severity", "source"] if c in _fi_corp_signals.columns]
+                                st.dataframe(_fi_corp_signals[_fi_corp_cols].copy() if _fi_corp_cols else _fi_corp_signals, use_container_width=True, hide_index=True)
 
                         # ── Panel C: News & Material Developments ──
                         with st.expander("C · News & Material Developments", expanded=False):
-                            if _fi_news_df is None or (hasattr(_fi_news_df, "empty") and _fi_news_df.empty):
+                            if _fi_news_signals.empty:
                                 st.info("No forward intelligence signals detected.")
                             else:
-                                _fi_news_cols = [c for c in ["ticker", "title", "source", "timestamp", "sentiment"] if c in _fi_news_df.columns]
-                                _fi_news_display = _fi_news_df[_fi_news_cols].copy() if _fi_news_cols else pd.DataFrame()
-                                if _fi_news_display.empty:
-                                    st.info("No forward intelligence signals detected.")
-                                else:
-                                    _fi_sentiment_colors = {"Positive": "#48BB78", "Negative": "#E06C75", "Neutral": "#9EA3AE"}
-                                    for _, _fi_nr in _fi_news_display.iterrows():
-                                        _fi_sc = _fi_sentiment_colors.get(str(_fi_nr.get("sentiment", "Neutral")), "#9EA3AE")
-                                        st.markdown(f'<div style="background:#151A22;border:1px solid #2A2F3A;border-left:3px solid {_fi_sc};padding:8px 12px;border-radius:4px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;align-items:flex-start;"><div style="color:#C8CCD4;font-size:11px;line-height:1.4;flex:1;">[{_fi_nr.get("ticker","")}] {_fi_nr.get("title","")}</div><span style="color:{_fi_sc};font-size:9px;font-weight:600;margin-left:8px;white-space:nowrap;">{_fi_nr.get("sentiment","Neutral")}</span></div><div style="color:#4B5563;font-size:9px;margin-top:4px;">{_fi_nr.get("source","")} · {_fi_nr.get("timestamp","")}</div></div>', unsafe_allow_html=True)
+                                _fi_sentiment_colors = {"Positive": "#48BB78", "Negative": "#E06C75", "Neutral": "#9EA3AE"}
+                                for _, _fi_nr in _fi_news_signals.iterrows():
+                                    # Derive display sentiment from severity field (high=Negative, low=Positive)
+                                    _fi_sev = str(_fi_nr.get("severity", ""))
+                                    if _fi_sev == "high":
+                                        _fi_sent = "Negative"
+                                    elif _fi_sev == "low":
+                                        _fi_sent = "Positive"
+                                    else:
+                                        _fi_sent = "Neutral"
+                                    _fi_sc = _fi_sentiment_colors.get(_fi_sent, "#9EA3AE")
+                                    st.markdown(f'<div style="background:#151A22;border:1px solid #2A2F3A;border-left:3px solid {_fi_sc};padding:8px 12px;border-radius:4px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;align-items:flex-start;"><div style="color:#C8CCD4;font-size:11px;line-height:1.4;flex:1;">[{_fi_nr.get("ticker","")}] {_fi_nr.get("title","")}</div><span style="color:{_fi_sc};font-size:9px;font-weight:600;margin-left:8px;white-space:nowrap;">{_fi_sent}</span></div><div style="color:#4B5563;font-size:9px;margin-top:4px;">{_fi_nr.get("source","")} · {_fi_nr.get("event_date","")}</div></div>', unsafe_allow_html=True)
 
                         # ── Panel D: Structural Risk Alerts ──
                         with st.expander("D · Structural Risk Alerts", expanded=False):
-                            if _fi_signals_df is None or (hasattr(_fi_signals_df, "empty") and _fi_signals_df.empty):
+                            if _fi_risk_signals.empty:
                                 st.info("No forward intelligence signals detected.")
                             else:
-                                _fi_sig_cols = [c for c in ["ticker", "volatility_status", "volume_status", "gap_flag", "correlation_status", "overall_status"] if c in _fi_signals_df.columns]
-                                _fi_sig_display = _fi_signals_df[_fi_sig_cols].copy() if _fi_sig_cols else pd.DataFrame()
-                                if _fi_sig_display.empty:
-                                    st.info("No forward intelligence signals detected.")
-                                else:
-                                    st.dataframe(_fi_sig_display, use_container_width=True, hide_index=True)
+                                _fi_risk_cols = [c for c in ["ticker", "title", "description", "event_date", "severity", "source"] if c in _fi_risk_signals.columns]
+                                st.dataframe(_fi_risk_signals[_fi_risk_cols].copy() if _fi_risk_cols else _fi_risk_signals, use_container_width=True, hide_index=True)
 
                         # ── Panel E: Wave-level Forward Intelligence Summary ──
                         with st.expander("E · Wave-level Forward Intelligence Summary", expanded=False):
@@ -16298,28 +16281,20 @@ if TAB_INDEX.get('Wave Command Center') is not None:
                             _fi_n_holdings = len(_fi_tickers)
                             _fi_summary_parts.append(f"Wave **{_fi_selected}** contains {_fi_n_holdings} holding(s) under observation.")
 
-                            if _fi_events_df is not None and not _fi_events_df.empty and "earnings_status" in _fi_events_df.columns:
-                                _fi_upcoming_count = (_fi_events_df["earnings_status"] == "Upcoming").sum()
-                                _fi_scheduled_count = (_fi_events_df["earnings_status"] == "Scheduled").sum()
-                                if _fi_upcoming_count > 0:
-                                    _fi_summary_parts.append(f"{_fi_upcoming_count} holding(s) have earnings within the 10-trading-day preparation window.")
-                                if _fi_scheduled_count > 0:
-                                    _fi_summary_parts.append(f"{_fi_scheduled_count} holding(s) have scheduled earnings outside the immediate window.")
-
-                            if _fi_news_df is not None and not _fi_news_df.empty:
-                                _fi_news_count = len(_fi_news_df)
-                                _fi_neg_count = (_fi_news_df.get("sentiment", pd.Series()) == "Negative").sum() if "sentiment" in _fi_news_df.columns else 0
-                                _fi_summary_parts.append(f"{_fi_news_count} recent headline(s) observed across holdings.")
-                                if _fi_neg_count > 0:
-                                    _fi_summary_parts.append(f"{_fi_neg_count} headline(s) carry a negative sentiment classification.")
-
-                            if _fi_signals_df is not None and not _fi_signals_df.empty and "overall_status" in _fi_signals_df.columns:
-                                _fi_review_count = (_fi_signals_df["overall_status"] == "Review Awareness").sum()
-                                _fi_monitor_count = (_fi_signals_df["overall_status"] == "Monitoring").sum()
-                                if _fi_review_count > 0:
-                                    _fi_summary_parts.append(f"{_fi_review_count} holding(s) at Review Awareness structural risk status.")
-                                if _fi_monitor_count > 0:
-                                    _fi_summary_parts.append(f"{_fi_monitor_count} holding(s) at Monitoring structural risk status.")
+                            if not _fi_earn_signals.empty:
+                                _fi_summary_parts.append(f"{len(_fi_earn_signals)} earnings signal(s) detected within the 10-day window.")
+                            if not _fi_corp_signals.empty:
+                                _fi_summary_parts.append(f"{len(_fi_corp_signals)} corporate action signal(s) observed.")
+                            if not _fi_news_signals.empty:
+                                _fi_neg_news = (_fi_news_signals.get("severity", pd.Series()) == "high").sum() if "severity" in _fi_news_signals.columns else 0
+                                _fi_summary_parts.append(f"{len(_fi_news_signals)} recent headline(s) observed across holdings.")
+                                if _fi_neg_news > 0:
+                                    _fi_summary_parts.append(f"{_fi_neg_news} headline(s) carry a negative sentiment classification.")
+                            if not _fi_risk_signals.empty:
+                                _fi_high_risk = (_fi_risk_signals.get("severity", pd.Series()) == "high").sum() if "severity" in _fi_risk_signals.columns else 0
+                                _fi_summary_parts.append(f"{len(_fi_risk_signals)} structural risk signal(s) detected.")
+                                if _fi_high_risk > 0:
+                                    _fi_summary_parts.append(f"{_fi_high_risk} holding(s) at high structural risk status.")
 
                             if not _fi_summary_parts:
                                 st.info("No forward intelligence signals detected.")
