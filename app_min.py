@@ -13978,6 +13978,69 @@ AI generates governance instructions subject to time-governed approval windows. 
             except Exception:
                 dri_decisions = []
 
+        # ---- governance_pipeline_init: load canonical governance queue ----
+        _GOV_STATUS_TO_APPROVAL = {
+            "Awaiting Approval": "Pending",
+            "Awaiting Governance Review": "Pending",
+            "Under Deliberation": "Under Review",
+            "Escalated": "Pending IC Decision",
+            "Approved": "Approved",
+            "IC Approved": "Approved",
+            "Rejected": "Rejected",
+            "Deferred": "Deferred",
+            "Executed — Governance Window Closed": "Approved",
+            "Monitoring": "Approved",
+        }
+        _GOV_ACTIVE_STATUSES = {"Pending", "Under Review", "Pending IC Decision"}
+        _GOV_FINALIZED_STATUSES = {"Approved", "Rejected", "Deferred"}
+
+        _gov_decisions_path = "data/governance_decisions.json"
+        _gov_raw = []
+        try:
+            if os.path.exists(_gov_decisions_path):
+                with open(_gov_decisions_path, "r") as _gf:
+                    _gov_raw = json.load(_gf)
+        except Exception as _gov_load_err:
+            st.error(f"Governance Pipeline Init — Failed to load governance_decisions.json: {_gov_load_err}")
+
+        # Normalize and merge into dri_decisions (deduplicate by id)
+        _existing_ids = {d.get("id", "") for d in dri_decisions}
+        for _gd in _gov_raw:
+            _gd_id = _gd.get("id", "")
+            if _gd_id in _existing_ids:
+                continue
+            _gd_status = _gd.get("status", "")
+            _gd_ctx = _gd.get("context_snapshot") or {}
+            _gd_normalized = {
+                "id": _gd_id,
+                "wave": _gd.get("wave", "—"),
+                "decision_type": _gd.get("decision_type", "—"),
+                "status": _gd_status,
+                "approval_status": _GOV_STATUS_TO_APPROVAL.get(_gd_status, "Pending"),
+                "source": _gd.get("source", _gd.get("trigger_source", "—")),
+                "trigger_source": _gd.get("trigger_source", ""),
+                "created": _gd.get("created", ""),
+                "date": (_gd.get("created", "") or "")[:10],
+                "rationale": _gd_ctx.get("action", _gd.get("trigger_source", "")),
+                "context_notes": _gd_ctx.get("action", ""),
+                "actor": _gd.get("actor", "system"),
+                "approved_by": _gd.get("approved_by", ""),
+                "approval_date": _gd.get("approval_date", ""),
+                "implementation_state": _gd.get("implementation_state", None),
+                "decision_plain_english": (
+                    _gd_ctx.get("action")
+                    or _gd.get("trigger_source")
+                    or "Governance review initiated. Human approval required before any action."
+                ),
+                "proposed_action": _gd.get("proposed_action", ""),
+            }
+            dri_decisions.append(_gd_normalized)
+            _existing_ids.add(_gd_id)
+
+        if not dri_decisions and not _gov_raw:
+            st.info("No governance decisions loaded. governance_decisions.json is empty or absent.")
+        # ---- end governance_pipeline_init ----
+
 
         # ---- PENDING STRATEGY INSTRUCTIONS (NOTE 062) ----
         st.markdown("""<div style="background: #151A22; border: 1px solid #2A2F3A; padding: 16px 20px; border-radius: 8px; margin: 16px 0 12px 0;">
@@ -14653,35 +14716,80 @@ AI generates governance instructions subject to time-governed approval windows. 
 <span style="color: #9EA3AE; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Section 1 · Governance Queue Summary</span>
 </div>""", unsafe_allow_html=True)
 
-        _s1_pending_count = 0
-        _s1_escalated_count = 0
-        _s1_expiring_count = 0
-        _s1_overnight_count = 0
-        _s1_deliberation_count = 0
+        # Section 1 counts: compute directly from canonical dri_decisions + gov module
         try:
+            try:
+                from zoneinfo import ZoneInfo as _ZoneInfo
+                _ET_TZ = _ZoneInfo("America/New_York")
+            except Exception:
+                _ET_TZ = None
+            _s1_now_utc = datetime.now(timezone.utc)
+            _s1_now_et = _s1_now_utc.astimezone(_ET_TZ) if _ET_TZ else _s1_now_utc
+            _s1_et_hour = _s1_now_et.hour
+
+            _s1_pending_count = sum(
+                1 for d in dri_decisions
+                if (d.get("approval_status") or "").strip() in ("Pending", "Under Review", "Pending IC Decision")
+            )
+            _s1_escalated_count = sum(
+                1 for d in dri_decisions
+                if (d.get("approval_status") or "").strip() == "Pending IC Decision"
+                or d.get("escalated")
+            )
+            # Expiring soon: approval_deadline or expires_at within next 24 hours
+            _s1_expiring_count = 0
+            for _s1_d in dri_decisions:
+                _s1_dl = _s1_d.get("approval_deadline") or _s1_d.get("expires_at") or ""
+                if _s1_dl:
+                    try:
+                        _s1_dl_dt = datetime.fromisoformat(_s1_dl.replace("Z", "+00:00"))
+                        _s1_diff_h = (_s1_dl_dt - _s1_now_utc).total_seconds() / 3600
+                        if 0 < _s1_diff_h < 24:
+                            _s1_expiring_count += 1
+                    except Exception:
+                        pass
+            # Overnight queue: items created outside 08:00–20:00 ET that are still pending
+            _s1_overnight_count = 0
+            for _s1_d in dri_decisions:
+                _s1_raw_status = ((_s1_d.get("status") or _s1_d.get("approval_status")) or "").strip().lower()
+                if _s1_raw_status in ("pending_overnight",):
+                    _s1_overnight_count += 1
+                elif _s1_raw_status in ("pending", "awaiting approval", "awaiting governance review"):
+                    _s1_created = _s1_d.get("created", "")
+                    if _s1_created:
+                        try:
+                            _s1_cr_dt = datetime.fromisoformat(_s1_created.replace("Z", "+00:00"))
+                            _s1_cr_et = _s1_cr_dt.astimezone(_ET_TZ) if _ET_TZ else _s1_cr_dt
+                            _s1_cr_hour_et = _s1_cr_et.hour
+                            if _s1_cr_hour_et >= 20 or _s1_cr_hour_et < 8:
+                                _s1_overnight_count += 1
+                        except Exception:
+                            pass
+            _s1_deliberation_count = sum(
+                1 for d in dri_decisions
+                if (d.get("approval_status") or "").strip() == "Under Review"
+                or (d.get("status") or "").strip() in ("Under Deliberation", "under_deliberation")
+            )
+            # Supplement with gov module counts if available
             if gov:
-                _s1_gov_counts = gov.get_governance_counts()
-                _s1_pending_count = _s1_gov_counts.get("pending", 0)
-                _s1_escalated_count = _s1_gov_counts.get("escalated", 0)
-                _s1_expiring_count = _s1_gov_counts.get("expiring_soon", 0)
-                _s1_overnight_count = _s1_gov_counts.get("overnight", 0)
-                _s1_deliberation_count = _s1_gov_counts.get("under_deliberation", 0)
-            else:
                 try:
-                    _s1_si_pending = si.get_pending_instructions() if si else []
-                    _s1_pending_count = len(_s1_si_pending)
-                    _s1_overnight_count = sum(1 for p in _s1_si_pending if (p.get("status", "") or "").strip().lower() == "pending_overnight")
-                    _s1_deliberation_count = sum(1 for p in _s1_si_pending if (p.get("status", "") or "").strip().lower() == "under_deliberation")
+                    _s1_gov_counts = gov.get_governance_counts()
+                    _s1_escalated_count = max(_s1_escalated_count, _s1_gov_counts.get("escalated", 0))
+                    _s1_expiring_count = max(_s1_expiring_count, _s1_gov_counts.get("expiring_soon", 0))
+                    _s1_overnight_count = max(_s1_overnight_count, _s1_gov_counts.get("overnight", 0))
+                    _s1_deliberation_count = max(_s1_deliberation_count, _s1_gov_counts.get("under_deliberation", 0))
                 except Exception:
                     pass
-                try:
-                    from helpers.escalation_engine import load_governance_queue
-                    _s1_gq = load_governance_queue()
-                    _s1_escalated_count = sum(1 for g in _s1_gq if g.get("status") == "Pending Approval")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        except Exception as _s1_err:
+            _s1_pending_count = 0
+            _s1_escalated_count = 0
+            _s1_expiring_count = 0
+            _s1_overnight_count = 0
+            _s1_deliberation_count = 0
+            st.error(f"Section 1 · Governance Queue Summary: failed to compute counts: {_s1_err}")
+
+        if not dri_decisions:
+            st.info("No governance decisions loaded. Counts will show 0.")
 
         _s1_metrics = [
             ("Pending", _s1_pending_count, "#F5C451"),
@@ -14693,9 +14801,8 @@ AI generates governance instructions subject to time-governed approval windows. 
         _s1_cols = st.columns(5)
         for _s1_i, (_s1_label, _s1_val, _s1_color) in enumerate(_s1_metrics):
             with _s1_cols[_s1_i]:
-                _s1_display = _s1_val if _s1_val else "-"
                 st.markdown(f"""<div style="background:#1C1F26;border:1px solid #2A2F3A;border-top:3px solid {_s1_color};padding:16px 12px;border-radius:6px;text-align:center;">
-<div style="color:{_s1_color};font-size:20px;font-weight:700;font-family:'SF Mono',monospace;">{_s1_display}</div>
+<div style="color:{_s1_color};font-size:20px;font-weight:700;font-family:'SF Mono',monospace;">{_s1_val}</div>
 <div style="color:#9EA3AE;font-size:9px;text-transform:uppercase;margin-top:6px;letter-spacing:0.03em;">{_s1_label}</div>
 </div>""", unsafe_allow_html=True)
 
@@ -15035,27 +15142,48 @@ All governance decisions are recorded with full audit context. Observational and
 </div>""", unsafe_allow_html=True)
 
         dri_completed = [d for d in dri_approved if d.get("implementation_state") == "Completed"]
-        dri_completed_count = len(dri_completed)
+        # Also include finalized decisions: Rejected and Deferred (system of record)
+        _dri_finalized = [
+            d for d in dri_decisions
+            if d.get("approval_status") in ("Rejected", "Deferred")
+            or (d.get("status") or "").strip() in (
+                "Rejected", "Deferred", "Executed — Governance Window Closed", "Monitoring"
+            )
+        ]
+        _dri_all_completed = dri_completed + [d for d in _dri_finalized if d not in dri_completed]
+        # Sort reverse-chronological and limit to last 50
+        _dri_all_completed = sorted(
+            _dri_all_completed,
+            key=lambda x: x.get("approval_date") or x.get("date") or x.get("created") or "",
+            reverse=True
+        )[:50]
+        dri_completed_count = len(_dri_all_completed)
 
         st.markdown(f"""<div style="color: #6B7280; font-size: 11px; margin-bottom: 16px; line-height: 1.6;">
 {dri_completed_count} finalized decision{"s" if dri_completed_count != 1 else ""} recorded with full audit trail.
 </div>""", unsafe_allow_html=True)
 
-        if dri_completed:
-            for dri_comp in dri_completed:
+        if _dri_all_completed:
+            for dri_comp in _dri_all_completed:
                 dri_comp_id = dri_comp.get("id", "-")
                 dri_comp_type = dri_comp.get("decision_type", dri_comp.get("event_type", "-"))
                 dri_comp_wave = dri_comp.get("wave", "-")
                 dri_comp_owner = dri_comp.get("actor", "-")
                 dri_comp_date = dri_comp.get("approval_date", dri_comp.get("date", "-"))
-                dri_comp_approved_by = dri_comp.get("approved_by", "-")
+                _dri_comp_ab_raw = dri_comp.get("approved_by", "")
+                dri_comp_approved_by = _dri_comp_ab_raw if _dri_comp_ab_raw and _dri_comp_ab_raw != "-" else "system / unspecified"
                 dri_comp_rationale = dri_comp.get("rationale", dri_comp.get("context_notes", "-"))
                 dri_comp_actor = dri_comp.get("actor", "-")
+                dri_comp_final_status = (
+                    dri_comp.get("status")
+                    or dri_comp.get("approval_status")
+                    or "Completed"
+                )
 
                 st.markdown(f'''<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 16px 18px; border-radius: 8px; margin-bottom: 10px;">
 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
 <div style="color: #E5E5E5; font-size: 13px; font-weight: 600;">{dri_comp_id}</div>
-<div style="background: #10B98122; color: #10B981; font-size: 10px; padding: 3px 10px; border-radius: 4px; font-weight: 600; text-transform: uppercase;">Completed</div>
+<div style="background: #10B98122; color: #10B981; font-size: 10px; padding: 3px 10px; border-radius: 4px; font-weight: 600; text-transform: uppercase;">{dri_comp_final_status}</div>
 </div>
 <div style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px;">
 <div><span style="color: #6B7280; font-size: 10px;">Type</span><br><span style="color: #C8CCD4; font-size: 11px;">{dri_comp_type}</span></div>
@@ -15069,9 +15197,7 @@ All governance decisions are recorded with full audit context. Observational and
 </div>
 </div>''', unsafe_allow_html=True)
         else:
-            st.markdown("""<div style="background: #151A22; padding: 20px; border-radius: 8px; text-align: center;">
-<div style="color: #6B7280; font-size: 12px;">No completed governance decisions recorded. Finalized decisions with full institutional audit trail will appear here.</div>
-</div>""", unsafe_allow_html=True)
+            st.info("No finalized governance decisions recorded. Completed, rejected, and deferred decisions will appear here with full audit trail.")
 
         st.markdown("""<div style="color: #4B5563; font-size: 10px; margin: 24px 0 0 0; font-style: italic; text-align: center; line-height: 1.6; padding: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
 Governance Authority Surface - All governance decisions are recorded with full audit context. Actions progress according to predefined simulation rules. No live execution occurs. No autonomous execution, no broker connections, no trade instructions. All actions require human approval.
@@ -15100,14 +15226,22 @@ Institutional decision-capture interface. Decisions are logged into the governan
         pmd_attrib = attrib_df
         pmd_adaptive = adaptive_state
 
-        if pmd_snapshot is None or pmd_snapshot.empty:
-            st.markdown("""<div style="background: #151A22; padding: 24px; border-radius: 8px; text-align: center; margin: 8px 0 16px 0;">
-<div style="color: #6B7280; font-size: 12px;">Wave snapshot data is not available. Decision entry requires active wave data.</div>
-</div>""", unsafe_allow_html=True)
-            raise ValueError("No snapshot data available")
+        # Build wave list from CANONICAL_WAVES first, then snapshot fallback
+        pmd_wave_list = list(CANONICAL_WAVES) if CANONICAL_WAVES else (list(waves) if waves else [])
+        if not pmd_wave_list and pmd_snapshot is not None and not pmd_snapshot.empty:
+            pmd_wave_col = "display_name" if "display_name" in pmd_snapshot.columns else "wave_name"
+            pmd_wave_list = sorted(pmd_snapshot[pmd_wave_col].dropna().unique().tolist())
+        # Final fallback: unique waves in governance_decisions.json
+        if not pmd_wave_list:
+            pmd_wave_list = sorted(set(
+                d.get("wave", "") for d in dri_decisions if d.get("wave") and d.get("wave") != "—"
+            ))
+        if not pmd_wave_list:
+            st.error("Section 6 · Wave Selection: No wave list available. Check config/wave_registry.json, data/wave_registry.json, or data/wave_registry.csv.")
+        pmd_wave_col = "display_name" if (pmd_snapshot is not None and not pmd_snapshot.empty and "display_name" in pmd_snapshot.columns) else "wave_name"
 
-        pmd_wave_col = "display_name" if "display_name" in pmd_snapshot.columns else "wave_name"
-        pmd_wave_list = list(CANONICAL_WAVES) if CANONICAL_WAVES else (list(waves) if waves else sorted(pmd_snapshot[pmd_wave_col].dropna().unique().tolist()))
+        if pmd_snapshot is None or pmd_snapshot.empty:
+            st.info("Section 6 — Wave snapshot data is not available. Wave context panels require active wave data, but decision capture is still available.")
 
         pmd_log_path = Path("data/decision_log.json")
         pmd_decisions = []
@@ -15133,7 +15267,10 @@ Institutional decision-capture interface. Decisions are logged into the governan
         )
 
         if pmd_selected_wave and pmd_selected_wave != "- Select a Wave -":
-            pmd_row = pmd_snapshot[pmd_snapshot[pmd_wave_col] == pmd_selected_wave].iloc[0] if len(pmd_snapshot[pmd_snapshot[pmd_wave_col] == pmd_selected_wave]) > 0 else None
+            pmd_row = None
+            if pmd_snapshot is not None and not pmd_snapshot.empty and pmd_wave_col in pmd_snapshot.columns:
+                _pmd_matches = pmd_snapshot[pmd_snapshot[pmd_wave_col] == pmd_selected_wave]
+                pmd_row = _pmd_matches.iloc[0] if len(_pmd_matches) > 0 else None
 
             if pmd_row is not None:
                 st.markdown(f'''<div style="background: #1C1F26; border: 1px solid #2A2F3A; padding: 18px 20px; border-radius: 8px; margin: 8px 0 16px 0;">
