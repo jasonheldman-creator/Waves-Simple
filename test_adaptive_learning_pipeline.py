@@ -322,6 +322,187 @@ def test_governance_merge_no_duplicates():
     assert len(merged) == 3  # 1 from log + 2 new from governance
 
 
+# ---------------------------------------------------------------------------
+# Alpha Intelligence pipeline – load_attribution / _build_wave_alpha_df
+# ---------------------------------------------------------------------------
+
+def _make_attrib_with_90d():
+    """Attribution DataFrame with 30D, 90D, and 365D horizons."""
+    rows = []
+    for wave, s30, s90, s365 in [
+        ("Alpha Wave", 0.01, 0.008, 0.03),
+        ("Beta Wave", -0.005, -0.003, 0.02),
+        ("Gamma Wave", 0.008, 0.006, 0.015),
+    ]:
+        for horizon, val in [(30, s30), (90, s90), (365, s365)]:
+            rows.append({
+                "wave": wave,
+                "horizon": horizon,
+                "total_alpha": val,
+                "selection_alpha": val,
+                "momentum_alpha": val * 0.5,
+                "volatility_alpha": val * 0.1,
+                "regime_alpha": val * 0.1,
+                "exposure_alpha": val * 0.1,
+            })
+    return pd.DataFrame(rows)
+
+
+def test_load_attribution_missing_file():
+    """load_attribution() returns None when the CSV does not exist."""
+    result = al.load_attribution(path="/nonexistent/path.csv")
+    assert result is None
+
+
+def test_load_attribution_valid_file():
+    """load_attribution() returns a non-empty DataFrame from a valid CSV."""
+    attrib = _make_attrib_with_90d()
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        attrib.to_csv(f, index=False)
+        tmp_path = f.name
+    try:
+        result = al.load_attribution(path=tmp_path)
+        assert result is not None
+        assert not result.empty
+        assert "wave" in result.columns
+        assert "horizon" in result.columns
+        assert "total_alpha" in result.columns
+    finally:
+        os.unlink(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# compute_alpha_quality
+# ---------------------------------------------------------------------------
+
+def test_compute_alpha_quality_from_attrib():
+    """compute_alpha_quality returns has_data=True from attribution data."""
+    attrib = _make_attrib_with_90d()
+    result = al.compute_alpha_quality(None, attrib)
+
+    assert result["has_data"] is True
+    assert len(result["waves"]) == 3
+    # All required fields present
+    for entry in result["waves"]:
+        assert "Wave" in entry
+        assert "Composite Alpha" in entry
+        assert "Consistency" in entry
+        assert "Alpha 30D" in entry
+        assert "Alpha 90D" in entry
+        assert "Alpha 365D" in entry
+
+
+def test_compute_alpha_quality_sorted_by_composite():
+    """Waves are sorted descending by Composite Alpha."""
+    attrib = _make_attrib_with_90d()
+    result = al.compute_alpha_quality(None, attrib)
+
+    composites = [w["Composite Alpha"] for w in result["waves"]]
+    assert composites == sorted(composites, reverse=True)
+
+
+def test_compute_alpha_quality_no_data():
+    """Returns has_data=False when both inputs are None."""
+    result = al.compute_alpha_quality(None, None)
+    assert result["has_data"] is False
+    assert result["waves"] == []
+
+
+# ---------------------------------------------------------------------------
+# compute_capital_pressure
+# ---------------------------------------------------------------------------
+
+def test_compute_capital_pressure_from_attrib():
+    """compute_capital_pressure returns a valid regime from attribution data."""
+    attrib = _make_attrib_with_90d()
+    result = al.compute_capital_pressure(None, attrib)
+
+    assert result["has_data"] is True
+    assert result["Capital Pressure Regime"] in ("Expansive", "Neutral", "Contractive")
+    assert 0 <= result["Positive Alpha %"] <= 100
+    assert result["Dispersion (Std Dev)"] >= 0
+
+
+def test_compute_capital_pressure_no_data():
+    """Returns has_data=False when no data source available."""
+    result = al.compute_capital_pressure(None, None)
+    assert result["has_data"] is False
+
+
+# ---------------------------------------------------------------------------
+# compute_rotation_velocity
+# ---------------------------------------------------------------------------
+
+def test_compute_rotation_velocity_from_attrib():
+    """compute_rotation_velocity returns wave rows from attribution data."""
+    attrib = _make_attrib_with_90d()
+    result = al.compute_rotation_velocity(None, attrib)
+
+    assert result["has_data"] is True
+    assert len(result["waves"]) == 3
+    for entry in result["waves"]:
+        assert "Wave" in entry
+        assert "Alpha 30D" in entry
+        assert "Alpha 365D" in entry
+        assert "Rotation Velocity" in entry
+        assert entry["Direction"] in ("Accelerating", "Decelerating")
+
+
+def test_compute_rotation_velocity_sorted_by_abs_velocity():
+    """Waves are sorted by absolute rotation velocity descending."""
+    attrib = _make_attrib_with_90d()
+    result = al.compute_rotation_velocity(None, attrib)
+
+    vels = [abs(w["Rotation Velocity"]) for w in result["waves"]]
+    assert vels == sorted(vels, reverse=True)
+
+
+def test_compute_rotation_velocity_no_data():
+    """Returns has_data=False when no data source available."""
+    result = al.compute_rotation_velocity(None, None)
+    assert result["has_data"] is False
+
+
+# ---------------------------------------------------------------------------
+# compute_alpha_ignition
+# ---------------------------------------------------------------------------
+
+def test_compute_alpha_ignition_from_attrib():
+    """compute_alpha_ignition returns wave rows from attribution data."""
+    attrib = _make_attrib_with_90d()
+    result = al.compute_alpha_ignition(None, attrib)
+
+    assert result["has_data"] is True
+    assert len(result["waves"]) == 3
+    for entry in result["waves"]:
+        assert "Wave" in entry
+        assert "Alpha 30D" in entry
+        assert "Alpha 90D" in entry
+        assert "Alpha 365D" in entry
+        assert "Ignition Score" in entry
+        assert entry["Signal"] in ("Igniting", "Stable")
+
+
+def test_compute_alpha_ignition_no_data():
+    """Returns has_data=False when no data source available."""
+    result = al.compute_alpha_ignition(None, None)
+    assert result["has_data"] is False
+
+
+def test_compute_alpha_ignition_nan_snapshot_falls_back_to_attrib():
+    """When snapshot alpha columns are NaN, falls back to attribution data."""
+    attrib = _make_attrib_with_90d()
+    snap = pd.DataFrame({
+        "display_name": ["Alpha Wave"],
+        "alpha_30d": [float("nan")],
+        "alpha_60d": [float("nan")],
+        "alpha_365d": [float("nan")],
+    })
+    result = al.compute_alpha_ignition(snap, attrib)
+    assert result["has_data"] is True
+    assert len(result["waves"]) == 3
+
+
 if __name__ == "__main__":
     import sys
     # Run tests manually
@@ -340,6 +521,20 @@ if __name__ == "__main__":
         test_update_adaptive_state_sets_learning_rate,
         test_update_adaptive_state_learning_rate_scales_with_confidence,
         test_governance_merge_no_duplicates,
+        # Alpha Intelligence pipeline
+        test_load_attribution_missing_file,
+        test_load_attribution_valid_file,
+        test_compute_alpha_quality_from_attrib,
+        test_compute_alpha_quality_sorted_by_composite,
+        test_compute_alpha_quality_no_data,
+        test_compute_capital_pressure_from_attrib,
+        test_compute_capital_pressure_no_data,
+        test_compute_rotation_velocity_from_attrib,
+        test_compute_rotation_velocity_sorted_by_abs_velocity,
+        test_compute_rotation_velocity_no_data,
+        test_compute_alpha_ignition_from_attrib,
+        test_compute_alpha_ignition_no_data,
+        test_compute_alpha_ignition_nan_snapshot_falls_back_to_attrib,
     ]
 
     passed = failed = 0

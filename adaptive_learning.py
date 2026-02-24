@@ -8,6 +8,126 @@ from datetime import datetime
 
 ADAPTIVE_STATE_PATH = Path("data/adaptive_state.json")
 GOVERNANCE_DECISIONS_PATH = Path("data/governance_decisions.json")
+ALPHA_ATTRIBUTION_PATH = Path("data/alpha_attribution_summary.csv")
+
+
+def load_attribution(path=None):
+    """Load and validate the canonical alpha attribution dataset.
+
+    Loads ``data/alpha_attribution_summary.csv`` (or *path* if supplied) and
+    applies fail-loud validation:
+
+    * Wave names must not be ``UNKNOWN_WAVE``
+    * Horizons 30, 90, and 365 must be present
+    * Attribution component columns must exist
+    * No column may be entirely NaN
+
+    Returns the validated DataFrame or ``None`` when data is unavailable /
+    invalid.  Errors are logged so callers can render diagnostic messages.
+    """
+    csv_path = Path(path) if path else ALPHA_ATTRIBUTION_PATH
+    if not csv_path.exists():
+        logging.warning(
+            "[AlphaIntelligence] Attribution CSV not found at %s", csv_path
+        )
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        df.columns = [c.strip().lower() for c in df.columns]
+    except Exception as exc:
+        logging.error(
+            "[AlphaIntelligence] Failed to read attribution CSV: %s", exc
+        )
+        return None
+
+    if df.empty:
+        logging.error("[AlphaIntelligence] Attribution CSV is empty.")
+        return None
+
+    # Wave name validation
+    if "wave" in df.columns:
+        unknown = (df["wave"] == "UNKNOWN_WAVE").sum()
+        if unknown > 0:
+            logging.error(
+                "[AlphaIntelligence] %d UNKNOWN_WAVE entries — wave resolution failed.", unknown
+            )
+
+    # Horizon presence validation
+    if "horizon" in df.columns:
+        horizons = set(df["horizon"].dropna().unique())
+        for req in (30, 90, 365):
+            if req not in horizons:
+                logging.error(
+                    "[AlphaIntelligence] Required horizon %dD missing from attribution.", req
+                )
+
+    # Attribution component columns
+    component_cols = ["selection_alpha", "momentum_alpha", "volatility_alpha", "regime_alpha"]
+    for col in component_cols:
+        if col not in df.columns:
+            logging.warning(
+                "[AlphaIntelligence] Attribution component column '%s' missing.", col
+            )
+
+    # No NaN-only columns
+    for col in df.columns:
+        if df[col].isna().all():
+            logging.warning(
+                "[AlphaIntelligence] Column '%s' is entirely NaN in attribution CSV.", col
+            )
+
+    return df
+
+
+def _build_wave_alpha_df(snapshot_df, attrib_df):
+    """Build a per-wave alpha DataFrame from snapshot and/or attribution data.
+
+    Derives ``alpha_30d``, ``alpha_90d``, and ``alpha_365d`` per wave.
+    Prefers the snapshot when alpha columns are populated; falls back to the
+    attribution CSV when snapshot values are absent or all-NaN.
+
+    Returns a DataFrame with columns ``display_name``, ``alpha_30d``,
+    ``alpha_90d``, ``alpha_365d`` or ``None`` when no source is usable.
+    """
+    rows = {}
+
+    # ── Primary source: attribution CSV ───────────────────────────────────
+    if attrib_df is not None and not attrib_df.empty and "wave" in attrib_df.columns and "horizon" in attrib_df.columns:
+        for wave, grp in attrib_df.groupby("wave"):
+            entry = {"display_name": wave}
+            for h, key in [(30, "alpha_30d"), (90, "alpha_90d"), (365, "alpha_365d")]:
+                h_rows = grp[grp["horizon"] == h]
+                if not h_rows.empty and "total_alpha" in h_rows.columns:
+                    val = pd.to_numeric(h_rows["total_alpha"].iloc[0], errors="coerce")
+                    entry[key] = None if pd.isna(val) else float(val)
+                else:
+                    entry[key] = None
+            rows[wave] = entry
+
+    # ── Supplemental / override: snapshot alpha columns ───────────────────
+    if snapshot_df is not None and not snapshot_df.empty:
+        name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
+        snap_alpha_map = {"alpha_30d": "alpha_30d", "alpha_365d": "alpha_365d"}
+        for _, r in snapshot_df.iterrows():
+            wave = str(r.get(name_col, "") or "")
+            if not wave:
+                continue
+            entry = rows.get(wave, {"display_name": wave})
+            for snap_col, key in snap_alpha_map.items():
+                v = r.get(snap_col)
+                if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                    # snapshot overrides attribution for a matching horizon
+                    entry[key] = float(v)
+            rows[wave] = entry
+
+    if not rows:
+        return None
+
+    df = pd.DataFrame(list(rows.values()))
+    for col in ("alpha_30d", "alpha_90d", "alpha_365d"):
+        if col not in df.columns:
+            df[col] = None
+    return df
 
 
 def load_governance_decisions(path=None):
@@ -578,24 +698,25 @@ def generate_adaptive_tilt_proposals(signals, adaptive_state, cross_horizon_agre
 def compute_alpha_quality(snapshot_df, attrib_df):
     """Rank waves by alpha quality across horizons.
 
+    Derives per-wave alpha values from *attrib_df* (canonical attribution CSV)
+    with *snapshot_df* used to supplement missing values.
+
     Returns a dict with ``has_data`` flag and ``waves`` list of per-wave
     quality metrics suitable for rendering as a DataFrame.
     """
-    if snapshot_df is None or snapshot_df.empty:
+    wave_df = _build_wave_alpha_df(snapshot_df, attrib_df)
+    if wave_df is None or wave_df.empty:
         return {"has_data": False, "waves": []}
 
     rows = []
     horizon_cols = {
         "Alpha 30D": "alpha_30d",
-        "Alpha 60D": "alpha_60d",
+        "Alpha 90D": "alpha_90d",
         "Alpha 365D": "alpha_365d",
     }
-    name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
-    if name_col not in snapshot_df.columns:
-        return {"has_data": False, "waves": []}
 
-    for _, r in snapshot_df.iterrows():
-        wave = str(r.get(name_col, ""))
+    for _, r in wave_df.iterrows():
+        wave = str(r.get("display_name", "") or "")
         if not wave:
             continue
         alphas = {}
@@ -623,19 +744,19 @@ def compute_alpha_quality(snapshot_df, attrib_df):
     return {"has_data": True, "waves": rows}
 
 
-def compute_capital_pressure(snapshot_df):
+def compute_capital_pressure(snapshot_df, attrib_df=None):
     """Compute portfolio-level capital pressure metrics.
+
+    Derives 30D alpha values from *attrib_df* (canonical attribution CSV)
+    with *snapshot_df* used to supplement missing values.
 
     Returns regime label, positive-alpha percentage, and dispersion.
     """
-    if snapshot_df is None or snapshot_df.empty:
+    wave_df = _build_wave_alpha_df(snapshot_df, attrib_df)
+    if wave_df is None or wave_df.empty:
         return {"has_data": False}
 
-    col = "alpha_30d" if "alpha_30d" in snapshot_df.columns else None
-    if col is None:
-        return {"has_data": False}
-
-    vals = pd.to_numeric(snapshot_df[col], errors="coerce").dropna()
+    vals = pd.to_numeric(wave_df["alpha_30d"], errors="coerce").dropna()
     if len(vals) == 0:
         return {"has_data": False}
 
@@ -657,25 +778,21 @@ def compute_capital_pressure(snapshot_df):
     }
 
 
-def compute_rotation_velocity(snapshot_df):
+def compute_rotation_velocity(snapshot_df, attrib_df=None):
     """Estimate how rapidly alpha is rotating across waves.
 
-    Compares 30D vs 365D alpha to identify accelerating and decelerating waves.
+    Compares 30D vs 365D alpha (derived from *attrib_df* and *snapshot_df*)
+    to identify accelerating and decelerating waves.
+
     Returns a dict with ``has_data`` flag and ``waves`` list.
     """
-    if snapshot_df is None or snapshot_df.empty:
-        return {"has_data": False, "waves": []}
-
-    if "alpha_30d" not in snapshot_df.columns or "alpha_365d" not in snapshot_df.columns:
-        return {"has_data": False, "waves": []}
-
-    name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
-    if name_col not in snapshot_df.columns:
+    wave_df = _build_wave_alpha_df(snapshot_df, attrib_df)
+    if wave_df is None or wave_df.empty:
         return {"has_data": False, "waves": []}
 
     rows = []
-    for _, r in snapshot_df.iterrows():
-        wave = str(r.get(name_col, ""))
+    for _, r in wave_df.iterrows():
+        wave = str(r.get("display_name", "") or "")
         a30 = pd.to_numeric(r.get("alpha_30d"), errors="coerce")
         a365 = pd.to_numeric(r.get("alpha_365d"), errors="coerce")
         if wave and not (np.isnan(a30) or np.isnan(a365)):
@@ -696,29 +813,25 @@ def compute_rotation_velocity(snapshot_df):
     return {"has_data": True, "waves": rows}
 
 
-def compute_alpha_ignition(snapshot_df):
+def compute_alpha_ignition(snapshot_df, attrib_df=None):
     """Identify waves where alpha is beginning to emerge (ignition signals).
 
-    A wave is considered igniting when short-horizon alpha (30D) is positive
-    while longer-horizon alpha (365D) remains negative or near zero.
+    Derives per-wave alpha values from *attrib_df* (canonical attribution CSV)
+    with *snapshot_df* used to supplement missing values.  A wave is
+    considered igniting when short-horizon alpha (30D) is positive while
+    longer-horizon alpha (365D) remains subdued.
+
     Returns a dict with ``has_data`` flag and ``waves`` list.
     """
-    if snapshot_df is None or snapshot_df.empty:
-        return {"has_data": False, "waves": []}
-
-    need = {"alpha_30d", "alpha_60d", "alpha_365d"}
-    if not need.issubset(snapshot_df.columns):
-        return {"has_data": False, "waves": []}
-
-    name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
-    if name_col not in snapshot_df.columns:
+    wave_df = _build_wave_alpha_df(snapshot_df, attrib_df)
+    if wave_df is None or wave_df.empty:
         return {"has_data": False, "waves": []}
 
     rows = []
-    for _, r in snapshot_df.iterrows():
-        wave = str(r.get(name_col, ""))
+    for _, r in wave_df.iterrows():
+        wave = str(r.get("display_name", "") or "")
         a30 = pd.to_numeric(r.get("alpha_30d"), errors="coerce")
-        a60 = pd.to_numeric(r.get("alpha_60d"), errors="coerce")
+        a90 = pd.to_numeric(r.get("alpha_90d"), errors="coerce")
         a365 = pd.to_numeric(r.get("alpha_365d"), errors="coerce")
         if not wave:
             continue
@@ -732,7 +845,7 @@ def compute_alpha_ignition(snapshot_df):
         rows.append({
             "Wave": wave,
             "Alpha 30D": round(float(a30), 4),
-            "Alpha 60D": round(float(a60), 4) if not np.isnan(a60) else "",
+            "Alpha 90D": round(float(a90), 4) if not np.isnan(a90) else "",
             "Alpha 365D": round(float(a365), 4),
             "Ignition Score": ignition_score,
             "Signal": signal,
