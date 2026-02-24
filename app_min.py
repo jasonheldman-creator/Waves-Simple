@@ -1343,6 +1343,20 @@ else:
     rows = len(snapshot_df) if snapshot_df is not None else 0
     print(f"[SNAPSHOT] load_snapshot: loaded {rows} rows, attrib={attrib_df is not None}")
 
+# Fail-fast validation for Alpha Intelligence pipeline
+if attrib_df is None or attrib_df.empty:
+    print("[ALPHA-INTELLIGENCE][ERROR] Attribution dataframe is empty — Alpha Intelligence will have no data. Run build_alpha_attribution_csv.py to rebuild.")
+else:
+    _attrib_waves = attrib_df["wave"].dropna().unique().tolist() if "wave" in attrib_df.columns else []
+    _unknown_count = sum(1 for w in _attrib_waves if w == "UNKNOWN_WAVE")
+    if _unknown_count > 0:
+        print(f"[ALPHA-INTELLIGENCE][ERROR] {_unknown_count} UNKNOWN_WAVE entries in attribution — wave name resolution failed. Run build_alpha_attribution_csv.py to rebuild.")
+    _horizons_present = sorted(attrib_df["horizon"].dropna().unique().tolist()) if "horizon" in attrib_df.columns else []
+    for _req_hz in (30, 90, 365):
+        if _req_hz not in _horizons_present:
+            print(f"[ALPHA-INTELLIGENCE][ERROR] Horizon {_req_hz}D missing from attribution dataframe — Multi-Horizon Alpha Structure will show '-' for this horizon.")
+    print(f"[ALPHA-INTELLIGENCE] Attribution validated: {len(_attrib_waves)} waves, horizons={_horizons_present}")
+
 # ===========================
 # Daily Intelligence Cycle Engine
 # ===========================
@@ -3651,6 +3665,7 @@ def compute_alpha_attribution_global(sdf, adf, wave_filter=None):
             _drv_90[dk] = _drv_30[dk] + (_drv[dk] - _drv_30[dk]) * _interp_w
 
     _dl_path = Path("data/decision_log.json")
+    _gov_path = Path("data/governance_decisions.json")
     _hda_aligned = 0
     _hda_mixed = 0
     _hda_external = 0
@@ -3658,35 +3673,54 @@ def compute_alpha_attribution_global(sdf, adf, wave_filter=None):
     _hda_positive_ct = 0
     _hda_negative_ct = 0
     _hda_neutral_ct = 0
-    if _dl_path.exists():
-        try:
-            with open(_dl_path, "r") as f:
-                _decs = json.load(f)
-            for _d in _decs:
-                if wave_filter and _d.get("wave", "") != wave_filter:
+
+    def _ingest_decisions(decs):
+        for _d in decs:
+            if wave_filter and _d.get("wave", "") != wave_filter:
+                continue
+            # Support both decision_log.json (outcome_30d) and governance_decisions.json (status)
+            _o30 = _d.get("outcome_30d", "")
+            _status = _d.get("status", "")
+            _regime = _d.get("regime_at_decision", "Neutral")
+            if _o30 == "Pending" or not _o30:
+                # Fall back to governance status when no outcome recorded
+                if _status in ("Approved", "Recorded"):
+                    _o30 = "Positive"
+                elif _status == "Rejected":
+                    _o30 = "Negative"
+                elif _status:
+                    _o30 = "Neutral"
+                else:
                     continue
-                _o30 = _d.get("outcome_30d", "")
-                _regime = _d.get("regime_at_decision", "Neutral")
-                if _o30 == "Pending" or not _o30:
-                    continue
-                _hda_total += 1
-                if _o30 in ("Positive", "Aligned"):
-                    _hda_aligned += 1
-                    _hda_positive_ct += 1
-                elif _o30 == "Neutral":
-                    _hda_aligned += 1
-                    _hda_neutral_ct += 1
-                elif _o30 in ("Negative", "Detracted"):
-                    if _regime and _regime not in ("Neutral", "Normal", ""):
-                        _hda_external += 1
-                    else:
-                        _hda_mixed += 1
-                    _hda_negative_ct += 1
-                elif _o30 == "Mixed":
+            if not _o30:
+                continue
+            nonlocal _hda_total, _hda_aligned, _hda_positive_ct, _hda_neutral_ct
+            nonlocal _hda_negative_ct, _hda_mixed, _hda_external
+            _hda_total += 1
+            if _o30 in ("Positive", "Aligned"):
+                _hda_aligned += 1
+                _hda_positive_ct += 1
+            elif _o30 == "Neutral":
+                _hda_aligned += 1
+                _hda_neutral_ct += 1
+            elif _o30 in ("Negative", "Detracted"):
+                if _regime and _regime not in ("Neutral", "Normal", ""):
+                    _hda_external += 1
+                else:
                     _hda_mixed += 1
-                    _hda_neutral_ct += 1
-        except Exception:
-            pass
+                _hda_negative_ct += 1
+            elif _o30 == "Mixed":
+                _hda_mixed += 1
+                _hda_neutral_ct += 1
+
+    for _path in (_dl_path, _gov_path):
+        if _path.exists():
+            try:
+                with open(_path, "r") as f:
+                    _decs = json.load(f)
+                _ingest_decisions(_decs)
+            except Exception:
+                pass
 
     _total_alpha_365 = _gaa["structural_alpha"] + _gaa["signal_alpha"] + _gaa["external_effects"]
     if _hda_total > 0 and abs(_total_alpha_365) > 1e-8:
