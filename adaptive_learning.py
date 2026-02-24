@@ -1086,3 +1086,39 @@ def compute_alpha_ignition_df(attrib_df) -> pd.DataFrame:
                      "selection_alpha", "momentum_alpha", "volatility_alpha"]
         )
     return pd.DataFrame(rows).sort_values("ignition_score", ascending=False).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Safe DataFrame wrappers (STEP 2)
+# ---------------------------------------------------------------------------
+
+def alpha_quality_df(attrib_df):
+    """Safe wrapper: returns compute_alpha_quality_df result or empty DataFrame."""
+    try:
+        return compute_alpha_quality_df(attrib_df)
+    except Exception:
+        return pd.DataFrame()
+
+
+def capital_pressure_df(attrib_df):
+    """Safe wrapper: returns compute_capital_pressure_df result or empty DataFrame."""
+    try:
+        return compute_capital_pressure_df(attrib_df)
+    except Exception:
+        return pd.DataFrame()
+
+
+def rotation_velocity_df(attrib_df):
+    """Safe wrapper: returns compute_rotation_velocity_df result or empty DataFrame."""
+    try:
+        return compute_rotation_velocity_df(attrib_df)
+    except Exception:
+        return pd.DataFrame()
+
+
+def alpha_ignition_df(attrib_df):
+    """Safe wrapper: returns compute_alpha_ignition_df result or empty DataFrame."""
+    try:
+        return compute_alpha_ignition_df(attrib_df)
+    except Exception:
+        return pd.DataFrame()

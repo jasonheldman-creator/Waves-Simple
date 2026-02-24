@@ -764,6 +764,20 @@ def load_ticker_metrics():
         return {}
 
 
+@st.cache_data(show_spinner=False)
+def load_attribution_df():
+    import os
+    path = "data/alpha_attribution_summary.csv"
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    try:
+        _df = pd.read_csv(path)
+        _df.columns = [c.strip().lower() for c in _df.columns]
+        return _df
+    except Exception:
+        return pd.DataFrame()
+
+
 WAVE_SLEEVE_STRUCTURES = {
     "Core Income Wave": {
         "description": "Stable, diversified income with controlled volatility. Institutional sleeve-based construction.",
@@ -11886,6 +11900,13 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         if SANDBOX_MODE:
             sandbox_log_event("tab_view", {"tab": "Alpha Intelligence"})
 
+        attrib_df = load_attribution_df()
+
+        st.session_state["alpha_quality_df"] = al.alpha_quality_df(attrib_df)
+        st.session_state["capital_pressure_df"] = al.capital_pressure_df(attrib_df)
+        st.session_state["rotation_velocity_df"] = al.rotation_velocity_df(attrib_df)
+        st.session_state["alpha_ignition_df"] = al.alpha_ignition_df(attrib_df)
+
         _ai_waves = []
         if attrib_df is not None and not attrib_df.empty and "wave" in attrib_df.columns:
             _ai_waves = sorted(attrib_df["wave"].dropna().unique().tolist())
@@ -12581,59 +12602,39 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         # --- Alpha Quality Ranking ---
         st.markdown("### Alpha Quality Ranking")
-        try:
-            _quality_df = al.compute_alpha_quality_df(attrib_df)
-            if _quality_df.empty:
-                st.warning("Alpha Quality Ranking: No data — attribution DataFrame is empty after computation.")
-            else:
-                _apr_has_any = True
-                st.dataframe(_quality_df, use_container_width=True, hide_index=True)
-        except ValueError as _e:
-            st.error(f"Alpha Quality Ranking unavailable: {_e}")
-        except Exception as _e:
-            st.error(f"Alpha Quality Ranking error: {_e}")
+        _quality_df = st.session_state.get("alpha_quality_df")
+        if _quality_df is None or _quality_df.empty:
+            st.warning("Data initializing…")
+        else:
+            _apr_has_any = True
+            st.dataframe(_quality_df, use_container_width=True, hide_index=True)
 
         # --- Capital Pressure Regime ---
         st.markdown("### Capital Pressure Regime")
-        try:
-            _pressure_df = al.compute_capital_pressure_df(attrib_df)
-            if _pressure_df.empty:
-                st.warning("Capital Pressure Regime: No data — attribution DataFrame is empty after computation.")
-            else:
-                _apr_has_any = True
-                st.dataframe(_pressure_df, use_container_width=True, hide_index=True)
-        except ValueError as _e:
-            st.error(f"Capital Pressure Regime unavailable: {_e}")
-        except Exception as _e:
-            st.error(f"Capital Pressure Regime error: {_e}")
+        _pressure_df = st.session_state.get("capital_pressure_df")
+        if _pressure_df is None or _pressure_df.empty:
+            st.warning("Data initializing…")
+        else:
+            _apr_has_any = True
+            st.dataframe(_pressure_df, use_container_width=True, hide_index=True)
 
         # --- Rotation Velocity ---
         st.markdown("### Rotation Velocity")
-        try:
-            _velocity_df = al.compute_rotation_velocity_df(attrib_df)
-            if _velocity_df.empty:
-                st.warning("Rotation Velocity: No data — attribution DataFrame is empty after computation.")
-            else:
-                _apr_has_any = True
-                st.dataframe(_velocity_df, use_container_width=True, hide_index=True)
-        except ValueError as _e:
-            st.error(f"Rotation Velocity unavailable: {_e}")
-        except Exception as _e:
-            st.error(f"Rotation Velocity error: {_e}")
+        _velocity_df = st.session_state.get("rotation_velocity_df")
+        if _velocity_df is None or _velocity_df.empty:
+            st.warning("Data initializing…")
+        else:
+            _apr_has_any = True
+            st.dataframe(_velocity_df, use_container_width=True, hide_index=True)
 
         # --- Alpha Ignition Surface ---
         st.markdown("### Alpha Ignition Surface")
-        try:
-            _ignition_df = al.compute_alpha_ignition_df(attrib_df)
-            if _ignition_df.empty:
-                st.warning("Alpha Ignition Surface: No data — attribution DataFrame is empty after computation.")
-            else:
-                _apr_has_any = True
-                st.dataframe(_ignition_df, use_container_width=True, hide_index=True)
-        except ValueError as _e:
-            st.error(f"Alpha Ignition Surface unavailable: {_e}")
-        except Exception as _e:
-            st.error(f"Alpha Ignition Surface error: {_e}")
+        _ignition_df = st.session_state.get("alpha_ignition_df")
+        if _ignition_df is None or _ignition_df.empty:
+            st.warning("Data initializing…")
+        else:
+            _apr_has_any = True
+            st.dataframe(_ignition_df, use_container_width=True, hide_index=True)
 
         if not _apr_has_any:
             st.info("Alpha Pressure & Rotation data will populate as canonical attribution sources are connected.")
@@ -12665,6 +12666,8 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     if SANDBOX_MODE:
         sandbox_log_event("tab_view", {"tab": "Adaptive Intelligence"})
 
+    attrib_df = load_attribution_df()
+
     adaptive_state = al.load_adaptive_state()
     adaptive_state, _ = al.update_adaptive_state(snapshot_df, attrib_df, adaptive_state)
 
@@ -12685,6 +12688,12 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     decision_memory_data = al.compute_decision_memory_table(all_decisions, attrib_df)
     decision_memory_df = al.build_decision_memory(gov_decisions)
     cross_horizon_data = al.compute_cross_horizon_stability(snapshot_df, attrib_df)
+
+    if attrib_df is not None and not attrib_df.empty and "wave" in attrib_df.columns and "horizon" in attrib_df.columns:
+        st.session_state["cross_horizon_df"] = attrib_df.groupby(["wave", "horizon"]).mean(numeric_only=True).reset_index()
+    else:
+        st.session_state["cross_horizon_df"] = pd.DataFrame()
+    st.session_state["decision_memory_df"] = st.session_state.get("alpha_quality_df")
 
 
     # -----------------------------------------------
@@ -13064,8 +13073,8 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                     title=alt.Title(text='Cross-Horizon Alignment', subtitle='Observed alpha structure across time horizons', color='#E5E5E5', subtitleColor='#9EA3AE')
                 ).configure_view(stroke=None).configure(background='transparent')
                 st.altair_chart(_s3_chart, width="stretch")
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Panel load error: {e}")
 
     try:
         import altair as alt
@@ -13090,8 +13099,8 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                     title=alt.Title(text='Signal Persistence', subtitle='Observed stability of attribution drivers across horizons', color='#E5E5E5', subtitleColor='#9EA3AE')
                 ).configure_view(stroke=None).configure(background='transparent')
                 st.altair_chart(_s3_sp_chart, width="stretch")
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Panel load error: {e}")
 
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 20px 0 24px 0;"></div>', unsafe_allow_html=True)
 
