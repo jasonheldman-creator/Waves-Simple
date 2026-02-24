@@ -96,6 +96,10 @@ import integrity_signals as integ
 
 # ── RUNTIME STABILIZATION BOOTSTRAP ──
 from helpers.runtime_bootstrap import initialize_intelligence_state, safe_df
+from helpers.intelligence_bootstrap import (
+    bootstrap_alpha_intelligence,
+    bootstrap_adaptive_intelligence,
+)
 initialize_intelligence_state()
 
 # ===========================
@@ -1387,6 +1391,10 @@ if snapshot_error:
 else:
     rows = len(snapshot_df) if snapshot_df is not None else 0
     print(f"[SNAPSHOT] load_snapshot: loaded {rows} rows, attrib={attrib_df is not None}")
+
+# Store snapshot_df in session_state so bootstrap helpers can access it
+if snapshot_df is not None:
+    st.session_state["_snapshot_df_raw"] = snapshot_df
 
 # Fail-fast validation for Alpha Intelligence pipeline
 if attrib_df is None or attrib_df.empty:
@@ -11851,16 +11859,15 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         if SANDBOX_MODE:
             sandbox_log_event("tab_view", {"tab": "Alpha Intelligence"})
 
-        attrib_df = load_attribution_df()
+        if "alpha_intelligence" not in st.session_state:
+            try:
+                bootstrap_alpha_intelligence()
+            except Exception as _boot_err:
+                st.error("Intelligence pipeline failed to initialize.")
+                st.stop()
 
-        try:
-            st.session_state["alpha_quality_df"] = safe_df(al.alpha_quality_df(attrib_df))
-            st.session_state["capital_pressure_df"] = safe_df(al.capital_pressure_df(attrib_df))
-            st.session_state["rotation_velocity_df"] = safe_df(al.rotation_velocity_df(attrib_df))
-            st.session_state["alpha_ignition_df"] = safe_df(al.alpha_ignition_df(attrib_df))
-        except Exception as e:
-            st.error(f"Intelligence pipeline error: {e}")
-            raise
+        _alpha_intel = st.session_state["alpha_intelligence"]
+        attrib_df = _alpha_intel["attrib_df"]
 
         _ai_waves = []
         if attrib_df is not None and not attrib_df.empty and "wave" in attrib_df.columns:
@@ -12637,35 +12644,28 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     if SANDBOX_MODE:
         sandbox_log_event("tab_view", {"tab": "Adaptive Intelligence"})
 
-    attrib_df = load_attribution_df()
+    if "adaptive_intelligence" not in st.session_state:
+        try:
+            bootstrap_adaptive_intelligence()
+        except Exception as _boot_err:
+            st.error("Intelligence pipeline failed to initialize.")
+            st.stop()
 
-    adaptive_state = al.load_adaptive_state()
-    adaptive_state, _ = al.update_adaptive_state(snapshot_df, attrib_df, adaptive_state)
+    _adaptive_intel = st.session_state["adaptive_intelligence"]
+    attrib_df = _adaptive_intel["attrib_df"]
+    adaptive_state = _adaptive_intel["adaptive_state"]
+    snapshot_data = _adaptive_intel["snapshot_data"]
+    core_signals = _adaptive_intel["core_signals"]
+    param_sensitivity = _adaptive_intel["param_sensitivity"]
+    learning_curve_data = _adaptive_intel["learning_curve_data"]
+    efficiency_curve_data = _adaptive_intel["efficiency_curve_data"]
+    decision_memory_data = _adaptive_intel["decision_memory_data"]
+    decision_memory_df = _adaptive_intel["decision_memory_df"]
+    cross_horizon_data = _adaptive_intel["cross_horizon_data"]
+    all_decisions = _adaptive_intel["all_decisions"]
+    gov_decisions = _adaptive_intel["gov_decisions"]
 
-    # Load decision log (decision_log.json), then supplement with governance decisions
-    # (governance_decisions.json) so the learning pipeline has data even when no
-    # decision_log entries exist yet.
-    all_decisions = dlm.load_decision_log() if dlm else []
-    gov_decisions = al.load_governance_decisions()
-    if gov_decisions:
-        existing_ids = {d.get("id") for d in all_decisions if d.get("id")}
-        all_decisions = all_decisions + [d for d in gov_decisions if d.get("id") not in existing_ids]
-
-    snapshot_data = al.compute_learning_snapshot(snapshot_df, attrib_df, adaptive_state, all_decisions)
-    core_signals = al.compute_core_learning_signals(snapshot_df, attrib_df, adaptive_state)
-    param_sensitivity = al.compute_parameter_sensitivity(attrib_df, adaptive_state)
-    learning_curve_data = al.compute_learning_curve(snapshot_df, attrib_df, adaptive_state, all_decisions)
-    efficiency_curve_data = al.compute_efficiency_curve(all_decisions, adaptive_state)
-    decision_memory_data = al.compute_decision_memory_table(all_decisions, attrib_df)
-    decision_memory_df = al.build_decision_memory(gov_decisions)
-    cross_horizon_data = al.compute_cross_horizon_stability(snapshot_df, attrib_df)
-
-    _cross_horizon_raw = (
-        attrib_df.groupby(["wave", "horizon"]).mean(numeric_only=True).reset_index()
-        if attrib_df is not None and not attrib_df.empty
-        else pd.DataFrame()
-    )
-    st.session_state["cross_horizon_df"] = safe_df(_cross_horizon_raw)
+    st.session_state["cross_horizon_df"] = safe_df(_adaptive_intel["cross_horizon_raw"])
     st.session_state["decision_memory_df"] = st.session_state.get("alpha_quality_df")
 
 
