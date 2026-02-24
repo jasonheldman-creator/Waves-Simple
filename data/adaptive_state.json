@@ -1,11 +1,11 @@
 {
-  "confidence": 0.5700000000000001,
-  "last_updated": "2026-02-24 01:57:40",
+  "confidence": 0.5800000000000001,
+  "last_updated": "2026-02-24 04:58:12",
   "regime_state": "normal",
   "pattern_memory": {
     "momentum_regime": {
-      "current": -0.0013,
-      "trend": "neutral"
+      "current": -0.0105,
+      "trend": "negative"
     }
   }
 }
