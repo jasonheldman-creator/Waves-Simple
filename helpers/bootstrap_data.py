@@ -121,3 +121,143 @@ def generate_param_sensitivity():
             "observation": "Regime detection sensitivity is being monitored.",
         },
     ]
+
+
+def generate_synthetic_learning_curve(learning_index: float = 55.0) -> dict:
+    """Generate a deterministic synthetic learning curve result dict.
+
+    Returns a ``has_data=True`` dict matching the schema expected by the
+    Section 1 rendering layer in ``app_min.py``.  Used as fallback when
+    ``compute_learning_curve`` returns ``{"has_data": False}`` because
+    insufficient governance decisions are recorded.
+    """
+    import warnings
+    warnings.warn(
+        "[bootstrap_data] Using synthetic learning curve — no recorded decisions found.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+    learning_index = float(learning_index)
+    if learning_index >= 80:
+        grade, zone = "A", "Mastery"
+    elif learning_index >= 60:
+        grade, zone = "B", "Proficiency"
+    elif learning_index >= 40:
+        grade, zone = "C", "Development"
+    elif learning_index >= 20:
+        grade, zone = "D", "Foundation"
+    else:
+        grade, zone = "F", "Early Stage"
+
+    monthly_points = generate_learning_curve_monthly_points(learning_index)
+
+    return {
+        "has_data": True,
+        "learning_index": learning_index,
+        "grade": grade,
+        "zone": zone,
+        "decision_outcome_alignment": learning_index,
+        "outcome_consistency": learning_index,
+        "structural_improvement": learning_index,
+        "decision_alignment_pct": learning_index,
+        "outcome_consistency_pct": learning_index,
+        "structural_improvement_pct": learning_index,
+        "monthly_points": monthly_points,
+    }
+
+
+def generate_synthetic_efficiency_curve(efficiency_index: float = 55.0) -> dict:
+    """Generate a deterministic synthetic efficiency curve result dict.
+
+    Returns a ``has_data=True`` dict matching the schema expected by the
+    Section 1 rendering layer in ``app_min.py``.  Used as fallback when
+    ``compute_efficiency_curve`` returns ``{"has_data": False}`` because
+    insufficient governance decisions are recorded.
+    """
+    import warnings
+    warnings.warn(
+        "[bootstrap_data] Using synthetic efficiency curve — no recorded decisions found.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+    efficiency_index = float(efficiency_index)
+    if efficiency_index >= 80:
+        grade = "A"
+    elif efficiency_index >= 60:
+        grade = "B"
+    elif efficiency_index >= 40:
+        grade = "C"
+    elif efficiency_index >= 20:
+        grade = "D"
+    else:
+        grade = "F"
+
+    monthly_points = generate_learning_curve_monthly_points(efficiency_index)
+
+    return {
+        "has_data": True,
+        "efficiency_index": efficiency_index,
+        "grade": grade,
+        "signal_engagement_rate": efficiency_index,
+        "decision_implementation_rate": efficiency_index,
+        "decision_latency_score": 75.0,
+        "signal_engagement_pct": efficiency_index,
+        "implementation_rate_pct": efficiency_index,
+        "avg_decision_latency_hours": 24.0,
+        "monthly_points": monthly_points,
+    }
+
+
+def generate_synthetic_cross_horizon_drivers() -> list:
+    """Generate deterministic cross-horizon stability driver rows.
+
+    Returns a list of driver dicts matching the schema expected by the
+    Section 3 cross-horizon rendering layer.  Used as fallback when
+    ``compute_cross_horizon_stability`` returns an empty ``drivers`` list.
+    """
+    import warnings
+    warnings.warn(
+        "[bootstrap_data] Using synthetic cross-horizon drivers — attribution data insufficient.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+    return [
+        {
+            "Driver": "Selection",
+            "30D State": "Positive",
+            "90D State": "Positive",
+            "365D State": "Positive",
+            "Stability": "Stable",
+        },
+        {
+            "Driver": "Momentum",
+            "30D State": "Neutral",
+            "90D State": "Positive",
+            "365D State": "Positive",
+            "Stability": "Stable",
+        },
+        {
+            "Driver": "Volatility",
+            "30D State": "Neutral",
+            "90D State": "Neutral",
+            "365D State": "Negative",
+            "Stability": "Moderate",
+        },
+        {
+            "Driver": "Regime",
+            "30D State": "Positive",
+            "90D State": "Neutral",
+            "365D State": "Positive",
+            "Stability": "Stable",
+        },
+        {
+            "Driver": "Exposure",
+            "30D State": "Positive",
+            "90D State": "Positive",
+            "365D State": "Neutral",
+            "Stability": "Stable",
+        },
+    ]

@@ -7,12 +7,33 @@ any tab rendering, and provides safe_df() to guarantee compute outputs
 are always pandas DataFrames (never None).
 """
 
+import logging
 import pandas as pd
 
 
-def safe_df(df):
-    """Return df if it is a pandas DataFrame, otherwise return an empty DataFrame."""
-    return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+def safe_df(df, context: str = ""):
+    """Return df if it is a non-empty pandas DataFrame; otherwise log a warning and return empty.
+
+    Validation contract:
+    - Always returns a pandas DataFrame (never None or other type).
+    - Logs a warning when the input is not a DataFrame or is empty so that
+      silent data loss is surfaced in the application log.
+    - Returns an empty DataFrame (not None) when no valid data is available
+      so that downstream callers can detect emptiness without AttributeError.
+    """
+    if not isinstance(df, pd.DataFrame):
+        logging.warning(
+            "[safe_df] Expected DataFrame but received %s%s — returning empty DataFrame.",
+            type(df).__name__,
+            f" ({context})" if context else "",
+        )
+        return pd.DataFrame()
+    if df.empty:
+        logging.warning(
+            "[safe_df] Received empty DataFrame%s — returning empty DataFrame.",
+            f" ({context})" if context else "",
+        )
+    return df
 
 
 def initialize_intelligence_state():
