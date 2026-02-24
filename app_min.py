@@ -12537,10 +12537,13 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         st.subheader("Alpha Pressure & Rotation Intelligence")
         st.caption("Cross-wave structural capital flow and rotation diagnostics \u00b7 Observational only")
 
-        quality = al.compute_alpha_quality(snapshot_df, attrib_df)
-        pressure = al.compute_capital_pressure(snapshot_df)
-        velocity = al.compute_rotation_velocity(snapshot_df)
-        ignition = al.compute_alpha_ignition(snapshot_df)
+        # Load attribution from canonical CSV if not already loaded
+        _ai_attrib = attrib_df if attrib_df is not None and not attrib_df.empty else al.load_attribution()
+
+        quality = al.compute_alpha_quality(snapshot_df, _ai_attrib)
+        pressure = al.compute_capital_pressure(snapshot_df, _ai_attrib)
+        velocity = al.compute_rotation_velocity(snapshot_df, _ai_attrib)
+        ignition = al.compute_alpha_ignition(snapshot_df, _ai_attrib)
 
         _apr_has_any = False
 
@@ -12548,6 +12551,9 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
             _apr_has_any = True
             st.markdown("### Alpha Quality Ranking")
             st.dataframe(pd.DataFrame(quality["waves"]), width="stretch", hide_index=True)
+        else:
+            st.markdown("### Alpha Quality Ranking")
+            st.warning("Alpha Quality data unavailable — attribution CSV may be missing or empty. Run `build_alpha_attribution_csv.py` to rebuild.")
 
         if pressure.get("has_data"):
             _apr_has_any = True
@@ -12559,19 +12565,28 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
             col_cp1.metric("Regime", _cp_regime)
             col_cp2.metric("Positive Alpha %", f"{_cp_pos}%")
             col_cp3.metric("Dispersion", f"{_cp_disp}")
+        else:
+            st.markdown("### Capital Pressure Regime")
+            st.warning("Capital Pressure data unavailable — 30D alpha values not found in attribution source.")
 
         if velocity.get("has_data"):
             _apr_has_any = True
             st.markdown("### Rotation Velocity")
             st.dataframe(pd.DataFrame(velocity["waves"]), width="stretch", hide_index=True)
+        else:
+            st.markdown("### Rotation Velocity")
+            st.warning("Rotation Velocity data unavailable — 30D and 365D alpha values needed from attribution source.")
 
         if ignition.get("has_data"):
             _apr_has_any = True
             st.markdown("### Alpha Ignition Surface")
             st.dataframe(pd.DataFrame(ignition["waves"]), width="stretch", hide_index=True)
+        else:
+            st.markdown("### Alpha Ignition Surface")
+            st.warning("Alpha Ignition data unavailable — multi-horizon alpha values needed from attribution source.")
 
         if not _apr_has_any:
-            st.info("Alpha Pressure & Rotation data will populate as snapshot sources are connected.")
+            st.info("Attribution source (`data/alpha_attribution_summary.csv`) is required to populate Alpha Pressure & Rotation panels. Run `build_alpha_attribution_csv.py` to rebuild.")
 
         st.caption("This layer is observational and non-executing. It does not modify allocations or governance state.")
 
