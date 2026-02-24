@@ -31,7 +31,7 @@ st.cache_data.clear()
 st.cache_resource.clear()
 
 # ── MODE INITIALIZATION (sandbox / production / replay) ──
-_qp_mode = st.query_params.get("mode", "sandbox")
+_qp_mode = st.query_params.get("mode", "production")
 _qp_dataset = st.query_params.get("dataset", "live")
 _qp_source = st.query_params.get("source", "")
 _qp_days = st.query_params.get("days", "30")
