@@ -66,6 +66,108 @@ def process_expired_with_lifecycle():
         _save_decisions(decisions)
 
 
+_STATUS_NORMALIZER = {
+    "Awaiting Approval": "Awaiting Governance Review",
+    "Pending": "Awaiting Governance Review",
+}
+
+_WINDOW_COLOR_MAP = {
+    "standard": "#60A5FA",
+    "extended": "#F59E0B",
+    "overnight": "#9CA3AF",
+    "escalated": "#EF4444",
+    "deliberation": "#A78BFA",
+}
+
+
+def _normalize_pending_item(item):
+    """Normalize a raw decision dict to the schema expected by the front-end renderer.
+
+    Adds all fields required by the Executive Snapshot governance renderer,
+    using .get() fallbacks so missing or misaligned fields never cause a
+    KeyError.  Fields already set on the item are preserved unchanged.
+    """
+    status = _STATUS_NORMALIZER.get(item.get("status"), item.get("status", "Awaiting Governance Review"))
+
+    decision_type = item.get("type") or item.get("decision_type") or "Governance Review"
+
+    window_type = item.get("window_type", "standard") or "standard"
+    window_color = item.get("window_color") or _WINDOW_COLOR_MAP.get(window_type, "#60A5FA")
+    window_label = item.get("window_label") or window_type.replace("_", " ").title()
+
+    source = (item.get("source") or item.get("source_surface")
+              or item.get("trigger_source") or "System")
+
+    # Context: prefer explicit context field, then context_notes/rationale,
+    # then fall back to the action text stored in context_snapshot.
+    context = (item.get("context") or item.get("context_notes") or item.get("rationale") or "")
+    if not context:
+        ctx_snap = item.get("context_snapshot")
+        if isinstance(ctx_snap, dict):
+            context = ctx_snap.get("action", "")
+
+    time_remaining = item.get("time_remaining", "")
+    time_color = item.get("time_color", "#60A5FA")
+    time_pct = item.get("time_pct", 0)
+
+    expires_at = item.get("expires_at")
+    if expires_at and time_remaining == "":
+        try:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            diff = (exp - now).total_seconds()
+            if diff <= 0:
+                time_remaining = "Expired"
+                time_color = "#EF4444"
+                time_pct = 100
+            else:
+                hours = diff / 3600
+                if hours < 1:
+                    time_remaining = f"{int(diff / 60)}m"
+                    time_color = "#EF4444"
+                elif hours < 4:
+                    time_remaining = f"{hours:.1f}h"
+                    time_color = "#F59E0B"
+                elif hours < 24:
+                    time_remaining = f"{hours:.0f}h"
+                    time_color = "#60A5FA"
+                else:
+                    time_remaining = f"{hours / 24:.1f}d"
+                    time_color = "#9CA3AF"
+                created_at = item.get("created")
+                if created_at:
+                    try:
+                        cr = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                        total = (exp - cr).total_seconds()
+                        elapsed = (now - cr).total_seconds()
+                        time_pct = min(100, max(0, int(elapsed / total * 100))) if total > 0 else 0
+                    except Exception:
+                        time_pct = 0
+        except Exception:
+            pass
+
+    # If time_remaining is still unset after the expiry calculation, apply a
+    # semantic fallback: overnight items show "Overnight"; all others "No expiry".
+    if time_remaining == "":
+        time_remaining = "Overnight" if window_type == "overnight" else "No expiry"
+
+    return {
+        **item,
+        "type": decision_type,
+        "status": status,
+        "wave": item.get("wave") or "Unknown",
+        "window_color": window_color,
+        "window_label": window_label,
+        "source": source,
+        "context": context,
+        "change": item.get("change", ""),
+        "impact": item.get("impact", ""),
+        "time_color": time_color,
+        "time_remaining": time_remaining,
+        "time_pct": time_pct,
+    }
+
+
 def get_all_pending():
     """Return list of pending governance decision dicts."""
     decisions = _load_decisions()
@@ -79,7 +181,7 @@ def get_all_pending():
     for d in decisions:
         if d.get("status") not in ("Resolved", "Expired", "Rejected"):
             item = {**_default_keys, **d}
-            result.append(item)
+            result.append(_normalize_pending_item(item))
     return result
 
 
