@@ -147,9 +147,10 @@ def _normalize_pending_item(item):
             pass
 
     # If time_remaining is still unset after the expiry calculation, apply a
-    # semantic fallback: overnight items show "Overnight"; all others "No expiry".
+    # semantic fallback: overnight items show "Overnight"; all others
+    # "No expiry (timer not configured)".
     if time_remaining == "":
-        time_remaining = "Overnight" if window_type == "overnight" else "No expiry"
+        time_remaining = "Overnight" if window_type == "overnight" else "No expiry (timer not configured)"
 
     return {
         **item,
@@ -349,6 +350,59 @@ def save_governance_decision(decision):
             return
     decisions.append(decision)
     _save_decisions(decisions)
+
+
+def load_governance_decisions_df():
+    """Load governance decisions as a canonical pandas DataFrame.
+
+    Loads from ``data/governance_decisions.json`` (the canonical store).  All
+    sections in the UI must obtain their governance counts from this single
+    source of truth so that every section reflects the same numbers.
+
+    Returns a :class:`pandas.DataFrame` with columns:
+      ``decision_id``, ``wave``, ``decision_type``, ``status``,
+      ``created_at``, ``approval_deadline``, ``initiation_context``,
+      ``proposed_governance_action``.
+
+    Raises :class:`FileNotFoundError` if the backing file is absent so that
+    callers can surface a loud error rather than silently returning zero rows.
+    """
+    import pandas as pd
+    from pathlib import Path as _Path
+
+    path = _Path(_DATA_FILE)
+    if not path.exists():
+        raise FileNotFoundError(f"Governance decisions file not found: {path}")
+
+    decisions = _load_decisions()
+    required_cols = [
+        "decision_id", "wave", "decision_type", "status",
+        "created_at", "approval_deadline", "initiation_context",
+        "proposed_governance_action",
+    ]
+    if not decisions:
+        return pd.DataFrame(columns=required_cols)
+
+    rows = []
+    for d in decisions:
+        ctx = d.get("context_snapshot")
+        initiation = ctx.get("action", "") if isinstance(ctx, dict) else (ctx or "")
+        rows.append({
+            "decision_id": d.get("id", ""),
+            "wave": d.get("wave", ""),
+            "decision_type": d.get("decision_type", ""),
+            "status": d.get("status", ""),
+            "created_at": d.get("created", ""),
+            "approval_deadline": d.get("expires_at", ""),
+            "initiation_context": initiation,
+            "proposed_governance_action": d.get("source", ""),
+        })
+
+    df = pd.DataFrame(rows)
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Governance decisions DataFrame missing columns: {missing}")
+    return df
 
 
 def get_executive_metrics():
