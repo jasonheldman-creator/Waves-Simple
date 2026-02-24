@@ -308,8 +308,14 @@ def log_deliberation_artifact(decision_id, artifact_name, content,
 
 def create_governance_decision(decision_id, wave, instruction_type,
                                 trigger_source, context_snapshot, source):
-    """Create and persist a new governance decision."""
+    """Create and persist a new governance decision.
+
+    Returns ``True`` if the decision was created, ``False`` if a decision with
+    the same ``decision_id`` already exists (duplicate guard).
+    """
     decisions = _load_decisions()
+    if any(d.get("id") == decision_id for d in decisions):
+        return False
     decisions.append({
         "id": decision_id,
         "wave": wave,
@@ -321,6 +327,7 @@ def create_governance_decision(decision_id, wave, instruction_type,
         "created": datetime.now(timezone.utc).isoformat(),
     })
     _save_decisions(decisions)
+    return True
 
 
 def get_governance_queue():
@@ -342,3 +349,45 @@ def save_governance_decision(decision):
             return
     decisions.append(decision)
     _save_decisions(decisions)
+
+
+def get_executive_metrics():
+    """Return executive snapshot metrics derived from governance_decisions.json.
+
+    Computes:
+    - ``pending_governance``: count of decisions with status "Awaiting Governance Review"
+    - ``near_review_window``: count of decisions expiring within 24 hours
+    - ``monitoring_decisions``: count of decisions with status "Monitoring"
+    - ``total_active``: count of all non-terminal decisions
+    """
+    decisions = _load_decisions()
+    now = datetime.now(timezone.utc)
+    pending = 0
+    near_review = 0
+    monitoring = 0
+    total_active = 0
+    for d in decisions:
+        raw_status = d.get("status", "")
+        if raw_status in ("Resolved", "Expired", "Rejected"):
+            continue
+        total_active += 1
+        normalized = _STATUS_NORMALIZER.get(raw_status, raw_status)
+        if normalized == "Awaiting Governance Review":
+            pending += 1
+        elif normalized == "Monitoring":
+            monitoring += 1
+        exp = d.get("expires_at")
+        if exp:
+            try:
+                exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                diff_hours = (exp_dt - now).total_seconds() / 3600
+                if 0 < diff_hours <= 24:
+                    near_review += 1
+            except Exception:
+                pass
+    return {
+        "pending_governance": pending,
+        "near_review_window": near_review,
+        "monitoring_decisions": monitoring,
+        "total_active": total_active,
+    }

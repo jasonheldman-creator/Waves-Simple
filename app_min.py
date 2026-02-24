@@ -1208,7 +1208,7 @@ def queue_startup_governance_decisions(snap_df):
     try:
         from decision_engine import generate_decisions as _gen_decisions
         from helpers.governance_lifecycle import create_governance_decision
-        import uuid
+        import hashlib
 
         if snap_df is None or snap_df.empty:
             print("[LIVE] queue_startup_governance_decisions: no snapshot data")
@@ -1241,8 +1241,10 @@ def queue_startup_governance_decisions(snap_df):
             ]
 
             # Limit to 2 items per wave to avoid flooding the governance queue
+            _id_prefix = f"startup_{wave_name.lower().replace(' ', '_')}"
             for item_text, item_type in governance_items[:2]:
-                decision_id = f"startup_{wave_name.lower().replace(' ', '_')}_{uuid.uuid4().hex[:8]}"
+                _id_key = f"{_id_prefix}_{item_type}_{item_text[:64]}"
+                decision_id = f"{_id_prefix}_{hashlib.md5(_id_key.encode()).hexdigest()[:8]}"
                 create_governance_decision(
                     decision_id=decision_id,
                     wave=wave_name,
@@ -7170,114 +7172,45 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
 
     # --- Governance Momentum Indicator (NOTE 074) ---
     try:
-        _gmi_score = 0
+        _gmi_pending = 0
+        if gov:
+            try:
+                _gmi_metrics = gov.get_executive_metrics()
+                _gmi_pending = _gmi_metrics.get("pending_governance", 0)
+            except Exception:
+                pass
 
-        _gmi_fis_count = 0
-        _gmi_has_pos_cond = False
-        _gmi_has_sec_basket = False
-        _gmi_snap_path = BASE_DIR / "data" / "live_snapshot.csv"
-        if _gmi_snap_path.exists():
-            _gmi_df = pd.read_csv(_gmi_snap_path)
-            _gmi_wc = "Weight" if "Weight" in _gmi_df.columns else "current_weight"
-            _gmi_tc = "Target_Weight" if "Target_Weight" in _gmi_df.columns else "target_weight"
-            if _gmi_wc in _gmi_df.columns and _gmi_tc in _gmi_df.columns:
-                for _, _gmi_r in _gmi_df.iterrows():
-                    _gmi_d = abs(float(_gmi_r.get(_gmi_wc, 0) or 0) - float(_gmi_r.get(_gmi_tc, 0) or 0))
-                    if _gmi_d > 0.01 and _gmi_d <= 0.02:
-                        _gmi_fis_count += 1
-                        _gmi_has_pos_cond = True
-
-        try:
-            _gmi_sb_path = Path("data/secondary_baskets.json")
-            if _gmi_sb_path.exists():
-                with open(_gmi_sb_path, "r") as f:
-                    _gmi_sb = json.load(f)
-                for _gmi_wn, _gmi_wd in _gmi_sb.get("waves", {}).items():
-                    for _gmi_c in _gmi_wd.get("secondary", []):
-                        if _gmi_c.get("rank", 99) <= 3:
-                            _gmi_fis_count += 1
-                            _gmi_has_sec_basket = True
-        except Exception:
-            pass
-
-        _gmi_score += _gmi_fis_count * 1
-
-        _gmi_mon_count = 0
-        _gmi_rev_count = 0
-        try:
-            from helpers.decision_continuity import get_continuity_summary
-            _gmi_cont = get_continuity_summary()
-            _gmi_mon_count = _gmi_cont.get("monitoring", 0)
-            _gmi_rev_count = _gmi_cont.get("review_recommended", 0)
-        except Exception:
-            pass
-        _gmi_score += _gmi_mon_count * 2
-        _gmi_score += _gmi_rev_count * 3
-
-        _gmi_regime_flag = 0
-        try:
-            _gmi_ap = Path("data/adaptive_state.json")
-            if _gmi_ap.exists():
-                with open(_gmi_ap, "r") as f:
-                    _gmi_as = json.load(f)
-                _gmi_rs = (_gmi_as.get("regime_state", "normal") or "normal").lower()
-                if _gmi_rs not in ("normal", "stable"):
-                    _gmi_regime_flag = 1
-        except Exception:
-            pass
-        _gmi_score += _gmi_regime_flag * 2
-
-        if _gmi_score >= 13:
-            _gmi_state = "Active"
-            _gmi_color = "#F59E0B"
-        elif _gmi_score >= 9:
-            _gmi_state = "Elevated"
-            _gmi_color = "#60A5FA"
-        elif _gmi_score >= 6:
-            _gmi_state = "Building"
-            _gmi_color = "#60A5FA"
-        elif _gmi_score >= 3:
-            _gmi_state = "Forming"
-            _gmi_color = "#6B7280"
-        else:
+        if _gmi_pending == 0:
             _gmi_state = "Quiet"
             _gmi_color = "#48BB78"
-
-        _gmi_contributors = []
-        if _gmi_has_pos_cond:
-            _gmi_contributors.append("position conditioning")
-        if _gmi_has_sec_basket:
-            _gmi_contributors.append("secondary basket pressure")
-        if _gmi_mon_count > 0 or _gmi_rev_count > 0:
-            _gmi_contributors.append("decision continuity")
-        if _gmi_regime_flag:
-            _gmi_contributors.append("regime diagnostics")
+        elif _gmi_pending <= 5:
+            _gmi_state = "Forming"
+            _gmi_color = "#6B7280"
+        elif _gmi_pending <= 15:
+            _gmi_state = "Building"
+            _gmi_color = "#60A5FA"
+        else:
+            _gmi_state = "Elevated"
+            _gmi_color = "#F59E0B"
 
         if _gmi_state == "Quiet":
             _gmi_explanation = "Governance momentum remains quiet across monitored systems."
         elif _gmi_state == "Forming":
-            _gmi_explanation = "Early governance pressure forming as signals emerge across portfolio diagnostics."
+            _gmi_explanation = f"Early governance pressure forming — {_gmi_pending} decision{'s' if _gmi_pending != 1 else ''} awaiting review."
         elif _gmi_state == "Building":
-            _gmi_explanation = "Governance pressure is building as multiple signals persist across waves."
-        elif _gmi_state == "Elevated":
-            _gmi_explanation = "Governance pressure elevated with persistent signals across multiple diagnostic layers."
+            _gmi_explanation = f"Governance pressure building — {_gmi_pending} decisions pending review across the portfolio."
         else:
-            _gmi_explanation = "Governance momentum active with broad signal persistence across the portfolio."
-
-        _gmi_contrib_text = ""
-        if _gmi_contributors:
-            _gmi_contrib_text = f'<div style="color:#555A65;font-size:9px;margin-top:4px;">Primary contributors: {", ".join(_gmi_contributors)}.</div>'
+            _gmi_explanation = f"Governance pressure elevated — {_gmi_pending} decisions pending human review."
 
         st.markdown(f"""<div style="background:#0D1117;border:1px solid #1E2530;border-radius:8px;padding:16px 22px;margin-bottom:16px;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.04);">
 <div style="color:#9EA3AE;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">GOVERNANCE MOMENTUM INDICATOR</div>
-<div style="color:#555A65;font-size:9px;font-style:italic;">System-wide governance pressure derived from persistent signals · Observational</div>
+<div style="color:#555A65;font-size:9px;font-style:italic;">Derived from live governance decisions · Observational</div>
 </div>
 <div style="display:flex;align-items:center;gap:16px;">
 <div style="color:{_gmi_color};font-size:18px;font-weight:700;letter-spacing:0.02em;">{_gmi_state}</div>
 <div style="flex:1;">
 <div style="color:#C0C4CC;font-size:11px;line-height:1.5;">{_gmi_explanation}</div>
-{_gmi_contrib_text}
 </div>
 </div>
 </div>""", unsafe_allow_html=True)
@@ -7286,127 +7219,32 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
 
     # --- Decision Readiness Index (NOTE 075) ---
     try:
-        _dri_score = 0
+        _dri_pending = 0
+        if gov:
+            try:
+                _dri_metrics = gov.get_executive_metrics()
+                _dri_pending = _dri_metrics.get("pending_governance", 0)
+            except Exception:
+                pass
 
-        _dri_fis_count = 0
-        _dri_has_pos_cond = False
-        _dri_has_sec_basket = False
-        _dri_has_regime = False
-        _dri_snap_path = BASE_DIR / "data" / "live_snapshot.csv"
-        if _dri_snap_path.exists():
-            _dri_df = pd.read_csv(_dri_snap_path)
-            _dri_wc = "Weight" if "Weight" in _dri_df.columns else "current_weight"
-            _dri_tc = "Target_Weight" if "Target_Weight" in _dri_df.columns else "target_weight"
-            if _dri_wc in _dri_df.columns and _dri_tc in _dri_df.columns:
-                for _, _dri_r in _dri_df.iterrows():
-                    _dri_d = abs(float(_dri_r.get(_dri_wc, 0) or 0) - float(_dri_r.get(_dri_tc, 0) or 0))
-                    if _dri_d > 0.01 and _dri_d <= 0.02:
-                        _dri_fis_count += 1
-                        _dri_has_pos_cond = True
-
-        try:
-            _dri_sb_path = Path("data/secondary_baskets.json")
-            if _dri_sb_path.exists():
-                with open(_dri_sb_path, "r") as f:
-                    _dri_sb = json.load(f)
-                for _dri_wn, _dri_wd in _dri_sb.get("waves", {}).items():
-                    for _dri_c in _dri_wd.get("secondary", []):
-                        if _dri_c.get("rank", 99) <= 3:
-                            _dri_fis_count += 1
-                            _dri_has_sec_basket = True
-        except Exception:
-            pass
-
-        _dri_regime_flag = 0
-        try:
-            _dri_ap = Path("data/adaptive_state.json")
-            if _dri_ap.exists():
-                with open(_dri_ap, "r") as f:
-                    _dri_as = json.load(f)
-                _dri_rs = (_dri_as.get("regime_state", "normal") or "normal").lower()
-                if _dri_rs not in ("normal", "stable"):
-                    _dri_regime_flag = 1
-                    _dri_has_regime = True
-        except Exception:
-            pass
-
-        _dri_mon_count = 0
-        _dri_rev_count = 0
-        try:
-            from helpers.decision_continuity import get_continuity_summary
-            _dri_cont = get_continuity_summary()
-            _dri_mon_count = _dri_cont.get("monitoring", 0)
-            _dri_rev_count = _dri_cont.get("review_recommended", 0)
-        except Exception:
-            pass
-
-        _dri_alignment = 0
-        _dri_has_alignment = False
-        try:
-            _dri_ap2 = Path("data/adaptive_state.json")
-            if _dri_ap2.exists():
-                with open(_dri_ap2, "r") as f:
-                    _dri_as2 = json.load(f)
-                _dri_align_val = (_dri_as2.get("cross_horizon_alignment", "") or "").lower()
-                if _dri_align_val in ("aligned", "stable", "converged"):
-                    _dri_alignment = 1
-                    _dri_has_alignment = True
-                elif _dri_align_val:
-                    _dri_has_alignment = True
-        except Exception:
-            pass
-
-        _dri_score = (_dri_fis_count * 1) + (_dri_mon_count * 2) + (_dri_rev_count * 3) + (_dri_regime_flag * 2) + (_dri_alignment * 2)
-
-        if _dri_score >= 9:
-            _dri_state = "Ready for Review"
+        if _dri_pending > 0:
+            _dri_state = "Ready"
             _dri_color = "#48BB78"
-        elif _dri_score >= 6:
-            _dri_state = "Near Ready"
-            _dri_color = "#60A5FA"
-        elif _dri_score >= 3:
-            _dri_state = "Developing Context"
-            _dri_color = "#6B7280"
+            _dri_explanation = f"{_dri_pending} governance decision{'s' if _dri_pending != 1 else ''} pending human review — context is complete and actionable."
         else:
             _dri_state = "Not Ready"
             _dri_color = "#555A65"
-
-        _dri_contributors = []
-        if _dri_has_pos_cond or _dri_has_sec_basket:
-            _dri_contributors.append("forward signals")
-        if _dri_mon_count > 0 or _dri_rev_count > 0:
-            _dri_contributors.append("decision continuity states")
-        if _dri_has_regime:
-            _dri_contributors.append("regime context")
-        if _dri_has_alignment:
-            _dri_contributors.append("cross-horizon alignment")
-
-        if _dri_state == "Not Ready":
-            if _dri_fis_count == 0 and _dri_mon_count == 0 and _dri_rev_count == 0:
-                _dri_explanation = "Decision context remains quiet across monitored systems."
-            else:
-                _dri_explanation = "Decision context remains early-stage; monitored signals have not yet matured."
-        elif _dri_state == "Developing Context":
-            _dri_explanation = "Context is forming as multiple signals persist across monitored systems."
-        elif _dri_state == "Near Ready":
-            _dri_explanation = "Context completeness is strengthening; supporting diagnostics are converging."
-        else:
-            _dri_explanation = "Context appears sufficiently complete for governance review, subject to human discretion."
-
-        _dri_contrib_text = ""
-        if _dri_contributors:
-            _dri_contrib_text = f'<div style="color:#555A65;font-size:9px;margin-top:4px;">Primary contributors: {", ".join(_dri_contributors)}.</div>'
+            _dri_explanation = "No governance decisions currently pending review."
 
         st.markdown(f"""<div style="background:#0D1117;border:1px solid #1E2530;border-radius:8px;padding:16px 22px;margin-bottom:16px;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.04);">
 <div style="color:#9EA3AE;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">DECISION READINESS INDEX</div>
-<div style="color:#555A65;font-size:9px;font-style:italic;">Context completeness for governance review · Observational</div>
+<div style="color:#555A65;font-size:9px;font-style:italic;">Derived from live governance decisions · Observational</div>
 </div>
 <div style="display:flex;align-items:center;gap:16px;">
 <div style="color:{_dri_color};font-size:18px;font-weight:700;letter-spacing:0.02em;">{_dri_state}</div>
 <div style="flex:1;">
 <div style="color:#C0C4CC;font-size:11px;line-height:1.5;">{_dri_explanation}</div>
-{_dri_contrib_text}
 </div>
 </div>
 </div>""", unsafe_allow_html=True)
@@ -7415,117 +7253,35 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
 
     # --- Executive Service - Pending Decisions (NOTE 013) ---
     try:
-        _esp_dl_path = Path("data/decision_log.json")
-        _esp_decs = []
-        if _esp_dl_path.exists():
-            with open(_esp_dl_path, "r") as f:
-                _esp_decs = json.load(f)
+        _esp_metrics = {"pending_governance": 0, "near_review_window": 0, "monitoring_decisions": 0, "total_active": 0}
+        _esp_raw_items = []
+        if gov:
+            try:
+                _esp_metrics = gov.get_executive_metrics()
+                _esp_raw_items = gov.get_all_pending()
+            except Exception:
+                pass
 
-        _esp_si_path = Path("data/strategy_instructions.json")
-        _esp_insts = []
-        if _esp_si_path.exists():
-            with open(_esp_si_path, "r") as f:
-                _esp_insts = json.load(f)
-
-        _esp_pending = 0
-        _esp_near_review = 0
-        _esp_monitoring = 0
-        _esp_total_active = 0
-        _esp_table_rows = []
-
-        from datetime import datetime, timedelta
-        _esp_now = datetime.now()
+        _esp_pending = _esp_metrics.get("pending_governance", 0)
+        _esp_near_review = _esp_metrics.get("near_review_window", 0)
+        _esp_monitoring = _esp_metrics.get("monitoring_decisions", 0)
+        _esp_total_active = _esp_metrics.get("total_active", 0)
 
         _esp_all_items = []
-        for _esp_d in _esp_decs:
-            _esp_st = (_esp_d.get("status", "") or "").lower()
-            if _esp_st in ("pending", "pending_overnight", "review_recommended"):
-                _esp_pending += 1
-            if _esp_st == "monitoring":
-                _esp_monitoring += 1
-            if _esp_st not in ("rejected", "expired", "cancelled", "deferred"):
-                _esp_total_active += 1
-
-            _esp_expiry = _esp_d.get("approval_window_end") or _esp_d.get("expiry") or _esp_d.get("expiration", "")
-            _esp_time_remaining = "Open Review Window"
-            if _esp_expiry:
-                try:
-                    _esp_exp_dt = datetime.fromisoformat(str(_esp_expiry).replace("Z", "+00:00").split("+")[0])
-                    _esp_delta = _esp_exp_dt - _esp_now
-                    _esp_hrs = _esp_delta.total_seconds() / 3600
-                    if _esp_hrs < 24 and _esp_hrs > 0:
-                        _esp_near_review += 1
-                        _esp_time_remaining = f"{_esp_hrs:.0f}h remaining"
-                    elif _esp_hrs <= 0:
-                        _esp_time_remaining = "Window closed"
-                    else:
-                        _esp_time_remaining = f"{_esp_hrs:.0f}h remaining"
-                except Exception:
-                    pass
-
-            _esp_plain = _esp_d.get("decision_plain_english") or _esp_d.get("proposed_action") or _esp_d.get("trigger_source") or _esp_d.get("notes", "")
-            if not _esp_plain or _esp_plain.strip().lower() == "unknown":
-                _esp_plain = f"Governance review for {_esp_d.get('wave', 'portfolio')} wave"
-
-            _esp_priority = (_esp_d.get("review_priority", "") or "").strip()
-            if not _esp_priority:
-                _esp_priority = "Routine"
-
-            _esp_priority_order = 2
-            _esp_pl = _esp_priority.lower()
-            if "elevated" in _esp_pl:
-                _esp_priority_order = 0
-            elif "moderate" in _esp_pl:
-                _esp_priority_order = 1
-
-            _esp_sort_hrs = 99999
-            if _esp_expiry and _esp_time_remaining != "Open Review Window":
-                try:
-                    _esp_exp_parsed = datetime.fromisoformat(str(_esp_expiry).replace("Z", "+00:00").split("+")[0])
-                    _esp_sort_hrs = max(-999, (_esp_exp_parsed - _esp_now).total_seconds() / 3600)
-                except Exception:
-                    _esp_sort_hrs = 99999
-
-            if _esp_st in ("pending", "pending_overnight", "review_recommended", "monitoring", "activated"):
-                _esp_all_items.append({
-                    "id": _esp_d.get("id", _esp_d.get("decision_id", "")),
-                    "wave": _esp_d.get("wave", "\u2014"),
-                    "summary": _esp_plain[:120] + ("..." if len(_esp_plain) > 120 else ""),
-                    "priority": _esp_priority,
-                    "priority_order": _esp_priority_order,
-                    "lifecycle": _esp_st.replace("_", " ").title(),
-                    "time_remaining": _esp_time_remaining,
-                    "_sort_hours": _esp_sort_hrs,
-                })
-
-        for _esp_i in _esp_insts:
-            _esp_ist = (_esp_i.get("status", "") or "").lower()
-            if _esp_ist in ("pending", "pending_overnight"):
-                _esp_iid = _esp_i.get("id", "")
-                _esp_already = any(r["id"] == _esp_iid for r in _esp_all_items)
-                if not _esp_already:
-                    _esp_ip = (_esp_i.get("review_priority", "") or "").strip() or "Routine"
-                    _esp_ipo = 2
-                    if "elevated" in _esp_ip.lower():
-                        _esp_ipo = 0
-                    elif "moderate" in _esp_ip.lower():
-                        _esp_ipo = 1
-
-                    _esp_itext = _esp_i.get("decision_plain_english") or _esp_i.get("proposed_action") or _esp_i.get("trigger_source") or _esp_i.get("instruction_text", "")
-                    if not _esp_itext or _esp_itext.strip().lower() == "unknown":
-                        _esp_itext = f"Governance instruction for {_esp_i.get('wave', 'portfolio')} wave"
-
-                    _esp_all_items.append({
-                        "id": _esp_iid,
-                        "wave": _esp_i.get("wave", "\u2014"),
-                        "summary": _esp_itext[:120] + ("..." if len(_esp_itext) > 120 else ""),
-                        "priority": _esp_ip,
-                        "priority_order": _esp_ipo,
-                        "lifecycle": _esp_ist.replace("_", " ").title(),
-                        "time_remaining": "Open Review Window",
-                    })
-
-        _esp_all_items.sort(key=lambda x: (x["priority_order"], x.get("_sort_hours", 99999)))
+        for _esp_d in _esp_raw_items:
+            _esp_context = _esp_d.get("context", "")
+            if not _esp_context:
+                _esp_context = f"Governance review for {_esp_d.get('wave', 'portfolio')} wave"
+            _esp_all_items.append({
+                "id": _esp_d.get("id", ""),
+                "wave": _esp_d.get("wave", "\u2014"),
+                "summary": _esp_context[:120] + ("..." if len(_esp_context) > 120 else ""),
+                "priority": "Routine",
+                "priority_order": 2,
+                "lifecycle": _esp_d.get("status", ""),
+                "time_remaining": _esp_d.get("time_remaining", "No expiry"),
+                "_sort_hours": 99999,
+            })
 
         _esp_cell = "background:#0D1117;border:1px solid #1E2530;border-radius:4px;padding:10px 14px;text-align:center;"
 
