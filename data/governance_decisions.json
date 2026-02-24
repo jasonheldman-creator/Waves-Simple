@@ -1,0 +1,198 @@
+[
+  {
+    "id": "startup_clean_transit-infrastructure_wave_836b09fe",
+    "wave": "Clean Transit-Infrastructure Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.701257+00:00"
+  },
+  {
+    "id": "startup_crypto_broad_growth_wave_da096ad1",
+    "wave": "Crypto Broad Growth Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Short-term alpha weak but medium-term positive - potential drawdown or timing/exposure management effects.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.701636+00:00"
+  },
+  {
+    "id": "startup_crypto_broad_growth_wave_f4fd90aa",
+    "wave": "Crypto Broad Growth Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.701895+00:00"
+  },
+  {
+    "id": "startup_crypto_defi_growth_wave_07332e8d",
+    "wave": "Crypto DeFi Growth Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Large 30D alpha - verify benchmark mix, missing days, and attribution assumptions.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.702437+00:00"
+  },
+  {
+    "id": "startup_crypto_defi_growth_wave_1cd9e485",
+    "wave": "Crypto DeFi Growth Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.702723+00:00"
+  },
+  {
+    "id": "startup_crypto_income_wave_6603d43b",
+    "wave": "Crypto Income Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.703080+00:00"
+  },
+  {
+    "id": "startup_ev_&_infrastructure_wave_43859416",
+    "wave": "EV & Infrastructure Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Short-term alpha weak but medium-term positive - potential drawdown or timing/exposure management effects.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.703607+00:00"
+  },
+  {
+    "id": "startup_ev_&_infrastructure_wave_1d928e83",
+    "wave": "EV & Infrastructure Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.703899+00:00"
+  },
+  {
+    "id": "startup_future_power_&_energy_wave_5cb54123",
+    "wave": "Future Power & Energy Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.704421+00:00"
+  },
+  {
+    "id": "startup_quantum_computing_wave_6490325c",
+    "wave": "Quantum Computing Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.705047+00:00"
+  },
+  {
+    "id": "startup_small_cap_growth_wave_d316f09a",
+    "wave": "Small Cap Growth Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Short-term alpha weak but medium-term positive - potential drawdown or timing/exposure management effects.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.705571+00:00"
+  },
+  {
+    "id": "startup_small_cap_growth_wave_84f422af",
+    "wave": "Small Cap Growth Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.705904+00:00"
+  },
+  {
+    "id": "startup_smartsafe_tax-free_money_market_wave_d0dd0f13",
+    "wave": "SmartSafe Tax-Free Money Market Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Short-term alpha weak but medium-term positive - potential drawdown or timing/exposure management effects.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.706510+00:00"
+  },
+  {
+    "id": "startup_us_small-cap_disruptors_wave_4d4a7258",
+    "wave": "US Small-Cap Disruptors Wave",
+    "decision_type": "system_generated",
+    "trigger_source": "startup_pipeline",
+    "context_snapshot": {
+      "action": "Long-term alpha positive but 30D weak - monitor for alpha decay vs temporary noise.",
+      "item_type": "monitor",
+      "snapshot_asof": "2026-01-10"
+    },
+    "source": "initialize_live_system",
+    "status": "Awaiting Approval",
+    "created": "2026-02-24T04:58:48.707158+00:00"
+  }
+]

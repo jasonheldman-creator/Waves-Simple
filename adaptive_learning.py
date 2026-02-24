@@ -405,3 +405,173 @@ def generate_adaptive_tilt_proposals(signals, adaptive_state, cross_horizon_agre
         })
 
     return proposals
+
+
+def compute_alpha_quality(snapshot_df, attrib_df):
+    """Rank waves by alpha quality across horizons.
+
+    Returns a dict with ``has_data`` flag and ``waves`` list of per-wave
+    quality metrics suitable for rendering as a DataFrame.
+    """
+    if snapshot_df is None or snapshot_df.empty:
+        return {"has_data": False, "waves": []}
+
+    rows = []
+    horizon_cols = {
+        "Alpha 30D": "alpha_30d",
+        "Alpha 60D": "alpha_60d",
+        "Alpha 365D": "alpha_365d",
+    }
+    name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
+    if name_col not in snapshot_df.columns:
+        return {"has_data": False, "waves": []}
+
+    for _, r in snapshot_df.iterrows():
+        wave = str(r.get(name_col, ""))
+        if not wave:
+            continue
+        alphas = {}
+        for label, col in horizon_cols.items():
+            v = r.get(col)
+            alphas[label] = round(float(v), 4) if v is not None and not (isinstance(v, float) and np.isnan(v)) else None
+
+        filled = [v for v in alphas.values() if v is not None]
+        if not filled:
+            continue
+
+        # Consistency: fraction of horizons with positive alpha
+        consistency = round(sum(1 for v in filled if v > 0) / len(filled), 2)
+        # Composite score: mean of available horizon alphas
+        composite = round(float(np.mean(filled)), 4)
+
+        entry = {"Wave": wave, "Composite Alpha": composite, "Consistency": consistency}
+        entry.update({k: (v if v is not None else "") for k, v in alphas.items()})
+        rows.append(entry)
+
+    if not rows:
+        return {"has_data": False, "waves": []}
+
+    rows.sort(key=lambda x: x["Composite Alpha"], reverse=True)
+    return {"has_data": True, "waves": rows}
+
+
+def compute_capital_pressure(snapshot_df):
+    """Compute portfolio-level capital pressure metrics.
+
+    Returns regime label, positive-alpha percentage, and dispersion.
+    """
+    if snapshot_df is None or snapshot_df.empty:
+        return {"has_data": False}
+
+    col = "alpha_30d" if "alpha_30d" in snapshot_df.columns else None
+    if col is None:
+        return {"has_data": False}
+
+    vals = pd.to_numeric(snapshot_df[col], errors="coerce").dropna()
+    if len(vals) == 0:
+        return {"has_data": False}
+
+    positive_pct = round(float((vals > 0).sum() / len(vals) * 100), 1)
+    dispersion = round(float(vals.std()), 4)
+
+    if positive_pct >= 60:
+        regime = "Expansive"
+    elif positive_pct >= 40:
+        regime = "Neutral"
+    else:
+        regime = "Contractive"
+
+    return {
+        "has_data": True,
+        "Capital Pressure Regime": regime,
+        "Positive Alpha %": positive_pct,
+        "Dispersion (Std Dev)": dispersion,
+    }
+
+
+def compute_rotation_velocity(snapshot_df):
+    """Estimate how rapidly alpha is rotating across waves.
+
+    Compares 30D vs 365D alpha to identify accelerating and decelerating waves.
+    Returns a dict with ``has_data`` flag and ``waves`` list.
+    """
+    if snapshot_df is None or snapshot_df.empty:
+        return {"has_data": False, "waves": []}
+
+    if "alpha_30d" not in snapshot_df.columns or "alpha_365d" not in snapshot_df.columns:
+        return {"has_data": False, "waves": []}
+
+    name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
+    if name_col not in snapshot_df.columns:
+        return {"has_data": False, "waves": []}
+
+    rows = []
+    for _, r in snapshot_df.iterrows():
+        wave = str(r.get(name_col, ""))
+        a30 = pd.to_numeric(r.get("alpha_30d"), errors="coerce")
+        a365 = pd.to_numeric(r.get("alpha_365d"), errors="coerce")
+        if wave and not (np.isnan(a30) or np.isnan(a365)):
+            velocity = round(float((a30 - a365) / 12), 4)
+            direction = "Accelerating" if velocity > 0 else "Decelerating"
+            rows.append({
+                "Wave": wave,
+                "Alpha 30D": round(float(a30), 4),
+                "Alpha 365D": round(float(a365), 4),
+                "Rotation Velocity": velocity,
+                "Direction": direction,
+            })
+
+    if not rows:
+        return {"has_data": False, "waves": []}
+
+    rows.sort(key=lambda x: abs(x["Rotation Velocity"]), reverse=True)
+    return {"has_data": True, "waves": rows}
+
+
+def compute_alpha_ignition(snapshot_df):
+    """Identify waves where alpha is beginning to emerge (ignition signals).
+
+    A wave is considered igniting when short-horizon alpha (30D) is positive
+    while longer-horizon alpha (365D) remains negative or near zero.
+    Returns a dict with ``has_data`` flag and ``waves`` list.
+    """
+    if snapshot_df is None or snapshot_df.empty:
+        return {"has_data": False, "waves": []}
+
+    need = {"alpha_30d", "alpha_60d", "alpha_365d"}
+    if not need.issubset(snapshot_df.columns):
+        return {"has_data": False, "waves": []}
+
+    name_col = "display_name" if "display_name" in snapshot_df.columns else "wave_name"
+    if name_col not in snapshot_df.columns:
+        return {"has_data": False, "waves": []}
+
+    rows = []
+    for _, r in snapshot_df.iterrows():
+        wave = str(r.get(name_col, ""))
+        a30 = pd.to_numeric(r.get("alpha_30d"), errors="coerce")
+        a60 = pd.to_numeric(r.get("alpha_60d"), errors="coerce")
+        a365 = pd.to_numeric(r.get("alpha_365d"), errors="coerce")
+        if not wave:
+            continue
+        if np.isnan(a30) or np.isnan(a365):
+            continue
+
+        # Ignition: short-term alpha positive, long-term subdued
+        ignition_score = round(float(a30 - (a365 / 4)), 4)
+        signal = "Igniting" if a30 > 0 and (np.isnan(a365) or a365 < a30 * 0.5) else "Stable"
+
+        rows.append({
+            "Wave": wave,
+            "Alpha 30D": round(float(a30), 4),
+            "Alpha 60D": round(float(a60), 4) if not np.isnan(a60) else "",
+            "Alpha 365D": round(float(a365), 4),
+            "Ignition Score": ignition_score,
+            "Signal": signal,
+        })
+
+    if not rows:
+        return {"has_data": False, "waves": []}
+
+    rows.sort(key=lambda x: x["Ignition Score"], reverse=True)
+    return {"has_data": True, "waves": rows}
