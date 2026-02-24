@@ -11197,8 +11197,11 @@ Security Intelligence is observational only - no recommendations, price targets,
 
         mi_spy = mi_prices.get("SPY")
         mi_horizon_data = []
+        _mi_period_map = {30: "30d", 90: "90d", 365: "365d"}
         for days, label in [(30, "30-Day View"), (90, "90-Day View"), (365, "365-Day View")]:
-            ret = compute_returns(mi_spy, days) if mi_spy is not None else None
+            ret_dict = compute_returns(mi_spy, days) if mi_spy is not None else None
+            # Extract the horizon-specific scalar return so direction and score differ per horizon
+            ret = ret_dict.get(_mi_period_map[days]) if ret_dict and isinstance(ret_dict, dict) else ret_dict
             dir_label, desc = compute_direction_label(ret)
             strength = compute_strength_score(mi_spy, days) if mi_spy is not None else 0
             explanation = compute_horizon_explanation(mi_prices, days, label)

@@ -118,11 +118,19 @@ def compute_strength_score(prices_or_dict, days=None):
     - compute_strength_score(returns_dict): original signature
     - compute_strength_score(prices_list, days): prices list + look-back days
 
-    When called with a prices list, the `days` parameter is used only to detect
-    the calling convention; all standard period returns are computed from the list.
+    When called with a prices list and a specific number of days, the score is
+    computed using only the return for that horizon so that 30D, 90D, and 365D
+    calls each produce distinct values rather than the same all-period average.
     """
     if days is not None and isinstance(prices_or_dict, list):
         returns_dict = _compute_returns_series(prices_or_dict)
+        # Use only the period-specific return when days is provided
+        _period_map = {1: "1d", 5: "5d", 30: "30d", 90: "90d", 365: "365d"}
+        period_key = _period_map.get(days)
+        if period_key and returns_dict.get(period_key) is not None:
+            r = returns_dict[period_key]
+            score = 50.0 + r * 500.0
+            return round(max(0.0, min(100.0, score)), 2)
     else:
         returns_dict = prices_or_dict
     if not returns_dict or not isinstance(returns_dict, dict):
@@ -526,6 +534,79 @@ def compute_breadth_assessment(prices):
 
     breadth = above_50 / max(1, total)
     level = "Strong" if classification == "Broad" else ("Weak" if classification == "Narrow" else "Moderate")
+
+    # Build cross-asset participation table using available canonical tickers
+    cross_asset = {}
+
+    # Equities (SPY as primary proxy)
+    spy_s = _safe_prices(prices, "SPY")
+    if spy_s:
+        spy_rets = _compute_returns_series(spy_s)
+        spy_30d = spy_rets.get("30d")
+        spy_vol = compute_realized_vol(spy_s, 21)
+        e_trend = "Up" if (spy_30d or 0) > 0.01 else ("Down" if (spy_30d or 0) < -0.01 else "Flat")
+        e_vol = "Stress" if spy_vol > 0.25 else ("Choppy" if spy_vol > 0.15 else "Calm")
+        cross_asset["Equities"] = {
+            "trend": e_trend,
+            "volatility": e_vol,
+            "interpretation": f"Equities {e_trend.lower()} ({(spy_30d or 0)*100:+.1f}% 30D); vol regime {e_vol.lower()}.",
+        }
+
+    # Rates (TLT as long-duration proxy)
+    tlt_s = _safe_prices(prices, "TLT")
+    if tlt_s:
+        tlt_rets = _compute_returns_series(tlt_s)
+        tlt_30d = tlt_rets.get("30d")
+        tlt_vol = compute_realized_vol(tlt_s, 21)
+        r_trend = "Up" if (tlt_30d or 0) > 0.01 else ("Down" if (tlt_30d or 0) < -0.01 else "Flat")
+        r_vol = "Stress" if tlt_vol > 0.12 else ("Choppy" if tlt_vol > 0.07 else "Calm")
+        rates_dir = "Falling" if r_trend == "Up" else ("Rising" if r_trend == "Down" else "Stable")
+        cross_asset["Rates"] = {
+            "trend": r_trend,
+            "volatility": r_vol,
+            "interpretation": f"Long rates {rates_dir.lower()} (TLT {(tlt_30d or 0)*100:+.1f}% 30D); vol {r_vol.lower()}.",
+        }
+
+    # Credit (LQD as investment-grade proxy)
+    lqd_s = _safe_prices(prices, "LQD")
+    if lqd_s:
+        lqd_rets = _compute_returns_series(lqd_s)
+        lqd_30d = lqd_rets.get("30d")
+        lqd_vol = compute_realized_vol(lqd_s, 21)
+        c_trend = "Up" if (lqd_30d or 0) > 0.005 else ("Down" if (lqd_30d or 0) < -0.005 else "Flat")
+        c_vol = "Stress" if lqd_vol > 0.10 else ("Choppy" if lqd_vol > 0.06 else "Calm")
+        cred_dir = "Tightening" if c_trend == "Up" else ("Widening" if c_trend == "Down" else "Stable")
+        cross_asset["Credit"] = {
+            "trend": c_trend,
+            "volatility": c_vol,
+            "interpretation": f"Credit {cred_dir.lower()} (LQD {(lqd_30d or 0)*100:+.1f}% 30D); vol {c_vol.lower()}.",
+        }
+
+    # Commodities (GLD as primary commodity proxy)
+    gld_s = _safe_prices(prices, "GLD")
+    if gld_s:
+        gld_rets = _compute_returns_series(gld_s)
+        gld_30d = gld_rets.get("30d")
+        gld_vol = compute_realized_vol(gld_s, 21)
+        cm_trend = "Up" if (gld_30d or 0) > 0.01 else ("Down" if (gld_30d or 0) < -0.01 else "Flat")
+        cm_vol = "Stress" if gld_vol > 0.20 else ("Choppy" if gld_vol > 0.12 else "Calm")
+        cross_asset["Commodities"] = {
+            "trend": cm_trend,
+            "volatility": cm_vol,
+            "interpretation": f"Commodities (Gold proxy) {cm_trend.lower()} ({(gld_30d or 0)*100:+.1f}% 30D); vol {cm_vol.lower()}.",
+        }
+
+    # Dollar (inverse of GLD as canonical proxy; no direct USD ETF is available in the data)
+    if gld_s:
+        gld_30d = _compute_returns_series(gld_s).get("30d") or 0.0
+        dol_trend = "Down" if gld_30d > 0.01 else ("Up" if gld_30d < -0.01 else "Flat")
+        dol_vol = "Choppy" if abs(gld_30d) > 0.03 else "Calm"
+        cross_asset["Dollar"] = {
+            "trend": dol_trend,
+            "volatility": dol_vol,
+            "interpretation": f"Dollar proxy (inverse GLD) {dol_trend.lower()} over 30D.",
+        }
+
     return _wrap({
         "breadth_pct": round(breadth, 3),
         "level": level,
@@ -537,7 +618,7 @@ def compute_breadth_assessment(prices):
         "above_50": above_50,
         "above_200": above_200,
         "total_tracked": total,
-        "cross_asset": {},
+        "cross_asset": cross_asset,
     })
 
 
@@ -599,14 +680,67 @@ def compute_rates_credit_assessment(prices):
             else:
                 curve_proxy = "Stable"
 
+    # Liquidity proxy: IWM (small-cap risk appetite) preferred; fall back to LQD vs SPY spread
+    liquidity_proxy = "—"
+    iwm = _safe_prices(prices, "IWM")
+    if iwm:
+        iwm_rets = _compute_returns_series(iwm)
+        iwm_ret30 = iwm_rets.get("30d")
+        if iwm_ret30 is not None:
+            if iwm_ret30 > 0.01:
+                liquidity_proxy = "Risk-seeking"
+            elif iwm_ret30 < -0.01:
+                liquidity_proxy = "Risk-averse"
+            else:
+                liquidity_proxy = "Neutral"
+    elif lqd:
+        spy = _safe_prices(prices, "SPY")
+        lqd_rets = _compute_returns_series(lqd)
+        lqd_ret30 = lqd_rets.get("30d")
+        spy_ret30 = _compute_returns_series(spy).get("30d") if spy else None
+        if lqd_ret30 is not None and spy_ret30 is not None:
+            if lqd_ret30 > 0 and spy_ret30 > 0:
+                liquidity_proxy = "Risk-seeking"
+            elif lqd_ret30 < 0 and spy_ret30 < 0:
+                liquidity_proxy = "Risk-averse"
+            else:
+                liquidity_proxy = "Neutral"
+
+    # Dollar trend: use GLD inverse as canonical proxy (gold up = dollar down)
+    dollar_trend = "—"
+    gld = _safe_prices(prices, "GLD")
+    if gld:
+        gld_rets = _compute_returns_series(gld)
+        gld_ret30 = gld_rets.get("30d")
+        if gld_ret30 is not None:
+            if gld_ret30 > 0.01:
+                dollar_trend = "Weakening"
+            elif gld_ret30 < -0.01:
+                dollar_trend = "Strengthening"
+            else:
+                dollar_trend = "Neutral"
+
+    # Credit condition: also try LQD alone if HYG unavailable
+    if credit_condition == "—" and lqd:
+        lqd_rets = _compute_returns_series(lqd)
+        lqd_ret30 = lqd_rets.get("30d")
+        if lqd_ret30 is not None:
+            if lqd_ret30 > 0.005:
+                credit_condition = "Tightening"
+            elif lqd_ret30 < -0.005:
+                credit_condition = "Widening"
+            else:
+                credit_condition = "Stable"
+        credit_stress = "Elevated" if credit_condition == "Widening" else "Normal"
+
     return _wrap({
         "rates_trend": rates_trend,
         "credit_stress": credit_stress,
         "description": f"Rates {rates_trend.lower()}, credit {credit_condition.lower()}.",
         "credit_condition": credit_condition,
         "curve_proxy": curve_proxy,
-        "liquidity_proxy": "—",
-        "dollar_trend": "—",
+        "liquidity_proxy": liquidity_proxy,
+        "dollar_trend": dollar_trend,
     })
 
 
@@ -835,21 +969,102 @@ def compute_orientation_sentence(regime_or_prices, vol_assessment=None, breadth_
     return f"Markets are broadly {direction.lower()} within a {reg} regime."
 
 
-def compute_what_changed(prices):
+def _compute_what_changed_from_state(current_state):
+    """Compare current market state dict against a persisted prior state.
+
+    Saves the current state to disk so subsequent calls can detect changes.
+    """
+    import json
+    import os
+    from datetime import datetime, timezone
+
+    _PRIOR_STATE_FILE = os.path.join(
+        os.path.dirname(__file__), "..", "data", "cache", "market_state_prior.json"
+    )
+    _STATE_LABELS = {
+        "regime": "Market Regime",
+        "stress_level": "Volatility Stress",
+        "breadth": "Market Breadth",
+        "credit": "Credit Conditions",
+        "rates": "Rates Regime",
+    }
+
+    prior_state = None
+    saved_date = None
+    try:
+        if os.path.exists(_PRIOR_STATE_FILE):
+            with open(_PRIOR_STATE_FILE) as _f:
+                _saved = json.load(_f)
+                prior_state = _saved.get("state")
+                saved_date = _saved.get("date")
+    except Exception:
+        pass
+
+    # Persist current state for comparison on next run
+    try:
+        os.makedirs(os.path.dirname(_PRIOR_STATE_FILE), exist_ok=True)
+        with open(_PRIOR_STATE_FILE, "w") as _f:
+            json.dump({
+                "state": current_state,
+                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            }, _f)
+    except Exception:
+        pass
+
+    if prior_state is None:
+        return _wrap({
+            "summary": "No prior snapshot available. Will compare on next run.",
+            "changes": [],
+            "drivers": [],
+            "status": "unavailable",
+            "saved_date": None,
+        }, _SCHEMA_STATUS_UNAVAILABLE, "No prior state saved.")
+
+    changes = []
+    for key, label in _STATE_LABELS.items():
+        prev = prior_state.get(key)
+        curr = current_state.get(key)
+        if prev and curr and prev != curr and prev != "—" and curr != "—":
+            changes.append(f"{label} shifted: {prev} → {curr}")
+
+    if not changes:
+        changes = ["No material changes in market conditions since yesterday."]
+
+    return _wrap({
+        "summary": f"{len(changes)} condition(s) noted.",
+        "changes": changes,
+        "drivers": [],
+        "status": "ok",
+        "saved_date": saved_date,
+    })
+
+
+def compute_what_changed(prices_or_snapshot):
     """Return dict describing notable changes since yesterday wrapped in standard schema.
+
+    Accepts either:
+    - A market state snapshot dict with string values {"regime": str, ...} (canonical)
+    - A prices dict {ticker: [float, ...]} (legacy price-based detection)
 
     Data payload schema: {"summary": str, "changes": list, "drivers": list, "status": str}
     """
-    _unavailable_data = {
-        "summary": "No material changes detected.",
-        "changes": [],
-        "drivers": [],  # reserved for future use
-        "status": "unavailable",
-    }
-    if not prices:
-        return _wrap(_unavailable_data, _SCHEMA_STATUS_UNAVAILABLE, "No price data.")
+    if not prices_or_snapshot:
+        return _wrap({
+            "summary": "No data available.",
+            "changes": [],
+            "drivers": [],
+            "status": "unavailable",
+        }, _SCHEMA_STATUS_UNAVAILABLE, "No data.")
+
+    # Detect call type using well-known snapshot keys rather than value type inspection
+    _SNAPSHOT_KEYS = {"regime", "stress_level", "breadth", "credit", "rates"}
+    if _SNAPSHOT_KEYS.intersection(prices_or_snapshot.keys()):
+        # Canonical path: state snapshot dict with named market condition fields
+        return _compute_what_changed_from_state(prices_or_snapshot)
+
+    # Legacy path: prices dict - detect significant 1-day moves
     changes = []
-    for ticker, series in prices.items():
+    for ticker, series in prices_or_snapshot.items():
         if isinstance(series, list) and len(series) >= 2:
             r = _compute_returns_series(series)
             r1d = r.get("1d")
@@ -860,12 +1075,13 @@ def compute_what_changed(prices):
         return _wrap({
             "summary": "No significant moves detected.",
             "changes": [],
-            "drivers": [],  # reserved for future use
+            "drivers": [],
             "status": "ok",
         })
     return _wrap({
         "summary": f"{len(changes)} notable move(s) detected.",
         "changes": changes,
-        "drivers": [],  # reserved for future use
+        "drivers": [],
         "status": "ok",
     })
+
