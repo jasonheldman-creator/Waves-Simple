@@ -76,30 +76,67 @@ import integrity_signals as integ
 # ===========================
 # Canonical Wave Registry
 # ===========================
-WAVE_REGISTRY_PATH = Path("data/wave_registry.json")
+BASE_DIR = Path(__file__).resolve().parent
 CANONICAL_WAVES = []
 EXPERIMENTAL_WAVES = []
-_WAVE_REGISTRY_SOURCE = "data/wave_registry.json"
+_WAVE_REGISTRY_SOURCE = "NOT FOUND"
 _WAVE_REGISTRY_LOADED_AT = None
 
 def _load_wave_registry():
     global CANONICAL_WAVES, EXPERIMENTAL_WAVES, _WAVE_REGISTRY_SOURCE, _WAVE_REGISTRY_LOADED_AT
+    # Search paths in priority order, all resolved relative to the repo root
+    _candidates = [
+        BASE_DIR / "data" / "wave_registry.json",
+        BASE_DIR / "config" / "wave_registry.json",
+    ]
     try:
-        if WAVE_REGISTRY_PATH.exists():
-            with open(WAVE_REGISTRY_PATH, "r") as f:
-                reg = json.load(f)
-            CANONICAL_WAVES = reg.get("core_waves", [])
-            EXPERIMENTAL_WAVES = reg.get("experimental_waves", [])
-            _WAVE_REGISTRY_SOURCE = "data/wave_registry.json"
-            _WAVE_REGISTRY_LOADED_AT = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        else:
-            CANONICAL_WAVES = []
-            _WAVE_REGISTRY_SOURCE = "NOT FOUND"
-            _WAVE_REGISTRY_LOADED_AT = None
-    except Exception:
+        for _path in _candidates:
+            if _path.exists():
+                with open(_path, "r") as f:
+                    reg = json.load(f)
+                # Support both {"core_waves": [...]} and {"waves": [...]} layouts
+                if "core_waves" in reg:
+                    CANONICAL_WAVES = reg.get("core_waves", [])
+                    EXPERIMENTAL_WAVES = reg.get("experimental_waves", [])
+                elif "waves" in reg:
+                    _all = reg.get("waves", [])
+                    CANONICAL_WAVES = [
+                        w.get("display_name") or w.get("wave_id", "")
+                        for w in _all
+                        if w.get("enabled", True) and w.get("tag", "LIVE") != "EXPERIMENTAL"
+                    ]
+                    EXPERIMENTAL_WAVES = [
+                        w.get("display_name") or w.get("wave_id", "")
+                        for w in _all
+                        if w.get("tag") == "EXPERIMENTAL"
+                    ]
+                else:
+                    continue
+                _WAVE_REGISTRY_SOURCE = str(_path.relative_to(BASE_DIR))
+                _WAVE_REGISTRY_LOADED_AT = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                return
+        # Fallback: parse data/wave_registry.csv
+        _csv_path = BASE_DIR / "data" / "wave_registry.csv"
+        if _csv_path.exists():
+            _df = pd.read_csv(_csv_path)
+            _name_col = "wave_name" if "wave_name" in _df.columns else ("wave_id" if "wave_id" in _df.columns else None)
+            if _name_col:
+                if "active" in _df.columns:
+                    CANONICAL_WAVES = _df[_df["active"].astype(str).str.lower().isin(["true", "1", "yes"])][_name_col].dropna().tolist()
+                else:
+                    CANONICAL_WAVES = _df[_name_col].dropna().tolist()
+                _WAVE_REGISTRY_SOURCE = str(_csv_path.relative_to(BASE_DIR))
+                _WAVE_REGISTRY_LOADED_AT = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                return
+        CANONICAL_WAVES = []
+        _WAVE_REGISTRY_SOURCE = "NOT FOUND"
+        _WAVE_REGISTRY_LOADED_AT = None
+        print("[WaveRegistry] wave_registry not found: checked data/wave_registry.json, config/wave_registry.json, data/wave_registry.csv")
+    except Exception as _e:
         CANONICAL_WAVES = []
         _WAVE_REGISTRY_SOURCE = "ERROR"
         _WAVE_REGISTRY_LOADED_AT = None
+        print(f"[WaveRegistry] load error: {_e}")
 
 _load_wave_registry()
 
@@ -10801,10 +10838,19 @@ Security Intelligence is observational only - no recommendations, price targets,
         # ==============================================
         # MARKET SNAPSHOT - MAJOR INDICES
         # ==============================================
+        # ETF proxies used when direct index tickers (^GSPC etc.) are absent from cache
+        _MI_INDEX_ETF_FALLBACKS = {
+            "^GSPC": "SPY",
+            "^IXIC": "QQQ",
+            "^DJI": "DIA",
+            "^RUT": "IWM",
+        }
         mi_index_cards = []
         mi_index_symbols = [("^GSPC", "S&P 500"), ("^IXIC", "Nasdaq Composite"), ("^DJI", "Dow Jones Industrial Average"), ("^RUT", "Russell 2000")]
         for idx_sym, idx_name in mi_index_symbols:
             idx_prices = mi_prices.get(idx_sym)
+            if (idx_prices is None or len(idx_prices) < 2) and idx_sym in _MI_INDEX_ETF_FALLBACKS:
+                idx_prices = mi_prices.get(_MI_INDEX_ETF_FALLBACKS[idx_sym])
             if idx_prices is not None and len(idx_prices) >= 2:
                 idx_current = idx_prices[-1]
                 idx_prev = idx_prices[-2]
@@ -12699,7 +12745,7 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     st.markdown("<div style='margin:12px 0;'></div>", unsafe_allow_html=True)
 
     if _s2_signals:
-        for _s2_s in _s2_signals:
+        for _s2_idx, _s2_s in enumerate(_s2_signals):
             _s2_s_status = _s2_s["status"]
             _s2_s_color = "#FFA726" if _s2_s_status == "Review Eligible" else "#5C6BC0" if _s2_s_status == "Monitoring" else "#48BB78"
             _s2_s_icon = "▲" if _s2_s_status == "Review Eligible" else "◐" if _s2_s_status == "Monitoring" else "●"
@@ -12723,7 +12769,7 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                 _s2_nav_wave = _s2_s.get("scope", "Portfolio")
                 if _s2_s.get("scope") == "Wave":
                     _s2_nav_wave = _s2_s["title"].split(" - ")[0] if " - " in _s2_s["title"] else _s2_s.get("scope", "Portfolio")
-                _s2_nav_key = f"s2_gov_ctx_{_s2_s['title'][:20].replace(' ', '_').replace('-','').replace('.','')}"
+                _s2_nav_key = f"s2_gov_ctx_{_s2_idx}_{_s2_s['title'][:20].replace(' ', '_').replace('-','').replace('.','')}"
                 if st.button("View Governance Context \u2192", key=_s2_nav_key, help="Navigate to Decision Intelligence for governance context on this signal"):
                     st.session_state["signal_route_source_tab"] = "adaptive_intelligence"
                     st.session_state["council_nav_wave"] = _s2_nav_wave
