@@ -75,6 +75,10 @@ from datetime import datetime, timedelta, timezone
 import adaptive_learning as al
 import integrity_signals as integ
 
+# ── RUNTIME STABILIZATION BOOTSTRAP ──
+from helpers.runtime_bootstrap import initialize_intelligence_state, safe_df
+initialize_intelligence_state()
+
 # ===========================
 # Canonical Wave Registry
 # ===========================
@@ -1372,11 +1376,11 @@ else:
 # ===========================
 if attrib_df is not None and not attrib_df.empty and "intelligence_initialized" not in st.session_state:
     try:
-        st.session_state["alpha_quality_df"] = al.alpha_quality_df(attrib_df)
-        st.session_state["capital_pressure_df"] = al.capital_pressure_df(attrib_df)
-        st.session_state["rotation_velocity_df"] = al.rotation_velocity_df(attrib_df)
-        st.session_state["alpha_ignition_df"] = al.alpha_ignition_df(attrib_df)
-        st.session_state["cross_horizon_df"] = (
+        st.session_state["alpha_quality_df"] = safe_df(al.alpha_quality_df(attrib_df))
+        st.session_state["capital_pressure_df"] = safe_df(al.capital_pressure_df(attrib_df))
+        st.session_state["rotation_velocity_df"] = safe_df(al.rotation_velocity_df(attrib_df))
+        st.session_state["alpha_ignition_df"] = safe_df(al.alpha_ignition_df(attrib_df))
+        st.session_state["cross_horizon_df"] = safe_df(
             attrib_df.groupby(["wave", "horizon"])
             .mean(numeric_only=True)
             .reset_index()
@@ -11917,10 +11921,14 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         attrib_df = load_attribution_df()
 
-        st.session_state["alpha_quality_df"] = al.alpha_quality_df(attrib_df)
-        st.session_state["capital_pressure_df"] = al.capital_pressure_df(attrib_df)
-        st.session_state["rotation_velocity_df"] = al.rotation_velocity_df(attrib_df)
-        st.session_state["alpha_ignition_df"] = al.alpha_ignition_df(attrib_df)
+        try:
+            st.session_state["alpha_quality_df"] = safe_df(al.alpha_quality_df(attrib_df))
+            st.session_state["capital_pressure_df"] = safe_df(al.capital_pressure_df(attrib_df))
+            st.session_state["rotation_velocity_df"] = safe_df(al.rotation_velocity_df(attrib_df))
+            st.session_state["alpha_ignition_df"] = safe_df(al.alpha_ignition_df(attrib_df))
+        except Exception as e:
+            st.error(f"Intelligence pipeline error: {e}")
+            raise
 
         _ai_waves = []
         if attrib_df is not None and not attrib_df.empty and "wave" in attrib_df.columns:
@@ -12720,7 +12728,12 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     decision_memory_df = al.build_decision_memory(gov_decisions)
     cross_horizon_data = al.compute_cross_horizon_stability(snapshot_df, attrib_df)
 
-    st.session_state["cross_horizon_df"] = attrib_df.groupby(["wave", "horizon"]).mean(numeric_only=True).reset_index() if attrib_df is not None and not attrib_df.empty else pd.DataFrame()
+    _cross_horizon_raw = (
+        attrib_df.groupby(["wave", "horizon"]).mean(numeric_only=True).reset_index()
+        if attrib_df is not None and not attrib_df.empty
+        else pd.DataFrame()
+    )
+    st.session_state["cross_horizon_df"] = safe_df(_cross_horizon_raw)
     st.session_state["decision_memory_df"] = st.session_state.get("alpha_quality_df")
 
 
