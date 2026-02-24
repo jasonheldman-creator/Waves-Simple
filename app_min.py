@@ -24,6 +24,25 @@
 # ============================================================
 
 import streamlit as st
+import pandas as pd
+
+def _bootstrap_runtime():
+    required_state = [
+        "alpha_attrib_df",
+        "alpha_quality_df",
+        "capital_pressure_df",
+        "rotation_velocity_df",
+        "alpha_ignition_df",
+        "adaptive_learning_df",
+        "decision_context_df"
+    ]
+
+    for key in required_state:
+        if key not in st.session_state:
+            st.session_state[key] = None
+
+_bootstrap_runtime()
+
 import os
 
 # Temporary cache invalidation for diagnostic purposes (run once per session)
@@ -1374,21 +1393,50 @@ else:
 # ===========================
 # Intelligence Layer Pre-initialization
 # ===========================
-if attrib_df is not None and not attrib_df.empty and "intelligence_initialized" not in st.session_state:
-    try:
-        st.session_state["alpha_quality_df"] = safe_df(al.alpha_quality_df(attrib_df))
-        st.session_state["capital_pressure_df"] = safe_df(al.capital_pressure_df(attrib_df))
-        st.session_state["rotation_velocity_df"] = safe_df(al.rotation_velocity_df(attrib_df))
-        st.session_state["alpha_ignition_df"] = safe_df(al.alpha_ignition_df(attrib_df))
-        st.session_state["cross_horizon_df"] = safe_df(
-            attrib_df.groupby(["wave", "horizon"])
-            .mean(numeric_only=True)
-            .reset_index()
-        )
-    except Exception as _init_err:
-        print(f"[ALPHA-INTELLIGENCE][ERROR] Intelligence pre-initialization failed: {_init_err}")
-    st.session_state["intelligence_initialized"] = True
-    st.experimental_rerun()
+def initialize_alpha_pipeline():
+    """Initialize alpha intelligence session state from attribution data."""
+    if attrib_df is not None and not attrib_df.empty and "intelligence_initialized" not in st.session_state:
+        try:
+            st.session_state["alpha_quality_df"] = safe_df(al.alpha_quality_df(attrib_df))
+            st.session_state["capital_pressure_df"] = safe_df(al.capital_pressure_df(attrib_df))
+            st.session_state["rotation_velocity_df"] = safe_df(al.rotation_velocity_df(attrib_df))
+            st.session_state["alpha_ignition_df"] = safe_df(al.alpha_ignition_df(attrib_df))
+            st.session_state["cross_horizon_df"] = safe_df(
+                attrib_df.groupby(["wave", "horizon"])
+                .mean(numeric_only=True)
+                .reset_index()
+            )
+        except Exception as _init_err:
+            print(f"[ALPHA-INTELLIGENCE][ERROR] Intelligence pre-initialization failed: {_init_err}")
+        st.session_state["intelligence_initialized"] = True
+
+
+def initialize_adaptive_pipeline():
+    """Initialize adaptive learning session state."""
+    if al and "adaptive_learning_initialized" not in st.session_state:
+        try:
+            _adaptive_state = al.load_adaptive_state()
+            if isinstance(_adaptive_state, pd.DataFrame):
+                st.session_state["adaptive_learning_df"] = _adaptive_state
+            else:
+                if st.session_state.get("adaptive_learning_df") is None:
+                    st.session_state["adaptive_learning_df"] = pd.DataFrame()
+        except Exception as _adpt_err:
+            print(f"[ADAPTIVE-INTELLIGENCE][ERROR] Adaptive pipeline initialization failed: {_adpt_err}")
+        st.session_state["adaptive_learning_initialized"] = True
+
+
+def run_console():
+    """Execute intelligence pipeline initialization before UI rendering."""
+    initialize_alpha_pipeline()
+    initialize_adaptive_pipeline()
+
+
+try:
+    run_console()
+except Exception as e:
+    st.error(f"Runtime initialization error: {type(e).__name__}")
+    raise
 
 # ===========================
 # Daily Intelligence Cycle Engine
