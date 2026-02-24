@@ -1267,6 +1267,8 @@ def initialize_live_system():
 
     Expands wave holdings from the canonical weights file, loads cached
     price data, then computes and writes a fresh live_snapshot.csv.
+    Also triggers holdings evaluation and strategy optimization scoring
+    so computed metrics are available on the first page load.
 
     The sequence runs once per Streamlit session and is skipped entirely
     when the application is in sandbox or replay mode (``SANDBOX_MODE``).
@@ -1282,6 +1284,32 @@ def initialize_live_system():
         generate_full_snapshot(holdings, prices_pivot)
         snap_df = pd.read_csv(LIVE_SNAPSHOT_PATH) if LIVE_SNAPSHOT_PATH.exists() else None
         queue_startup_governance_decisions(snap_df)
+
+        # Holdings evaluation pipeline
+        from helpers.holding_intelligence import (
+            evaluate_holdings as _init_eval_holdings,
+            get_holdings_summary as _init_holdings_summary,
+        )
+        _init_holdings = _init_eval_holdings(DATA_PREFIX)
+        st.session_state["holdings_evaluation"] = _init_holdings
+        st.session_state["holdings_summary"] = _init_holdings_summary(_init_holdings)
+        print(f"[LIVE] initialize_live_system: evaluated {len(_init_holdings)} holdings")
+
+        # Strategy optimization scoring pipeline
+        from helpers.strategy_security_optimizer import (
+            evaluate_strategy_fit as _init_eval_fit,
+            evaluate_replacement_candidates as _init_eval_upgrades,
+            generate_strategy_observations as _init_strategy_obs,
+            get_strategy_fit_summary as _init_fit_summary,
+        )
+        _init_fit = _init_eval_fit(_init_holdings)
+        _init_upgrades = _init_eval_upgrades(_init_fit)
+        _init_obs = _init_strategy_obs(_init_fit, _init_upgrades)
+        st.session_state["strategy_fit"] = _init_fit
+        st.session_state["strategy_fit_summary"] = _init_fit_summary(_init_fit)
+        st.session_state["strategy_observations"] = _init_obs
+        print(f"[LIVE] initialize_live_system: strategy fit scored {len(_init_fit)} entries")
+
         st.session_state["live_system_initialized"] = True
         print("[LIVE] initialize_live_system: complete")
     except Exception as e:
