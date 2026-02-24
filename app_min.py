@@ -56,14 +56,14 @@ from helpers.sandbox_guard import is_sandbox, log_event as sandbox_log_event, as
 DATA_PREFIX = "data/demo" if DEMO_DATASET else "data"
 
 def _data_path(relative_path):
-    """Resolve data file path. In demo mode, routes to data/demo/ if file exists there."""
+    """Resolve data file path relative to BASE_DIR. In demo mode, routes to data/demo/ if file exists there."""
     if not DEMO_DATASET:
-        return relative_path
+        return str(BASE_DIR / relative_path)
     if relative_path.startswith("data/"):
         demo_path = relative_path.replace("data/", "data/demo/", 1)
-        if os.path.exists(demo_path):
-            return demo_path
-    return relative_path
+        if (BASE_DIR / demo_path).exists():
+            return str(BASE_DIR / demo_path)
+    return str(BASE_DIR / relative_path)
 
 import pandas as pd
 import numpy as np
@@ -696,7 +696,7 @@ div[data-baseweb="select"]:focus-within > div {
 # ===========================
 # Constants
 # ===========================
-DATA_DIR = Path(DATA_PREFIX)
+DATA_DIR = BASE_DIR / DATA_PREFIX
 LIVE_SNAPSHOT_PATH = DATA_DIR / "live_snapshot.csv"
 ALPHA_ATTRIBUTION_PATH = DATA_DIR / "alpha_attribution_summary.csv"
 
@@ -830,7 +830,25 @@ WAVE_SLEEVE_STRUCTURES = {
 # ===========================
 def load_snapshot():
     if not LIVE_SNAPSHOT_PATH.exists():
-        return None, None, "Live snapshot file not found"
+        # Attempt to generate the live snapshot before failing
+        try:
+            import subprocess
+            gen_script = BASE_DIR / "scripts" / "generate_live_snapshot_csv.py"
+            if gen_script.exists():
+                result = subprocess.run(
+                    ["python", str(gen_script)],
+                    cwd=str(BASE_DIR),
+                    timeout=120,
+                    capture_output=True,
+                )
+                if result.returncode != 0:
+                    print(f"[SNAPSHOT] Generation script exited with code {result.returncode}: {result.stderr.decode(errors='replace')[:500]}")
+        except subprocess.TimeoutExpired:
+            print("[SNAPSHOT] Generation script timed out")
+        except Exception as _gen_err:
+            print(f"[SNAPSHOT] Generation failed: {_gen_err}")
+        if not LIVE_SNAPSHOT_PATH.exists():
+            return None, None, "Live snapshot file not found"
 
     df = pd.read_csv(LIVE_SNAPSHOT_PATH)
     df.columns = [c.strip().lower() for c in df.columns]
@@ -6693,7 +6711,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
     try:
         _fis_signals = []
 
-        _fis_snap_path = Path("data/live_snapshot.csv")
+        _fis_snap_path = BASE_DIR / "data" / "live_snapshot.csv"
         if _fis_snap_path.exists():
             _fis_df = pd.read_csv(_fis_snap_path)
             _fis_weight_col = "Weight" if "Weight" in _fis_df.columns else "current_weight"
@@ -6824,7 +6842,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
         _gmi_fis_count = 0
         _gmi_has_pos_cond = False
         _gmi_has_sec_basket = False
-        _gmi_snap_path = Path("data/live_snapshot.csv")
+        _gmi_snap_path = BASE_DIR / "data" / "live_snapshot.csv"
         if _gmi_snap_path.exists():
             _gmi_df = pd.read_csv(_gmi_snap_path)
             _gmi_wc = "Weight" if "Weight" in _gmi_df.columns else "current_weight"
@@ -6941,7 +6959,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
         _dri_has_pos_cond = False
         _dri_has_sec_basket = False
         _dri_has_regime = False
-        _dri_snap_path = Path("data/live_snapshot.csv")
+        _dri_snap_path = BASE_DIR / "data" / "live_snapshot.csv"
         if _dri_snap_path.exists():
             _dri_df = pd.read_csv(_dri_snap_path)
             _dri_wc = "Weight" if "Weight" in _dri_df.columns else "current_weight"
