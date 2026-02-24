@@ -1,0 +1,551 @@
+[
+  {
+    "timestamp": "2026-02-24T10:37:00.424540",
+    "wave_id": "us_megacap_core_wave",
+    "wave_name": "US MegaCap Core Wave",
+    "failures": [
+      {
+        "ticker_original": "AAPL",
+        "ticker_normalized": "AAPL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AMZN",
+        "ticker_normalized": "AMZN",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BRK-B",
+        "ticker_normalized": "BRK-B",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "GOOGL",
+        "ticker_normalized": "GOOGL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "JPM",
+        "ticker_normalized": "JPM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "META",
+        "ticker_normalized": "META",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MSFT",
+        "ticker_normalized": "MSFT",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "NVDA",
+        "ticker_normalized": "NVDA",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "UNH",
+        "ticker_normalized": "UNH",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "XOM",
+        "ticker_normalized": "XOM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-24T10:37:00.432560",
+    "wave_id": "us_megacap_core_wave",
+    "wave_name": "US MegaCap Core Wave",
+    "failures": [
+      {
+        "ticker_original": "AAPL",
+        "ticker_normalized": "AAPL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AMZN",
+        "ticker_normalized": "AMZN",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BRK-B",
+        "ticker_normalized": "BRK-B",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "GOOGL",
+        "ticker_normalized": "GOOGL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "JPM",
+        "ticker_normalized": "JPM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "META",
+        "ticker_normalized": "META",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MSFT",
+        "ticker_normalized": "MSFT",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "NVDA",
+        "ticker_normalized": "NVDA",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "UNH",
+        "ticker_normalized": "UNH",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "XOM",
+        "ticker_normalized": "XOM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-24T10:37:00.441202",
+    "wave_id": "us_megacap_core_wave",
+    "wave_name": "US MegaCap Core Wave",
+    "failures": [
+      {
+        "ticker_original": "AAPL",
+        "ticker_normalized": "AAPL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "AMZN",
+        "ticker_normalized": "AMZN",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BIL",
+        "ticker_normalized": "BIL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BRK-B",
+        "ticker_normalized": "BRK-B",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "BTC-USD",
+        "ticker_normalized": "BTC-USD",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "GOOGL",
+        "ticker_normalized": "GOOGL",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "HYG",
+        "ticker_normalized": "HYG",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "JPM",
+        "ticker_normalized": "JPM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "LQD",
+        "ticker_normalized": "LQD",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "META",
+        "ticker_normalized": "META",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MSFT",
+        "ticker_normalized": "MSFT",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "MUB",
+        "ticker_normalized": "MUB",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "NVDA",
+        "ticker_normalized": "NVDA",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SGOV",
+        "ticker_normalized": "SGOV",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHM",
+        "ticker_normalized": "SHM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SHY",
+        "ticker_normalized": "SHY",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SPY",
+        "ticker_normalized": "SPY",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "SUB",
+        "ticker_normalized": "SUB",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "UNH",
+        "ticker_normalized": "UNH",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "XOM",
+        "ticker_normalized": "XOM",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^TNX",
+        "ticker_normalized": "^TNX",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      },
+      {
+        "ticker_original": "^VIX",
+        "ticker_normalized": "^VIX",
+        "error_message": "PRICE_BOOK load failed: 'NoneType' object has no attribute 'empty'",
+        "failure_type": "PROVIDER_EMPTY",
+        "suggested_fix": "Verify ticker symbol is valid and not delisted. Check if ticker is available on the data provider.",
+        "is_fatal": true
+      }
+    ]
+  }
+]

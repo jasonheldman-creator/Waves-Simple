@@ -153,77 +153,138 @@ def _compute_wave_metrics(wave_name, wave_weights_map, price_dict):
     return vol_30d, momentum_30d, drawdown_90d, trend_stability
 
 
-def evaluate_holdings(data_prefix="data"):
-    """Return list of holding evaluation dicts with computed metrics."""
-    raw = _load_holdings(data_prefix)
+def _compute_security_metrics(ticker, price_dict):
+    """Compute vol_30d, momentum_30d, drawdown_90d, trend_stability for a single ticker."""
+    dates_prices = price_dict.get(ticker)
+    if not dates_prices:
+        return None, None, None, None
 
-    # Load auxiliary data for metric computation
+    sorted_dates = sorted(dates_prices.keys())
+    if len(sorted_dates) < 2:
+        return None, None, None, None
+
+    recent_dates = sorted_dates[-92:]
+    daily_returns = []
+    for i in range(1, len(recent_dates)):
+        p_prev = dates_prices.get(recent_dates[i - 1])
+        p_curr = dates_prices.get(recent_dates[i])
+        if p_prev and p_curr and p_prev > 0:
+            daily_returns.append((p_curr - p_prev) / p_prev)
+
+    if not daily_returns:
+        return None, None, None, None
+
+    last_30 = daily_returns[-30:] if len(daily_returns) >= 30 else daily_returns
+    last_90 = daily_returns[-90:] if len(daily_returns) >= 90 else daily_returns
+
+    if len(last_30) >= 5:
+        mean_r = sum(last_30) / len(last_30)
+        var_r = sum((r - mean_r) ** 2 for r in last_30) / len(last_30)
+        vol_30d = round(math.sqrt(var_r * 252), 4)
+    else:
+        vol_30d = None
+
+    if last_30:
+        cum = 1.0
+        for r in last_30:
+            cum *= (1 + r)
+        momentum_30d = round(cum - 1.0, 4)
+    else:
+        momentum_30d = None
+
+    if last_90:
+        cum_vals = [1.0]
+        for r in last_90:
+            cum_vals.append(cum_vals[-1] * (1 + r))
+        peak = cum_vals[0]
+        drawdown_90d = 0.0
+        for v in cum_vals:
+            if v > peak:
+                peak = v
+            if peak > 0:
+                dd = (v - peak) / peak
+                if dd < drawdown_90d:
+                    drawdown_90d = dd
+        drawdown_90d = round(drawdown_90d, 4)
+    else:
+        drawdown_90d = None
+
+    if vol_30d is not None and vol_30d > 0 and momentum_30d is not None:
+        trend_stability = round(max(-1.0, min(1.0, momentum_30d / vol_30d)), 4)
+    elif momentum_30d is not None:
+        trend_stability = 1.0 if momentum_30d > 0 else (-1.0 if momentum_30d < 0 else 0.0)
+    else:
+        trend_stability = None
+
+    return vol_30d, momentum_30d, drawdown_90d, trend_stability
+
+
+def evaluate_holdings(data_prefix="data"):
+    """Return list of holding evaluation dicts with computed metrics.
+
+    Holdings are sourced canonically from wave_weights.csv (per-security, per-wave).
+    Metrics (vol, momentum, drawdown, trend) are computed from prices.csv.
+    Missing data logs a warning rather than silently defaulting.
+    """
+    # Canonical source: wave_weights.csv (not live_snapshot.csv)
     wave_weights_map = _load_wave_weights(data_prefix)
+    if not wave_weights_map:
+        import warnings
+        warnings.warn("[HI] wave_weights.csv empty or missing — holdings unavailable")
+        return []
+
     all_tickers = {t for tickers in wave_weights_map.values() for t, _ in tickers}
-    price_dict = _load_prices(data_prefix, all_tickers) if wave_weights_map else {}
+    price_dict = _load_prices(data_prefix, all_tickers)
 
     results = []
-    for row in raw:
-        # Support both per-security CSV (ticker/wave columns) and wave-level CSV (wave_name
-        # column). When only wave_name is present both fields use it so the UI Security and
-        # Wave columns both display the wave name for wave-level evaluations.
-        ticker = (row.get("ticker") or row.get("Ticker") or row.get("wave_name", "")).strip()
-        wave = (row.get("wave") or row.get("Wave") or row.get("wave_name", "")).strip()
-        try:
-            weight = float(row.get("weight") or row.get("Weight") or 0)
-        except (ValueError, TypeError):
-            weight = 0.0
-        try:
-            target = float(row.get("target_weight") or row.get("Target_Weight") or weight)
-        except (ValueError, TypeError):
-            target = weight
-        drift = round(abs(weight - target), 4)
+    for wave_name, tickers_weights in sorted(wave_weights_map.items()):
+        for ticker, weight in tickers_weights:
+            vol_30d, momentum_30d, drawdown_90d, trend_stability = _compute_security_metrics(
+                ticker, price_dict
+            )
+            if vol_30d is None and momentum_30d is None:
+                import warnings
+                warnings.warn(f"[HI] No price data for {ticker} in {wave_name}")
+                status = "Data Pending"
+            elif (drawdown_90d is not None and drawdown_90d < -0.15) or (
+                momentum_30d is not None and momentum_30d < -0.12
+            ):
+                status = "Review Candidate"
+            elif (drawdown_90d is not None and drawdown_90d < -0.08) or (
+                momentum_30d is not None and momentum_30d < -0.05
+            ):
+                status = "Monitoring"
+            else:
+                status = "Stable"
 
-        # Compute metrics from price history; fall back to snapshot return fields
-        vol_30d, momentum_30d, drawdown_90d, trend_stability = _compute_wave_metrics(
-            wave, wave_weights_map, price_dict
-        )
-        if momentum_30d is None and row.get("return_30d"):
-            try:
-                momentum_30d = round(float(row["return_30d"]), 4)
-            except (ValueError, TypeError):
-                pass
+            if momentum_30d is not None and momentum_30d > 0.05:
+                observation = f"Positive momentum ({momentum_30d * 100:.1f}% / 30d)."
+            elif momentum_30d is not None and momentum_30d < -0.05:
+                observation = f"Negative momentum ({momentum_30d * 100:.1f}% / 30d)."
+            elif drawdown_90d is not None and drawdown_90d < -0.10:
+                observation = f"Drawdown {drawdown_90d * 100:.1f}% over 90d."
+            else:
+                observation = "Within acceptable performance range."
 
-        # Status classification
-        if not ticker:
-            status = "Data Pending"
-        elif drift > 12.0:
-            status = "Review Candidate"
-        elif drift > 7.0:
-            status = "Monitoring"
-        else:
-            status = "Stable"
+            results.append({
+                "ticker": ticker,
+                "wave": wave_name,
+                "weight": weight,
+                "target_weight": weight,
+                "drift": 0.0,
+                "drift_direction": "Flat",
+                "review_cycles": 0,
+                "status": status,
+                "observation": observation,
+                "vol_30d": vol_30d,
+                "momentum_30d": momentum_30d,
+                "drawdown_90d": drawdown_90d,
+                "trend_stability": trend_stability,
+            })
 
-        # Observation text
-        if drift > 5.0:
-            observation = f"Drift of {drift:.1f}% detected ({('Over' if weight > target else 'Under')})."
-        elif momentum_30d is not None and momentum_30d > 0.05:
-            observation = f"Positive momentum ({momentum_30d * 100:.1f}% / 30d)."
-        elif momentum_30d is not None and momentum_30d < -0.05:
-            observation = f"Negative momentum ({momentum_30d * 100:.1f}% / 30d)."
-        else:
-            observation = "Within acceptable drift thresholds."
-
-        results.append({
-            "ticker": ticker,
-            "wave": wave,
-            "weight": weight,
-            "target_weight": target,
-            "drift": drift,
-            "drift_direction": "Over" if weight > target else ("Under" if weight < target else "Flat"),
-            "review_cycles": 0,
-            "status": status,
-            "observation": observation,
-            "vol_30d": vol_30d,
-            "momentum_30d": momentum_30d,
-            "drawdown_90d": drawdown_90d,
-            "trend_stability": trend_stability,
-        })
+    if not results:
+        import warnings
+        warnings.warn("[HI] No holdings evaluated — check wave_weights.csv and prices.csv")
     return results
 
 
