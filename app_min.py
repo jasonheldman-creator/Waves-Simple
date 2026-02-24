@@ -7393,6 +7393,20 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
         if _ghd_dl_path.exists():
             with open(_ghd_dl_path, "r") as f:
                 _ghd_decs = json.load(f)
+        # Canonical source: always merge governance_decisions.json records
+        _ghd_gov_path = Path("data/governance_decisions.json")
+        if _ghd_gov_path.exists():
+            try:
+                with open(_ghd_gov_path, "r") as _ghd_gf:
+                    _ghd_gov_recs = json.load(_ghd_gf)
+                _ghd_existing_ids = {d.get("id", d.get("decision_id", "")) for d in _ghd_decs}
+                for _ghd_gr in _ghd_gov_recs:
+                    _ghd_gr_id = _ghd_gr.get("id", _ghd_gr.get("decision_id", ""))
+                    if _ghd_gr_id not in _ghd_existing_ids:
+                        _ghd_decs.append(_ghd_gr)
+                        _ghd_existing_ids.add(_ghd_gr_id)
+            except Exception:
+                pass
 
         _ghd_lifecycle_status = "Operational"
         _ghd_lifecycle_color = "#48BB78"
@@ -7433,7 +7447,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
         _ghd_monitored = 0
 
         for _ghd_d in _ghd_decs:
-            _ghd_ts = _ghd_d.get("decision_created_timestamp") or _ghd_d.get("creation_timestamp") or _ghd_d.get("timestamp", "")
+            _ghd_ts = _ghd_d.get("decision_created_timestamp") or _ghd_d.get("creation_timestamp") or _ghd_d.get("created") or _ghd_d.get("timestamp", "")
             if _ghd_ts:
                 try:
                     _ghd_dt = datetime.fromisoformat(str(_ghd_ts).replace("Z", "+00:00").split("+")[0])
@@ -7442,9 +7456,9 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
                 except Exception:
                     pass
             _ghd_st = (_ghd_d.get("status", "") or "").lower()
-            if _ghd_st in ("pending", "pending_overnight", "under_deliberation", "awaiting_approval"):
+            if _ghd_st in ("pending", "pending_overnight", "under_deliberation", "awaiting_approval", "awaiting approval", "awaiting governance review"):
                 _ghd_pending += 1
-            elif _ghd_st in ("approved", "activated", "completed"):
+            elif _ghd_st in ("approved", "ic approved", "activated", "completed"):
                 _ghd_approved += 1
 
         _ghd_si_path = Path("data/strategy_instructions.json")
@@ -7467,9 +7481,12 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
         _ghd_policy_hash = ""
         _ghd_active_on_version = 0
         _ghd_hash_verified = True
+        _ghd_policy_initialized = False
         if "governance_policy" in st.session_state:
             _ghd_gp = st.session_state["governance_policy"]
-            _ghd_policy_version = _ghd_gp.get("policy_version", "1.0.0")
+            _ghd_raw_version = _ghd_gp.get("policy_version", "")
+            _ghd_policy_initialized = bool(_ghd_raw_version and _ghd_raw_version not in ("0.0.0", "Unknown", ""))
+            _ghd_policy_version = _ghd_raw_version if _ghd_policy_initialized else ""
             try:
                 from helpers.policy_hash import compute_policy_hash
                 _ghd_policy_hash = compute_policy_hash(_ghd_gp)
@@ -7477,7 +7494,9 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
                 _ghd_policy_hash = ""
         else:
             if _ghd_decs:
-                _ghd_policy_version = _ghd_decs[0].get("policy_version", "1.0.0")
+                _ghd_raw_version = _ghd_decs[0].get("policy_version", "")
+                _ghd_policy_initialized = bool(_ghd_raw_version and _ghd_raw_version not in ("0.0.0", ""))
+                _ghd_policy_version = _ghd_raw_version if _ghd_policy_initialized else ""
                 _ghd_policy_hash = _ghd_decs[0].get("policy_hash", "")
 
         for _ghd_d in _ghd_decs:
@@ -7493,9 +7512,13 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
         _ghd_hash_status = "Verified" if _ghd_policy_hash else "Unavailable"
         _ghd_hash_color = "#48BB78" if _ghd_policy_hash else "#6B7280"
         _ghd_hash_short = _ghd_policy_hash[:16] + "..." if len(_ghd_policy_hash) > 16 else (_ghd_policy_hash or "\u2014")
+        _ghd_policy_version_display = f"v{_ghd_policy_version}" if _ghd_policy_initialized else "Not initialized"
+        _ghd_policy_version_color = "#E5E7EB" if _ghd_policy_initialized else "#6B7280"
 
         if len(_ghd_decs) == 0 and _ghd_pending == 0:
-            _ghd_reliability = "Governance systems are in standby. No active decisions or pending proposals in the pipeline."
+            _ghd_reliability = "Governance systems are in standby. No active decisions or pending proposals recorded."
+        elif _ghd_pending > 0:
+            _ghd_reliability = f"Governance pipeline active: {_ghd_pending} decision{'s' if _ghd_pending != 1 else ''} awaiting governance review."
         elif _ghd_audit_fail:
             _ghd_reliability = "Governance systems operating with partial audit coverage. Integrity verification is ongoing."
         else:
@@ -7551,7 +7574,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
 <div>
 <div style="color:#6B7280;font-size:9px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;margin-bottom:3px;">Policy Version</div>
-<div style="color:#E5E7EB;font-size:12px;font-weight:600;">v{_ghd_policy_version}</div>
+<div style="color:{_ghd_policy_version_color};font-size:12px;font-weight:600;">{_ghd_policy_version_display}</div>
 </div>
 <div>
 <div style="color:#6B7280;font-size:9px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;margin-bottom:3px;">Active Decisions on Version</div>
@@ -8450,6 +8473,18 @@ System Mode: Advisory (Non-Executing)<br/>
             _es_decisions = _es_json.load(_es_f)
     except Exception:
         pass
+    # Canonical source: merge governance_decisions.json so counts are consistent with top sections
+    try:
+        with open("data/governance_decisions.json", "r") as _es_gov_f:
+            _es_gov_recs = _es_json.load(_es_gov_f)
+        _es_existing_ids = {d.get("id", d.get("decision_id", "")) for d in _es_decisions}
+        for _es_gr in _es_gov_recs:
+            _es_gr_id = _es_gr.get("id", _es_gr.get("decision_id", ""))
+            if _es_gr_id not in _es_existing_ids:
+                _es_decisions.append(_es_gr)
+                _es_existing_ids.add(_es_gr_id)
+    except Exception:
+        pass
     try:
         with open("data/strategy_instructions.json", "r") as _es_f:
             _es_instructions = _es_json.load(_es_f)
@@ -8546,6 +8581,18 @@ System Mode: Advisory (Non-Executing)<br/>
     st.markdown('<div style="border-bottom:1px solid #1E2530;margin:20px 0 24px 0;"></div>', unsafe_allow_html=True)
     st.markdown('<div style="color:#6B7280;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:16px;">Executive Service - Pending Decisions</div>', unsafe_allow_html=True)
 
+    # Consistency check: all governance counts must derive from the same canonical source
+    try:
+        _es_canonical_pending = _esp_pending
+    except NameError:
+        _es_canonical_pending = 0
+    if _es_canonical_pending != _es_count_pd and _es_canonical_pending > 0:
+        st.error(
+            f"Wave Command Center inconsistency detected: Pending count mismatch "
+            f"(top={_es_canonical_pending}, bottom={_es_count_pd}). "
+            "All sections should reflect the same canonical governance pipeline."
+        )
+
     _es_m_cols = st.columns(4)
     _es_metric_style = 'background:#0D1117;border:1px solid #1E2530;border-radius:6px;padding:14px;text-align:center;'
     with _es_m_cols[0]:
@@ -8558,9 +8605,9 @@ System Mode: Advisory (Non-Executing)<br/>
         st.markdown(f'<div style="{_es_metric_style}"><div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;">Near Expiration (\u226424h)</div><div style="color:#C8CCD4;font-size:22px;font-weight:600;font-family:\'SF Mono\',monospace;margin-top:4px;">{_es_count_ne}</div></div>', unsafe_allow_html=True)
 
     def _es_compute_window(item):
-        _exp = item.get("expires_at") or item.get("expiration_timestamp", "")
+        _exp = item.get("expires_at") or item.get("expiration_timestamp") or item.get("approval_deadline", "")
         if not _exp:
-            return 999999, ""
+            return 999999, "No expiry (timer not configured)"
         try:
             _exp_dt = datetime.fromisoformat(_exp.replace("Z", "+00:00").split("+")[0])
             _rem_s = (_exp_dt - _es_now).total_seconds()
@@ -8571,10 +8618,10 @@ System Mode: Advisory (Non-Executing)<br/>
             else:
                 return 0, "Expired"
         except Exception:
-            return 999999, ""
+            return 999999, "No expiry (timer not configured)"
 
     def _es_compute_waiting(item):
-        _cr = item.get("timestamp") or item.get("creation_timestamp", "")
+        _cr = item.get("timestamp") or item.get("creation_timestamp") or item.get("created", "")
         if not _cr:
             return ""
         try:
@@ -8628,6 +8675,15 @@ System Mode: Advisory (Non-Executing)<br/>
     _es_all_pending.sort(key=lambda x: (_es_priority_order.get(x["Priority"], 3), x.get("_sort_rem_s", 999999)))
     for _es_row in _es_all_pending:
         _es_row.pop("_sort_rem_s", None)
+
+    # Timer warning: count items missing approval_deadline / expires_at
+    _es_timers_missing = sum(
+        1 for r in _es_all_pending
+        if r.get("Approval Window Remaining", "") == "No expiry (timer not configured)"
+    )
+    if _es_timers_missing > 0:
+        st.warning(f"Timers missing for {_es_timers_missing} item{'s' if _es_timers_missing != 1 else ''}. "
+                   "Approval deadlines are not configured for these governance decisions.")
 
     if _es_all_pending:
         st.dataframe(pd.DataFrame(_es_all_pending), width="stretch", hide_index=True)

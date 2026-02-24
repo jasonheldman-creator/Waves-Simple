@@ -89,6 +89,51 @@ def load_governance_decisions():
     return normalized
 
 
+def load_governance_decisions_df():
+    """Return canonical governance decisions as a normalized DataFrame.
+
+    Loads from ``data/governance_decisions.json`` (preferred) or
+    ``data/decision_log.json`` (fallback).  Normalizes field names so that
+    downstream consumers always see the same schema:
+
+        decision_id, wave, decision_type, status, created_at,
+        approval_deadline, initiation_context, proposed_governance_action
+
+    Returns a non-empty DataFrame on success.  Returns None when no data
+    file can be read (caller should surface an error via ``st.error``).
+    """
+    raw = load_governance_decisions()
+    if raw is None:
+        return None
+
+    rows = []
+    for d in raw:
+        ctx = d.get("context_snapshot", {}) or {}
+        ctx_action = ctx.get("action", "") if isinstance(ctx, dict) else ""
+        rows.append({
+            "decision_id": d.get("decision_id") or d.get("id", ""),
+            "wave": d.get("wave", "Portfolio"),
+            "decision_type": d.get("decision_type", "system_generated"),
+            "status": d.get("status", ""),
+            "created_at": d.get("created_at") or d.get("created") or d.get("decision_created_timestamp") or d.get("creation_timestamp", ""),
+            "approval_deadline": d.get("approval_deadline") or d.get("expires_at", ""),
+            "initiation_context": d.get("initiation_context") or ctx_action,
+            "proposed_governance_action": d.get("proposed_governance_action") or ctx_action,
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=[
+            "decision_id", "wave", "decision_type", "status",
+            "created_at", "approval_deadline", "initiation_context",
+            "proposed_governance_action",
+        ])
+
+    df = pd.DataFrame(rows)
+    # Deduplicate by decision_id (keep first occurrence)
+    df = df.drop_duplicates(subset=["decision_id"], keep="first")
+    return df
+
+
 def get_canonical_wave_names(snapshot_df):
     if snapshot_df is None or snapshot_df.empty:
         return []
