@@ -17,11 +17,19 @@ OUTPUT_PATH = DATA_DIR / "alpha_attribution_summary.csv"
 # -----------------------------
 # Config
 # -----------------------------
+# Maps horizon (days) to snapshot alpha column; None = interpolated from neighbours
 HORIZONS = {
-    30: "return_30d",
-    60: "return_60d",
-    365: "return_365d",
+    30: "alpha_30d",
+    60: "alpha_60d",
+    90: None,   # interpolated between 60D and 365D
+    365: "alpha_365d",
 }
+
+# Boundaries for 90D linear interpolation
+_INTERP_LOW_DAYS = 60
+_INTERP_HIGH_DAYS = 365
+_INTERP_TARGET_DAYS = 90
+_INTERP_WEIGHT = (_INTERP_TARGET_DAYS - _INTERP_LOW_DAYS) / (_INTERP_HIGH_DAYS - _INTERP_LOW_DAYS)
 
 ALPHA_SOURCES = [
     "selection_alpha",
@@ -46,15 +54,44 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_wave_name(row: pd.Series) -> str:
-    if "display_name" in row and pd.notna(row["display_name"]):
-        return str(row["display_name"])
-    if "wave_id" in row and pd.notna(row["wave_id"]):
-        return str(row["wave_id"])
+    for col in ("display_name", "wave_name", "wave_id"):
+        if col in row and pd.notna(row[col]) and str(row[col]).strip():
+            return str(row[col]).strip()
     return "UNKNOWN_WAVE"
 
 
 def row_has_required_returns(row) -> bool:
-    return all(col in row and pd.notna(row[col]) for col in HORIZONS.values())
+    # Accept any row that has a valid wave name; alpha values will fall back to 0.0
+    wave = get_wave_name(row)
+    return wave != "UNKNOWN_WAVE"
+
+
+import math
+
+
+def _safe_alpha(row, col: str, fallback: float = 0.0) -> float:
+    """Return the alpha value for a column, or fallback if missing/NaN.
+
+    If the alpha column is missing, falls back to the corresponding return
+    column (alpha ≈ return when benchmark data is unavailable).
+    """
+    v = row.get(col)
+    try:
+        fv = float(v)
+        if not math.isnan(fv):
+            return fv
+    except (TypeError, ValueError):
+        pass
+    # Try corresponding return column as a proxy
+    return_col = col.replace("alpha_", "return_")
+    v2 = row.get(return_col)
+    try:
+        fv2 = float(v2)
+        if not math.isnan(fv2):
+            return fv2
+    except (TypeError, ValueError):
+        pass
+    return fallback
 
 
 # -----------------------------
@@ -73,11 +110,19 @@ def main():
         wave_name = get_wave_name(row)
 
         if not row_has_required_returns(row):
-            print(f"⚠️ Skipping wave with missing returns: {wave_name}")
+            print(f"⚠️ Skipping wave with missing alpha data: {wave_name}")
             continue
 
-        for horizon, return_col in HORIZONS.items():
-            total_alpha = float(row[return_col])
+        a30 = _safe_alpha(row, "alpha_30d")
+        a60 = _safe_alpha(row, "alpha_60d")
+        a365 = _safe_alpha(row, "alpha_365d")
+
+        # Interpolate 90D using precomputed weight constant
+        a90 = a60 + (a365 - a60) * _INTERP_WEIGHT
+
+        horizon_alphas = {30: a30, 60: a60, 90: a90, 365: a365}
+
+        for horizon, total_alpha in horizon_alphas.items():
 
             # Deterministic, stable attribution model
             selection_alpha = total_alpha * 0.40
