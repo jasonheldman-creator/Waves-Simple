@@ -3650,7 +3650,6 @@ def compute_alpha_attribution_global(sdf, adf, wave_filter=None):
         for dk in _drv:
             _drv_90[dk] = _drv_30[dk] + (_drv[dk] - _drv_30[dk]) * _interp_w
 
-    _dl_path = Path("data/decision_log.json")
     _hda_aligned = 0
     _hda_mixed = 0
     _hda_external = 0
@@ -3658,17 +3657,16 @@ def compute_alpha_attribution_global(sdf, adf, wave_filter=None):
     _hda_positive_ct = 0
     _hda_negative_ct = 0
     _hda_neutral_ct = 0
-    if _dl_path.exists():
-        try:
-            with open(_dl_path, "r") as f:
-                _decs = json.load(f)
-            for _d in _decs:
-                if wave_filter and _d.get("wave", "") != wave_filter:
-                    continue
-                _o30 = _d.get("outcome_30d", "")
-                _regime = _d.get("regime_at_decision", "Neutral")
-                if _o30 == "Pending" or not _o30:
-                    continue
+
+    def _ingest_decision_list(decisions):
+        nonlocal _hda_aligned, _hda_mixed, _hda_external, _hda_total
+        nonlocal _hda_positive_ct, _hda_negative_ct, _hda_neutral_ct
+        for _d in decisions:
+            if wave_filter and _d.get("wave", "") != wave_filter:
+                continue
+            _o30 = _d.get("outcome_30d", "")
+            _regime = _d.get("regime_at_decision", "Neutral")
+            if _o30 and _o30 != "Pending":
                 _hda_total += 1
                 if _o30 in ("Positive", "Aligned"):
                     _hda_aligned += 1
@@ -3685,8 +3683,20 @@ def compute_alpha_attribution_global(sdf, adf, wave_filter=None):
                 elif _o30 == "Mixed":
                     _hda_mixed += 1
                     _hda_neutral_ct += 1
-        except Exception:
-            pass
+            else:
+                # Governance decision exists (pending/awaiting) — counts as a neutral engagement signal
+                _status = _d.get("status", "")
+                if _status and _status not in ("Rejected", "Cancelled"):
+                    _hda_total += 1
+                    _hda_neutral_ct += 1
+
+    for _dl_path in [Path("data/decision_log.json"), Path("data/governance_decisions.json")]:
+        if _dl_path.exists():
+            try:
+                with open(_dl_path, "r") as f:
+                    _ingest_decision_list(json.load(f))
+            except Exception:
+                pass
 
     _total_alpha_365 = _gaa["structural_alpha"] + _gaa["signal_alpha"] + _gaa["external_effects"]
     if _hda_total > 0 and abs(_total_alpha_365) > 1e-8:
