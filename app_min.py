@@ -7891,36 +7891,36 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
 
         for _fl_idx, _fl_item in enumerate(_fl_sorted):
             _fl_status_colors = {"Escalated": "#EF4444", "Expiring Soon": "#F59E0B", "Under Deliberation": "#A78BFA", "Overnight Queue": "#9CA3AF", "Awaiting Governance Review": "#60A5FA"}
-            _fl_s_color = _fl_status_colors.get(_fl_item["status"], "#60A5FA")
+            _fl_s_color = _fl_status_colors.get(_fl_item.get("status", ""), "#60A5FA")
             _fl_s_bg = f"rgba({int(_fl_s_color[1:3],16)},{int(_fl_s_color[3:5],16)},{int(_fl_s_color[5:7],16)},0.04)"
             _fl_type_colors = {"Rebalance": "#60A5FA", "Overlay Adjustment": "#F59E0B", "Exposure Change": "#48BB78", "Regime Shift": "#EF4444", "Parameter Trigger": "#9EA3AE", "Position Addition": "#48BB78", "Position Elimination": "#EF4444", "Position Increase": "#60A5FA", "Position Decrease": "#F59E0B", "Basket Change": "#A78BFA"}
-            _fl_type_color = _fl_type_colors.get(_fl_item["type"], "#C0C4CC")
+            _fl_type_color = _fl_type_colors.get(_fl_item.get("type", ""), "#C0C4CC")
             _fl_item_id = _fl_item.get("id", f"fl_{_fl_idx}")
-            _fl_is_overnight = _fl_item["status"] == "Overnight Queue"
-            _fl_is_delib = _fl_item["status"] == "Under Deliberation"
+            _fl_is_overnight = _fl_item.get("status") == "Overnight Queue"
+            _fl_is_delib = _fl_item.get("status") == "Under Deliberation"
 
-            _fl_expander_label = f"{_fl_item['wave']} - {_fl_item['type']} · {_fl_item['status']}"
+            _fl_expander_label = f"{_fl_item.get('wave', 'Unknown')} - {_fl_item.get('type', 'Governance Review')} · {_fl_item.get('status', '')}"
             if _fl_item.get("time_remaining") and _fl_item["time_remaining"] not in ("Overnight", "No expiry", "Ongoing review \u2014 awaiting human decision", "Unknown", "\u2014", ""):
                 _fl_expander_label += f" · {_fl_item['time_remaining']}"
 
-            with st.expander(_fl_expander_label, expanded=(_fl_item["status"] == "Escalated")):
+            with st.expander(_fl_expander_label, expanded=(_fl_item.get("status") == "Escalated")):
                 _fl_ext_count = len(_fl_item.get("extension_history", []))
                 _fl_ext_badge = f'<span style="color:#A78BFA;font-size:8px;font-weight:500;background:rgba(167,139,250,0.1);padding:1px 6px;border-radius:3px;margin-left:6px;">Extended x{_fl_ext_count}</span>' if _fl_ext_count > 0 else ""
                 _fl_delib_badge = '<span style="color:#A78BFA;font-size:8px;font-weight:500;background:rgba(167,139,250,0.1);padding:1px 6px;border-radius:3px;margin-left:6px;">Under Deliberation</span>' if _fl_is_delib else ""
                 _fl_overnight_badge = '<span style="color:#9CA3AF;font-size:8px;font-weight:500;background:rgba(156,163,175,0.1);padding:1px 6px;border-radius:3px;margin-left:6px;">Overnight Queue</span>' if _fl_is_overnight else ""
 
-                _fl_wave = _fl_item["wave"]
-                _fl_type = _fl_item["type"]
-                _fl_status = _fl_item["status"]
-                _fl_wc = _fl_item["window_color"]
-                _fl_wl = _fl_item["window_label"]
-                _fl_src = _fl_item["source"]
-                _fl_ctx = _fl_item["context"]
-                _fl_chg = _fl_item["change"]
-                _fl_imp = _fl_item["impact"]
-                _fl_tc = _fl_item["time_color"]
-                _fl_tr = _fl_item["time_remaining"]
-                _fl_tp = _fl_item["time_pct"]
+                _fl_wave = _fl_item.get("wave", "Unknown")
+                _fl_type = _fl_item.get("type", "Governance Review")
+                _fl_status = _fl_item.get("status", "Awaiting Governance Review")
+                _fl_wc = _fl_item.get("window_color", "#60A5FA")
+                _fl_wl = _fl_item.get("window_label", "")
+                _fl_src = _fl_item.get("source", "System")
+                _fl_ctx = _fl_item.get("context", "")
+                _fl_chg = _fl_item.get("change", "")
+                _fl_imp = _fl_item.get("impact", "")
+                _fl_tc = _fl_item.get("time_color", "#60A5FA")
+                _fl_tr = _fl_item.get("time_remaining", "")
+                _fl_tp = _fl_item.get("time_pct", 0)
 
                 _fl_wl_span = f'<span style="color:{_fl_wc};font-size:9px;font-weight:500;background:rgba(255,255,255,0.04);padding:2px 6px;border-radius:3px;">{_fl_wl}</span>' if _fl_wl else ""
                 _fl_ctx_div = f'<div style="color:#9EA3AE;font-size:11px;margin-top:8px;line-height:1.5;">{_fl_ctx}</div>' if _fl_ctx else ""
@@ -7957,7 +7957,7 @@ with tabs[TAB_INDEX['Executive Snapshot']]:
                 if _fl_is_overnight:
                     st.markdown(f'<div style="color:#9CA3AF;font-size:10px;padding:6px 0;">This instruction is in the overnight queue. It will activate at 8:00 AM ET with an approval window. No live execution overnight.</div>', unsafe_allow_html=True)
                 if st.button("Open Decision \u2192", key=f"fl_open_decision_{_fl_item_id}_{_fl_idx}", help="Navigate to Decision Review & Implementation for governance actions"):
-                    st.session_state["council_nav_wave"] = _fl_item["wave"]
+                    st.session_state["council_nav_wave"] = _fl_item.get("wave", "")
                     st.session_state["council_nav_source"] = "fast_lane"
                     st.session_state["signal_route_source_tab"] = "executive_snapshot"
                     st.session_state["signal_route_pending"] = True
