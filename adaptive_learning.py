@@ -44,6 +44,7 @@ def load_governance_decisions(path=None):
                 "outcome_30d": None,
                 "regime_at_decision": d.get("regime_at_decision", "Normal"),
                 "context": ctx.get("action", "") if isinstance(ctx, dict) else "",
+                "snapshot_asof": ctx.get("snapshot_asof", "") if isinstance(ctx, dict) else "",
                 "source": d.get("source", "system"),
             })
         return normalized
@@ -400,6 +401,127 @@ def compute_decision_memory_table(decisions, attrib_df):
             "persistent_detractors": sum(1 for d in recorded if d.get("outcome_30d") == "Negative"),
         },
     }
+
+def build_decision_memory(decisions):
+    """Build a decision memory DataFrame from governance lifecycle decision records.
+
+    Pipeline step: load_governance_decisions() → build_decision_memory() → DataFrame.
+    Adaptive Intelligence consumes governance records only; it never generates decisions.
+
+    Args:
+        decisions: list of decision dicts returned by load_governance_decisions()
+
+    Returns:
+        pd.DataFrame with columns: decision_id, wave, decision_type, created_timestamp,
+        status, lifecycle_stage, outcome_alignment, monitoring_state, horizon_context,
+        regime_context. Returns empty DataFrame (with columns) if decisions is empty.
+    """
+    _cols = [
+        "decision_id", "wave", "decision_type", "created_timestamp",
+        "status", "lifecycle_stage", "outcome_alignment", "monitoring_state",
+        "horizon_context", "regime_context",
+    ]
+    if not decisions:
+        return pd.DataFrame(columns=_cols)
+
+    rows = []
+    for d in decisions:
+        status = d.get("status", "Unknown")
+
+        # Derive lifecycle_stage from status
+        if status in ("Awaiting Approval", "Pending"):
+            lifecycle_stage = "Pre-Approval"
+        elif status in ("Approved", "Active"):
+            lifecycle_stage = "Active"
+        elif status in ("Recorded",):
+            lifecycle_stage = "Recorded"
+        elif status == "Monitoring":
+            lifecycle_stage = "Under Review"
+        elif status in ("Closed", "Resolved"):
+            lifecycle_stage = "Closed"
+        else:
+            lifecycle_stage = status
+
+        # Derive monitoring_state from status
+        if status == "Awaiting Approval":
+            monitoring_state = "Pending"
+        elif status in ("Approved", "Active"):
+            monitoring_state = "Active"
+        elif status == "Monitoring":
+            monitoring_state = "Monitoring"
+        elif status == "Recorded":
+            monitoring_state = "Recorded"
+        else:
+            monitoring_state = "Unknown"
+
+        # outcome_alignment - use existing outcome if available, else "Pending Observation"
+        outcome = d.get("outcome_30d")
+        if outcome and outcome not in ("Pending",):
+            outcome_alignment = str(outcome)
+        else:
+            outcome_alignment = "Pending Observation"
+
+        rows.append({
+            "decision_id": d.get("id", "N/A"),
+            "wave": d.get("wave", "Portfolio"),
+            "decision_type": d.get("decision_type", "system_generated"),
+            "created_timestamp": d.get("date", "N/A"),
+            "status": status,
+            "lifecycle_stage": lifecycle_stage,
+            "outcome_alignment": outcome_alignment,
+            "monitoring_state": monitoring_state,
+            "horizon_context": d.get("snapshot_asof") or d.get("date", "N/A"),
+            "regime_context": d.get("regime_at_decision", "Normal"),
+        })
+
+    return pd.DataFrame(rows, columns=_cols)
+
+
+def compute_persistent_detractors(decision_memory_df, attrib_df=None):
+    """Compute count of persistent detractors from decision memory.
+
+    Persistent detractors are:
+    - Attribution drivers showing negative values across >=2 horizons in attrib_df, OR
+    - Decisions in repeated monitoring state (>=2 decisions with monitoring_state='Monitoring')
+
+    Args:
+        decision_memory_df: DataFrame from build_decision_memory()
+        attrib_df: Attribution DataFrame (optional)
+
+    Returns:
+        int: count of persistent detractors
+    """
+    count = 0
+
+    # Check for repeated monitoring state
+    if decision_memory_df is not None and not decision_memory_df.empty:
+        monitoring_count = int(
+            (decision_memory_df["monitoring_state"] == "Monitoring").sum()
+        )
+        if monitoring_count >= 2:
+            count += monitoring_count
+
+    # Check attribution-based detractors (negative across >=2 horizons)
+    if attrib_df is not None and not attrib_df.empty and "horizon" in attrib_df.columns:
+        horizons = sorted(attrib_df["horizon"].dropna().unique().tolist())
+        _attribution_cols = [
+            "selection_alpha", "momentum_alpha", "volatility_alpha",
+            "regime_alpha", "exposure_alpha",
+        ]
+        for col in _attribution_cols:
+            if col not in attrib_df.columns:
+                continue
+            neg_horizons = sum(
+                1 for h in horizons
+                if pd.to_numeric(
+                    attrib_df[attrib_df["horizon"] == h][col], errors="coerce"
+                ).mean() < -0.002
+            )
+            if neg_horizons >= 2:
+                count += 1
+
+    return count
+
 
 def compute_cross_horizon_stability(snapshot_df, attrib_df):
     """Compute cross-horizon stability for each attribution driver.

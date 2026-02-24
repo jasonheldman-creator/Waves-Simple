@@ -12643,6 +12643,7 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     learning_curve_data = al.compute_learning_curve(snapshot_df, attrib_df, adaptive_state, all_decisions)
     efficiency_curve_data = al.compute_efficiency_curve(all_decisions, adaptive_state)
     decision_memory_data = al.compute_decision_memory_table(all_decisions, attrib_df)
+    decision_memory_df = al.build_decision_memory(gov_decisions)
     cross_horizon_data = al.compute_cross_horizon_stability(snapshot_df, attrib_df)
 
 
@@ -13060,17 +13061,22 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
     st.subheader("Section 4 - Decision Memory & Outcome Alignment")
     st.caption("Aggregate learning reflection from observed decision outcomes")
 
-    if isinstance(decision_memory_data, dict) and decision_memory_data.get("has_data"):
-        _s4_summary = decision_memory_data["summary"]
+    if decision_memory_df is not None and not decision_memory_df.empty:
+        _s4_total = len(decision_memory_df)
+        _s4_aligned = int((decision_memory_df["outcome_alignment"] != "Pending Observation").sum())
+        _s4_ar = round(_s4_aligned / _s4_total * 100, 1) if _s4_total > 0 else 0
+        _s4_improvements = int(
+            decision_memory_df["outcome_alignment"].isin(["Positive", "Aligned", "Strong"]).sum()
+        )
+        _s4_pd = al.compute_persistent_detractors(decision_memory_df, attrib_df)
 
         _s4_cols = st.columns(4)
         with _s4_cols[0]:
             st.markdown(f"""<div style="background:#1C1F26;border:1px solid #2A2F3A;border-top:3px solid #3A6FF7;border-radius:8px;padding:14px;">
 <span style="color:#9EA3AE;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Total Decisions Observed</span><br/>
-<span style="color:#3A6FF7;font-size:22px;font-family:'SF Mono',monospace;font-weight:600;">{_s4_summary.get('total_decisions', 0)}</span>
+<span style="color:#3A6FF7;font-size:22px;font-family:'SF Mono',monospace;font-weight:600;">{_s4_total}</span>
 </div>""", unsafe_allow_html=True)
         with _s4_cols[1]:
-            _s4_ar = _s4_summary.get("alignment_rate", 0)
             _s4_ar_color = "#48BB78" if _s4_ar >= 60 else "#5C6BC0" if _s4_ar >= 40 else "#FFA726"
             st.markdown(f"""<div style="background:#1C1F26;border:1px solid #2A2F3A;border-top:3px solid {_s4_ar_color};border-radius:8px;padding:14px;">
 <span style="color:#9EA3AE;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Alignment Rate</span><br/>
@@ -13079,29 +13085,24 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
         with _s4_cols[2]:
             st.markdown(f"""<div style="background:#1C1F26;border:1px solid #2A2F3A;border-top:3px solid #48BB78;border-radius:8px;padding:14px;">
 <span style="color:#9EA3AE;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Structural Improvements</span><br/>
-<span style="color:#48BB78;font-size:22px;font-family:'SF Mono',monospace;font-weight:600;">{_s4_summary.get('structural_improvements', 0)}</span>
+<span style="color:#48BB78;font-size:22px;font-family:'SF Mono',monospace;font-weight:600;">{_s4_improvements}</span>
 </div>""", unsafe_allow_html=True)
         with _s4_cols[3]:
-            _s4_pd = _s4_summary.get("persistent_detractors", 0)
             _s4_pd_color = "#48BB78" if _s4_pd == 0 else "#FFA726"
             st.markdown(f"""<div style="background:#1C1F26;border:1px solid #2A2F3A;border-top:3px solid {_s4_pd_color};border-radius:8px;padding:14px;">
 <span style="color:#9EA3AE;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Persistent Detractors</span><br/>
 <span style="color:{_s4_pd_color};font-size:22px;font-family:'SF Mono',monospace;font-weight:600;">{_s4_pd}</span>
 </div>""", unsafe_allow_html=True)
 
-        _s4_rows = decision_memory_data.get("rows", [])
-        if _s4_rows:
-            st.markdown('<div style="margin-top:16px;"></div>', unsafe_allow_html=True)
-            st.markdown('<span style="color:#9EA3AE;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Decision Memory Table</span>', unsafe_allow_html=True)
-            st.dataframe(pd.DataFrame(_s4_rows), width="stretch", hide_index=True)
+        st.markdown('<div style="margin-top:16px;"></div>', unsafe_allow_html=True)
+        st.markdown('<span style="color:#9EA3AE;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Decision Memory Table</span>', unsafe_allow_html=True)
+        st.dataframe(decision_memory_df, use_container_width=True, hide_index=True)
 
         st.markdown("""<div style="color:#4B5563;font-size:10px;font-style:italic;text-align:center;margin:12px 0 0 0;">
 Learning observations inform system adaptation but do not create governance actions.
 </div>""", unsafe_allow_html=True)
     else:
-        st.markdown("""<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:16px;border-radius:8px;text-align:center;">
-<div style="color:#9EA3AE;font-size:12px;">Decision memory will populate as governance decisions mature.</div>
-</div>""", unsafe_allow_html=True)
+        st.info("Decision memory awaiting governance lifecycle data")
 
     st.markdown('<div style="border-bottom: 1px solid #2A2F3A; margin: 20px 0 24px 0;"></div>', unsafe_allow_html=True)
 

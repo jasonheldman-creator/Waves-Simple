@@ -322,6 +322,121 @@ def test_governance_merge_no_duplicates():
     assert len(merged) == 3  # 1 from log + 2 new from governance
 
 
+# ---------------------------------------------------------------------------
+# build_decision_memory
+# ---------------------------------------------------------------------------
+
+def _load_decisions_from_sample(sample):
+    """Helper: write sample JSON to temp file and load via load_governance_decisions."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(sample, f)
+        tmp_path = f.name
+    try:
+        return al.load_governance_decisions(path=tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# build_decision_memory
+# ---------------------------------------------------------------------------
+
+def test_build_decision_memory_returns_required_columns():
+    """build_decision_memory() must return DataFrame with all required columns."""
+    decisions = _load_decisions_from_sample(SAMPLE_GOVERNANCE_DECISIONS)
+    df = al.build_decision_memory(decisions)
+
+    required_cols = [
+        "decision_id", "wave", "decision_type", "created_timestamp",
+        "status", "lifecycle_stage", "outcome_alignment", "monitoring_state",
+        "horizon_context", "regime_context",
+    ]
+    for col in required_cols:
+        assert col in df.columns, f"Missing column: {col}"
+
+    assert len(df) == len(decisions), "Row count must match input decisions"
+
+
+def test_build_decision_memory_outcome_alignment_pending():
+    """Decisions without recorded outcomes get 'Pending Observation' outcome_alignment."""
+    decisions = _load_decisions_from_sample(SAMPLE_GOVERNANCE_DECISIONS)
+    df = al.build_decision_memory(decisions)
+
+    # All governance decisions have outcome_30d=None → should all be "Pending Observation"
+    assert (df["outcome_alignment"] == "Pending Observation").all(), \
+        "Decisions without outcomes must have outcome_alignment='Pending Observation'"
+
+
+def test_build_decision_memory_empty_input():
+    """build_decision_memory() with empty input returns empty DataFrame with correct columns."""
+    df = al.build_decision_memory([])
+    assert len(df) == 0
+    assert "decision_id" in df.columns
+    assert "outcome_alignment" in df.columns
+
+
+def test_build_decision_memory_lifecycle_stage_derived():
+    """lifecycle_stage is correctly derived from status."""
+    decisions = [
+        {"id": "d1", "date": "2026-01-01", "wave": "W1", "decision_type": "gov",
+         "status": "Awaiting Approval", "outcome_30d": None, "regime_at_decision": "Normal"},
+        {"id": "d2", "date": "2026-01-02", "wave": "W2", "decision_type": "gov",
+         "status": "Monitoring", "outcome_30d": None, "regime_at_decision": "Normal"},
+    ]
+    df = al.build_decision_memory(decisions)
+    assert df.loc[df["decision_id"] == "d1", "lifecycle_stage"].iloc[0] == "Pre-Approval"
+    assert df.loc[df["decision_id"] == "d2", "lifecycle_stage"].iloc[0] == "Under Review"
+    assert df.loc[df["decision_id"] == "d2", "monitoring_state"].iloc[0] == "Monitoring"
+
+
+# ---------------------------------------------------------------------------
+# compute_persistent_detractors
+# ---------------------------------------------------------------------------
+
+def test_compute_persistent_detractors_no_detractors():
+    """Returns 0 when no negative attribution and no repeated monitoring."""
+    df = al.build_decision_memory([
+        {"id": "d1", "date": "2026-01-01", "wave": "W1", "decision_type": "gov",
+         "status": "Awaiting Approval", "outcome_30d": None, "regime_at_decision": "Normal"},
+    ])
+    count = al.compute_persistent_detractors(df, None)
+    assert count == 0
+
+
+def test_compute_persistent_detractors_repeated_monitoring():
+    """Returns positive count when >=2 decisions have monitoring_state='Monitoring'."""
+    decisions = [
+        {"id": f"d{i}", "date": "2026-01-0{i}", "wave": "W", "decision_type": "gov",
+         "status": "Monitoring", "outcome_30d": None, "regime_at_decision": "Normal"}
+        for i in range(1, 4)
+    ]
+    df = al.build_decision_memory(decisions)
+    count = al.compute_persistent_detractors(df, None)
+    assert count >= 2, ">=2 decisions in Monitoring state should count as persistent detractors"
+
+
+def test_compute_persistent_detractors_attribution_based():
+    """Attribution components negative across >=2 horizons counts as a detractor."""
+    rows = []
+    for horizon, val in [(30, -0.01), (365, -0.02)]:
+        rows.append({
+            "wave": "Test Wave",
+            "horizon": horizon,
+            "selection_alpha": val,
+            "momentum_alpha": val * 0.5,
+            "volatility_alpha": val * 0.1,
+            "regime_alpha": val * 0.1,
+            "exposure_alpha": val * 0.1,
+        })
+    attrib_df = pd.DataFrame(rows)
+    df = al.build_decision_memory([
+        {"id": "d1", "date": "2026-01-01", "wave": "W1", "decision_type": "gov",
+         "status": "Awaiting Approval", "outcome_30d": None, "regime_at_decision": "Normal"},
+    ])
+    count = al.compute_persistent_detractors(df, attrib_df)
+    assert count >= 1, "Attribution component negative across >=2 horizons should be detected"
+
+
 if __name__ == "__main__":
     import sys
     # Run tests manually
@@ -340,6 +455,13 @@ if __name__ == "__main__":
         test_update_adaptive_state_sets_learning_rate,
         test_update_adaptive_state_learning_rate_scales_with_confidence,
         test_governance_merge_no_duplicates,
+        test_build_decision_memory_returns_required_columns,
+        test_build_decision_memory_outcome_alignment_pending,
+        test_build_decision_memory_empty_input,
+        test_build_decision_memory_lifecycle_stage_derived,
+        test_compute_persistent_detractors_no_detractors,
+        test_compute_persistent_detractors_repeated_monitoring,
+        test_compute_persistent_detractors_attribution_based,
     ]
 
     passed = failed = 0
