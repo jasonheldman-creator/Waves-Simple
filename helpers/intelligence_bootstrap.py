@@ -172,27 +172,39 @@ def bootstrap_adaptive_intelligence():
         decision_memory_df = al.build_decision_memory(gov_decisions)
         cross_horizon_data = al.compute_cross_horizon_stability(snapshot_df, attrib_df)
 
-        # Augment learning curve with synthetic monthly_points when real data is insufficient
+        # Guarantee learning/efficiency curves always have data for rendering
         from helpers.bootstrap_data import (
             generate_learning_curve_monthly_points,
             generate_param_sensitivity,
+            generate_synthetic_learning_curve,
+            generate_synthetic_efficiency_curve,
+            generate_synthetic_cross_horizon_drivers,
         )
-        if learning_curve_data.get("has_data") and len(
-            learning_curve_data.get("monthly_points", [])
-        ) < 2:
+
+        if not learning_curve_data.get("has_data"):
+            learning_curve_data = generate_synthetic_learning_curve(55.0)
+        elif len(learning_curve_data.get("monthly_points", [])) < 2:
             learning_curve_data["monthly_points"] = generate_learning_curve_monthly_points(
                 learning_curve_data.get("learning_index", 50.0)
             )
 
-        if efficiency_curve_data.get("has_data") and len(
-            efficiency_curve_data.get("monthly_points", [])
-        ) < 2:
+        if not efficiency_curve_data.get("has_data"):
+            efficiency_curve_data = generate_synthetic_efficiency_curve(55.0)
+        elif len(efficiency_curve_data.get("monthly_points", [])) < 2:
             efficiency_curve_data["monthly_points"] = generate_learning_curve_monthly_points(
                 efficiency_curve_data.get("efficiency_index", 50.0)
             )
 
         if not param_sensitivity:
             param_sensitivity = generate_param_sensitivity()
+
+        # Guarantee cross-horizon drivers are never empty
+        if not cross_horizon_data.get("drivers"):
+            cross_horizon_data["drivers"] = generate_synthetic_cross_horizon_drivers()
+            if not cross_horizon_data.get("summary"):
+                cross_horizon_data["summary"] = (
+                    "Cross-horizon structure is stable based on synthetic baseline attribution."
+                )
 
         cross_horizon_raw = safe_df(
             attrib_df.groupby(["wave", "horizon"]).mean(numeric_only=True).reset_index()
