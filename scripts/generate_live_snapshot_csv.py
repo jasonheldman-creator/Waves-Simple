@@ -45,7 +45,12 @@ if not WEIGHTS_PATH.exists():
 
 weights_df = pd.read_csv(WEIGHTS_PATH)
 if "wave_name" not in weights_df.columns:
-    raise ValueError("wave_weights.csv must contain 'wave_name' column")
+    for alt_col in ("wave", "wave_id"):
+        if alt_col in weights_df.columns:
+            weights_df = weights_df.rename(columns={alt_col: "wave_name"})
+            break
+if "wave_name" not in weights_df.columns:
+    raise ValueError("wave_weights.csv must contain 'wave_name', 'wave', or 'wave_id' column")
 
 waves = sorted(weights_df["wave_name"].unique())
 
