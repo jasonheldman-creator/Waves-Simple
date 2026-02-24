@@ -6518,7 +6518,9 @@ def render_decision_system_of_record_panel(decisions_data, adaptive_state=None):
         s = (d.get("status", "") or d.get("approval_status", "") or "").strip().lower()
         status_counts[s] = status_counts.get(s, 0) + 1
 
-    pending = status_counts.get("pending", 0) + status_counts.get("pending ic decision", 0) + status_counts.get("under review", 0)
+    pending = (status_counts.get("pending", 0) + status_counts.get("pending ic decision", 0)
+               + status_counts.get("under review", 0) + status_counts.get("awaiting governance review", 0)
+               + status_counts.get("awaiting approval", 0))
     approved = status_counts.get("approved", 0)
     under_review = status_counts.get("review", 0)
 
@@ -13248,7 +13250,10 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
     if dlm is None:
         st.error("Decision Intelligence module not available.")
     else:
-        all_decisions_dlm = dlm.load_decision_log()
+        all_decisions_dlm = dlm.load_governance_decisions()
+        if all_decisions_dlm is None:
+            st.error("Decision dataset not loaded.")
+            all_decisions_dlm = []
         canonical_waves_dlm = list(CANONICAL_WAVES) if CANONICAL_WAVES else (list(waves) if waves else dlm.get_canonical_wave_names(snapshot_df))
 
         # =====================================================
@@ -13552,7 +13557,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
         st.markdown('<div style="margin-bottom:6px;"><span style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Section 1 · Decision Posture Overview</span></div>', unsafe_allow_html=True)
 
         try:
-            _s1_active = [d for d in all_decisions_dlm if d.get("status") in ["Awaiting Approval", "Under Review", "Recorded", "Active", "Monitoring"]]
+            _s1_active = [d for d in all_decisions_dlm if d.get("status") in ["Awaiting Governance Review", "Awaiting Approval", "Under Review", "Recorded", "Active", "Monitoring"]]
             _s1_count = len(_s1_active)
 
             _s1_posture = "Opportunistic"
@@ -13563,7 +13568,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
                 _s1_def_count = 0
                 _s1_neut_count = 0
                 for d in _s1_active:
-                    _s1_text = (str(d.get("decision_type", "")) + " " + str(d.get("rationale", "")) + " " + str(d.get("primary_driver", ""))).lower()
+                    _s1_text = (str(d.get("decision_type", "")) + " " + str(d.get("initiation_context", "")) + " " + str(d.get("rationale", "")) + " " + str(d.get("primary_driver", ""))).lower()
                     if any(kw in _s1_text for kw in _s1_defensive_keywords):
                         _s1_def_count += 1
                     if any(kw in _s1_text for kw in _s1_neutral_keywords):
@@ -13604,7 +13609,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
                     st.markdown(f'<div style="background:#1C1F26;border:1px solid #2A2F3A;border-top:3px solid {color};padding:16px 12px;border-radius:6px;text-align:center;"><div style="color:{color};font-size:18px;font-weight:700;font-family:\'SF Mono\',monospace;">{value}</div><div style="color:#9EA3AE;font-size:9px;text-transform:uppercase;margin-top:6px;letter-spacing:0.03em;">{label}</div></div>', unsafe_allow_html=True)
 
             _s1_count = len(_s1_active)
-            _s1_summary = f"The portfolio governance posture is currently <strong style='color:{_s1_posture_color}'>{_s1_posture}</strong> with {_s1_count} active decision{'s' if _s1_count != 1 else ''} under observation." if _s1_active else "No active decisions are currently under observation; the governance posture reflects a quiescent decision environment."
+            _s1_summary = f"The portfolio governance posture is currently <strong style='color:{_s1_posture_color}'>{_s1_posture}</strong> with {_s1_count} active decision{'s' if _s1_count != 1 else ''} under observation." if _s1_active else "No active governance decisions are currently in the dataset."
             st.markdown(f'<div style="color:#9EA3AE;font-size:11px;line-height:1.6;margin-top:10px;padding:8px 12px;background:#151A22;border:1px solid #2A2F3A;border-radius:6px;">{_s1_summary}</div>', unsafe_allow_html=True)
         except Exception:
             st.markdown('<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:16px;border-radius:8px;text-align:center;"><div style="color:#6B7280;font-size:11px;">Decision posture data unavailable.</div></div>', unsafe_allow_html=True)
@@ -13634,10 +13639,10 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
             for hz_label, hz_keywords in _s2_horizons:
                 _s2_hz_decisions = []
                 for d in all_decisions_dlm:
-                    _s2_text = (str(d.get("decision_type", "")) + " " + str(d.get("primary_driver", "")) + " " + str(d.get("rationale", ""))).lower()
-                    if any(kw in _s2_text for kw in hz_keywords):
+                    _s2_text = (str(d.get("decision_type", "")) + " " + str(d.get("initiation_context", "")) + " " + str(d.get("primary_driver", "")) + " " + str(d.get("rationale", ""))).lower()
+                    if any(kw in _s2_text for kw in hz_keywords) or d.get("horizon_context") == hz_label:
                         _s2_hz_decisions.append(d)
-                _s2_hz_active = [d for d in _s2_hz_decisions if d.get("status") in ["Awaiting Approval", "Under Review", "Recorded", "Active", "Monitoring"]]
+                _s2_hz_active = [d for d in _s2_hz_decisions if d.get("status") in ["Awaiting Governance Review", "Awaiting Approval", "Under Review", "Recorded", "Active", "Monitoring"]]
                 _s2_hz_count = len(_s2_hz_active)
 
                 _s2_dom_type = "-"
@@ -13695,7 +13700,7 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
             for driver_name, alpha_col, keywords in _s3_drivers:
                 _s3_ref_count = 0
                 for d in all_decisions_dlm:
-                    _s3_text = (str(d.get("decision_type", "")) + " " + str(d.get("primary_driver", "")) + " " + str(d.get("rationale", ""))).lower()
+                    _s3_text = (str(d.get("decision_type", "")) + " " + str(d.get("initiation_context", "")) + " " + str(d.get("primary_driver", "")) + " " + str(d.get("rationale", ""))).lower()
                     if any(kw in _s3_text for kw in keywords):
                         _s3_ref_count += 1
 
@@ -13882,7 +13887,25 @@ with tabs[TAB_INDEX['Decision Intelligence']]:
 <div style="color:#4B5563;font-size:8px;font-style:italic;margin-top:8px;border-top:1px solid rgba(255,255,255,0.03);padding-top:6px;">Observational only \u2014 human evaluation recommended.</div>
 </div>""", unsafe_allow_html=True)
             else:
-                st.markdown('<div style="background:#111318;border:1px solid #1E2530;padding:16px;border-radius:6px;text-align:center;"><div style="color:#6B7280;font-size:11px;">No approved decisions currently under continuity monitoring.</div></div>', unsafe_allow_html=True)
+                if all_decisions_dlm:
+                    _dc_pending = len([d for d in all_decisions_dlm if d.get("status") in ("Awaiting Governance Review", "Awaiting Approval")])
+                    _dc_under_review = len([d for d in all_decisions_dlm if d.get("status") == "Under Review"])
+                    _dc_approved = len([d for d in all_decisions_dlm if d.get("status") in ("Approved", "Recorded")])
+                    _dc_monitoring_cnt = len([d for d in all_decisions_dlm if d.get("status") == "Monitoring"])
+                    st.markdown(f"""<div style="background:#0D1117;border:1px solid #1E2530;border-radius:6px;padding:14px 18px;margin-bottom:14px;">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+<div style="color:#9EA3AE;font-size:11px;font-weight:600;">Governance Decision Lifecycle Summary</div>
+<div style="display:flex;gap:16px;flex-wrap:wrap;">
+<div><span style="color:#F59E0B;font-size:14px;font-weight:700;">{_dc_pending}</span><span style="color:#6B7280;font-size:9px;margin-left:4px;">Pending</span></div>
+<div><span style="color:#3A6FF7;font-size:14px;font-weight:700;">{_dc_under_review}</span><span style="color:#6B7280;font-size:9px;margin-left:4px;">Under Review</span></div>
+<div><span style="color:#48BB78;font-size:14px;font-weight:700;">{_dc_approved}</span><span style="color:#6B7280;font-size:9px;margin-left:4px;">Approved</span></div>
+<div><span style="color:#60A5FA;font-size:14px;font-weight:700;">{_dc_monitoring_cnt}</span><span style="color:#6B7280;font-size:9px;margin-left:4px;">Monitoring</span></div>
+</div>
+</div>
+<div style="color:#555A65;font-size:9px;font-style:italic;">Lifecycle counts derived from canonical governance dataset.</div>
+</div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown('<div style="background:#111318;border:1px solid #1E2530;padding:16px;border-radius:6px;text-align:center;"><div style="color:#6B7280;font-size:11px;">No approved decisions currently under continuity monitoring.</div></div>', unsafe_allow_html=True)
         except Exception:
             st.markdown('<div style="background:#111318;border:1px solid #1E2530;padding:16px;border-radius:6px;text-align:center;"><div style="color:#6B7280;font-size:11px;">Decision continuity data unavailable.</div></div>', unsafe_allow_html=True)
 

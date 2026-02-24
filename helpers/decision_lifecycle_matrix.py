@@ -16,6 +16,79 @@ def load_decision_log(path=None):
     return []
 
 
+_DECISION_STATUS_MAP = {
+    "Awaiting Approval": "Awaiting Governance Review",
+    "Pending": "Awaiting Governance Review",
+}
+
+
+def load_governance_decisions():
+    """Load canonical governance decisions from data/governance_decisions.json.
+
+    Falls back to data/decision_log.json when the primary file is absent.
+    Returns a normalized list of decision objects with the following keys:
+        decision_id, wave, decision_type, status, lifecycle_stage,
+        initiation_context, created_timestamp, horizon_context, regime_context.
+    Returns None if neither file can be loaded (dataset unavailable).
+    """
+    gov_path = Path("data/governance_decisions.json")
+    fallback_path = Path("data/decision_log.json")
+
+    raw = None
+    if gov_path.exists():
+        try:
+            with open(gov_path) as f:
+                raw = json.load(f)
+        except Exception:
+            pass
+
+    if raw is None and fallback_path.exists():
+        try:
+            with open(fallback_path) as f:
+                raw = json.load(f)
+        except Exception:
+            pass
+
+    if raw is None:
+        return None
+
+    normalized = []
+    for d in raw:
+        ctx = d.get("context_snapshot", {}) or {}
+        ctx_action = ctx.get("action", "") if isinstance(ctx, dict) else ""
+        created = next(
+            (d.get(k) for k in ("created", "decision_created_timestamp", "creation_timestamp") if d.get(k) is not None),
+            ""
+        )
+        raw_status = d.get("status", "")
+        norm_status = _DECISION_STATUS_MAP.get(raw_status, raw_status)
+
+        text_lower = ctx_action.lower()
+        if "30d" in text_lower or "short-term" in text_lower:
+            horizon_ctx = "Short-Term"
+        elif "medium-term" in text_lower or "60d" in text_lower:
+            horizon_ctx = "Intermediate"
+        elif "long-term" in text_lower or "365d" in text_lower:
+            horizon_ctx = "Long-Term"
+        else:
+            horizon_ctx = "General"
+
+        normalized.append({
+            **d,
+            "decision_id": d.get("id", d.get("decision_id", "")),
+            "wave": d.get("wave", "Portfolio"),
+            "decision_type": d.get("decision_type", "system_generated"),
+            "status": norm_status,
+            "lifecycle_stage": d.get("trigger_source", "system"),
+            "initiation_context": ctx_action,
+            "created_timestamp": created,
+            "horizon_context": horizon_ctx,
+            "regime_context": d.get("regime_at_decision", ""),
+            "id": d.get("id", ""),
+        })
+    return normalized
+
+
 def get_canonical_wave_names(snapshot_df):
     if snapshot_df is None or snapshot_df.empty:
         return []
