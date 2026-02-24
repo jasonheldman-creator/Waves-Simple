@@ -11866,6 +11866,26 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         if SANDBOX_MODE:
             sandbox_log_event("tab_view", {"tab": "Alpha Intelligence"})
 
+        if "alpha_pipeline_ran" not in st.session_state:
+            from helpers.alpha_pipeline import run_alpha_pipeline
+            from helpers.adaptive_pipeline import run_adaptive_pipeline
+
+            st.session_state["alpha_data"] = run_alpha_pipeline()
+            st.session_state["adaptive_data"] = run_adaptive_pipeline()
+
+            st.session_state["alpha_pipeline_ran"] = True
+
+        from helpers.runtime_validation import assert_not_empty
+
+        assert_not_empty(
+            st.session_state["alpha_data"],
+            "Alpha Intelligence",
+        )
+        assert_not_empty(
+            st.session_state["adaptive_data"],
+            "Adaptive Intelligence",
+        )
+
         if "alpha_intelligence" not in st.session_state:
             try:
                 bootstrap_alpha_intelligence()
@@ -12571,17 +12591,12 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
 
         # --- Alpha Quality Ranking ---
         st.markdown("### Alpha Quality Ranking")
-        st.write(
-            "Alpha rows:",
-            len(st.session_state.get("alpha_quality_df", pd.DataFrame()))
-        )
         try:
             _quality_df = st.session_state.get("alpha_quality_df")
-            if _quality_df is None or _quality_df.empty:
-                st.info("Initializing intelligence layer…")
-            else:
-                _apr_has_any = True
-                st.dataframe(_quality_df, use_container_width=True, hide_index=True)
+            from helpers.runtime_validation import assert_not_empty
+            assert_not_empty(_quality_df, "Alpha Quality Ranking")
+            _apr_has_any = True
+            st.dataframe(_quality_df, use_container_width=True, hide_index=True)
         except Exception as _e:
             st.error(f"Render failure: {_e}")
 
@@ -12589,11 +12604,10 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         st.markdown("### Capital Pressure Regime")
         try:
             _pressure_df = st.session_state.get("capital_pressure_df")
-            if _pressure_df is None or _pressure_df.empty:
-                st.info("Initializing intelligence layer…")
-            else:
-                _apr_has_any = True
-                st.dataframe(_pressure_df, use_container_width=True, hide_index=True)
+            from helpers.runtime_validation import assert_not_empty
+            assert_not_empty(_pressure_df, "Capital Pressure Regime")
+            _apr_has_any = True
+            st.dataframe(_pressure_df, use_container_width=True, hide_index=True)
         except Exception as _e:
             st.error(f"Render failure: {_e}")
 
@@ -12601,11 +12615,10 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         st.markdown("### Rotation Velocity")
         try:
             _velocity_df = st.session_state.get("rotation_velocity_df")
-            if _velocity_df is None or _velocity_df.empty:
-                st.info("Initializing intelligence layer…")
-            else:
-                _apr_has_any = True
-                st.dataframe(_velocity_df, use_container_width=True, hide_index=True)
+            from helpers.runtime_validation import assert_not_empty
+            assert_not_empty(_velocity_df, "Rotation Velocity")
+            _apr_has_any = True
+            st.dataframe(_velocity_df, use_container_width=True, hide_index=True)
         except Exception as _e:
             st.error(f"Render failure: {_e}")
 
@@ -12613,16 +12626,12 @@ with tabs[TAB_INDEX['Alpha Intelligence']]:
         st.markdown("### Alpha Ignition Surface")
         try:
             _ignition_df = st.session_state.get("alpha_ignition_df")
-            if _ignition_df is None or _ignition_df.empty:
-                st.info("Initializing intelligence layer…")
-            else:
-                _apr_has_any = True
-                st.dataframe(_ignition_df, use_container_width=True, hide_index=True)
+            from helpers.runtime_validation import assert_not_empty
+            assert_not_empty(_ignition_df, "Alpha Ignition Surface")
+            _apr_has_any = True
+            st.dataframe(_ignition_df, use_container_width=True, hide_index=True)
         except Exception as _e:
             st.error(f"Render failure: {_e}")
-
-        if not _apr_has_any:
-            st.info("Alpha Pressure & Rotation data will populate as canonical attribution sources are connected.")
 
         st.caption("This layer is observational and non-executing. It does not modify allocations or governance state.")
 
@@ -12657,6 +12666,26 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
         except Exception as _boot_err:
             st.error("Intelligence pipeline failed to initialize.")
             st.stop()
+
+    if "alpha_pipeline_ran" not in st.session_state:
+        from helpers.alpha_pipeline import run_alpha_pipeline
+        from helpers.adaptive_pipeline import run_adaptive_pipeline
+
+        st.session_state["alpha_data"] = run_alpha_pipeline()
+        st.session_state["adaptive_data"] = run_adaptive_pipeline()
+
+        st.session_state["alpha_pipeline_ran"] = True
+
+    from helpers.runtime_validation import assert_not_empty
+
+    assert_not_empty(
+        st.session_state["alpha_data"],
+        "Alpha Intelligence",
+    )
+    assert_not_empty(
+        st.session_state["adaptive_data"],
+        "Adaptive Intelligence",
+    )
 
     _adaptive_intel = st.session_state["adaptive_intelligence"]
     attrib_df = _adaptive_intel["attrib_df"]
@@ -12733,9 +12762,8 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                 st.line_chart(_s1_lc_chart_df.set_index("Date")["Learning Index"], use_container_width=True)
             st.markdown('<div style="color:#555A65;font-size:9px;font-style:italic;margin-top:4px;">Learning curve reflects observed decision outcomes over time.</div>', unsafe_allow_html=True)
         else:
-            st.markdown("""<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:16px;border-radius:8px;text-align:center;">
-<div style="color:#9EA3AE;font-size:12px;">Learning curve data will populate as decisions mature.</div>
-</div>""", unsafe_allow_html=True)
+            from helpers.runtime_validation import assert_not_empty
+            assert_not_empty(None, "Learning Diagnostics Chart")
 
     with _s1_cols[1]:
         st.markdown('<div style="color:#9EA3AE;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:8px;">Decision Efficiency Curve</div>', unsafe_allow_html=True)
@@ -12754,9 +12782,8 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
                 st.line_chart(_s1_ec_chart_df.set_index("Date")["Efficiency Index"], use_container_width=True)
             st.markdown('<div style="color:#555A65;font-size:9px;font-style:italic;margin-top:4px;">Efficiency curve reflects human engagement quality over time.</div>', unsafe_allow_html=True)
         else:
-            st.markdown("""<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:16px;border-radius:8px;text-align:center;">
-<div style="color:#9EA3AE;font-size:12px;">Efficiency curve data will populate as decisions mature.</div>
-</div>""", unsafe_allow_html=True)
+            from helpers.runtime_validation import assert_not_empty
+            assert_not_empty(None, "Decision Efficiency Chart")
 
     _s1_metric_style = "background:#0D1117;border:1px solid #1E2530;border-radius:4px;padding:10px 14px;text-align:center;"
     st.markdown('<div style="color:#6B7280;font-size:9px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;margin:16px 0 8px 0;">Summary Metrics</div>', unsafe_allow_html=True)
@@ -13031,9 +13058,8 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
 <span style="color:#D0D0D0;font-size:13px;line-height:1.6;">{_s3_summary}</span>
 </div>""", unsafe_allow_html=True)
     else:
-        st.markdown("""<div style="background:#1C1F26;border:1px solid #2A2F3A;padding:16px;border-radius:8px;text-align:center;">
-<div style="color:#9EA3AE;font-size:12px;">Cross-horizon stability data will appear as attribution data becomes available.</div>
-</div>""", unsafe_allow_html=True)
+        from helpers.runtime_validation import assert_not_empty
+        assert_not_empty([], "Cross-Horizon Stability")
 
     try:
         import altair as alt

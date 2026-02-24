@@ -1,12 +1,7 @@
 {
-  "confidence": 0.93,
+  "confidence": 0.91,
   "regime_state": "normal",
-  "pattern_memory": {
-    "momentum_regime": {
-      "current": -0.0013,
-      "trend": "neutral"
-    }
-  },
+  "pattern_memory": {},
   "learning_rate": 0.0002,
-  "last_updated": "2026-02-24 18:17:01"
+  "last_updated": "2026-02-24 18:25:43"
 }
