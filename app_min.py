@@ -12602,7 +12602,15 @@ with tabs[TAB_INDEX['Adaptive Intelligence']]:
 
     adaptive_state = al.load_adaptive_state()
     adaptive_state, _ = al.update_adaptive_state(snapshot_df, attrib_df, adaptive_state)
+
+    # Load decision log (decision_log.json), then supplement with governance decisions
+    # (governance_decisions.json) so the learning pipeline has data even when no
+    # decision_log entries exist yet.
     all_decisions = dlm.load_decision_log() if dlm else []
+    gov_decisions = al.load_governance_decisions()
+    if gov_decisions:
+        existing_ids = {d.get("id") for d in all_decisions if d.get("id")}
+        all_decisions = all_decisions + [d for d in gov_decisions if d.get("id") not in existing_ids]
 
     snapshot_data = al.compute_learning_snapshot(snapshot_df, attrib_df, adaptive_state, all_decisions)
     core_signals = al.compute_core_learning_signals(snapshot_df, attrib_df, adaptive_state)
