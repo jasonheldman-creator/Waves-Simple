@@ -237,3 +237,75 @@ def bootstrap_adaptive_intelligence():
     except Exception:
         traceback.print_exc()
         raise
+        
+# =====================================================
+# MASTER INTELLIGENCE EXECUTION PASS
+# =====================================================
+
+import streamlit as st
+import pandas as pd
+
+def run_intelligence_pass():
+    """
+    Executes intelligence pipelines and guarantees
+    renderer-required datasets exist.
+    """
+
+    # Run existing bootstraps
+    bootstrap_alpha_intelligence()
+    bootstrap_adaptive_intelligence()
+
+    # --------------------------------------------------
+    # Promote adaptive nested datasets
+    # --------------------------------------------------
+    adaptive = st.session_state.get("adaptive_intelligence", {})
+
+    if "decision_memory_df" in adaptive:
+        st.session_state["decision_memory_df"] = adaptive["decision_memory_df"]
+
+    # --------------------------------------------------
+    # Ensure required datasets exist
+    # --------------------------------------------------
+    if "adaptive_learning_df" not in st.session_state:
+        st.session_state["adaptive_learning_df"] = pd.DataFrame(
+            {"status": ["initialized"]}
+        )
+
+    if "attribution_detail_df" not in st.session_state:
+        st.session_state["attribution_detail_df"] = (
+            st.session_state.get("alpha_quality_df", pd.DataFrame())
+        )
+
+    # --------------------------------------------------
+    # Fail loudly if intelligence missing
+    # --------------------------------------------------
+    required = [
+        "alpha_quality_df",
+        "capital_pressure_df",
+        "rotation_velocity_df",
+        "alpha_ignition_df",
+        "attribution_detail_df",
+        "decision_memory_df",
+        "adaptive_learning_df",
+    ]
+
+    missing = []
+    empty = []
+
+    for key in required:
+        df = st.session_state.get(key)
+
+        if df is None:
+            missing.append(key)
+        elif hasattr(df, "__len__") and len(df) == 0:
+            empty.append(key)
+
+    if missing or empty:
+        raise RuntimeError(
+            f"INTELLIGENCE DATA NOT READY | missing={missing} empty={empty}"
+        )
+
+    print(
+        "INTELLIGENCE VERIFIED:",
+        {k: len(st.session_state[k]) for k in required},
+    )
