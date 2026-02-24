@@ -743,3 +743,224 @@ def compute_alpha_ignition(snapshot_df):
 
     rows.sort(key=lambda x: x["Ignition Score"], reverse=True)
     return {"has_data": True, "waves": rows}
+
+
+# ---------------------------------------------------------------------------
+# DataFrame-producing wrappers (canonical attribution source)
+# ---------------------------------------------------------------------------
+
+_REQUIRED_ATTRIB_COLS = {
+    "wave", "horizon", "total_alpha", "selection_alpha", "momentum_alpha",
+    "volatility_alpha", "regime_alpha", "exposure_alpha", "residual_alpha",
+}
+_HORIZON_LABEL_MAP = {30: "30D", 60: "60D", 90: "90D", 365: "365D"}
+
+
+def _validate_attrib_df(attrib_df, caller: str) -> pd.DataFrame:
+    """Validate and normalize an attribution DataFrame.
+
+    Returns a copy with horizon values normalised to string labels
+    (30D / 60D / 90D / 365D).  Raises ``ValueError`` with a clear diagnostic
+    message when the input is empty, missing required columns, or contains
+    only UNKNOWN_WAVE rows.
+    """
+    if attrib_df is None or (isinstance(attrib_df, pd.DataFrame) and attrib_df.empty):
+        raise ValueError(
+            f"[{caller}] Attribution DataFrame is empty. "
+            "Run build_alpha_attribution_csv.py to rebuild data/alpha_attribution_summary.csv."
+        )
+    missing = _REQUIRED_ATTRIB_COLS - set(attrib_df.columns)
+    if missing:
+        raise ValueError(
+            f"[{caller}] Attribution DataFrame missing required columns: {sorted(missing)}. "
+            "Schema must include wave, horizon, and all alpha component columns."
+        )
+    df = attrib_df.copy()
+    if "wave" in df.columns:
+        unknown_mask = df["wave"].astype(str).str.strip() == "UNKNOWN_WAVE"
+        if unknown_mask.all():
+            raise ValueError(
+                f"[{caller}] All rows have wave='UNKNOWN_WAVE'. "
+                "Attribution data is corrupt or placeholder. "
+                "Rebuild data/alpha_attribution_summary.csv."
+            )
+        df = df[~unknown_mask]
+        if df.empty:
+            raise ValueError(
+                f"[{caller}] No valid wave rows remain after filtering UNKNOWN_WAVE entries."
+            )
+    numeric_horizons = pd.to_numeric(df["horizon"], errors="coerce")
+    df = df[numeric_horizons.notna()].copy()
+    df["horizon"] = numeric_horizons[numeric_horizons.notna()].astype(int).map(
+        lambda h: _HORIZON_LABEL_MAP.get(h, str(h))
+    ).values
+    df = df.reset_index(drop=True)
+    return df
+
+
+def compute_alpha_quality_df(attrib_df) -> pd.DataFrame:
+    """Rank waves by alpha quality derived from attribution data.
+
+    Alpha Quality Score = mean(abs(total_alpha across horizons)) * consistency
+    minus a volatility-drag penalty, where consistency is the fraction of
+    horizons with positive total_alpha.
+
+    Returns a DataFrame sorted by *alpha_quality_score* descending with
+    columns: wave, alpha_quality_score, consistency, total_alpha_30D,
+    total_alpha_60D, total_alpha_90D, total_alpha_365D.
+
+    Raises ``ValueError`` when *attrib_df* is invalid (see
+    :func:`_validate_attrib_df`).
+    """
+    df = _validate_attrib_df(attrib_df, "compute_alpha_quality_df")
+    rows = []
+    for wave, grp in df.groupby("wave"):
+        horizon_data = {}
+        for _, r in grp.iterrows():
+            h = str(r["horizon"])
+            t = pd.to_numeric(r.get("total_alpha"), errors="coerce")
+            v = pd.to_numeric(r.get("volatility_alpha"), errors="coerce")
+            if pd.notna(t):
+                horizon_data[h] = {
+                    "total_alpha": float(t),
+                    "volatility_alpha": float(v) if pd.notna(v) else 0.0,
+                }
+        if not horizon_data:
+            continue
+        alphas = [d["total_alpha"] for d in horizon_data.values()]
+        if not alphas:
+            continue
+        consistency = round(sum(1 for a in alphas if a > 0) / len(alphas), 2)
+        mean_abs = float(np.mean([abs(a) for a in alphas]))
+        avg_vol_drag = float(np.mean([abs(d["volatility_alpha"]) for d in horizon_data.values()]))
+        score = round(mean_abs * consistency - avg_vol_drag * 0.5, 6)
+        entry = {"wave": str(wave), "alpha_quality_score": score, "consistency": consistency}
+        for h_label in ["30D", "60D", "90D", "365D"]:
+            entry[f"total_alpha_{h_label}"] = (
+                round(horizon_data[h_label]["total_alpha"], 6)
+                if h_label in horizon_data
+                else None
+            )
+        rows.append(entry)
+    if not rows:
+        return pd.DataFrame(
+            columns=["wave", "alpha_quality_score", "consistency",
+                     "total_alpha_30D", "total_alpha_60D", "total_alpha_90D", "total_alpha_365D"]
+        )
+    result = pd.DataFrame(rows).sort_values("alpha_quality_score", ascending=False).reset_index(drop=True)
+    return result
+
+
+def compute_capital_pressure_df(attrib_df) -> pd.DataFrame:
+    """Compute capital pressure regime per wave from attribution data.
+
+    Capital Pressure Score = residual_alpha + abs(regime_alpha) at the 30D
+    horizon (falls back to all horizons if 30D is absent).  Regime bins:
+    High (score > 0.005), Low (score < -0.005), Neutral otherwise.
+
+    Returns a DataFrame sorted by *capital_pressure_score* descending with
+    columns: wave, capital_pressure_score, regime_bin, residual_alpha_30D,
+    regime_alpha_30D.
+
+    Raises ``ValueError`` when *attrib_df* is invalid.
+    """
+    df = _validate_attrib_df(attrib_df, "compute_capital_pressure_df")
+    df30 = df[df["horizon"] == "30D"].copy()
+    if df30.empty:
+        df30 = df.copy()
+    rows = []
+    for wave, grp in df30.groupby("wave"):
+        residual = pd.to_numeric(grp["residual_alpha"], errors="coerce").mean()
+        regime_a = pd.to_numeric(grp["regime_alpha"], errors="coerce").mean()
+        residual = float(residual) if pd.notna(residual) else 0.0
+        regime_a = float(regime_a) if pd.notna(regime_a) else 0.0
+        score = round(residual + abs(regime_a), 6)
+        regime_bin = "High" if score > 0.005 else ("Low" if score < -0.005 else "Neutral")
+        rows.append({
+            "wave": str(wave),
+            "capital_pressure_score": score,
+            "regime_bin": regime_bin,
+            "residual_alpha_30D": round(residual, 6),
+            "regime_alpha_30D": round(regime_a, 6),
+        })
+    if not rows:
+        return pd.DataFrame(
+            columns=["wave", "capital_pressure_score", "regime_bin",
+                     "residual_alpha_30D", "regime_alpha_30D"]
+        )
+    return pd.DataFrame(rows).sort_values("capital_pressure_score", ascending=False).reset_index(drop=True)
+
+
+def compute_rotation_velocity_df(attrib_df) -> pd.DataFrame:
+    """Compute rotation velocity per wave from attribution data.
+
+    Rotation Velocity = total_alpha_30D − total_alpha_365D.  Direction is
+    *Accelerating* when velocity > 0, *Decelerating* otherwise.
+
+    Returns a DataFrame sorted by abs(rotation_velocity) descending with
+    columns: wave, total_alpha_30D, total_alpha_365D, rotation_velocity,
+    direction.
+
+    Raises ``ValueError`` when *attrib_df* is invalid.
+    """
+    df = _validate_attrib_df(attrib_df, "compute_rotation_velocity_df")
+    rows = []
+    for wave, grp in df.groupby("wave"):
+        h30 = grp[grp["horizon"] == "30D"]["total_alpha"]
+        h365 = grp[grp["horizon"] == "365D"]["total_alpha"]
+        a30 = pd.to_numeric(h30, errors="coerce").mean()
+        a365 = pd.to_numeric(h365, errors="coerce").mean()
+        if pd.isna(a30) or pd.isna(a365):
+            continue
+        velocity = round(float(a30) - float(a365), 6)
+        rows.append({
+            "wave": str(wave),
+            "total_alpha_30D": round(float(a30), 6),
+            "total_alpha_365D": round(float(a365), 6),
+            "rotation_velocity": velocity,
+            "direction": "Accelerating" if velocity > 0 else "Decelerating",
+        })
+    if not rows:
+        return pd.DataFrame(
+            columns=["wave", "total_alpha_30D", "total_alpha_365D", "rotation_velocity", "direction"]
+        )
+    result = pd.DataFrame(rows)
+    result = result.reindex(result["rotation_velocity"].abs().sort_values(ascending=False).index).reset_index(drop=True)
+    return result
+
+
+def compute_alpha_ignition_df(attrib_df) -> pd.DataFrame:
+    """Compute alpha ignition score per wave and horizon from attribution data.
+
+    Ignition Score = 0.5 × selection_alpha + 0.3 × momentum_alpha
+                     − 0.2 × abs(volatility_alpha)
+
+    Returns a DataFrame sorted by *ignition_score* descending with columns:
+    wave, horizon, ignition_score, selection_alpha, momentum_alpha,
+    volatility_alpha.
+
+    Raises ``ValueError`` when *attrib_df* is invalid.
+    """
+    df = _validate_attrib_df(attrib_df, "compute_alpha_ignition_df")
+    rows = []
+    for _, r in df.iterrows():
+        sel = pd.to_numeric(r.get("selection_alpha"), errors="coerce")
+        mom = pd.to_numeric(r.get("momentum_alpha"), errors="coerce")
+        vol = pd.to_numeric(r.get("volatility_alpha"), errors="coerce")
+        if pd.isna(sel) or pd.isna(mom) or pd.isna(vol):
+            continue
+        score = round(0.5 * float(sel) + 0.3 * float(mom) - 0.2 * abs(float(vol)), 6)
+        rows.append({
+            "wave": str(r["wave"]),
+            "horizon": str(r["horizon"]),
+            "ignition_score": score,
+            "selection_alpha": round(float(sel), 6),
+            "momentum_alpha": round(float(mom), 6),
+            "volatility_alpha": round(float(vol), 6),
+        })
+    if not rows:
+        return pd.DataFrame(
+            columns=["wave", "horizon", "ignition_score",
+                     "selection_alpha", "momentum_alpha", "volatility_alpha"]
+        )
+    return pd.DataFrame(rows).sort_values("ignition_score", ascending=False).reset_index(drop=True)
