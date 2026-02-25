@@ -1,53 +1,39 @@
 """
 WAVES Intelligence Boot (Streamlit-compatible)
 
-Purpose
--------
-Provides a deterministic initialization phase that runs once per
-Streamlit session BEFORE any UI rendering occurs.
+Safe deterministic initialization layer.
 
-This module:
-- Initializes required session_state containers
-- Imports and registers intelligence producers
-- Executes registered intelligence producers
-- Never renders UI
-- Never breaks the app (fail-open design)
-
-SAFE TO CALL MULTIPLE TIMES.
+Goals:
+- Runs once per Streamlit session
+- Never blocks app startup
+- Registers intelligence producers safely
+- Executes producers fail-open
+- No UI rendering
 """
 
 from __future__ import annotations
 
+import importlib
 import streamlit as st
 from typing import Callable, Dict, Any, List
 
 
 # ================================================================
-# INTERNAL CONSTANTS
+# CONSTANTS
 # ================================================================
 
 BOOT_FLAG = "_waves_intelligence_boot_complete"
 HEALTH_KEY = "_waves_intelligence_health"
-ERROR_KEY = "_waves_intelligence_boot_error"
 
 REGISTRY_KEY = "_waves_registered_intelligence"
 REGISTRY_RAN_FLAG = "_waves_registry_executed"
 
 
 # ================================================================
-# REGISTRY SYSTEM
+# REGISTRY
 # ================================================================
 
 def register_intelligence(func: Callable) -> Callable:
-    """
-    Decorator used by intelligence producers.
-
-    Example:
-        @register_intelligence
-        def build_alpha_state():
-            st.session_state["alpha_state"] = ...
-    """
-
     registry: List[Callable] = st.session_state.setdefault(
         REGISTRY_KEY, []
     )
@@ -59,34 +45,24 @@ def register_intelligence(func: Callable) -> Callable:
 
 
 def _run_registered_intelligence() -> None:
-    """
-    Execute all registered intelligence functions once per session.
-    Fail-open by design.
-    """
-
     if st.session_state.get(REGISTRY_RAN_FLAG):
         return
 
-    registry = st.session_state.get(REGISTRY_KEY, [])
-
-    for func in registry:
+    for func in st.session_state.get(REGISTRY_KEY, []):
         try:
             func()
         except Exception:
-            # Never interrupt application execution
+            # Never break app execution
             pass
 
     st.session_state[REGISTRY_RAN_FLAG] = True
 
 
 # ================================================================
-# SESSION INITIALIZATION
+# SESSION SETUP
 # ================================================================
 
 def _initialize_session_structures() -> Dict[str, Any]:
-    """
-    Ensure all core intelligence containers exist.
-    """
     health: Dict[str, Any] = {}
 
     st.session_state.setdefault("intelligence", {})
@@ -94,60 +70,54 @@ def _initialize_session_structures() -> Dict[str, Any]:
     st.session_state.setdefault("intelligence_runtime", {})
 
     health["session_initialized"] = True
-    health["registry_ready"] = True
-
     return health
 
 
 # ================================================================
-# PUBLIC BOOT FUNCTION
+# SAFE PRODUCER IMPORT
+# ================================================================
+
+def _safe_import_producers(health: Dict[str, Any]) -> None:
+    """
+    Import producers WITHOUT allowing syntax errors
+    to crash Streamlit startup.
+    """
+    try:
+        importlib.import_module("helpers.intelligence_producers")
+        health["producers_imported"] = True
+    except Exception as exc:
+        # swallow ALL import failures
+        health["producers_imported"] = False
+        health["producer_error"] = str(exc)
+
+
+# ================================================================
+# PUBLIC BOOT
 # ================================================================
 
 def intelligence_boot() -> None:
-    """
-    Run WAVES intelligence boot sequence.
 
-    MUST be called before any Streamlit rendering.
-    Safe across reruns (idempotent).
-    """
-
-    # Prevent duplicate execution during reruns
     if st.session_state.get(BOOT_FLAG):
         return
 
     health: Dict[str, Any] = {"boot_started": True}
 
     try:
-        # ----------------------------------------------------------
-        # IMPORTANT: Import producers so decorators register
-        # ----------------------------------------------------------
-        try:
-            import helpers.intelligence_producers  # noqa: F401
-            health["producers_imported"] = True
-        except Exception as producer_exc:
-            # Fail-open: producers optional
-            health["producers_imported"] = False
-            health["producer_import_error"] = str(producer_exc)
-
-        # ----------------------------------------------------------
-        # Initialize required containers
-        # ----------------------------------------------------------
+        # Initialize containers
         health.update(_initialize_session_structures())
 
-        # ----------------------------------------------------------
-        # Execute registered intelligence producers
-        # ----------------------------------------------------------
+        # Import producers safely
+        _safe_import_producers(health)
+
+        # Run registered producers
         _run_registered_intelligence()
 
-        # Mark successful boot
         st.session_state[BOOT_FLAG] = True
         health["boot"] = "ok"
 
     except Exception as exc:
-        # Fail-open — never break app rendering
+        # absolute fail-open guarantee
         health["boot"] = "error"
         health["error"] = str(exc)
-        st.session_state[ERROR_KEY] = str(exc)
 
-    # Store internal diagnostics (not rendered automatically)
     st.session_state[HEALTH_KEY] = health
