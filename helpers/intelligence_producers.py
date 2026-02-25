@@ -1,16 +1,14 @@
 """
-Deterministic Intelligence Producers (Session-State Only)
+WAVES Intelligence Producers
+----------------------------
 
-Purpose
--------
-Populate required session_state keys expected by existing panels.
+Safe baseline intelligence producers.
 
-Rules
------
-- NO UI output
-- NO rendering logic
-- Fail-open (never crash app)
-- Runs automatically via intelligence_boot registry
+Rules:
+- No UI output
+- Fail-open behavior
+- Only writes to st.session_state
+- Registered automatically by intelligence_boot
 """
 
 from __future__ import annotations
@@ -20,56 +18,29 @@ from helpers.intelligence_boot import register_intelligence
 
 
 # ============================================================
-# SAFE HELPERS
+# SAFE HELPER
 # ============================================================
 
 def _safe_setdefault(key: str, value):
-    """Safely set a default session_state value."""
+    """Safely set session_state defaults."""
     try:
         if key not in st.session_state:
             st.session_state[key] = value
     except Exception:
+        # Never allow producer failure to break app
         pass
 
 
 # ============================================================
-# INTELLIGENCE PRODUCERS
+# BASELINE PRODUCER
 # ============================================================
 
 @register_intelligence
-def build_alpha_state():
-    """Baseline Alpha Intelligence state."""
-    _safe_setdefault("alpha_state", "Mixed")
-
-
-@register_intelligence
-def build_market_context():
-    """Baseline market context."""
-    _safe_setdefault("market_context", "Neutral")
-
-
-@register_intelligence
-def build_directional_signal():
-    """Directional signal placeholder."""
-    _safe_setdefault("directional_signal", "Neutral")
-
-
-@register_intelligence
-def build_confidence_state():
-    """Confidence classification baseline."""
-    _safe_setdefault("confidence_state", "Low")
-
-
-@register_intelligence
 def build_executive_summary():
-    """Executive Snapshot fallback text."""
+    """
+    Minimal producer used to confirm registry execution.
+    """
     _safe_setdefault(
         "executive_summary",
-        "System initialized. Intelligence pipelines active and awaiting live computation."
+        "System initialized. Intelligence boot successful."
     )
-
-
-@register_intelligence
-def ensure_intelligence_container():
-    """Guarantee intelligence root container exists."""
-    _safe_setdefault("intelligence", {})
