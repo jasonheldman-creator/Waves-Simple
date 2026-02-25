@@ -7,27 +7,55 @@
 # │  CANONICAL SYSTEM NOTICE                                     │
 # │                                                              │
 # │  This console operates as a CANONICAL SYSTEM:                │
-# │  • One source of truth for all attribution and governance   │
-# │  • Vertical data flow: CSV → Computation → Presentation     │
-# │  • Strict layer separation: Data, Logic, Presentation       │
-# │  • No overrides: System values are immutable                │
-# │  • No execution: Advisory-only, human-in-the-loop           │
+# │  • One source of truth for all attribution and governance    │
+# │  • Vertical data flow: CSV → Computation → Presentation      │
+# │  • Strict layer separation: Data, Logic, Presentation        │
+# │  • No overrides: System values are immutable                 │
+# │  • No execution: Advisory-only, human-in-the-loop            │
 # │                                                              │
-# │  All values are derived from canonical data files:          │
-# │  • live_snapshot.csv                                        │
-# │  • alpha_attribution_summary.csv                            │
-# │  • wave_history.csv                                         │
+# │  All values are derived from canonical data files:           │
+# │  • live_snapshot.csv                                         │
+# │  • alpha_attribution_summary.csv                             │
+# │  • wave_history.csv                                          │
 # │                                                              │
-# │  See replit.md for Canonical Architecture documentation.    │
+# │  See replit.md for Canonical Architecture documentation.     │
 # └─────────────────────────────────────────────────────────────┘
 #
 # ============================================================
 
+
+# ================================================================
+# Imports
+# ================================================================
+
+from __future__ import annotations
+
 import streamlit as st
 import pandas as pd
+import os
+
+
+# ================================================================
+# Intelligence Boot
+# MUST run before ANY Streamlit rendering
+# ================================================================
+
 from helpers.intelligence_boot import intelligence_boot
+
+# Execute deterministic boot sequence
 intelligence_boot()
-def _bootstrap_runtime():
+
+
+# ================================================================
+# Runtime Bootstrap (session guarantees)
+# ================================================================
+
+def _bootstrap_runtime() -> None:
+    """
+    Ensure required session_state keys always exist.
+    Prevents empty-panel rendering failures.
+    """
+
     required_state = [
         "alpha_attrib_df",
         "alpha_quality_df",
@@ -35,23 +63,26 @@ def _bootstrap_runtime():
         "rotation_velocity_df",
         "alpha_ignition_df",
         "adaptive_learning_df",
-        "decision_context_df"
+        "decision_context_df",
     ]
 
     for key in required_state:
         if key not in st.session_state:
             st.session_state[key] = None
 
+
+# Initialize runtime state once per run
 _bootstrap_runtime()
 
-import os
 
-# Temporary cache invalidation for diagnostic purposes (run once per session)
-if "cache_cleared" not in st.session_state:
+# ================================================================
+# One-time Cache Reset (diagnostic safety)
+# ================================================================
+
+if not st.session_state.get("cache_cleared", False):
     st.session_state["cache_cleared"] = True
     st.cache_data.clear()
     st.cache_resource.clear()
-
 # ── MODE INITIALIZATION (sandbox / production / replay) ──
 _qp_mode = st.query_params.get("mode", "production")
 _qp_dataset = st.query_params.get("dataset", "live")
@@ -18465,4 +18496,4 @@ Attribution and governance infrastructure preserved full auditability of both re
 </div>
 </div>
 <div style="margin-bottom: 8px;">
-<div style="color: #7A8090; font-weight: 600; margin-bottom: 6px; font-size: 11px;">E
+<div style
