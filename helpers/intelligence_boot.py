@@ -8,6 +8,7 @@ Streamlit session BEFORE any UI rendering occurs.
 
 This module:
 - Initializes required session_state containers
+- Imports and registers intelligence producers
 - Executes registered intelligence producers
 - Never renders UI
 - Never breaks the app (fail-open design)
@@ -46,6 +47,7 @@ def register_intelligence(func: Callable) -> Callable:
         def build_alpha_state():
             st.session_state["alpha_state"] = ...
     """
+
     registry: List[Callable] = st.session_state.setdefault(
         REGISTRY_KEY, []
     )
@@ -116,10 +118,25 @@ def intelligence_boot() -> None:
     health: Dict[str, Any] = {"boot_started": True}
 
     try:
+        # ----------------------------------------------------------
+        # IMPORTANT: Import producers so decorators register
+        # ----------------------------------------------------------
+        try:
+            import helpers.intelligence_producers  # noqa: F401
+            health["producers_imported"] = True
+        except Exception as producer_exc:
+            # Fail-open: producers optional
+            health["producers_imported"] = False
+            health["producer_import_error"] = str(producer_exc)
+
+        # ----------------------------------------------------------
         # Initialize required containers
+        # ----------------------------------------------------------
         health.update(_initialize_session_structures())
 
+        # ----------------------------------------------------------
         # Execute registered intelligence producers
+        # ----------------------------------------------------------
         _run_registered_intelligence()
 
         # Mark successful boot
