@@ -1,93 +1,63 @@
-import Hero from "@/components/Hero";
-import FeatureGrid from "@/components/FeatureGrid";
-import Audience from "@/components/Audience";
-import InstitutionalCare from "@/components/InstitutionalCare";
-import ProofStrip from "@/components/ProofStrip";
-import CallToAction from "@/components/CallToAction";
-import { siteContent } from "@/content/siteContent";
+'use client';
+import { useEffect, useRef } from 'react';
 
 export default function Home() {
-  const { home } = siteContent;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Convert operationalProof examples to ProofStrip format
-  const proofPoints = home.operationalProof.examples.map((example) => ({
-    metric: example.metric,
-    value: example.value,
-    description: example.description,
-  }));
-
-  // Convert buyerPersonas to Audience format
-  const audienceColumns = home.buyerPersonas.roles.map((role) => ({
-    title: role.title,
-    description: role.description,
-    benefits: role.needs,
-    icon: role.icon,
-  }));
-
-  // Convert institutionalTrust features to InstitutionalCare format
-  const institutionalPoints = home.institutionalTrust.features.map((feature) => ({
-    oppose: "Generic Tools",
-    position: feature.title,
-    description: feature.description,
-  }));
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const stars = Array.from({ length: 160 }, () => ({
+      x: Math.random(), y: Math.random(),
+      r: Math.random() * 1.3 + 0.2,
+      o: Math.random() * 0.55 + 0.15,
+      sp: Math.random() * 0.006 + 0.002,
+      ph: Math.random() * Math.PI * 2,
+    }));
+    let frame = 0;
+    let raf: number;
+    function draw() {
+      if (!ctx || !canvas) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      stars.forEach(s => {
+        const tw = Math.sin(frame * s.sp + s.ph);
+        const alpha = Math.max(0.08, s.o + tw * 0.14);
+        ctx.beginPath();
+        ctx.arc(s.x * canvas.width, s.y * canvas.height, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(168,210,240,${alpha})`;
+        ctx.fill();
+      });
+      frame++;
+      raf = requestAnimationFrame(draw);
+    }
+    draw();
+    const resize = () => {
+      if (!canvas) return;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    window.addEventListener('resize', resize);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, []);
 
   return (
-    <main>
-      {/* Hero Section */}
-      <Hero
-        title={home.hero.title}
-        subtitle={home.hero.subtitle}
-        ctaText={home.hero.ctaText}
-        ctaLink={home.hero.ctaLink}
-        secondaryCtaText={home.hero.secondaryCtaText}
-        secondaryCtaLink={home.hero.secondaryCtaLink}
-      />
-
-      {/* Operational Proof Strip */}
-      <ProofStrip
-        title={home.operationalProof.title}
-        subtitle={home.operationalProof.subtitle}
-        points={proofPoints}
-      />
-
-      {/* Features Grid */}
-      <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-              Platform Capabilities
-            </h2>
-            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
-              Comprehensive infrastructure addressing institutional decision-making needs
-            </p>
-          </div>
-          <FeatureGrid features={home.features} />
-        </div>
-      </section>
-
-      {/* Buyer Personas / Audience */}
-      <Audience
-        columns={audienceColumns}
-        title={home.buyerPersonas.title}
-        subtitle={home.buyerPersonas.subtitle}
-      />
-
-      {/* Institutional Trust Signals */}
-      <InstitutionalCare
-        title={home.institutionalTrust.title}
-        subtitle={home.institutionalTrust.subtitle}
-        points={institutionalPoints}
-      />
-
-      {/* Call to Action */}
-      <CallToAction
-        title="Ready to Experience Institutional-Grade Decision Infrastructure?"
-        description="Request a private demonstration to explore how WAVES Intelligence™ delivers transparency, governance, and explainability across your portfolio operations."
-        primaryButtonText="Request Institutional Demo"
-        primaryButtonLink="/demo"
-        secondaryButtonText="Discuss Platform Licensing"
-        secondaryButtonLink="/contact"
-      />
-    </main>
-  );
-}
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        body{background:#020912;color:#f0f4ff;font-family:'Inter',sans-serif;font-weight:300;min-height:100vh;overflow-x:hidden}
+        .nebula{position:fixed;border-radius:50%;pointer-events:none;z-index:0}
+        .n1{width:60vw;height:60vw;top:-15%;right:-10%;background:radial-gradient(circle,rgba(0,100,200,0.09) 0%,transparent 70%);animation:neb 14s ease-in-out infinite alternate}
+        .n2{width:50vw;height:50vw;bottom:-20%;left:-8%;background:radial-gradient(circle,rgba(0,60,160,0.07) 0%,transparent 70%);animation:neb 18s ease-in-out infinite alternate-reverse}
+        @keyframes neb{from{opacity:.7;transform:scale(1)}to{opacity:1;transform:scale(1.1)}}
+        #vignette{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 50%,transparent 40%,rgba(2,9,18,.20) 65%,rgba(2,9,18,.55) 85%,rgba(2,9,18,.80) 100%);pointer-events:none;z-index:9997}
+        #kl{position:fixed;inset:0;pointer-events:none;z-index:9996}
+        #kl::before{content:'';position:absolute;inset:0;background:linear-gradient(to right,rgba(0,120,200,.05) 0%,transparent 25%)}
+        #kl::after{content:'';position:absolute;inset:0;background:linear-gradient(to left,rgba(0,200,255,.06) 0%,transparent 25%)}
+        nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:18px 40px;display:flex;align-items:center;justify-content:space-between;background:rgba(2,9,18,.75);backdrop-filter:blur(20px);border-bottom:.5px solid rgba(77,184,255,.22)}
+        .nl{font-family:'Inter',sans-serif;font-weight:500;font-size:15px;letter-spacing:.06em;color:#f0f4ff}
+        .nl span{color:#00c8ff}
