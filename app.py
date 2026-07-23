@@ -1,13 +1,7 @@
 """
-WAVES Streamlit Entrypoint (SAFE MODE)
+WAVES Streamlit entry point.
 
-Loads app_min.py directly so syntax errors
-are visible and do not get hidden by exec().
+The application implementation lives in app_min.py.
 """
 
-import runpy
-import pathlib
-
-APP_FILE = pathlib.Path(__file__).parent / "app_min.py"
-
-runpy.run_path(str(APP_FILE))
+from app_min import *  # noqa: F403,F401
